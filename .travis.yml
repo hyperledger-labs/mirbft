@@ -1,0 +1,17 @@
+language: go
+
+matrix:
+  include:
+  - go: "1.11.x"
+  - go: "1.12.x"
+
+
+env:
+  - GO111MODULE=on
+
+install:
+  - export GOBIN=$PWD/bin
+  - export PATH=$PWD/bin:$PATH
+  - go install github.com/onsi/ginkgo/ginkgo
+
+script: ginkgo -r --randomizeAllSpecs --randomizeSuites --race --trace
