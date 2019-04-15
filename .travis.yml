@@ -9,9 +9,12 @@ matrix:
 env:
   - GO111MODULE=on
 
-install:
-  - export GOBIN=$PWD/bin
-  - export PATH=$PWD/bin:$PATH
-  - go install github.com/onsi/ginkgo/ginkgo
+install: true
 
-script: ginkgo -r --randomizeAllSpecs --randomizeSuites --race --trace
+before_script:
+  - go install github.com/onsi/ginkgo/ginkgo
+  - go install honnef.co/go/tools/cmd/staticcheck
+
+script:
+  - ginkgo -r --randomizeAllSpecs --randomizeSuites --race --trace
+  - staticcheck ./...
