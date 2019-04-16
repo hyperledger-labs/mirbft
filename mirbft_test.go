@@ -11,15 +11,28 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/ibm/mirbft"
+
+	"go.uber.org/zap"
 )
 
 var _ = Describe("MirBFT", func() {
 	var (
-		ab *mirbft.AtomicBroadcast
+		ab     *mirbft.AtomicBroadcast
+		config *mirbft.Config
 	)
 
 	BeforeEach(func() {
-		ab = &mirbft.AtomicBroadcast{}
+		logger, err := zap.NewDevelopment()
+		Expect(err).NotTo(HaveOccurred())
+
+		config = &mirbft.Config{
+			ID:     1,
+			Logger: logger,
+		}
+
+		ab = &mirbft.AtomicBroadcast{
+			Config: config,
+		}
 	})
 
 	Describe("Propose", func() {
