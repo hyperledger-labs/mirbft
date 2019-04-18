@@ -10,35 +10,39 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/ibm/mirbft"
+	"github.com/IBM/mirbft"
+	"github.com/IBM/mirbft/consumer"
 
 	"go.uber.org/zap"
 )
 
 var _ = Describe("MirBFT", func() {
 	var (
-		ab     *mirbft.AtomicBroadcast
-		config *mirbft.Config
+		config *consumer.Config
+		doneC  chan struct{}
 	)
 
 	BeforeEach(func() {
 		logger, err := zap.NewDevelopment()
 		Expect(err).NotTo(HaveOccurred())
 
-		config = &mirbft.Config{
-			ID:     1,
+		config = &consumer.Config{
+			ID:     0,
 			Logger: logger,
 		}
 
-		ab = &mirbft.AtomicBroadcast{
-			Config: config,
-		}
+		doneC = make(chan struct{})
 	})
 
-	Describe("Propose", func() {
-		It("returns a placeholder error", func() {
-			err := ab.Propose()
-			Expect(err).To(MatchError("unimplemented"))
+	AfterEach(func() {
+		close(doneC)
+	})
+
+	Describe("StartNewNode", func() {
+		It("returns an instance of mirbft", func() {
+			node, err := mirbft.StartNewNode(config, doneC, []mirbft.Replica{{ID: 0}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(node).NotTo(BeNil())
 		})
 	})
 })

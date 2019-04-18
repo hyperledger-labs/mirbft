@@ -7,22 +7,82 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"context"
+	"fmt"
+
+	"github.com/IBM/mirbft/consumer"
+	"github.com/IBM/mirbft/internal"
+	pb "github.com/IBM/mirbft/mirbftpb"
+
 	"github.com/pkg/errors"
 )
 
-// Config contains the operational parameters for a MirBFT instance.
-type Config struct {
-	// ID is the NodeID for this instance.
+var ErrStopped = fmt.Errorf("stopped at caller request")
+
+type Replica struct {
 	ID uint64
-
-	// Logger provides the logging functions.
-	Logger Logger
 }
 
-type AtomicBroadcast struct {
-	Config *Config
+type Node struct {
+	Config *consumer.Config
+	s      *internal.Serializer
 }
 
-func (ab *AtomicBroadcast) Propose() error {
-	return errors.Errorf("unimplemented")
+func StartNewNode(config *consumer.Config, doneC <-chan struct{}, replicas []Replica) (*Node, error) {
+	buckets := map[internal.BucketID]internal.NodeID{}
+	nodes := []internal.NodeID{}
+	for _, replica := range replicas {
+		buckets[internal.BucketID(replica.ID)] = internal.NodeID(replica.ID)
+		nodes = append(nodes, internal.NodeID(replica.ID))
+	}
+	if _, ok := buckets[internal.BucketID(config.ID)]; !ok {
+		return nil, errors.Errorf("configured replica ID %d is not in the replica set", config.ID)
+	}
+	f := (len(replicas) - 1) / 3
+	return &Node{
+		Config: config,
+		s: internal.NewSerializer(&internal.StateMachine{
+			Config: config,
+			CurrentEpoch: internal.NewEpoch(&internal.EpochConfig{
+				MyConfig:      config,
+				Oddities:      &internal.Oddities{},
+				Number:        0,
+				HighWatermark: 10,
+				LowWatermark:  0,
+				F:             f,
+				Nodes:         nodes,
+				Buckets:       buckets,
+			}),
+		}, doneC),
+	}, nil
+}
+
+func (n *Node) Propose(ctx context.Context, data []byte) error {
+	select {
+	case n.s.PropC <- data:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-n.s.DoneC:
+		return ErrStopped
+	}
+}
+
+func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
+	select {
+	case n.s.StepC <- internal.Step{Source: source, Msg: msg}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-n.s.DoneC:
+		return ErrStopped
+	}
+}
+
+func (n *Node) Ready() <-chan consumer.Actions {
+	return n.s.ActionsC
+}
+
+func (n *Node) AddResults(results consumer.ActionResults) {
+	n.s.ResultsC <- results
 }

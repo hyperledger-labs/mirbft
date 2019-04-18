@@ -15,6 +15,7 @@ message Msg {
         Preprepare preprepare = 1;
 	Prepare prepare = 2;
 	Commit commit = 3;
+	Forward forward = 4;
     }
 }
 
@@ -22,7 +23,7 @@ message Preprepare {
     uint64 seq_no = 1;
     uint64 epoch = 2;
     uint64 bucket = 3;
-    repeated bytes payload = 4;
+    repeated bytes batch = 4;
 }
 
 message Prepare {
@@ -37,4 +38,10 @@ message Commit {
     uint64 epoch = 2;
     uint64 bucket = 3;
     bytes digest = 4;
+}
+
+message Forward {
+    uint64 epoch = 1;
+    uint64 bucket = 2;
+    bytes data = 3;
 }
