@@ -19,6 +19,7 @@ type Bucket struct {
 	EpochConfig *EpochConfig
 
 	Leader NodeID
+	ID     BucketID
 
 	// Sequences are the current active sequence numbers in this bucket
 	Sequences map[SeqNo]*Sequence
@@ -42,6 +43,7 @@ func NewBucket(config *EpochConfig, bucketID BucketID) *Bucket {
 
 	return &Bucket{
 		Leader:         config.Buckets[bucketID],
+		ID:             bucketID,
 		EpochConfig:    config,
 		Sequences:      sequences,
 		NextAssigned:   config.LowWatermark,
@@ -80,9 +82,10 @@ func (b *Bucket) Propose(data []byte) *consumer.Actions {
 			{
 				Type: &pb.Msg_Preprepare{
 					Preprepare: &pb.Preprepare{
-						Epoch: b.EpochConfig.Number,
-						SeqNo: uint64(b.NextAssigned),
-						Batch: b.Pending[0],
+						Epoch:  b.EpochConfig.Number,
+						SeqNo:  uint64(b.NextAssigned),
+						Batch:  b.Pending[0],
+						Bucket: uint64(b.ID),
 					},
 				},
 			},

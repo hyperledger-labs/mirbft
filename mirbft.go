@@ -24,8 +24,9 @@ type Replica struct {
 }
 
 type Node struct {
-	Config *consumer.Config
-	s      *internal.Serializer
+	Config   *consumer.Config
+	s        *internal.Serializer
+	Replicas []Replica
 }
 
 func StartNewNode(config *consumer.Config, doneC <-chan struct{}, replicas []Replica) (*Node, error) {
@@ -40,14 +41,17 @@ func StartNewNode(config *consumer.Config, doneC <-chan struct{}, replicas []Rep
 	}
 	f := (len(replicas) - 1) / 3
 	return &Node{
-		Config: config,
+		Config:   config,
+		Replicas: replicas,
 		s: internal.NewSerializer(&internal.StateMachine{
 			Config: config,
 			CurrentEpoch: internal.NewEpoch(&internal.EpochConfig{
-				MyConfig:      config,
-				Oddities:      &internal.Oddities{},
+				MyConfig: config,
+				Oddities: &internal.Oddities{
+					Nodes: map[internal.NodeID]*internal.Oddity{},
+				},
 				Number:        0,
-				HighWatermark: 10,
+				HighWatermark: 1000,
 				LowWatermark:  0,
 				F:             f,
 				Nodes:         nodes,
@@ -83,6 +87,11 @@ func (n *Node) Ready() <-chan consumer.Actions {
 	return n.s.ActionsC
 }
 
-func (n *Node) AddResults(results consumer.ActionResults) {
-	n.s.ResultsC <- results
+func (n *Node) AddResults(results consumer.ActionResults) error {
+	select {
+	case n.s.ResultsC <- results:
+		return nil
+	case <-n.s.DoneC:
+		return ErrStopped
+	}
 }
