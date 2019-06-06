@@ -17,9 +17,13 @@ const (
 
 // Node tracks the expect next message to apply on a per bucket basis
 type Node struct {
+	EpochConfig *EpochConfig
+
 	// Next maintains the info about the next expected messages for
 	// a particular bucket.
 	Next map[BucketID]*NextMsg
+
+	NextCheckpoint SeqNo
 }
 
 type NextMsg struct {
@@ -38,7 +42,9 @@ func NewNode(nodeID NodeID, epochConfig *EpochConfig) *Node {
 		}
 	}
 	return &Node{
-		Next: next,
+		EpochConfig:    epochConfig,
+		Next:           next,
+		NextCheckpoint: epochConfig.LowWatermark + epochConfig.CheckpointInterval,
 	}
 }
 
@@ -84,6 +90,23 @@ func (n *Node) InspectCommit(seqNo SeqNo, bucket BucketID) Applyable {
 	}
 }
 
+func (n *Node) InspectCheckpoint(seqNo SeqNo) Applyable {
+	for _, next := range n.Next {
+		if next.Commit < seqNo {
+			return Future
+		}
+	}
+
+	switch {
+	case n.NextCheckpoint > seqNo:
+		return Past
+	case n.NextCheckpoint == seqNo:
+		return Current
+	default:
+		return Future
+	}
+}
+
 func (n *Node) ApplyPreprepare(seqNo SeqNo, bucket BucketID) {
 	next := n.Next[bucket]
 	next.Prepare = seqNo + 1
@@ -97,4 +120,8 @@ func (n *Node) ApplyPrepare(seqNo SeqNo, bucket BucketID) {
 func (n *Node) ApplyCommit(seqNo SeqNo, bucket BucketID) {
 	next := n.Next[bucket]
 	next.Commit = seqNo + 1
+}
+
+func (n *Node) ApplyCheckpoint(seqNo SeqNo) {
+	n.NextCheckpoint = seqNo + n.EpochConfig.CheckpointInterval
 }

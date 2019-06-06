@@ -19,6 +19,7 @@ type Actions struct {
 	Digest     []*Entry
 	Validate   []*Entry
 	Commit     []*Entry
+	Checkpoint []uint64
 }
 
 func (a *Actions) Clear() {
@@ -28,6 +29,7 @@ func (a *Actions) Clear() {
 	a.Digest = nil
 	a.Validate = nil
 	a.Commit = nil
+	a.Checkpoint = nil
 }
 
 func (a *Actions) IsEmpty() bool {
@@ -36,7 +38,8 @@ func (a *Actions) IsEmpty() bool {
 		len(a.Preprocess) == 0 &&
 		len(a.Digest) == 0 &&
 		len(a.Validate) == 0 &&
-		len(a.Commit) == 0
+		len(a.Commit) == 0 &&
+		len(a.Checkpoint) == 0
 }
 
 func (a *Actions) Append(o *Actions) {
@@ -46,6 +49,7 @@ func (a *Actions) Append(o *Actions) {
 	a.Digest = append(a.Digest, o.Digest...)
 	a.Validate = append(a.Validate, o.Validate...)
 	a.Commit = append(a.Commit, o.Commit...)
+	a.Checkpoint = append(a.Checkpoint, o.Checkpoint...)
 }
 
 type Unicast struct {
@@ -59,6 +63,13 @@ type ActionResults struct {
 	Digests      []DigestResult
 	Validations  []ValidateResult
 	Preprocesses []PreprocessResult
+	Checkpoints  []*CheckpointResult
+}
+
+type CheckpointResult struct {
+	SeqNo       uint64
+	Value       []byte
+	Attestation []byte
 }
 
 type Proposal struct {

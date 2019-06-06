@@ -34,6 +34,9 @@ type EpochConfig struct {
 	// F is the total number of faults tolerated by the network
 	F int
 
+	// CheckpointInterval is the number of sequence numbers to commit before broadcasting a checkpoint
+	CheckpointInterval SeqNo
+
 	// Nodes is all the node ids in the network
 	Nodes []NodeID
 
@@ -47,6 +50,8 @@ type Epoch struct {
 	Nodes map[NodeID]*Node
 
 	Buckets map[BucketID]*Bucket
+
+	CheckpointWindows map[SeqNo]*CheckpointWindow
 }
 
 func NewEpoch(config *EpochConfig) *Epoch {
@@ -60,10 +65,16 @@ func NewEpoch(config *EpochConfig) *Epoch {
 		buckets[bucketID] = NewBucket(config, bucketID)
 	}
 
+	checkpointWindows := map[SeqNo]*CheckpointWindow{}
+	for seqNo := config.LowWatermark + config.CheckpointInterval; seqNo <= config.HighWatermark; seqNo += config.CheckpointInterval {
+		checkpointWindows[seqNo] = NewCheckpointWindow(seqNo, config)
+	}
+
 	return &Epoch{
-		EpochConfig: config,
-		Nodes:       nodes,
-		Buckets:     buckets,
+		EpochConfig:       config,
+		Nodes:             nodes,
+		Buckets:           buckets,
+		CheckpointWindows: checkpointWindows,
 	}
 }
 
@@ -174,9 +185,38 @@ func (e *Epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byt
 		func(node *Node) Applyable { return node.InspectCommit(seqNo, bucket) },
 		func(node *Node) *consumer.Actions {
 			node.ApplyCommit(seqNo, bucket)
-			return e.Buckets[bucket].ApplyCommit(source, seqNo, digest)
+			actions := e.Buckets[bucket].ApplyCommit(source, seqNo, digest)
+			if len(actions.Commit) > 0 {
+				// XXX this is a moderately hacky way to determine if this commit msg triggered
+				// a commit, is there a better way?
+				if _, ok := e.CheckpointWindows[seqNo]; ok {
+					actions.Append(&consumer.Actions{
+						Checkpoint: []uint64{uint64(seqNo)},
+					})
+				}
+			}
+			return actions
 		},
 	)
+}
+
+func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *consumer.Actions {
+	return e.ValidateMsg(
+		source, seqNo, 0, "Commit", // XXX using bucket '0' for checkpoints is a bit of a hack, as it has no bucket
+		func(node *Node) Applyable { return node.InspectCheckpoint(seqNo) },
+		func(node *Node) *consumer.Actions {
+			node.ApplyCheckpoint(seqNo)
+			return e.CheckpointWindows[seqNo].ApplyCheckpointMsg(source, value, attestation)
+		},
+	)
+}
+
+func (e *Epoch) CheckpointResult(seqNo SeqNo, value, attestation []byte) *consumer.Actions {
+	checkpointWindow, ok := e.CheckpointWindows[seqNo]
+	if !ok {
+		panic("received an unexpected checkpoint result")
+	}
+	return checkpointWindow.ApplyCheckpointResult(value, attestation)
 }
 
 func (e *Epoch) Digest(seqNo SeqNo, bucket BucketID, digest []byte) *consumer.Actions {

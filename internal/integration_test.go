@@ -50,14 +50,15 @@ var _ = Describe("Integration", func() {
 	Describe("F=0,N=1", func() {
 		BeforeEach(func() {
 			epochConfig = &internal.EpochConfig{
-				MyConfig:      consumerConfig,
-				Oddities:      &internal.Oddities{},
-				Number:        3,
-				HighWatermark: 10,
-				LowWatermark:  0,
-				F:             0,
-				Nodes:         []internal.NodeID{0},
-				Buckets:       map[internal.BucketID]internal.NodeID{0: 0},
+				MyConfig:           consumerConfig,
+				Oddities:           &internal.Oddities{},
+				Number:             3,
+				CheckpointInterval: 2,
+				HighWatermark:      10,
+				LowWatermark:       0,
+				F:                  0,
+				Nodes:              []internal.NodeID{0},
+				Buckets:            map[internal.BucketID]internal.NodeID{0: 0},
 			}
 
 			epoch = internal.NewEpoch(epochConfig)
@@ -182,14 +183,15 @@ var _ = Describe("Integration", func() {
 	Describe("F=1,N=4", func() {
 		BeforeEach(func() {
 			epochConfig = &internal.EpochConfig{
-				MyConfig:      consumerConfig,
-				Oddities:      &internal.Oddities{},
-				Number:        3,
-				HighWatermark: 10,
-				LowWatermark:  0,
-				F:             1,
-				Nodes:         []internal.NodeID{0, 1, 2, 3},
-				Buckets:       map[internal.BucketID]internal.NodeID{0: 0, 1: 1, 2: 2, 3: 3},
+				MyConfig:           consumerConfig,
+				Oddities:           &internal.Oddities{},
+				Number:             3,
+				CheckpointInterval: 2,
+				HighWatermark:      10,
+				LowWatermark:       0,
+				F:                  1,
+				Nodes:              []internal.NodeID{0, 1, 2, 3},
+				Buckets:            map[internal.BucketID]internal.NodeID{0: 0, 1: 1, 2: 2, 3: 3},
 			}
 
 			epoch = internal.NewEpoch(epochConfig)

@@ -8,7 +8,9 @@ syntax = "proto3";
 
 package mirbftpb;
 
-// Generate the output with: protoc --go_out=. mirbft.proto
+// To re-generate, run:
+//   protoc --go_out=. mirbft.proto
+// or simply run go generate
 
 message Msg {
     oneof type {
@@ -16,6 +18,7 @@ message Msg {
 	Prepare prepare = 2;
 	Commit commit = 3;
 	Forward forward = 4;
+	Checkpoint checkpoint = 5;
     }
 }
 
@@ -38,6 +41,12 @@ message Commit {
     uint64 epoch = 2;
     uint64 bucket = 3;
     bytes digest = 4;
+}
+
+message Checkpoint {
+    uint64 seq_no = 1;
+    bytes value = 2;
+    bytes attestation = 3;
 }
 
 message Forward {
