@@ -189,11 +189,10 @@ func (e *Epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byt
 			if len(actions.Commit) > 0 {
 				// XXX this is a moderately hacky way to determine if this commit msg triggered
 				// a commit, is there a better way?
-				if _, ok := e.CheckpointWindows[seqNo]; ok {
-					actions.Append(&consumer.Actions{
-						Checkpoint: []uint64{uint64(seqNo)},
-					})
+				if checkpointWindow, ok := e.CheckpointWindows[seqNo]; ok {
+					actions.Append(checkpointWindow.Committed(bucket))
 				}
+
 			}
 			return actions
 		},
@@ -202,7 +201,7 @@ func (e *Epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byt
 
 func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *consumer.Actions {
 	return e.ValidateMsg(
-		source, seqNo, 0, "Commit", // XXX using bucket '0' for checkpoints is a bit of a hack, as it has no bucket
+		source, seqNo, 0, "Checkpoint", // XXX using bucket '0' for checkpoints is a bit of a hack, as it has no bucket
 		func(node *Node) Applyable { return node.InspectCheckpoint(seqNo) },
 		func(node *Node) *consumer.Actions {
 			node.ApplyCheckpoint(seqNo)
@@ -211,12 +210,19 @@ func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte
 			if checkpointWindow.GarbageCollectible {
 				checkpointWindows := []*CheckpointWindow{}
 				for seqNo := e.EpochConfig.LowWatermark + e.EpochConfig.CheckpointInterval; seqNo <= e.EpochConfig.HighWatermark; seqNo += e.EpochConfig.CheckpointInterval {
-					checkpointWindows = append(checkpointWindows, e.CheckpointWindows[seqNo])
-				}
-				if checkpointWindows[len(checkpointWindows)-2].GarbageCollectible {
-					newLowWatermark := e.EpochConfig.LowWatermark + e.EpochConfig.CheckpointInterval
-					newHighWatermark := e.EpochConfig.HighWatermark + e.EpochConfig.CheckpointInterval
-					actions.Append(e.MoveWatermarks(newLowWatermark, newHighWatermark))
+					checkpointWindow := e.CheckpointWindows[seqNo]
+					if !checkpointWindow.GarbageCollectible {
+						break
+					}
+					checkpointWindows = append(checkpointWindows, checkpointWindow)
+					// XXX, the constant '4' garbage checkpoints is tied to the constant '5' free checkpoints in
+					// bucket.go and assumes the network is configured for 10 total checkpoints, but not enforced
+					if len(checkpointWindows) > 4 {
+						newLowWatermark := e.EpochConfig.LowWatermark + e.EpochConfig.CheckpointInterval
+						newHighWatermark := e.EpochConfig.HighWatermark + e.EpochConfig.CheckpointInterval
+						actions.Append(e.MoveWatermarks(newLowWatermark, newHighWatermark))
+						checkpointWindows = checkpointWindows[1:]
+					}
 				}
 			}
 			return actions

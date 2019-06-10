@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -56,25 +57,27 @@ var _ = Describe("MirBFT", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(node).NotTo(BeNil())
 
-			commitC := make(chan *consumer.Entry, 1000)
+			fakeLog := &FakeLog{
+				CommitC: make(chan *consumer.Entry, 1000),
+			}
 
 			sample.NewSerialConsumer(
 				doneC,
-				commitC,
 				node,
 				nil,
 				sample.ValidatorFunc(func([]byte) error { return nil }),
 				sample.HasherFunc(func(data []byte) []byte { return data }),
+				fakeLog,
 			)
 
 			ctx := context.TODO()
-			for i := uint64(0); i < 1000; i++ {
+			for i := uint64(0); i <= 1000; i++ {
 				node.Propose(ctx, []byte(fmt.Sprintf("msg %d", i)))
 			}
 
-			for i := uint64(0); i < 1000; i++ {
+			for i := uint64(0); i <= 1000; i++ {
 				entry := &consumer.Entry{}
-				Eventually(commitC).Should(Receive(&entry))
+				Eventually(fakeLog.CommitC).Should(Receive(&entry))
 				Expect(entry).To(Equal(&consumer.Entry{
 					SeqNo:    i,
 					BucketID: 0,
@@ -103,23 +106,25 @@ var _ = Describe("MirBFT", func() {
 				nodes[i] = node
 			}
 
-			commitCs := make([]chan *consumer.Entry, 4)
+			fakeLogs := make([]*FakeLog, 4)
 			for i, node := range nodes {
-				commitC := make(chan *consumer.Entry, 1000)
-				commitCs[i] = commitC
+				fakeLog := &FakeLog{
+					CommitC: make(chan *consumer.Entry, 1000),
+				}
+				fakeLogs[i] = fakeLog
 
 				sample.NewSerialConsumer(
 					doneC,
-					commitC,
 					node,
 					NewFakeLink(node.Config.ID, nodes, doneC),
 					sample.ValidatorFunc(func([]byte) error { return nil }),
 					sample.HasherFunc(func(data []byte) []byte { return data }),
+					fakeLog,
 				)
 			}
 
 			ctx := context.TODO()
-			for i := uint64(0); i < 1000; i++ {
+			for i := uint64(0); i <= 1003; i++ {
 				value := make([]byte, 8)
 				binary.LittleEndian.PutUint64(value, i)
 
@@ -127,12 +132,12 @@ var _ = Describe("MirBFT", func() {
 				nodes[i%3].Propose(ctx, value)
 			}
 
-			for j, commitC := range commitCs {
+			for j, fakeLog := range fakeLogs {
 				By(fmt.Sprintf("checking for node %d that each bucket only commits a sequence number once", j))
 				bucketToSeq := map[uint64]map[uint64]struct{}{}
-				for i := uint64(0); i < 1000; i++ {
+				for i := uint64(0); i <= 1003; i++ {
 					entry := &consumer.Entry{}
-					Eventually(commitC).Should(Receive(&entry))
+					Eventually(fakeLog.CommitC).Should(Receive(&entry))
 
 					Expect(entry.Epoch).To(Equal(uint64(0)))
 
@@ -193,4 +198,27 @@ func NewFakeLink(source uint64, nodes []*mirbft.Node, doneC <-chan struct{}) *Fa
 
 func (fl *FakeLink) Send(dest uint64, msg *pb.Msg) {
 	fl.Buffers[dest] <- msg
+}
+
+type FakeLog struct {
+	Entries []*consumer.Entry
+	CommitC chan *consumer.Entry
+}
+
+func (fl *FakeLog) Apply(entry *consumer.Entry) {
+	fl.Entries = append(fl.Entries, entry)
+	fl.CommitC <- entry
+}
+
+func (fl *FakeLog) Snap() ([]byte, []byte) {
+	value := make([]byte, 8)
+	binary.LittleEndian.PutUint64(value, uint64(len(fl.Entries)))
+	return value, value
+}
+
+func (fl *FakeLog) CheckSnap(id, attestation []byte) error {
+	if bytes.Equal(id, attestation) {
+		return nil
+	}
+	return fmt.Errorf("fake-error")
 }

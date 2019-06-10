@@ -91,6 +91,7 @@ func (cw *CheckpointWindow) ApplyCheckpointResult(value, attestation []byte) *co
 			{
 				Type: &pb.Msg_Checkpoint{
 					Checkpoint: &pb.Checkpoint{
+						SeqNo:       uint64(cw.Number),
 						Value:       value,
 						Attestation: attestation,
 					},

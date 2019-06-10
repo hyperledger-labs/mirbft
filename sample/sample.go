@@ -9,6 +9,7 @@ package sample
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 
 	"github.com/IBM/mirbft"
 	"github.com/IBM/mirbft/consumer"
@@ -39,23 +40,83 @@ type Hasher interface {
 	Hash([]byte) []byte
 }
 
+type Log interface {
+	Apply(*consumer.Entry)
+	Snap() (id, attestation []byte)
+	CheckSnap(id, attestation []byte) error
+}
+
+type SerialCommitter struct {
+	Log                  Log
+	CurrentSeqNo         uint64
+	OutstandingSeqBucket map[uint64]map[uint64]*consumer.Entry
+}
+
+func (sc *SerialCommitter) Commit(commits []*consumer.Entry, checkpoints []uint64) []*consumer.CheckpointResult {
+	for _, commit := range commits {
+		buckets, ok := sc.OutstandingSeqBucket[commit.SeqNo]
+		if !ok {
+			buckets = map[uint64]*consumer.Entry{}
+			sc.OutstandingSeqBucket[commit.SeqNo] = buckets
+		}
+		buckets[commit.BucketID] = commit
+	}
+
+	results := []*consumer.CheckpointResult{}
+
+	// If a checkpoint is present, then all commits prior to that seqno must be present
+	// TODO We could make commit more efficient here by passing in the number of buckets,
+	// as it stands, we are only committing at checkpoints
+	for _, checkpoint := range checkpoints {
+		for {
+			buckets := sc.OutstandingSeqBucket[sc.CurrentSeqNo]
+			for i := 0; i < len(buckets); i++ {
+				entry, ok := buckets[uint64(i)]
+				if !ok {
+					panic(fmt.Sprintf("all buckets should be populated if checkpoint requested, seqNo=%d, checkpoint=%d, bucket=%d", sc.CurrentSeqNo, checkpoint, i))
+				}
+				sc.Log.Apply(entry) // Apply the entry
+			}
+			delete(sc.OutstandingSeqBucket, sc.CurrentSeqNo)
+
+			if checkpoint == sc.CurrentSeqNo {
+				break
+			}
+
+			sc.CurrentSeqNo++
+		}
+
+		value, attestation := sc.Log.Snap()
+		results = append(results, &consumer.CheckpointResult{
+			SeqNo:       sc.CurrentSeqNo,
+			Value:       value,
+			Attestation: attestation,
+		})
+	}
+
+	return results
+}
+
 type SerialConsumer struct {
 	Link      Link
 	Validator Validator
 	Hasher    Hasher
+	Committer *SerialCommitter
 	Node      *mirbft.Node
 	DoneC     <-chan struct{}
-	CommitC   chan<- *consumer.Entry
 }
 
-func NewSerialConsumer(doneC <-chan struct{}, commitC chan<- *consumer.Entry, node *mirbft.Node, link Link, verifier Validator, hasher Hasher) *SerialConsumer {
+func NewSerialConsumer(doneC <-chan struct{}, node *mirbft.Node, link Link, verifier Validator, hasher Hasher, log Log) *SerialConsumer {
 	c := &SerialConsumer{
 		Node:      node,
 		Link:      link,
 		Validator: verifier,
 		Hasher:    hasher,
-		DoneC:     doneC,
-		CommitC:   commitC,
+		Committer: &SerialCommitter{
+			Log:                  log,
+			OutstandingSeqBucket: map[uint64]map[uint64]*consumer.Entry{},
+		},
+		DoneC: doneC,
 	}
 	go c.process()
 	return c
@@ -125,13 +186,7 @@ func (c *SerialConsumer) process() {
 				}
 			}
 
-			for _, entry := range actions.Commit {
-				select {
-				case c.CommitC <- entry:
-				case <-c.DoneC:
-					return
-				}
-			}
+			actionResults.Checkpoints = c.Committer.Commit(actions.Commit, actions.Checkpoint)
 
 			if err := c.Node.AddResults(*actionResults); err != nil {
 				return

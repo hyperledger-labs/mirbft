@@ -84,24 +84,23 @@ func (b *Bucket) Propose(data []byte) *consumer.Actions {
 
 	b.Queue = append(b.Queue, data)
 	b.SizeBytes += len(data)
+	if b.SizeBytes >= b.EpochConfig.MyConfig.BatchParameters.CutSizeBytes {
+		b.Pending = append(b.Pending, b.Queue)
+	}
+	b.Queue = nil
+	b.SizeBytes = 0
 
 	return b.DrainQueue()
 }
 
 func (b *Bucket) DrainQueue() *consumer.Actions {
-	if b.SizeBytes < b.EpochConfig.MyConfig.BatchParameters.CutSizeBytes {
-		return &consumer.Actions{}
-	}
-
-	b.Pending = append(b.Pending, b.Queue)
-	b.Queue = nil
-
 	actions := &consumer.Actions{}
 
 	// We leave one empty checkpoint interval within the watermarks to avoid messages being dropped when
 	// from the first nodes to move watermarks.
-	for b.NextAssigned <= b.EpochConfig.HighWatermark-b.EpochConfig.CheckpointInterval && len(b.Pending) > 0 {
-		//for b.NextAssigned <= b.EpochConfig.HighWatermark && len(b.Pending) > 0 {
+	// XXX, the constant '4' garbage checkpoints in epoch.go is tied to the constant '5' free checkpoints
+	// defined here and assumes the network is configured for 10 total checkpoints, but not enforced
+	for b.NextAssigned <= b.EpochConfig.HighWatermark-5*b.EpochConfig.CheckpointInterval && len(b.Pending) > 0 {
 		actions.Append(&consumer.Actions{
 			Broadcast: []*pb.Msg{
 				{
@@ -116,6 +115,7 @@ func (b *Bucket) DrainQueue() *consumer.Actions {
 				},
 			},
 		})
+
 		b.NextAssigned++
 		b.Pending = b.Pending[1:]
 	}

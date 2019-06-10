@@ -43,6 +43,10 @@ func (sm *StateMachine) Step(source NodeID, outerMsg *pb.Msg) *consumer.Actions 
 		msg := innerMsg.Commit
 		// TODO check for nil and log oddity
 		return sm.CurrentEpoch.Commit(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+	case *pb.Msg_Checkpoint:
+		msg := innerMsg.Checkpoint
+		// TODO check for nil and log oddity
+		return sm.CurrentEpoch.Checkpoint(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation)
 	case *pb.Msg_Forward:
 		msg := innerMsg.Forward
 		// TODO check for nil and log oddity
@@ -76,5 +80,11 @@ func (sm *StateMachine) ProcessResults(results consumer.ActionResults) *consumer
 		sm.Config.Logger.Debug("applying validate result", zap.Int("index", i))
 		actions.Append(sm.CurrentEpoch.Validate(SeqNo(validateResult.Entry.SeqNo), BucketID(validateResult.Entry.BucketID), validateResult.Valid))
 	}
+
+	for i, checkpointResult := range results.Checkpoints {
+		sm.Config.Logger.Debug("applying checkpoint result", zap.Int("index", i))
+		actions.Append(sm.CurrentEpoch.CheckpointResult(SeqNo(checkpointResult.SeqNo), checkpointResult.Value, checkpointResult.Attestation))
+	}
+
 	return actions
 }
