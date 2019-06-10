@@ -52,7 +52,7 @@ func StartNewNode(config *consumer.Config, doneC <-chan struct{}, replicas []Rep
 				},
 				Number:             0,
 				CheckpointInterval: 10,
-				HighWatermark:      1000,
+				HighWatermark:      1010,
 				LowWatermark:       0,
 				F:                  f,
 				Nodes:              nodes,

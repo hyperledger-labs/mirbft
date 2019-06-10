@@ -206,9 +206,52 @@ func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte
 		func(node *Node) Applyable { return node.InspectCheckpoint(seqNo) },
 		func(node *Node) *consumer.Actions {
 			node.ApplyCheckpoint(seqNo)
-			return e.CheckpointWindows[seqNo].ApplyCheckpointMsg(source, value, attestation)
+			checkpointWindow := e.CheckpointWindows[seqNo]
+			actions := checkpointWindow.ApplyCheckpointMsg(source, value, attestation)
+			if checkpointWindow.GarbageCollectible {
+				checkpointWindows := []*CheckpointWindow{}
+				for seqNo := e.EpochConfig.LowWatermark + e.EpochConfig.CheckpointInterval; seqNo <= e.EpochConfig.HighWatermark; seqNo += e.EpochConfig.CheckpointInterval {
+					checkpointWindows = append(checkpointWindows, e.CheckpointWindows[seqNo])
+				}
+				if checkpointWindows[len(checkpointWindows)-2].GarbageCollectible {
+					newLowWatermark := e.EpochConfig.LowWatermark + e.EpochConfig.CheckpointInterval
+					newHighWatermark := e.EpochConfig.HighWatermark + e.EpochConfig.CheckpointInterval
+					actions.Append(e.MoveWatermarks(newLowWatermark, newHighWatermark))
+				}
+			}
+			return actions
 		},
 	)
+}
+
+func (e *Epoch) MoveWatermarks(low, high SeqNo) *consumer.Actions {
+	originalLowWatermark := e.EpochConfig.LowWatermark
+	originalHighWatermark := e.EpochConfig.HighWatermark
+	e.EpochConfig.LowWatermark = low
+	e.EpochConfig.HighWatermark = high
+
+	actions := &consumer.Actions{}
+
+	for _, bucket := range e.Buckets {
+		actions.Append(bucket.MoveWatermarks())
+	}
+
+	for _, node := range e.Nodes {
+		node.MoveWatermarks()
+	}
+
+	for seqNo := originalLowWatermark; seqNo <= low && seqNo <= originalHighWatermark; seqNo += e.EpochConfig.CheckpointInterval {
+		delete(e.CheckpointWindows, seqNo)
+	}
+
+	for seqNo := low; seqNo <= high; seqNo += e.EpochConfig.CheckpointInterval {
+		if seqNo < originalHighWatermark {
+			continue
+		}
+		e.CheckpointWindows[seqNo] = NewCheckpointWindow(seqNo, e.EpochConfig)
+	}
+
+	return actions
 }
 
 func (e *Epoch) CheckpointResult(seqNo SeqNo, value, attestation []byte) *consumer.Actions {

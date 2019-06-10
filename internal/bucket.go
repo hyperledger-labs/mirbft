@@ -37,11 +37,7 @@ type Bucket struct {
 
 func NewBucket(config *EpochConfig, bucketID BucketID) *Bucket {
 	sequences := map[SeqNo]*Sequence{}
-	for i := config.LowWatermark; i <= config.HighWatermark; i++ {
-		sequences[i] = NewSequence(config, i, bucketID)
-	}
-
-	return &Bucket{
+	b := &Bucket{
 		Leader:         config.Buckets[bucketID],
 		ID:             bucketID,
 		EpochConfig:    config,
@@ -51,6 +47,28 @@ func NewBucket(config *EpochConfig, bucketID BucketID) *Bucket {
 		NextPrepare:    config.LowWatermark,
 		NextCommit:     config.LowWatermark,
 	}
+	b.MoveWatermarks()
+	return b
+}
+
+func (b *Bucket) MoveWatermarks() *consumer.Actions {
+	// XXX this is a pretty obviously suboptimal way of moving watermarks,
+	// we know they're in order, so iterating through all sequences twice
+	// is wasteful, but it's easy to show it's correct, so implementing naively for now
+
+	for seqNo := range b.Sequences {
+		if seqNo < b.EpochConfig.LowWatermark {
+			delete(b.Sequences, seqNo)
+		}
+	}
+
+	for i := b.EpochConfig.LowWatermark; i <= b.EpochConfig.HighWatermark; i++ {
+		if _, ok := b.Sequences[i]; !ok {
+			b.Sequences[i] = NewSequence(b.EpochConfig, i, b.ID)
+		}
+	}
+
+	return b.DrainQueue()
 }
 
 // TODO, update the Next* vars as appropriate
@@ -66,6 +84,11 @@ func (b *Bucket) Propose(data []byte) *consumer.Actions {
 
 	b.Queue = append(b.Queue, data)
 	b.SizeBytes += len(data)
+
+	return b.DrainQueue()
+}
+
+func (b *Bucket) DrainQueue() *consumer.Actions {
 	if b.SizeBytes < b.EpochConfig.MyConfig.BatchParameters.CutSizeBytes {
 		return &consumer.Actions{}
 	}
@@ -73,28 +96,31 @@ func (b *Bucket) Propose(data []byte) *consumer.Actions {
 	b.Pending = append(b.Pending, b.Queue)
 	b.Queue = nil
 
-	if b.NextAssigned > b.EpochConfig.HighWatermark {
-		return &consumer.Actions{}
-	}
+	actions := &consumer.Actions{}
 
-	result := &consumer.Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_Preprepare{
-					Preprepare: &pb.Preprepare{
-						Epoch:  b.EpochConfig.Number,
-						SeqNo:  uint64(b.NextAssigned),
-						Batch:  b.Pending[0],
-						Bucket: uint64(b.ID),
+	// We leave one empty checkpoint interval within the watermarks to avoid messages being dropped when
+	// from the first nodes to move watermarks.
+	for b.NextAssigned <= b.EpochConfig.HighWatermark-b.EpochConfig.CheckpointInterval && len(b.Pending) > 0 {
+		//for b.NextAssigned <= b.EpochConfig.HighWatermark && len(b.Pending) > 0 {
+		actions.Append(&consumer.Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_Preprepare{
+						Preprepare: &pb.Preprepare{
+							Epoch:  b.EpochConfig.Number,
+							SeqNo:  uint64(b.NextAssigned),
+							Batch:  b.Pending[0],
+							Bucket: uint64(b.ID),
+						},
 					},
 				},
 			},
-		},
+		})
+		b.NextAssigned++
+		b.Pending = b.Pending[1:]
 	}
-	b.NextAssigned++
-	b.Pending = b.Pending[1:]
 
-	return result
+	return actions
 }
 
 func (b *Bucket) ApplyPreprepare(seqNo SeqNo, batch [][]byte) *consumer.Actions {

@@ -17,9 +17,11 @@ type CheckpointWindow struct {
 	Number      SeqNo
 	EpochConfig *EpochConfig
 
-	PendingCommits map[BucketID]struct{}
-	Values         map[string][]NodeAttestation
-	CommittedValue []byte
+	PendingCommits     map[BucketID]struct{}
+	Values             map[string][]NodeAttestation
+	CommittedValue     []byte
+	MyValue            []byte
+	GarbageCollectible bool
 }
 
 type NodeAttestation struct {
@@ -57,21 +59,33 @@ func (cw *CheckpointWindow) ApplyCheckpointMsg(source NodeID, value, attestation
 		Attestation: attestation,
 	})
 	cw.Values[string(value)] = checkpointValueNodes
-	if len(checkpointValueNodes) > 2*cw.EpochConfig.F+1 {
+	if len(checkpointValueNodes) == 2*cw.EpochConfig.F+1 {
 		cw.CommittedValue = value
+	}
+
+	if source == NodeID(cw.EpochConfig.MyConfig.ID) {
+		cw.MyValue = value
+	}
+
+	// If I have completed this checkpoint, along with a quorum of the network, and I've not already run this path
+	if cw.MyValue != nil && cw.CommittedValue != nil && !cw.GarbageCollectible {
+		if !bytes.Equal(value, cw.CommittedValue) {
+			// TODO optionally handle this more gracefully, with state transfer (though this
+			// indicates a violation of the byzantine assumptions)
+			panic("my checkpoint disagrees with the committed network view of this checkpoint")
+		}
+
+		// This checkpoint has 2f+1 agreements, including my own, it may now be garbage collectable
+		cw.GarbageCollectible = true
+
 		// TODO, eventually, we should return the checkpoint value and set of attestations
 		// to the caller, as they may want to do something with the set of attestations to preserve them.
 	}
+
 	return &consumer.Actions{}
 }
 
 func (cw *CheckpointWindow) ApplyCheckpointResult(value, attestation []byte) *consumer.Actions {
-	if cw.CommittedValue != nil && !bytes.Equal(value, cw.CommittedValue) {
-		// TODO optionally handle this more gracefully, with state transfer (though this
-		// indicates a violation of the byzantine assumptions)
-		panic("my checkpoint disagrees with the committed network view of this checkpoint")
-	}
-
 	return &consumer.Actions{
 		Broadcast: []*pb.Msg{
 			{

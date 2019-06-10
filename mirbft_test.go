@@ -47,6 +47,9 @@ var _ = Describe("MirBFT", func() {
 			config := &consumer.Config{
 				ID:     0,
 				Logger: logger.Named("node0"),
+				BatchParameters: consumer.BatchParameters{
+					CutSizeBytes: 1,
+				},
 			}
 
 			node, err := mirbft.StartNewNode(config, doneC, []mirbft.Replica{{ID: 0}})
@@ -90,6 +93,9 @@ var _ = Describe("MirBFT", func() {
 				config := &consumer.Config{
 					ID:     uint64(i),
 					Logger: logger.Named(fmt.Sprintf("node%d", i)),
+					BatchParameters: consumer.BatchParameters{
+						CutSizeBytes: 1,
+					},
 				}
 
 				node, err := mirbft.StartNewNode(config, doneC, replicas)

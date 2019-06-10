@@ -125,3 +125,22 @@ func (n *Node) ApplyCommit(seqNo SeqNo, bucket BucketID) {
 func (n *Node) ApplyCheckpoint(seqNo SeqNo) {
 	n.NextCheckpoint = seqNo + n.EpochConfig.CheckpointInterval
 }
+
+func (n *Node) MoveWatermarks() {
+	for _, next := range n.Next {
+		if next.Prepare < n.EpochConfig.LowWatermark {
+			// TODO log warning
+			next.Prepare = n.EpochConfig.LowWatermark
+		}
+
+		if next.Commit < n.EpochConfig.LowWatermark {
+			// TODO log warning
+			next.Commit = n.EpochConfig.LowWatermark
+		}
+	}
+
+	if n.NextCheckpoint < n.EpochConfig.LowWatermark {
+		// TODO log warning
+		n.NextCheckpoint = n.EpochConfig.LowWatermark
+	}
+}
