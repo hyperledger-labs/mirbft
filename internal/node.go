@@ -144,3 +144,20 @@ func (n *Node) MoveWatermarks() {
 		n.NextCheckpoint = n.EpochConfig.LowWatermark
 	}
 }
+
+type NodeStatus struct {
+	LastCheckpoint SeqNo
+	Messages       map[BucketID]NextMsg
+}
+
+func (n *Node) Status() *NodeStatus {
+	messages := map[BucketID]NextMsg{}
+	for bucketID, nextMsg := range n.Next {
+		messages[bucketID] = *nextMsg
+	}
+
+	return &NodeStatus{
+		LastCheckpoint: n.NextCheckpoint - n.EpochConfig.CheckpointInterval,
+		Messages:       messages,
+	}
+}

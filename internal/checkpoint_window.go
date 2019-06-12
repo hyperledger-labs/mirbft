@@ -100,3 +100,13 @@ func (cw *CheckpointWindow) ApplyCheckpointResult(value, attestation []byte) *co
 		},
 	}
 }
+
+type CheckpointStatus struct {
+	PendingCommits int
+}
+
+func (cw *CheckpointWindow) Status() *CheckpointStatus {
+	return &CheckpointStatus{
+		PendingCommits: len(cw.PendingCommits),
+	}
+}

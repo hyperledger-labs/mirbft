@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package internal
 
 import (
+	"fmt"
+
 	"github.com/IBM/mirbft/consumer"
 	pb "github.com/IBM/mirbft/mirbftpb"
 
@@ -25,6 +27,7 @@ type Serializer struct {
 	DoneC    <-chan struct{}
 	PropC    chan []byte
 	ResultsC chan consumer.ActionResults
+	StatusC  chan chan string
 	StepC    chan Step
 
 	StateMachine *StateMachine
@@ -36,6 +39,7 @@ func NewSerializer(stateMachine *StateMachine, doneC <-chan struct{}) *Serialize
 		DoneC:        doneC,
 		PropC:        make(chan []byte),
 		ResultsC:     make(chan consumer.ActionResults),
+		StatusC:      make(chan chan string),
 		StepC:        make(chan Step),
 		StateMachine: stateMachine,
 	}
@@ -46,6 +50,13 @@ func NewSerializer(stateMachine *StateMachine, doneC <-chan struct{}) *Serialize
 // run must be single threaded and is therefore hidden to prevent accidental capture
 // of other go routines.
 func (s *Serializer) run() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println(s.StateMachine.Status().Pretty())
+			panic(r)
+		}
+	}()
+
 	actions := &consumer.Actions{}
 	var actionsC chan<- consumer.Actions
 	for {
@@ -69,6 +80,12 @@ func (s *Serializer) run() {
 		case results := <-s.ResultsC:
 			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "results"))
 			actions.Append(s.StateMachine.ProcessResults(results))
+		case returnC := <-s.StatusC:
+			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "status"))
+			select {
+			case returnC <- (s.StateMachine.Status().Pretty()):
+			case <-s.DoneC:
+			}
 		case <-s.DoneC:
 			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "done"))
 			return

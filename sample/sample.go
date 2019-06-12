@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/IBM/mirbft"
 	"github.com/IBM/mirbft/consumer"
@@ -123,6 +124,21 @@ func NewSerialConsumer(doneC <-chan struct{}, node *mirbft.Node, link Link, veri
 }
 
 func (c *SerialConsumer) process() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Printing state machine status")
+			ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
+			defer cancel()
+			status, err := c.Node.Status(ctx)
+			if err != nil {
+				fmt.Printf("Could not get status: %s", err)
+			} else {
+				fmt.Printf("\n%s\n", status)
+			}
+			panic(r)
+		}
+	}()
+
 	for {
 		select {
 		case actions := <-c.Node.Ready():

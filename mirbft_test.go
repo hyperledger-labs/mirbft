@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -44,6 +45,10 @@ var _ = Describe("MirBFT", func() {
 	})
 
 	Describe("SingleNode", func() {
+		var (
+			node *mirbft.Node
+		)
+
 		It("commits all messages", func() {
 			config := &consumer.Config{
 				ID:     0,
@@ -53,7 +58,8 @@ var _ = Describe("MirBFT", func() {
 				},
 			}
 
-			node, err := mirbft.StartNewNode(config, doneC, []mirbft.Replica{{ID: 0}})
+			var err error
+			node, err = mirbft.StartNewNode(config, doneC, []mirbft.Replica{{ID: 0}})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(node).NotTo(BeNil())
 
@@ -86,12 +92,30 @@ var _ = Describe("MirBFT", func() {
 				}))
 			}
 		})
+
+		JustAfterEach(func() {
+			if CurrentGinkgoTestDescription().Failed {
+				fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
+				ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
+				defer cancel()
+				status, err := node.Status(ctx)
+				if err != nil {
+					fmt.Printf("Could not get status: %s", err)
+				} else {
+					fmt.Printf("\n%s\n", status)
+				}
+			}
+		})
 	})
 
 	Describe("MultiNode", func() {
+		var (
+			nodes []*mirbft.Node
+		)
+
 		It("commits all messages", func() {
 			replicas := []mirbft.Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}}
-			nodes := make([]*mirbft.Node, 4)
+			nodes = make([]*mirbft.Node, 4)
 			for i := range nodes {
 				config := &consumer.Config{
 					ID:     uint64(i),
@@ -158,9 +182,25 @@ var _ = Describe("MirBFT", func() {
 				By(fmt.Sprintf("checking for node %d that each bucket commits every sequence", j))
 				for j := uint64(0); j < 4; j++ {
 					seqs := bucketToSeq[j]
-					for i := uint64(0); i < 250; i++ {
+					for i := uint64(0); i <= 250; i++ {
 						_, ok := seqs[i]
 						Expect(ok).To(BeTrue())
+					}
+				}
+			}
+		})
+
+		JustAfterEach(func() {
+			if CurrentGinkgoTestDescription().Failed {
+				fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
+				ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
+				defer cancel()
+				for nodeIndex, node := range nodes {
+					status, err := node.Status(ctx)
+					if err != nil {
+						fmt.Printf("Could not get status for node %d: %s", nodeIndex, err)
+					} else {
+						fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status)
 					}
 				}
 			}

@@ -38,14 +38,11 @@ type Bucket struct {
 func NewBucket(config *EpochConfig, bucketID BucketID) *Bucket {
 	sequences := map[SeqNo]*Sequence{}
 	b := &Bucket{
-		Leader:         config.Buckets[bucketID],
-		ID:             bucketID,
-		EpochConfig:    config,
-		Sequences:      sequences,
-		NextAssigned:   config.LowWatermark,
-		NextPreprepare: config.LowWatermark,
-		NextPrepare:    config.LowWatermark,
-		NextCommit:     config.LowWatermark,
+		Leader:       config.Buckets[bucketID],
+		ID:           bucketID,
+		EpochConfig:  config,
+		Sequences:    sequences,
+		NextAssigned: config.LowWatermark,
 	}
 	b.MoveWatermarks()
 	return b
@@ -70,8 +67,6 @@ func (b *Bucket) MoveWatermarks() *consumer.Actions {
 
 	return b.DrainQueue()
 }
-
-// TODO, update the Next* vars as appropriate
 
 func (b *Bucket) IAmLeader() bool {
 	return b.Leader == NodeID(b.EpochConfig.MyConfig.ID)
@@ -156,4 +151,24 @@ func (b *Bucket) ApplyPrepare(source NodeID, seqNo SeqNo, digest []byte) *consum
 
 func (b *Bucket) ApplyCommit(source NodeID, seqNo SeqNo, digest []byte) *consumer.Actions {
 	return b.Sequences[seqNo].ApplyCommit(source, digest)
+}
+
+type BucketStatus struct {
+	Leader         bool
+	NextAssigned   SeqNo
+	BatchesPending int
+	Sequences      map[SeqNo]SequenceState
+}
+
+func (b *Bucket) Status() *BucketStatus {
+	sequences := map[SeqNo]SequenceState{}
+	for seqNo := b.EpochConfig.LowWatermark; seqNo <= b.EpochConfig.HighWatermark; seqNo++ {
+		sequences[seqNo] = b.Sequences[seqNo].State
+	}
+	return &BucketStatus{
+		Leader:         b.IAmLeader(),
+		NextAssigned:   b.NextAssigned,
+		BatchesPending: len(b.Pending),
+		Sequences:      sequences,
+	}
 }
