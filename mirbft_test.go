@@ -46,10 +46,11 @@ var _ = Describe("MirBFT", func() {
 
 	Describe("SingleNode", func() {
 		var (
-			node *mirbft.Node
+			node    *mirbft.Node
+			fakeLog *FakeLog
 		)
 
-		It("commits all messages", func() {
+		BeforeEach(func() {
 			config := &consumer.Config{
 				ID:     0,
 				Logger: logger.Named("node0"),
@@ -63,7 +64,7 @@ var _ = Describe("MirBFT", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(node).NotTo(BeNil())
 
-			fakeLog := &FakeLog{
+			fakeLog = &FakeLog{
 				CommitC: make(chan *consumer.Entry, 1000),
 			}
 
@@ -76,6 +77,9 @@ var _ = Describe("MirBFT", func() {
 				fakeLog,
 			)
 
+		})
+
+		It("commits all messages", func() {
 			ctx := context.TODO()
 			for i := uint64(0); i <= 1000; i++ {
 				node.Propose(ctx, []byte(fmt.Sprintf("msg %d", i)))
@@ -110,12 +114,14 @@ var _ = Describe("MirBFT", func() {
 
 	Describe("MultiNode", func() {
 		var (
-			nodes []*mirbft.Node
+			nodes    []*mirbft.Node
+			fakeLogs []*FakeLog
 		)
 
-		It("commits all messages", func() {
-			replicas := []mirbft.Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}}
+		BeforeEach(func() {
 			nodes = make([]*mirbft.Node, 4)
+
+			replicas := []mirbft.Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}}
 			for i := range nodes {
 				config := &consumer.Config{
 					ID:     uint64(i),
@@ -130,7 +136,7 @@ var _ = Describe("MirBFT", func() {
 				nodes[i] = node
 			}
 
-			fakeLogs := make([]*FakeLog, 4)
+			fakeLogs = make([]*FakeLog, 4)
 			for i, node := range nodes {
 				fakeLog := &FakeLog{
 					CommitC: make(chan *consumer.Entry, 1000),
@@ -146,6 +152,9 @@ var _ = Describe("MirBFT", func() {
 					fakeLog,
 				)
 			}
+		})
+
+		It("commits all messages", func() {
 
 			ctx := context.TODO()
 			for i := uint64(0); i <= 1003; i++ {

@@ -154,18 +154,20 @@ func (b *Bucket) ApplyCommit(source NodeID, seqNo SeqNo, digest []byte) *consume
 }
 
 type BucketStatus struct {
+	ID             uint64
 	Leader         bool
 	NextAssigned   SeqNo
 	BatchesPending int
-	Sequences      map[SeqNo]SequenceState
+	Sequences      []SequenceState
 }
 
 func (b *Bucket) Status() *BucketStatus {
-	sequences := map[SeqNo]SequenceState{}
-	for seqNo := b.EpochConfig.LowWatermark; seqNo <= b.EpochConfig.HighWatermark; seqNo++ {
-		sequences[seqNo] = b.Sequences[seqNo].State
+	sequences := make([]SequenceState, int(b.EpochConfig.HighWatermark-b.EpochConfig.LowWatermark)+1)
+	for i := range sequences {
+		sequences[i] = b.Sequences[SeqNo(i)+b.EpochConfig.LowWatermark].State
 	}
 	return &BucketStatus{
+		ID:             uint64(b.ID),
 		Leader:         b.IAmLeader(),
 		NextAssigned:   b.NextAssigned,
 		BatchesPending: len(b.Pending),

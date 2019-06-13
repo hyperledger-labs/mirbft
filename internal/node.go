@@ -17,6 +17,8 @@ const (
 
 // Node tracks the expect next message to apply on a per bucket basis
 type Node struct {
+	ID NodeID
+
 	EpochConfig *EpochConfig
 
 	// Next maintains the info about the next expected messages for
@@ -42,6 +44,7 @@ func NewNode(nodeID NodeID, epochConfig *EpochConfig) *Node {
 		}
 	}
 	return &Node{
+		ID:             nodeID,
 		EpochConfig:    epochConfig,
 		Next:           next,
 		NextCheckpoint: epochConfig.LowWatermark + epochConfig.CheckpointInterval,
@@ -146,18 +149,33 @@ func (n *Node) MoveWatermarks() {
 }
 
 type NodeStatus struct {
-	LastCheckpoint SeqNo
-	Messages       map[BucketID]NextMsg
+	ID             uint64
+	BucketStatuses []NodeBucketStatus
+}
+
+type NodeBucketStatus struct {
+	BucketID       int
+	IsLeader       bool
+	LastPrepare    uint64
+	LastCommit     uint64
+	LastCheckpoint uint64
 }
 
 func (n *Node) Status() *NodeStatus {
-	messages := map[BucketID]NextMsg{}
-	for bucketID, nextMsg := range n.Next {
-		messages[bucketID] = *nextMsg
+	bucketStatuses := make([]NodeBucketStatus, len(n.Next))
+	for bucketID := range bucketStatuses {
+		nextMsg := n.Next[BucketID(bucketID)]
+		bucketStatuses[bucketID] = NodeBucketStatus{
+			BucketID:       bucketID,
+			IsLeader:       nextMsg.Leader,
+			LastCheckpoint: uint64(n.NextCheckpoint - n.EpochConfig.CheckpointInterval),
+			LastPrepare:    uint64(nextMsg.Prepare - 1), // XXX ignoring the underflow, need to re-index at 1 anyway
+			LastCommit:     uint64(nextMsg.Commit - 1),
+		}
 	}
 
 	return &NodeStatus{
-		LastCheckpoint: n.NextCheckpoint - n.EpochConfig.CheckpointInterval,
-		Messages:       messages,
+		ID:             uint64(n.ID),
+		BucketStatuses: bucketStatuses,
 	}
 }

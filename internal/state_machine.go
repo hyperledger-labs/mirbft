@@ -94,25 +94,27 @@ func (sm *StateMachine) ProcessResults(results consumer.ActionResults) *consumer
 }
 
 func (sm *StateMachine) Status() *Status {
-	nodes := map[NodeID]*NodeStatus{}
-	for nodeID, node := range sm.CurrentEpoch.Nodes {
-		nodes[nodeID] = node.Status()
+	epochConfig := sm.CurrentEpoch.EpochConfig
+
+	nodes := make([]*NodeStatus, len(sm.CurrentEpoch.EpochConfig.Nodes))
+	for i, nodeID := range epochConfig.Nodes {
+		nodes[i] = sm.CurrentEpoch.Nodes[nodeID].Status()
 	}
 
-	buckets := map[BucketID]*BucketStatus{}
-	for bucketID, bucket := range sm.CurrentEpoch.Buckets {
-		buckets[bucketID] = bucket.Status()
+	buckets := make([]*BucketStatus, len(sm.CurrentEpoch.Buckets))
+	for i := BucketID(0); i < BucketID(len(sm.CurrentEpoch.Buckets)); i++ {
+		buckets[int(i)] = sm.CurrentEpoch.Buckets[i].Status()
 	}
 
-	checkpoints := map[SeqNo]*CheckpointStatus{}
-	for seqNo, checkpointWindow := range sm.CurrentEpoch.CheckpointWindows {
-		checkpoints[seqNo] = checkpointWindow.Status()
+	checkpoints := []*CheckpointStatus{}
+	for seqNo := epochConfig.LowWatermark + epochConfig.CheckpointInterval; seqNo <= epochConfig.HighWatermark; seqNo += epochConfig.CheckpointInterval {
+		checkpoints = append(checkpoints, sm.CurrentEpoch.CheckpointWindows[seqNo].Status())
 	}
 
 	return &Status{
-		LowWatermark:  sm.CurrentEpoch.EpochConfig.LowWatermark,
-		HighWatermark: sm.CurrentEpoch.EpochConfig.HighWatermark,
-		EpochNumber:   sm.CurrentEpoch.EpochConfig.Number,
+		LowWatermark:  epochConfig.LowWatermark,
+		HighWatermark: epochConfig.HighWatermark,
+		EpochNumber:   epochConfig.Number,
 		Nodes:         nodes,
 		Buckets:       buckets,
 		Checkpoints:   checkpoints,
@@ -123,14 +125,20 @@ type Status struct {
 	LowWatermark  SeqNo
 	HighWatermark SeqNo
 	EpochNumber   uint64
-	Nodes         map[NodeID]*NodeStatus
-	Buckets       map[BucketID]*BucketStatus
-	Checkpoints   map[SeqNo]*CheckpointStatus
+	Nodes         []*NodeStatus
+	Buckets       []*BucketStatus
+	Checkpoints   []*CheckpointStatus
 }
 
 func (s *Status) Pretty() string {
 	var buffer bytes.Buffer
 	buffer.WriteString(fmt.Sprintf("LowWatermark=%d, HighWatermark=%d, Epoch=%d\n\n", s.LowWatermark, s.HighWatermark, s.EpochNumber))
+
+	hRule := func() {
+		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
+			buffer.WriteString("--")
+		}
+	}
 
 	for i := len(fmt.Sprintf("%d", s.HighWatermark)); i > 0; i-- {
 		magnitude := SeqNo(math.Pow10(i - 1))
@@ -140,27 +148,24 @@ func (s *Status) Pretty() string {
 		buffer.WriteString("\n")
 	}
 
-	for node, nodeStatus := range s.Nodes {
-		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-			buffer.WriteString("--")
-		}
+	for _, nodeStatus := range s.Nodes {
 
-		buffer.WriteString(fmt.Sprintf("- === Node %d === \n", node))
-		for bucket := BucketID(0); bucket < BucketID(len(s.Buckets)); bucket++ {
-			messageStatus := nodeStatus.Messages[bucket]
+		hRule()
+		buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeStatus.ID))
+		for bucket, bucketStatus := range nodeStatus.BucketStatuses {
 			for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-				if seqNo == nodeStatus.LastCheckpoint {
+				if seqNo == SeqNo(bucketStatus.LastCheckpoint) {
 					buffer.WriteString("|X")
 					continue
 				}
 
-				if seqNo+1 == messageStatus.Commit {
+				if seqNo == SeqNo(bucketStatus.LastCommit) {
 					buffer.WriteString("|C")
 					continue
 				}
 
-				if seqNo+1 == messageStatus.Prepare {
-					if messageStatus.Leader {
+				if seqNo == SeqNo(bucketStatus.LastPrepare) {
+					if bucketStatus.IsLeader {
 						buffer.WriteString("|Q")
 					} else {
 						buffer.WriteString("|P")
@@ -170,19 +175,19 @@ func (s *Status) Pretty() string {
 				buffer.WriteString("| ")
 			}
 
-			buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucket))
+			if bucketStatus.IsLeader {
+				buffer.WriteString(fmt.Sprintf("| Bucket=%d (Leader)\n", bucket))
+			} else {
+				buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucket))
+			}
 		}
 	}
 
-	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-		buffer.WriteString("--")
-	}
+	hRule()
 	buffer.WriteString("- === Buckets ===\n")
 
-	for bucketID := BucketID(0); bucketID < BucketID(len(s.Buckets)); bucketID++ {
-		bucketStatus := s.Buckets[bucketID]
-		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-			state := bucketStatus.Sequences[seqNo]
+	for _, bucketStatus := range s.Buckets {
+		for _, state := range bucketStatus.Sequences {
 			switch state {
 			case Uninitialized:
 				buffer.WriteString("| ")
@@ -201,15 +206,45 @@ func (s *Status) Pretty() string {
 			}
 		}
 		if bucketStatus.Leader {
-			buffer.WriteString(fmt.Sprintf("| Bucket=%d (Leader, Pending=%d)\n", bucketID, bucketStatus.BatchesPending))
+			buffer.WriteString(fmt.Sprintf("| Bucket=%d (LocalLeader, Pending=%d)\n", bucketStatus.ID, bucketStatus.BatchesPending))
 		} else {
-			buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucketID))
+			buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucketStatus.ID))
 		}
 	}
 
+	hRule()
+	buffer.WriteString("- === Checkpoints ===\n")
+	i := 0
 	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-		buffer.WriteString("--")
+		checkpoint := s.Checkpoints[i]
+		if seqNo == SeqNo(checkpoint.SeqNo) {
+			buffer.WriteString(fmt.Sprintf("|%d", checkpoint.PendingCommits))
+			i++
+			continue
+		}
+		buffer.WriteString("| ")
 	}
+	buffer.WriteString("| Pending Commits\n")
+	i = 0
+	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
+		checkpoint := s.Checkpoints[i]
+		if seqNo == SeqNo(s.Checkpoints[i].SeqNo) {
+			switch {
+			case checkpoint.NetQuorum && !checkpoint.LocalAgreement:
+				buffer.WriteString("|N")
+			case checkpoint.NetQuorum && checkpoint.LocalAgreement:
+				buffer.WriteString("|G")
+			default:
+				buffer.WriteString("|P")
+			}
+			i++
+			continue
+		}
+		buffer.WriteString("| ")
+	}
+	buffer.WriteString("| Status\n")
+
+	hRule()
 	buffer.WriteString("-\n")
 
 	return buffer.String()

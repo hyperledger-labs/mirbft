@@ -102,11 +102,22 @@ func (cw *CheckpointWindow) ApplyCheckpointResult(value, attestation []byte) *co
 }
 
 type CheckpointStatus struct {
+	SeqNo          uint64
 	PendingCommits int
+	NetQuorum      bool
+	LocalAgreement bool
 }
 
 func (cw *CheckpointWindow) Status() *CheckpointStatus {
+	defer func() {
+		if r := recover(); r != nil {
+			panic(cw.Number)
+		}
+	}()
 	return &CheckpointStatus{
+		SeqNo:          uint64(cw.Number),
 		PendingCommits: len(cw.PendingCommits),
+		NetQuorum:      cw.CommittedValue != nil,
+		LocalAgreement: cw.CommittedValue != nil && bytes.Equal(cw.CommittedValue, cw.MyValue),
 	}
 }

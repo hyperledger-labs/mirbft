@@ -86,7 +86,6 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 
 func (n *Node) Status(ctx context.Context) (string, error) {
 	statusC := make(chan string, 1)
-	close(statusC)
 
 	select {
 	case <-ctx.Done():
