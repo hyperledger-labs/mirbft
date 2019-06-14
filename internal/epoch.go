@@ -246,7 +246,7 @@ func (e *Epoch) MoveWatermarks(low, high SeqNo) *consumer.Actions {
 		node.MoveWatermarks()
 	}
 
-	for seqNo := originalLowWatermark; seqNo <= low && seqNo <= originalHighWatermark; seqNo += e.EpochConfig.CheckpointInterval {
+	for seqNo := originalLowWatermark; seqNo < low && seqNo <= originalHighWatermark; seqNo += e.EpochConfig.CheckpointInterval {
 		delete(e.CheckpointWindows, seqNo)
 	}
 

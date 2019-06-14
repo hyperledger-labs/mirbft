@@ -8,7 +8,6 @@ package internal
 
 import (
 	"bytes"
-
 	"github.com/IBM/mirbft/consumer"
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
@@ -109,11 +108,6 @@ type CheckpointStatus struct {
 }
 
 func (cw *CheckpointWindow) Status() *CheckpointStatus {
-	defer func() {
-		if r := recover(); r != nil {
-			panic(cw.Number)
-		}
-	}()
 	return &CheckpointStatus{
 		SeqNo:          uint64(cw.Number),
 		PendingCommits: len(cw.PendingCommits),

@@ -36,8 +36,8 @@ type Sequence struct {
 	// Digest is not set until after state >= Digested
 	Digest []byte
 
-	Prepares map[string][]NodeID
-	Commits  map[string][]NodeID
+	Prepares map[string]map[NodeID]struct{}
+	Commits  map[string]map[NodeID]struct{}
 }
 
 func NewSequence(epochConfig *EpochConfig, number SeqNo, bucket BucketID) *Sequence {
@@ -49,8 +49,8 @@ func NewSequence(epochConfig *EpochConfig, number SeqNo, bucket BucketID) *Seque
 			BucketID: uint64(bucket),
 		},
 		State:    Uninitialized,
-		Prepares: map[string][]NodeID{},
-		Commits:  map[string][]NodeID{},
+		Prepares: map[string]map[NodeID]struct{}{},
+		Commits:  map[string]map[NodeID]struct{}{},
 	}
 }
 
@@ -114,10 +114,19 @@ func (s *Sequence) ApplyValidateResult(valid bool) *consumer.Actions {
 
 func (s *Sequence) ApplyPrepare(source NodeID, digest []byte) *consumer.Actions {
 	// TODO, if the digest is known, mark a mismatch as oddity
-	agreements := append(s.Prepares[string(digest)], source)
-	s.Prepares[string(digest)] = agreements
+	agreements := s.Prepares[string(digest)]
+	if agreements == nil {
+		agreements = map[NodeID]struct{}{}
+		s.Prepares[string(digest)] = agreements
+	}
+	agreements[source] = struct{}{}
 
 	if s.State != Validated {
+		return &consumer.Actions{}
+	}
+
+	// Do not prepare unless we have sent our prepare as well
+	if _, ok := agreements[NodeID(s.EpochConfig.MyConfig.ID)]; !ok {
 		return &consumer.Actions{}
 	}
 
@@ -148,10 +157,19 @@ func (s *Sequence) ApplyPrepare(source NodeID, digest []byte) *consumer.Actions 
 
 func (s *Sequence) ApplyCommit(source NodeID, digest []byte) *consumer.Actions {
 	// TODO, if the digest is known, mark a mismatch as oddity
-	agreements := append(s.Commits[string(digest)], source)
-	s.Commits[string(digest)] = agreements
+	agreements := s.Commits[string(digest)]
+	if agreements == nil {
+		agreements = map[NodeID]struct{}{}
+		s.Commits[string(digest)] = agreements
+	}
+	agreements[source] = struct{}{}
 
 	if s.State != Prepared {
+		return &consumer.Actions{}
+	}
+
+	// Do not commit unless we have sent a commit
+	if _, ok := agreements[NodeID(s.EpochConfig.MyConfig.ID)]; !ok {
 		return &consumer.Actions{}
 	}
 

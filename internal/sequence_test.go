@@ -23,6 +23,9 @@ var _ = Describe("Sequence", func() {
 	BeforeEach(func() {
 		s = &internal.Sequence{
 			EpochConfig: &internal.EpochConfig{
+				MyConfig: &consumer.Config{
+					ID: 1,
+				},
 				Number: 4,
 				F:      1,
 			},
@@ -31,8 +34,8 @@ var _ = Describe("Sequence", func() {
 				SeqNo:    5,
 				BucketID: 3,
 			},
-			Prepares: map[string][]internal.NodeID{},
-			Commits:  map[string][]internal.NodeID{},
+			Prepares: map[string]map[internal.NodeID]struct{}{},
+			Commits:  map[string]map[internal.NodeID]struct{}{},
 		}
 	})
 
@@ -141,7 +144,10 @@ var _ = Describe("Sequence", func() {
 		BeforeEach(func() {
 			s.State = internal.Validated
 			s.Digest = []byte("digest")
-			s.Prepares["digest"] = []internal.NodeID{1, 2}
+			s.Prepares["digest"] = map[internal.NodeID]struct{}{
+				1: {},
+				2: {},
+			}
 		})
 
 		It("transitions from Validated to Prepared", func() {
