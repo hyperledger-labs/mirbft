@@ -102,7 +102,7 @@ var _ = Describe("MirBFT", func() {
 				fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
 				ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
 				defer cancel()
-				status, err := node.Status(ctx)
+				status, err := node.Status(ctx, mirbft.ConsoleEncoding)
 				if err != nil {
 					fmt.Printf("Could not get status: %s", err)
 				} else {
@@ -205,7 +205,7 @@ var _ = Describe("MirBFT", func() {
 				ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
 				defer cancel()
 				for nodeIndex, node := range nodes {
-					status, err := node.Status(ctx)
+					status, err := node.Status(ctx, mirbft.ConsoleEncoding)
 					if err != nil {
 						fmt.Printf("Could not get status for node %d: %s", nodeIndex, err)
 					} else {

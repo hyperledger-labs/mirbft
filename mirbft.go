@@ -19,6 +19,13 @@ import (
 
 var ErrStopped = fmt.Errorf("stopped at caller request")
 
+type StatusEncoding int
+
+const (
+	ConsoleEncoding StatusEncoding = iota
+	JSONEncoding
+)
+
 type Replica struct {
 	ID uint64
 }
@@ -84,13 +91,16 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 	}
 }
 
-func (n *Node) Status(ctx context.Context) (string, error) {
+func (n *Node) Status(ctx context.Context, encoding StatusEncoding) (string, error) {
 	statusC := make(chan string, 1)
 
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
-	case n.s.StatusC <- statusC:
+	case n.s.StatusC <- internal.StatusReq{
+		JSON:   encoding == JSONEncoding,
+		ReplyC: statusC,
+	}:
 		select {
 		case status := <-statusC:
 			return status, nil

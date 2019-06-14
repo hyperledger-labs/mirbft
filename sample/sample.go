@@ -129,7 +129,7 @@ func (c *SerialConsumer) process() {
 			fmt.Printf("Printing state machine status")
 			ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
 			defer cancel()
-			status, err := c.Node.Status(ctx)
+			status, err := c.Node.Status(ctx, mirbft.ConsoleEncoding)
 			if err != nil {
 				fmt.Printf("Could not get status: %s", err)
 			} else {

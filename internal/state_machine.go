@@ -8,6 +8,7 @@ package internal
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 
@@ -128,6 +129,14 @@ type Status struct {
 	Nodes         []*NodeStatus
 	Buckets       []*BucketStatus
 	Checkpoints   []*CheckpointStatus
+}
+
+func (s *Status) JSON() string {
+	result, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(result)
 }
 
 func (s *Status) Pretty() string {
