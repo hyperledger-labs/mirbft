@@ -98,32 +98,17 @@ func (sc *SerialCommitter) Commit(commits []*consumer.Entry, checkpoints []uint6
 	return results
 }
 
-type SerialConsumer struct {
+type SerialProcessor struct {
 	Link      Link
 	Validator Validator
 	Hasher    Hasher
 	Committer *SerialCommitter
 	Node      *mirbft.Node
+	PauseC    chan struct{}
 	DoneC     <-chan struct{}
 }
 
-func NewSerialConsumer(doneC <-chan struct{}, node *mirbft.Node, link Link, verifier Validator, hasher Hasher, log Log) *SerialConsumer {
-	c := &SerialConsumer{
-		Node:      node,
-		Link:      link,
-		Validator: verifier,
-		Hasher:    hasher,
-		Committer: &SerialCommitter{
-			Log:                  log,
-			OutstandingSeqBucket: map[uint64]map[uint64]*consumer.Entry{},
-		},
-		DoneC: doneC,
-	}
-	go c.process()
-	return c
-}
-
-func (c *SerialConsumer) process() {
+func (c *SerialProcessor) Process(actions *consumer.Actions) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("Printing state machine status")
@@ -139,76 +124,101 @@ func (c *SerialConsumer) process() {
 		}
 	}()
 
-	for {
-		select {
-		case actions := <-c.Node.Ready():
-			actionResults := &consumer.ActionResults{
-				Preprocesses: make([]consumer.PreprocessResult, len(actions.Preprocess)),
-				Digests:      make([]consumer.DigestResult, len(actions.Digest)),
-				Validations:  make([]consumer.ValidateResult, len(actions.Validate)),
+	actionResults := &consumer.ActionResults{
+		Preprocesses: make([]consumer.PreprocessResult, len(actions.Preprocess)),
+		Digests:      make([]consumer.DigestResult, len(actions.Digest)),
+		Validations:  make([]consumer.ValidateResult, len(actions.Validate)),
+	}
+
+	for _, broadcast := range actions.Broadcast {
+		for _, replica := range c.Node.Replicas {
+			if replica.ID == c.Node.Config.ID {
+				c.Node.Step(context.TODO(), replica.ID, broadcast)
+			} else {
+				c.Link.Send(replica.ID, broadcast)
 			}
-
-			for _, broadcast := range actions.Broadcast {
-				for _, replica := range c.Node.Replicas {
-					if replica.ID == c.Node.Config.ID {
-						c.Node.Step(context.TODO(), replica.ID, broadcast)
-					} else {
-						c.Link.Send(replica.ID, broadcast)
-					}
-				}
-			}
-
-			for _, unicast := range actions.Unicast {
-				c.Link.Send(unicast.Target, unicast.Msg)
-			}
-
-			for i, proposal := range actions.Preprocess {
-				hash := c.Hasher.Hash(proposal.Data)
-
-				actionResults.Preprocesses[i] = consumer.PreprocessResult{
-					Proposal: proposal,
-					Cup:      binary.LittleEndian.Uint64(hash[0:8]),
-				}
-			}
-
-			for i, entry := range actions.Digest {
-				hashes := []byte{}
-				for _, data := range entry.Batch {
-					// TODO this could be much more efficient
-					// The assumption is that the hasher has already likely
-					// computed the hashes of the data, so, if using a cached version
-					// concatenating the hashes would be cheap
-					hashes = append(hashes, c.Hasher.Hash(data)...)
-				}
-
-				actionResults.Digests[i] = consumer.DigestResult{
-					Entry:  entry,
-					Digest: c.Hasher.Hash(hashes),
-				}
-			}
-
-			for i, entry := range actions.Validate {
-				valid := true
-				for _, data := range entry.Batch {
-					if err := c.Validator.Validate(data); err != nil {
-						valid = false
-						break
-					}
-				}
-
-				actionResults.Validations[i] = consumer.ValidateResult{
-					Entry: entry,
-					Valid: valid,
-				}
-			}
-
-			actionResults.Checkpoints = c.Committer.Commit(actions.Commit, actions.Checkpoint)
-
-			if err := c.Node.AddResults(*actionResults); err != nil {
-				return
-			}
-		case <-c.DoneC:
-			return
 		}
 	}
+
+	for _, unicast := range actions.Unicast {
+		c.Link.Send(unicast.Target, unicast.Msg)
+	}
+
+	for i, proposal := range actions.Preprocess {
+		hash := c.Hasher.Hash(proposal.Data)
+
+		actionResults.Preprocesses[i] = consumer.PreprocessResult{
+			Proposal: proposal,
+			Cup:      binary.LittleEndian.Uint64(hash[0:8]),
+		}
+	}
+
+	for i, entry := range actions.Digest {
+		hashes := []byte{}
+		for _, data := range entry.Batch {
+			// TODO this could be much more efficient
+			// The assumption is that the hasher has already likely
+			// computed the hashes of the data, so, if using a cached version
+			// concatenating the hashes would be cheap
+			hashes = append(hashes, c.Hasher.Hash(data)...)
+		}
+
+		actionResults.Digests[i] = consumer.DigestResult{
+			Entry:  entry,
+			Digest: c.Hasher.Hash(hashes),
+		}
+	}
+
+	for i, entry := range actions.Validate {
+		valid := true
+		for _, data := range entry.Batch {
+			if err := c.Validator.Validate(data); err != nil {
+				valid = false
+				break
+			}
+		}
+
+		actionResults.Validations[i] = consumer.ValidateResult{
+			Entry: entry,
+			Valid: valid,
+		}
+	}
+
+	actionResults.Checkpoints = c.Committer.Commit(actions.Commit, actions.Checkpoint)
+
+	if err := c.Node.AddResults(*actionResults); err != nil {
+		return
+	}
+}
+
+type FakeLink struct {
+	Buffers map[uint64]chan *pb.Msg
+}
+
+func NewFakeLink(source uint64, nodes []*mirbft.Node, doneC <-chan struct{}) *FakeLink {
+	buffers := map[uint64]chan *pb.Msg{}
+	for _, node := range nodes {
+		if node.Config.ID == source {
+			continue
+		}
+		buffer := make(chan *pb.Msg, 1000)
+		buffers[node.Config.ID] = buffer
+		go func(node *mirbft.Node) {
+			for {
+				select {
+				case msg := <-buffer:
+					node.Step(context.TODO(), source, msg)
+				case <-doneC:
+					return
+				}
+			}
+		}(node)
+	}
+	return &FakeLink{
+		Buffers: buffers,
+	}
+}
+
+func (fl *FakeLink) Send(dest uint64, msg *pb.Msg) {
+	fl.Buffers[dest] <- msg
 }

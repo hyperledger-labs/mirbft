@@ -18,7 +18,6 @@ import (
 
 	"github.com/IBM/mirbft"
 	"github.com/IBM/mirbft/consumer"
-	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/sample"
 
 	"go.uber.org/zap"
@@ -46,8 +45,9 @@ var _ = Describe("MirBFT", func() {
 
 	Describe("SingleNode", func() {
 		var (
-			node    *mirbft.Node
-			fakeLog *FakeLog
+			node      *mirbft.Node
+			processor *sample.SerialProcessor
+			fakeLog   *FakeLog
 		)
 
 		BeforeEach(func() {
@@ -68,15 +68,31 @@ var _ = Describe("MirBFT", func() {
 				CommitC: make(chan *consumer.Entry, 1000),
 			}
 
-			sample.NewSerialConsumer(
-				doneC,
-				node,
-				nil,
-				sample.ValidatorFunc(func([]byte) error { return nil }),
-				sample.HasherFunc(func(data []byte) []byte { return data }),
-				fakeLog,
-			)
+			processor = &sample.SerialProcessor{
+				Node:      node,
+				Validator: sample.ValidatorFunc(func([]byte) error { return nil }),
+				Hasher:    sample.HasherFunc(func(data []byte) []byte { return data }),
+				Committer: &sample.SerialCommitter{
+					Log:                  fakeLog,
+					OutstandingSeqBucket: map[uint64]map[uint64]*consumer.Entry{},
+				},
+				DoneC: doneC,
+			}
 
+			go func(doneC chan struct{}) {
+				defer func() {
+					Expect(recover()).To(BeNil())
+				}()
+
+				for {
+					select {
+					case actions := <-node.Ready():
+						processor.Process(&actions)
+					case <-doneC:
+						return
+					}
+				}
+			}(doneC)
 		})
 
 		It("commits all messages", func() {
@@ -114,8 +130,9 @@ var _ = Describe("MirBFT", func() {
 
 	Describe("MultiNode", func() {
 		var (
-			nodes    []*mirbft.Node
-			fakeLogs []*FakeLog
+			nodes      []*mirbft.Node
+			fakeLogs   []*FakeLog
+			processors []*sample.SerialProcessor
 		)
 
 		BeforeEach(func() {
@@ -137,20 +154,40 @@ var _ = Describe("MirBFT", func() {
 			}
 
 			fakeLogs = make([]*FakeLog, 4)
+			processors = make([]*sample.SerialProcessor, 4)
 			for i, node := range nodes {
+				node := node
 				fakeLog := &FakeLog{
 					CommitC: make(chan *consumer.Entry, 1000),
 				}
 				fakeLogs[i] = fakeLog
 
-				sample.NewSerialConsumer(
-					doneC,
-					node,
-					NewFakeLink(node.Config.ID, nodes, doneC),
-					sample.ValidatorFunc(func([]byte) error { return nil }),
-					sample.HasherFunc(func(data []byte) []byte { return data }),
-					fakeLog,
-				)
+				processors[i] = &sample.SerialProcessor{
+					Node:      node,
+					Link:      sample.NewFakeLink(node.Config.ID, nodes, doneC),
+					Validator: sample.ValidatorFunc(func([]byte) error { return nil }),
+					Hasher:    sample.HasherFunc(func(data []byte) []byte { return data }),
+					Committer: &sample.SerialCommitter{
+						Log:                  fakeLog,
+						OutstandingSeqBucket: map[uint64]map[uint64]*consumer.Entry{},
+					},
+					DoneC: doneC,
+				}
+
+				go func(i int, doneC chan struct{}) {
+					defer func() {
+						Expect(recover()).To(BeNil())
+					}()
+
+					for {
+						select {
+						case actions := <-node.Ready():
+							processors[i].Process(&actions)
+						case <-doneC:
+							return
+						}
+					}
+				}(i, doneC)
 			}
 		})
 
@@ -216,38 +253,6 @@ var _ = Describe("MirBFT", func() {
 		})
 	})
 })
-
-type FakeLink struct {
-	Buffers map[uint64]chan *pb.Msg
-}
-
-func NewFakeLink(source uint64, nodes []*mirbft.Node, doneC <-chan struct{}) *FakeLink {
-	buffers := map[uint64]chan *pb.Msg{}
-	for _, node := range nodes {
-		if node.Config.ID == source {
-			continue
-		}
-		buffer := make(chan *pb.Msg, 1000)
-		buffers[node.Config.ID] = buffer
-		go func(node *mirbft.Node) {
-			for {
-				select {
-				case msg := <-buffer:
-					node.Step(context.TODO(), source, msg)
-				case <-doneC:
-					return
-				}
-			}
-		}(node)
-	}
-	return &FakeLink{
-		Buffers: buffers,
-	}
-}
-
-func (fl *FakeLink) Send(dest uint64, msg *pb.Msg) {
-	fl.Buffers[dest] <- msg
-}
 
 type FakeLog struct {
 	Entries []*consumer.Entry
