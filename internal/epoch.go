@@ -216,8 +216,10 @@ func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte
 					}
 					checkpointWindows = append(checkpointWindows, checkpointWindow)
 					// XXX, the constant '4' garbage checkpoints is tied to the constant '5' free checkpoints in
-					// bucket.go and assumes the network is configured for 10 total checkpoints, but not enforced
-					if len(checkpointWindows) > 4 {
+					// bucket.go and assumes the network is configured for 10 total checkpoints, but not enforced.
+					// Also, if there are at least 2 checkpoints, and the first one is obsolete (meaning all
+					// nodes have acknowledged it, not simply a quorum), garbage collect it.
+					if len(checkpointWindows) > 4 || (len(checkpointWindows) > 2 && checkpointWindows[0].Obsolete) {
 						newLowWatermark := e.EpochConfig.LowWatermark + e.EpochConfig.CheckpointInterval
 						newHighWatermark := e.EpochConfig.HighWatermark + e.EpochConfig.CheckpointInterval
 						actions.Append(e.MoveWatermarks(newLowWatermark, newHighWatermark))

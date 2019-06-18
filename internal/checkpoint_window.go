@@ -21,6 +21,7 @@ type CheckpointWindow struct {
 	CommittedValue     []byte
 	MyValue            []byte
 	GarbageCollectible bool
+	Obsolete           bool
 }
 
 type NodeAttestation struct {
@@ -79,6 +80,12 @@ func (cw *CheckpointWindow) ApplyCheckpointMsg(source NodeID, value, attestation
 
 		// TODO, eventually, we should return the checkpoint value and set of attestations
 		// to the caller, as they may want to do something with the set of attestations to preserve them.
+	}
+
+	if cw.GarbageCollectible {
+		if len(checkpointValueNodes) == len(cw.EpochConfig.Nodes) {
+			cw.Obsolete = true
+		}
 	}
 
 	return &consumer.Actions{}
