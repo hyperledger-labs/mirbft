@@ -8,7 +8,6 @@ package internal
 
 import (
 	"github.com/IBM/mirbft/consumer"
-	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
 type BucketID uint64
@@ -26,8 +25,6 @@ type Bucket struct {
 
 	NextAssigned   SeqNo
 	NextPreprepare SeqNo
-	NextPrepare    SeqNo
-	NextCommit     SeqNo
 
 	// The variables below are only set if this Bucket is led locally
 	Queue     [][]byte
@@ -42,13 +39,13 @@ func NewBucket(config *EpochConfig, bucketID BucketID) *Bucket {
 		ID:           bucketID,
 		EpochConfig:  config,
 		Sequences:    sequences,
-		NextAssigned: config.LowWatermark,
+		NextAssigned: config.LowWatermark + 1,
 	}
 	b.MoveWatermarks()
 	return b
 }
 
-func (b *Bucket) MoveWatermarks() *consumer.Actions {
+func (b *Bucket) MoveWatermarks() {
 	// XXX this is a pretty obviously suboptimal way of moving watermarks,
 	// we know they're in order, so iterating through all sequences twice
 	// is wasteful, but it's easy to show it's correct, so implementing naively for now
@@ -64,61 +61,14 @@ func (b *Bucket) MoveWatermarks() *consumer.Actions {
 			b.Sequences[i] = NewSequence(b.EpochConfig, i, b.ID)
 		}
 	}
-
-	return b.DrainQueue()
 }
 
 func (b *Bucket) IAmLeader() bool {
 	return b.Leader == NodeID(b.EpochConfig.MyConfig.ID)
 }
 
-func (b *Bucket) Propose(data []byte) *consumer.Actions {
-	if !b.IAmLeader() {
-		panic("I cannot propose data in a bucket for which  I'm not the leader")
-	}
-
-	b.Queue = append(b.Queue, data)
-	b.SizeBytes += len(data)
-	if b.SizeBytes >= b.EpochConfig.MyConfig.BatchParameters.CutSizeBytes {
-		b.Pending = append(b.Pending, b.Queue)
-	}
-	b.Queue = nil
-	b.SizeBytes = 0
-
-	return b.DrainQueue()
-}
-
-func (b *Bucket) DrainQueue() *consumer.Actions {
-	actions := &consumer.Actions{}
-
-	// We leave one empty checkpoint interval within the watermarks to avoid messages being dropped when
-	// from the first nodes to move watermarks.
-	// XXX, the constant '4' garbage checkpoints in epoch.go is tied to the constant '5' free checkpoints
-	// defined here and assumes the network is configured for 10 total checkpoints, but not enforced
-	for b.NextAssigned <= b.EpochConfig.HighWatermark-5*b.EpochConfig.CheckpointInterval && len(b.Pending) > 0 {
-		actions.Append(&consumer.Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_Preprepare{
-						Preprepare: &pb.Preprepare{
-							Epoch:  b.EpochConfig.Number,
-							SeqNo:  uint64(b.NextAssigned),
-							Batch:  b.Pending[0],
-							Bucket: uint64(b.ID),
-						},
-					},
-				},
-			},
-		})
-
-		b.NextAssigned++
-		b.Pending = b.Pending[1:]
-	}
-
-	return actions
-}
-
 func (b *Bucket) ApplyPreprepare(seqNo SeqNo, batch [][]byte) *consumer.Actions {
+	b.NextPreprepare = seqNo + 1
 	return b.Sequences[seqNo].ApplyPreprepare(batch)
 }
 

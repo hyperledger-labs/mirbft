@@ -24,12 +24,14 @@ var _ = Describe("Integration", func() {
 		epoch          *internal.Epoch
 		epochConfig    *internal.EpochConfig
 		consumerConfig *consumer.Config
+		logger         *zap.Logger
 
 		doneC chan struct{}
 	)
 
 	BeforeEach(func() {
-		logger, err := zap.NewDevelopment()
+		var err error
+		logger, err = zap.NewDevelopment()
 		Expect(err).NotTo(HaveOccurred())
 
 		consumerConfig = &consumer.Config{
@@ -44,17 +46,20 @@ var _ = Describe("Integration", func() {
 	})
 
 	AfterEach(func() {
+		logger.Sync()
 		close(doneC)
 	})
 
 	Describe("F=0,N=1", func() {
 		BeforeEach(func() {
 			epochConfig = &internal.EpochConfig{
-				MyConfig:           consumerConfig,
-				Oddities:           &internal.Oddities{},
+				MyConfig: consumerConfig,
+				Oddities: &internal.Oddities{
+					Nodes: map[internal.NodeID]*internal.Oddity{},
+				},
 				Number:             3,
 				CheckpointInterval: 2,
-				HighWatermark:      10,
+				HighWatermark:      20,
 				LowWatermark:       0,
 				F:                  0,
 				Nodes:              []internal.NodeID{0},
@@ -106,7 +111,7 @@ var _ = Describe("Integration", func() {
 							Preprepare: &pb.Preprepare{
 								Epoch:  3,
 								Bucket: 0,
-								SeqNo:  0,
+								SeqNo:  1,
 								Batch:  [][]byte{[]byte("data")},
 							},
 						},
@@ -125,7 +130,7 @@ var _ = Describe("Integration", func() {
 					{
 						Epoch:    3,
 						BucketID: 0,
-						SeqNo:    0,
+						SeqNo:    1,
 						Batch:    [][]byte{[]byte("data")},
 					},
 				},
@@ -138,7 +143,7 @@ var _ = Describe("Integration", func() {
 						Entry: &consumer.Entry{
 							Epoch:    3,
 							BucketID: 0,
-							SeqNo:    0,
+							SeqNo:    1,
 							Batch:    [][]byte{[]byte("data")},
 						},
 						Digest: []byte("fake-digest"),
@@ -153,7 +158,7 @@ var _ = Describe("Integration", func() {
 							Commit: &pb.Commit{
 								Epoch:  3,
 								Bucket: 0,
-								SeqNo:  0,
+								SeqNo:  1,
 								Digest: []byte(("fake-digest")),
 							},
 						},
@@ -172,7 +177,7 @@ var _ = Describe("Integration", func() {
 					{
 						Epoch:    3,
 						BucketID: 0,
-						SeqNo:    0,
+						SeqNo:    1,
 						Batch:    [][]byte{[]byte("data")},
 					},
 				},
@@ -183,11 +188,13 @@ var _ = Describe("Integration", func() {
 	Describe("F=1,N=4", func() {
 		BeforeEach(func() {
 			epochConfig = &internal.EpochConfig{
-				MyConfig:           consumerConfig,
-				Oddities:           &internal.Oddities{},
+				MyConfig: consumerConfig,
+				Oddities: &internal.Oddities{
+					Nodes: map[internal.NodeID]*internal.Oddity{},
+				},
 				Number:             3,
 				CheckpointInterval: 2,
-				HighWatermark:      10,
+				HighWatermark:      20,
 				LowWatermark:       0,
 				F:                  1,
 				Nodes:              []internal.NodeID{0, 1, 2, 3},
@@ -257,7 +264,7 @@ var _ = Describe("Integration", func() {
 						Preprepare: &pb.Preprepare{
 							Epoch:  3,
 							Bucket: 3,
-							SeqNo:  0,
+							SeqNo:  1,
 							Batch:  [][]byte{[]byte("data")},
 						},
 					},
@@ -269,7 +276,7 @@ var _ = Describe("Integration", func() {
 					{
 						Epoch:    3,
 						BucketID: 3,
-						SeqNo:    0,
+						SeqNo:    1,
 						Batch:    [][]byte{[]byte("data")},
 					},
 				},
@@ -282,7 +289,7 @@ var _ = Describe("Integration", func() {
 						Entry: &consumer.Entry{
 							Epoch:    3,
 							BucketID: 3,
-							SeqNo:    0,
+							SeqNo:    1,
 							Batch:    [][]byte{[]byte("data")},
 						},
 						Digest: []byte("fake-digest"),
@@ -295,7 +302,7 @@ var _ = Describe("Integration", func() {
 					{
 						Epoch:    3,
 						BucketID: 3,
-						SeqNo:    0,
+						SeqNo:    1,
 						Batch:    [][]byte{[]byte("data")},
 					},
 				},
@@ -308,7 +315,7 @@ var _ = Describe("Integration", func() {
 						Entry: &consumer.Entry{
 							Epoch:    3,
 							BucketID: 3,
-							SeqNo:    0,
+							SeqNo:    1,
 							Batch:    [][]byte{[]byte("data")},
 						},
 						Valid: true,
@@ -323,7 +330,7 @@ var _ = Describe("Integration", func() {
 							Prepare: &pb.Prepare{
 								Epoch:  3,
 								Bucket: 3,
-								SeqNo:  0,
+								SeqNo:  1,
 								Digest: []byte(("fake-digest")),
 							},
 						},
@@ -350,7 +357,7 @@ var _ = Describe("Integration", func() {
 							Commit: &pb.Commit{
 								Epoch:  3,
 								Bucket: 3,
-								SeqNo:  0,
+								SeqNo:  1,
 								Digest: []byte(("fake-digest")),
 							},
 						},
@@ -380,7 +387,7 @@ var _ = Describe("Integration", func() {
 					{
 						Epoch:    3,
 						BucketID: 3,
-						SeqNo:    0,
+						SeqNo:    1,
 						Batch:    [][]byte{[]byte("data")},
 					},
 				},

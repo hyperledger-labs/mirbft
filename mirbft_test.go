@@ -97,11 +97,11 @@ var _ = Describe("MirBFT", func() {
 
 		It("commits all messages", func() {
 			ctx := context.TODO()
-			for i := uint64(0); i <= 1000; i++ {
+			for i := uint64(1); i <= 1000; i++ {
 				node.Propose(ctx, []byte(fmt.Sprintf("msg %d", i)))
 			}
 
-			for i := uint64(0); i <= 1000; i++ {
+			for i := uint64(1); i <= 1000; i++ {
 				entry := &consumer.Entry{}
 				Eventually(fakeLog.CommitC).Should(Receive(&entry))
 				Expect(entry).To(Equal(&consumer.Entry{
@@ -205,7 +205,7 @@ var _ = Describe("MirBFT", func() {
 			for j, fakeLog := range fakeLogs {
 				By(fmt.Sprintf("checking for node %d that each bucket only commits a sequence number once", j))
 				bucketToSeq := map[uint64]map[uint64]struct{}{}
-				for i := uint64(0); i <= 1003; i++ {
+				for i := uint64(0); i < 1000; i++ {
 					entry := &consumer.Entry{}
 					Eventually(fakeLog.CommitC).Should(Receive(&entry))
 
@@ -228,7 +228,7 @@ var _ = Describe("MirBFT", func() {
 				By(fmt.Sprintf("checking for node %d that each bucket commits every sequence", j))
 				for j := uint64(0); j < 4; j++ {
 					seqs := bucketToSeq[j]
-					for i := uint64(0); i <= 250; i++ {
+					for i := uint64(1); i <= 250; i++ {
 						_, ok := seqs[i]
 						Expect(ok).To(BeTrue())
 					}

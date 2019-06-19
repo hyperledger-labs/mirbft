@@ -39,8 +39,8 @@ func NewNode(nodeID NodeID, epochConfig *EpochConfig) *Node {
 	for bucketID, leaderID := range epochConfig.Buckets {
 		next[bucketID] = &NextMsg{
 			Leader:  nodeID == leaderID,
-			Prepare: epochConfig.LowWatermark,
-			Commit:  epochConfig.LowWatermark,
+			Prepare: epochConfig.LowWatermark + 1,
+			Commit:  epochConfig.LowWatermark + 1,
 		}
 	}
 	return &Node{

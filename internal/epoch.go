@@ -51,6 +51,8 @@ type Epoch struct {
 
 	Buckets map[BucketID]*Bucket
 
+	Proposer *Proposer
+
 	CheckpointWindows map[SeqNo]*CheckpointWindow
 }
 
@@ -75,6 +77,7 @@ func NewEpoch(config *EpochConfig) *Epoch {
 		Nodes:             nodes,
 		Buckets:           buckets,
 		CheckpointWindows: checkpointWindows,
+		Proposer:          NewProposer(config),
 	}
 }
 
@@ -128,7 +131,7 @@ func (e *Epoch) Process(preprocessResult consumer.PreprocessResult) *consumer.Ac
 	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.EpochConfig.Buckets)))
 	nodeID := e.EpochConfig.Buckets[bucketID]
 	if nodeID == NodeID(e.EpochConfig.MyConfig.ID) {
-		return e.Buckets[bucketID].Propose(preprocessResult.Proposal.Data)
+		return e.Proposer.Propose(preprocessResult.Proposal.Data)
 	}
 
 	if preprocessResult.Proposal.Source == e.EpochConfig.MyConfig.ID {
@@ -192,7 +195,6 @@ func (e *Epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byt
 				if checkpointWindow, ok := e.CheckpointWindows[seqNo]; ok {
 					actions.Append(checkpointWindow.Committed(bucket))
 				}
-
 			}
 			return actions
 		},
@@ -238,10 +240,8 @@ func (e *Epoch) MoveWatermarks(low, high SeqNo) *consumer.Actions {
 	e.EpochConfig.LowWatermark = low
 	e.EpochConfig.HighWatermark = high
 
-	actions := &consumer.Actions{}
-
 	for _, bucket := range e.Buckets {
-		actions.Append(bucket.MoveWatermarks())
+		bucket.MoveWatermarks()
 	}
 
 	for _, node := range e.Nodes {
@@ -259,7 +259,7 @@ func (e *Epoch) MoveWatermarks(low, high SeqNo) *consumer.Actions {
 		e.CheckpointWindows[seqNo] = NewCheckpointWindow(seqNo, e.EpochConfig)
 	}
 
-	return actions
+	return e.Proposer.DrainQueue()
 }
 
 func (e *Epoch) CheckpointResult(seqNo SeqNo, value, attestation []byte) *consumer.Actions {
