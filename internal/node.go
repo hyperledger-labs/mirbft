@@ -26,6 +26,10 @@ type Node struct {
 	Next map[BucketID]*NextMsg
 
 	NextCheckpoint SeqNo
+
+	LeadsSomeBucket bool
+
+	LargestPreprepare SeqNo
 }
 
 type NextMsg struct {
@@ -36,7 +40,9 @@ type NextMsg struct {
 
 func NewNode(nodeID NodeID, epochConfig *EpochConfig) *Node {
 	next := map[BucketID]*NextMsg{}
+	leadsSomeBucket := false
 	for bucketID, leaderID := range epochConfig.Buckets {
+		leadsSomeBucket = true
 		next[bucketID] = &NextMsg{
 			Leader:  nodeID == leaderID,
 			Prepare: epochConfig.LowWatermark + 1,
@@ -44,10 +50,11 @@ func NewNode(nodeID NodeID, epochConfig *EpochConfig) *Node {
 		}
 	}
 	return &Node{
-		ID:             nodeID,
-		EpochConfig:    epochConfig,
-		Next:           next,
-		NextCheckpoint: epochConfig.LowWatermark + epochConfig.CheckpointInterval,
+		ID:              nodeID,
+		EpochConfig:     epochConfig,
+		Next:            next,
+		NextCheckpoint:  epochConfig.LowWatermark + epochConfig.CheckpointInterval,
+		LeadsSomeBucket: leadsSomeBucket,
 	}
 }
 
@@ -110,9 +117,15 @@ func (n *Node) InspectCheckpoint(seqNo SeqNo) Applyable {
 	}
 }
 
-func (n *Node) ApplyPreprepare(seqNo SeqNo, bucket BucketID) {
+// ApplyPreprepare returns true if a new largest preprepare was observed
+func (n *Node) ApplyPreprepare(seqNo SeqNo, bucket BucketID) bool {
 	next := n.Next[bucket]
 	next.Prepare = seqNo + 1
+	if n.LargestPreprepare < seqNo {
+		n.LargestPreprepare = seqNo
+		return true
+	}
+	return false
 }
 
 func (n *Node) ApplyPrepare(seqNo SeqNo, bucket BucketID) {

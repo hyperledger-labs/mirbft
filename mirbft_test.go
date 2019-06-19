@@ -84,13 +84,16 @@ var _ = Describe("MirBFT", func() {
 					Expect(recover()).To(BeNil())
 				}()
 
+				ticker := time.NewTicker(time.Millisecond)
+				defer ticker.Stop()
+
 				for {
 					select {
 					case actions := <-node.Ready():
 						processor.Process(&actions)
 					case <-doneC:
 						return
-					default:
+					case <-ticker.C:
 						node.Tick()
 					}
 				}
@@ -103,14 +106,19 @@ var _ = Describe("MirBFT", func() {
 				node.Propose(ctx, []byte(fmt.Sprintf("msg %d", i)))
 			}
 
-			for i := uint64(1); i <= 1000; i++ {
+			lastObserved := uint64(0)
+			lastSeq := uint64(0)
+			for iterations := uint64(1); lastObserved < 1000; iterations++ {
 				entry := &consumer.Entry{}
 				Eventually(fakeLog.CommitC).Should(Receive(&entry))
+				Expect(lastSeq).To(BeNumerically("<", entry.SeqNo))
+				lastSeq = entry.SeqNo
+				lastObserved++
 				Expect(entry).To(Equal(&consumer.Entry{
-					SeqNo:    i,
+					SeqNo:    lastSeq,
 					BucketID: 0,
 					Epoch:    0,
-					Batch:    [][]byte{[]byte(fmt.Sprintf("msg %d", i))},
+					Batch:    [][]byte{[]byte(fmt.Sprintf("msg %d", lastObserved))},
 				}))
 			}
 		})
@@ -181,13 +189,16 @@ var _ = Describe("MirBFT", func() {
 						Expect(recover()).To(BeNil())
 					}()
 
+					ticker := time.NewTicker(time.Millisecond)
+					defer ticker.Stop()
+
 					for {
 						select {
 						case actions := <-node.Ready():
 							processors[i].Process(&actions)
 						case <-doneC:
 							return
-						default:
+						case <-ticker.C:
 							nodes[i].Tick()
 						}
 					}
@@ -198,7 +209,7 @@ var _ = Describe("MirBFT", func() {
 		It("commits all messages", func() {
 
 			ctx := context.TODO()
-			for i := uint64(0); i <= 1003; i++ {
+			for i := uint64(0); i < 1000; i++ {
 				value := make([]byte, 8)
 				binary.LittleEndian.PutUint64(value, i)
 
@@ -206,36 +217,24 @@ var _ = Describe("MirBFT", func() {
 				nodes[i%3].Propose(ctx, value)
 			}
 
+			observations := map[uint64]struct{}{}
 			for j, fakeLog := range fakeLogs {
-				By(fmt.Sprintf("checking for node %d that each bucket only commits a sequence number once", j))
-				bucketToSeq := map[uint64]map[uint64]struct{}{}
-				for i := uint64(0); i < 1000; i++ {
+				By(fmt.Sprintf("checking for node %d that each message only commits once", j))
+				for len(observations) < 1000 {
 					entry := &consumer.Entry{}
 					Eventually(fakeLog.CommitC).Should(Receive(&entry))
-
 					Expect(entry.Epoch).To(Equal(uint64(0)))
+
+					if entry.Batch == nil {
+						continue
+					}
 
 					msgNo := binary.LittleEndian.Uint64(entry.Batch[0])
 					Expect(msgNo % 4).To(Equal(entry.BucketID))
 
-					seqs, ok := bucketToSeq[entry.BucketID]
-					if !ok {
-						seqs = map[uint64]struct{}{}
-						bucketToSeq[entry.BucketID] = seqs
-					}
-
-					_, ok = seqs[entry.SeqNo]
+					_, ok := observations[msgNo]
 					Expect(ok).To(BeFalse())
-					seqs[entry.SeqNo] = struct{}{}
-				}
-
-				By(fmt.Sprintf("checking for node %d that each bucket commits every sequence", j))
-				for j := uint64(0); j < 4; j++ {
-					seqs := bucketToSeq[j]
-					for i := uint64(1); i <= 250; i++ {
-						_, ok := seqs[i]
-						Expect(ok).To(BeTrue())
-					}
+					observations[msgNo] = struct{}{}
 				}
 			}
 		})
@@ -264,6 +263,10 @@ type FakeLog struct {
 }
 
 func (fl *FakeLog) Apply(entry *consumer.Entry) {
+	if entry.Batch == nil {
+		// this is a no-op batch from a tick, or catchup, ignore it
+		return
+	}
 	fl.Entries = append(fl.Entries, entry)
 	fl.CommitC <- entry
 }

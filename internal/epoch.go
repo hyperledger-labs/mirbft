@@ -165,8 +165,25 @@ func (e *Epoch) Preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch []
 		source, seqNo, bucket, "Preprepare",
 		func(node *Node) Applyable { return node.InspectPreprepare(seqNo, bucket) },
 		func(node *Node) *consumer.Actions {
-			node.ApplyPreprepare(seqNo, bucket)
-			return e.Buckets[bucket].ApplyPreprepare(seqNo, batch)
+			actions := &consumer.Actions{}
+			newLargest := node.ApplyPreprepare(seqNo, bucket)
+			if newLargest && node.LargestPreprepare >= e.Proposer.NextAssigned+e.EpochConfig.CheckpointInterval {
+				// XXX this is really a kind of heuristic check, to make sure
+				// that if the network is advancing without us, possibly because
+				// of unbalanced buckets, that we keep up, it's worth formalizing.
+				nodesFurtherThanMe := 0
+				for _, node := range e.Nodes {
+					if node.LeadsSomeBucket && node.LargestPreprepare >= e.Proposer.NextAssigned {
+						nodesFurtherThanMe++
+					}
+				}
+
+				if nodesFurtherThanMe > e.EpochConfig.F {
+					actions.Append(e.Proposer.NoopAdvance())
+				}
+			}
+			actions.Append(e.Buckets[bucket].ApplyPreprepare(seqNo, batch))
+			return actions
 		},
 	)
 }
@@ -291,5 +308,5 @@ func (e *Epoch) Validate(seqNo SeqNo, bucket BucketID, valid bool) *consumer.Act
 }
 
 func (e *Epoch) Tick() *consumer.Actions {
-	return &consumer.Actions{}
+	return e.Proposer.NoopAdvance()
 }
