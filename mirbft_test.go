@@ -90,6 +90,8 @@ var _ = Describe("MirBFT", func() {
 						processor.Process(&actions)
 					case <-doneC:
 						return
+					default:
+						node.Tick()
 					}
 				}
 			}(doneC)
@@ -185,6 +187,8 @@ var _ = Describe("MirBFT", func() {
 							processors[i].Process(&actions)
 						case <-doneC:
 							return
+						default:
+							nodes[i].Tick()
 						}
 					}
 				}(i, doneC)

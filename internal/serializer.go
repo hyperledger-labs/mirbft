@@ -29,6 +29,7 @@ type Serializer struct {
 	ResultsC chan consumer.ActionResults
 	StatusC  chan StatusReq
 	StepC    chan Step
+	TickC    chan struct{}
 
 	StateMachine *StateMachine
 }
@@ -46,6 +47,7 @@ func NewSerializer(stateMachine *StateMachine, doneC <-chan struct{}) *Serialize
 		ResultsC:     make(chan consumer.ActionResults),
 		StatusC:      make(chan StatusReq),
 		StepC:        make(chan Step),
+		TickC:        make(chan struct{}),
 		StateMachine: stateMachine,
 	}
 	go s.run()
@@ -98,6 +100,9 @@ func (s *Serializer) run() {
 			case statusReq.ReplyC <- statusStr:
 			case <-s.DoneC:
 			}
+		case <-s.TickC:
+			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "tick"))
+			actions.Append(s.StateMachine.Tick())
 		case <-s.DoneC:
 			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "done"))
 			return

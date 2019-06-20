@@ -289,3 +289,7 @@ func (e *Epoch) Validate(seqNo SeqNo, bucket BucketID, valid bool) *consumer.Act
 		},
 	)
 }
+
+func (e *Epoch) Tick() *consumer.Actions {
+	return &consumer.Actions{}
+}

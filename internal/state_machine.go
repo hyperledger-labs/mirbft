@@ -94,6 +94,10 @@ func (sm *StateMachine) ProcessResults(results consumer.ActionResults) *consumer
 	return actions
 }
 
+func (sm *StateMachine) Tick() *consumer.Actions {
+	return sm.CurrentEpoch.Tick()
+}
+
 func (sm *StateMachine) Status() *Status {
 	epochConfig := sm.CurrentEpoch.EpochConfig
 

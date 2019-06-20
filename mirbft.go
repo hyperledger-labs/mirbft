@@ -116,6 +116,10 @@ func (n *Node) Ready() <-chan consumer.Actions {
 	return n.s.ActionsC
 }
 
+func (n *Node) Tick() {
+	n.s.TickC <- struct{}{}
+}
+
 func (n *Node) AddResults(results consumer.ActionResults) error {
 	select {
 	case n.s.ResultsC <- results:
