@@ -113,11 +113,11 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) {
 			fmt.Printf("Printing state machine status")
 			ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
 			defer cancel()
-			status, err := c.Node.Status(ctx, mirbft.ConsoleEncoding)
+			status, err := c.Node.Status(ctx)
 			if err != nil {
 				fmt.Printf("Could not get status: %s", err)
 			} else {
-				fmt.Printf("\n%s\n", status)
+				fmt.Printf("\n%s\n", status.Pretty())
 			}
 			panic(r)
 		}

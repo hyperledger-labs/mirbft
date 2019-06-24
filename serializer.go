@@ -26,16 +26,11 @@ type serializer struct {
 	doneC    <-chan struct{}
 	propC    chan []byte
 	resultsC chan ActionResults
-	statusC  chan StatusReq
+	statusC  chan chan<- *Status
 	stepC    chan step
 	tickC    chan struct{}
 
 	stateMachine *stateMachine
-}
-
-type StatusReq struct {
-	JSON   bool
-	ReplyC chan string
 }
 
 func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serializer {
@@ -44,7 +39,7 @@ func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serialize
 		doneC:        doneC,
 		propC:        make(chan []byte),
 		resultsC:     make(chan ActionResults),
-		statusC:      make(chan StatusReq),
+		statusC:      make(chan chan<- *Status),
 		stepC:        make(chan step),
 		tickC:        make(chan struct{}),
 		stateMachine: stateMachine,
@@ -88,15 +83,8 @@ func (s *serializer) run() {
 			actions.Append(s.stateMachine.processResults(results))
 		case statusReq := <-s.statusC:
 			s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "status"))
-			status := s.stateMachine.status()
-			var statusStr string
-			if statusReq.JSON {
-				statusStr = status.JSON()
-			} else {
-				statusStr = status.Pretty()
-			}
 			select {
-			case statusReq.ReplyC <- statusStr:
+			case statusReq <- s.stateMachine.status():
 			case <-s.doneC:
 			}
 		case <-s.tickC:

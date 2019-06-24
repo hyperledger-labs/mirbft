@@ -24,10 +24,10 @@ Currently, there are severe limitations ot the Mir implementation, notably no vi
 ```
 replicas := []mirbft.Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}}
 
-config := &consumer.Config{
+config := &mirbft.Config{
 	ID:     uint64(i),
 	Logger: zap.NewProduction(),
-	BatchParameters: consumer.BatchParameters{
+	BatchParameters: mirbft.BatchParameters{
 		CutSizeBytes: 1,
 	},
 }
@@ -43,16 +43,22 @@ processor := &sample.SerialProcessor{
 	Hasher:    hasher,    // sample.Hasher interface impl
 	Committer: &sample.SerialCommitter{
 		Log:                  log, // sample.Log interface impl
-		OutstandingSeqBucket: map[uint64]map[uint64]*consumer.Entry{},
+		OutstandingSeqBucket: map[uint64]map[uint64]*mirbft.Entry{},
 	},
 	Link: network, // sample.Link interface impl
 }
 
 go func() {
 	for {
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+
+
 		select {
 		case actions := <-node.Ready():
 			processor.Process(&actions)
+		case <-ticker.C:
+			node.Tick()
 		case <-doneC:
 			// exit
 		}
