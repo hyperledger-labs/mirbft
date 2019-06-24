@@ -28,50 +28,50 @@ func LogBasics(msgType string, source NodeID, seqNo SeqNo, bucket BucketID, epoc
 	}
 }
 
-// Oddities are events which are not necessarily damaging
+// oddities are events which are not necessarily damaging
 // or detrimental to the state machine, but which may represent
 // byzantine behavior, misconfiguration, or bugs.
-type Oddities struct {
-	Nodes map[NodeID]*Oddity
+type oddities struct {
+	nodes map[NodeID]*oddity
 }
 
-type Oddity struct {
-	AboveWatermarks uint64
-	BelowWatermarks uint64
-	WrongEpoch      uint64
-	BadBucket       uint64
+type oddity struct {
+	aboveWatermarks uint64
+	belowWatermarks uint64
+	wrongEpoch      uint64
+	badBucket       uint64
 }
 
-func (o *Oddities) GetNode(nodeID NodeID) *Oddity {
-	oddity, ok := o.Nodes[nodeID]
+func (o *oddities) GetNode(nodeID NodeID) *oddity {
+	od, ok := o.nodes[nodeID]
 	if !ok {
-		oddity = &Oddity{}
-		o.Nodes[nodeID] = oddity
+		od = &oddity{}
+		o.nodes[nodeID] = od
 	}
-	return oddity
+	return od
 }
 
-func (o *Oddities) AboveWatermarks(epochConfig *EpochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.MyConfig.Logger.Warn("received message above watermarks", LogBasics(msgType, source, seqNo, bucket, epochConfig.Number)...)
-	o.GetNode(source).AboveWatermarks++
+func (o *oddities) aboveWatermarks(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
+	epochConfig.myConfig.Logger.Warn("received message above watermarks", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.GetNode(source).aboveWatermarks++
 }
 
-func (o *Oddities) AlreadyProcessed(epochConfig *EpochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.MyConfig.Logger.Warn("already processed message", LogBasics(msgType, source, seqNo, bucket, epochConfig.Number)...)
-	o.GetNode(source).AboveWatermarks++
+func (o *oddities) AlreadyProcessed(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
+	epochConfig.myConfig.Logger.Warn("already processed message", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.GetNode(source).aboveWatermarks++
 }
 
-func (o *Oddities) BelowWatermarks(epochConfig *EpochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.MyConfig.Logger.Warn("received message below watermarks", LogBasics(msgType, source, seqNo, bucket, epochConfig.Number)...)
-	o.GetNode(source).BelowWatermarks++
+func (o *oddities) belowWatermarks(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
+	epochConfig.myConfig.Logger.Warn("received message below watermarks", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.GetNode(source).belowWatermarks++
 }
 
-func (o *Oddities) BadBucket(epochConfig *EpochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.MyConfig.Logger.Warn("received message for bad bucket", LogBasics(msgType, source, seqNo, bucket, epochConfig.Number)...)
-	o.GetNode(source).BadBucket++
+func (o *oddities) badBucket(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
+	epochConfig.myConfig.Logger.Warn("received message for bad bucket", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.GetNode(source).badBucket++
 }
 
-func (o *Oddities) InvalidMessage(epochConfig *EpochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.MyConfig.Logger.Error("invalid message", LogBasics(msgType, source, seqNo, bucket, epochConfig.Number)...)
-	o.GetNode(source).AboveWatermarks++
+func (o *oddities) InvalidMessage(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
+	epochConfig.myConfig.Logger.Error("invalid message", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.GetNode(source).aboveWatermarks++
 }

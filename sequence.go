@@ -24,86 +24,86 @@ const (
 	Committed
 )
 
-type Sequence struct {
-	EpochConfig *EpochConfig
+type sequence struct {
+	epochConfig *epochConfig
 
-	State SequenceState
+	state SequenceState
 
 	// Entry's Batch field is unset until after state >= Preprepared
-	Entry *Entry
+	entry *Entry
 
 	// Digest is not set until after state >= Digested
-	Digest []byte
+	digest []byte
 
-	Prepares map[string]map[NodeID]struct{}
-	Commits  map[string]map[NodeID]struct{}
+	prepares map[string]map[NodeID]struct{}
+	commits  map[string]map[NodeID]struct{}
 }
 
-func NewSequence(epochConfig *EpochConfig, number SeqNo, bucket BucketID) *Sequence {
-	return &Sequence{
-		EpochConfig: epochConfig,
-		Entry: &Entry{
-			Epoch:    epochConfig.Number,
+func newSequence(epochConfig *epochConfig, number SeqNo, bucket BucketID) *sequence {
+	return &sequence{
+		epochConfig: epochConfig,
+		entry: &Entry{
+			Epoch:    epochConfig.number,
 			SeqNo:    uint64(number),
 			BucketID: uint64(bucket),
 		},
-		State:    Uninitialized,
-		Prepares: map[string]map[NodeID]struct{}{},
-		Commits:  map[string]map[NodeID]struct{}{},
+		state:    Uninitialized,
+		prepares: map[string]map[NodeID]struct{}{},
+		commits:  map[string]map[NodeID]struct{}{},
 	}
 }
 
-// ApplyPreprepare attempts to apply a batch from a preprepare message to the state machine.
+// applyPreprepare attempts to apply a batch from a preprepare message to the state machine.
 // If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
 // It transitions to Preprepared and returns a ValidationRequest message.
-func (s *Sequence) ApplyPreprepare(batch [][]byte) *Actions {
-	if s.State != Uninitialized {
-		s.EpochConfig.MyConfig.Logger.Panic("illegal state for preprepare", zap.Uint64(SeqNoLog, s.Entry.SeqNo), zap.Uint64(BucketIDLog, s.Entry.BucketID), zap.Uint64(EpochLog, s.EpochConfig.Number), zap.Int("CurrentState", int(s.State)), zap.Int("Expected", int(Uninitialized)))
+func (s *sequence) applyPreprepare(batch [][]byte) *Actions {
+	if s.state != Uninitialized {
+		s.epochConfig.myConfig.Logger.Panic("illegal state for preprepare", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(BucketIDLog, s.entry.BucketID), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Uninitialized)))
 	}
 
-	s.State = Preprepared
-	s.Entry.Batch = batch
+	s.state = Preprepared
+	s.entry.Batch = batch
 
 	return &Actions{
-		Digest: []*Entry{s.Entry},
+		Digest: []*Entry{s.entry},
 	}
 }
 
-func (s *Sequence) ApplyDigestResult(digest []byte) *Actions {
-	if s.State != Preprepared {
-		s.EpochConfig.MyConfig.Logger.Panic("illegal state for digest result", zap.Uint64(SeqNoLog, s.Entry.SeqNo), zap.Uint64(BucketIDLog, s.Entry.BucketID), zap.Uint64(EpochLog, s.EpochConfig.Number), zap.Int("CurrentState", int(s.State)), zap.Int("Expected", int(Preprepared)))
+func (s *sequence) applyDigestResult(digest []byte) *Actions {
+	if s.state != Preprepared {
+		s.epochConfig.myConfig.Logger.Panic("illegal state for digest result", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(BucketIDLog, s.entry.BucketID), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Preprepared)))
 	}
 
-	s.State = Digested
-	s.Digest = digest
+	s.state = Digested
+	s.digest = digest
 
 	return &Actions{
-		Validate: []*Entry{s.Entry},
+		Validate: []*Entry{s.entry},
 	}
 }
 
-func (s *Sequence) ApplyValidateResult(valid bool) *Actions {
-	if s.State != Digested {
-		s.EpochConfig.MyConfig.Logger.Panic("illegal state for validate result", zap.Uint64(SeqNoLog, s.Entry.SeqNo), zap.Uint64(BucketIDLog, s.Entry.BucketID), zap.Uint64(EpochLog, s.EpochConfig.Number), zap.Int("CurrentState", int(s.State)), zap.Int("Expected", int(Digested)))
+func (s *sequence) applyValidateResult(valid bool) *Actions {
+	if s.state != Digested {
+		s.epochConfig.myConfig.Logger.Panic("illegal state for validate result", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(BucketIDLog, s.entry.BucketID), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Digested)))
 	}
 
 	if !valid {
-		s.State = InvalidBatch
+		s.state = InvalidBatch
 		// TODO return a view change / suspect message
 		return &Actions{}
 	}
 
-	s.State = Validated
+	s.state = Validated
 
 	return &Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_Prepare{
 					Prepare: &pb.Prepare{
-						SeqNo:  s.Entry.SeqNo,
-						Epoch:  s.Entry.Epoch,
-						Bucket: s.Entry.BucketID,
-						Digest: s.Digest,
+						SeqNo:  s.entry.SeqNo,
+						Epoch:  s.entry.Epoch,
+						Bucket: s.entry.BucketID,
+						Digest: s.digest,
 					},
 				},
 			},
@@ -111,42 +111,42 @@ func (s *Sequence) ApplyValidateResult(valid bool) *Actions {
 	}
 }
 
-func (s *Sequence) ApplyPrepare(source NodeID, digest []byte) *Actions {
+func (s *sequence) applyPrepare(source NodeID, digest []byte) *Actions {
 	// TODO, if the digest is known, mark a mismatch as oddity
-	agreements := s.Prepares[string(digest)]
+	agreements := s.prepares[string(digest)]
 	if agreements == nil {
 		agreements = map[NodeID]struct{}{}
-		s.Prepares[string(digest)] = agreements
+		s.prepares[string(digest)] = agreements
 	}
 	agreements[source] = struct{}{}
 
-	if s.State != Validated {
+	if s.state != Validated {
 		return &Actions{}
 	}
 
 	// Do not prepare unless we have sent our prepare as well
-	if _, ok := agreements[NodeID(s.EpochConfig.MyConfig.ID)]; !ok {
+	if _, ok := agreements[NodeID(s.epochConfig.myConfig.ID)]; !ok {
 		return &Actions{}
 	}
 
 	// We do require 2*F+1 prepares, a prepare is implicitly added for the leader
-	requiredPrepares := 2*s.EpochConfig.F + 1
+	requiredPrepares := 2*s.epochConfig.f + 1
 
 	if len(agreements) < requiredPrepares {
 		return &Actions{}
 	}
 
-	s.State = Prepared
+	s.state = Prepared
 
 	return &Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_Commit{
 					Commit: &pb.Commit{
-						SeqNo:  s.Entry.SeqNo,
-						Epoch:  s.Entry.Epoch,
-						Bucket: s.Entry.BucketID,
-						Digest: s.Digest,
+						SeqNo:  s.entry.SeqNo,
+						Epoch:  s.entry.Epoch,
+						Bucket: s.entry.BucketID,
+						Digest: s.digest,
 					},
 				},
 			},
@@ -154,33 +154,33 @@ func (s *Sequence) ApplyPrepare(source NodeID, digest []byte) *Actions {
 	}
 }
 
-func (s *Sequence) ApplyCommit(source NodeID, digest []byte) *Actions {
+func (s *sequence) applyCommit(source NodeID, digest []byte) *Actions {
 	// TODO, if the digest is known, mark a mismatch as oddity
-	agreements := s.Commits[string(digest)]
+	agreements := s.commits[string(digest)]
 	if agreements == nil {
 		agreements = map[NodeID]struct{}{}
-		s.Commits[string(digest)] = agreements
+		s.commits[string(digest)] = agreements
 	}
 	agreements[source] = struct{}{}
 
-	if s.State != Prepared {
+	if s.state != Prepared {
 		return &Actions{}
 	}
 
 	// Do not commit unless we have sent a commit
-	if _, ok := agreements[NodeID(s.EpochConfig.MyConfig.ID)]; !ok {
+	if _, ok := agreements[NodeID(s.epochConfig.myConfig.ID)]; !ok {
 		return &Actions{}
 	}
 
-	requiredCommits := 2*s.EpochConfig.F + 1
+	requiredCommits := 2*s.epochConfig.f + 1
 
 	if len(agreements) < requiredCommits {
 		return &Actions{}
 	}
 
-	s.State = Committed
+	s.state = Committed
 
 	return &Actions{
-		Commit: []*Entry{s.Entry},
+		Commit: []*Entry{s.entry},
 	}
 }

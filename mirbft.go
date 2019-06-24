@@ -19,6 +19,10 @@ var ErrStopped = fmt.Errorf("stopped at caller request")
 
 type StatusEncoding int
 
+type BucketID uint64
+type SeqNo uint64
+type NodeID uint64
+
 const (
 	ConsoleEncoding StatusEncoding = iota
 	JSONEncoding
@@ -30,7 +34,7 @@ type Replica struct {
 
 type Node struct {
 	Config   *Config
-	s        *Serializer
+	s        *serializer
 	Replicas []Replica
 }
 
@@ -48,20 +52,20 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 	return &Node{
 		Config:   config,
 		Replicas: replicas,
-		s: NewSerializer(&StateMachine{
-			Config: config,
-			CurrentEpoch: NewEpoch(&EpochConfig{
-				MyConfig: config,
-				Oddities: &Oddities{
-					Nodes: map[NodeID]*Oddity{},
+		s: newSerializer(&stateMachine{
+			myConfig: config,
+			currentEpoch: newEpoch(&epochConfig{
+				myConfig: config,
+				oddities: &oddities{
+					nodes: map[NodeID]*oddity{},
 				},
-				Number:             0,
-				CheckpointInterval: 5,
-				HighWatermark:      50,
-				LowWatermark:       0,
-				F:                  f,
-				Nodes:              nodes,
-				Buckets:            buckets,
+				number:             0,
+				checkpointInterval: 5,
+				highWatermark:      50,
+				lowWatermark:       0,
+				f:                  f,
+				nodes:              nodes,
+				buckets:            buckets,
 			}),
 		}, doneC),
 	}, nil
@@ -69,22 +73,22 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 
 func (n *Node) Propose(ctx context.Context, data []byte) error {
 	select {
-	case n.s.PropC <- data:
+	case n.s.propC <- data:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-n.s.DoneC:
+	case <-n.s.doneC:
 		return ErrStopped
 	}
 }
 
 func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 	select {
-	case n.s.StepC <- Step{Source: source, Msg: msg}:
+	case n.s.stepC <- step{Source: source, Msg: msg}:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-n.s.DoneC:
+	case <-n.s.doneC:
 		return ErrStopped
 	}
 }
@@ -95,34 +99,34 @@ func (n *Node) Status(ctx context.Context, encoding StatusEncoding) (string, err
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
-	case n.s.StatusC <- StatusReq{
+	case n.s.statusC <- StatusReq{
 		JSON:   encoding == JSONEncoding,
 		ReplyC: statusC,
 	}:
 		select {
 		case status := <-statusC:
 			return status, nil
-		case <-n.s.DoneC:
+		case <-n.s.doneC:
 			return "", ErrStopped
 		}
-	case <-n.s.DoneC:
+	case <-n.s.doneC:
 		return "", ErrStopped
 	}
 }
 
 func (n *Node) Ready() <-chan Actions {
-	return n.s.ActionsC
+	return n.s.actionsC
 }
 
 func (n *Node) Tick() {
-	n.s.TickC <- struct{}{}
+	n.s.tickC <- struct{}{}
 }
 
 func (n *Node) AddResults(results ActionResults) error {
 	select {
-	case n.s.ResultsC <- results:
+	case n.s.resultsC <- results:
 		return nil
-	case <-n.s.DoneC:
+	case <-n.s.doneC:
 		return ErrStopped
 	}
 }

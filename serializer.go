@@ -14,23 +14,23 @@ import (
 	"go.uber.org/zap"
 )
 
-type Step struct {
+type step struct {
 	Source uint64
 	Msg    *pb.Msg
 }
 
-// Serializer provides a single threaded way to access the Mir state machine
+// serializer provides a single threaded way to access the Mir state machine
 // and passes work to/from the state machine.
-type Serializer struct {
-	ActionsC chan Actions
-	DoneC    <-chan struct{}
-	PropC    chan []byte
-	ResultsC chan ActionResults
-	StatusC  chan StatusReq
-	StepC    chan Step
-	TickC    chan struct{}
+type serializer struct {
+	actionsC chan Actions
+	doneC    <-chan struct{}
+	propC    chan []byte
+	resultsC chan ActionResults
+	statusC  chan StatusReq
+	stepC    chan step
+	tickC    chan struct{}
 
-	StateMachine *StateMachine
+	stateMachine *stateMachine
 }
 
 type StatusReq struct {
@@ -38,16 +38,16 @@ type StatusReq struct {
 	ReplyC chan string
 }
 
-func NewSerializer(stateMachine *StateMachine, doneC <-chan struct{}) *Serializer {
-	s := &Serializer{
-		ActionsC:     make(chan Actions),
-		DoneC:        doneC,
-		PropC:        make(chan []byte),
-		ResultsC:     make(chan ActionResults),
-		StatusC:      make(chan StatusReq),
-		StepC:        make(chan Step),
-		TickC:        make(chan struct{}),
-		StateMachine: stateMachine,
+func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serializer {
+	s := &serializer{
+		actionsC:     make(chan Actions),
+		doneC:        doneC,
+		propC:        make(chan []byte),
+		resultsC:     make(chan ActionResults),
+		statusC:      make(chan StatusReq),
+		stepC:        make(chan step),
+		tickC:        make(chan struct{}),
+		stateMachine: stateMachine,
 	}
 	go s.run()
 	return s
@@ -55,10 +55,10 @@ func NewSerializer(stateMachine *StateMachine, doneC <-chan struct{}) *Serialize
 
 // run must be single threaded and is therefore hidden to prevent accidental capture
 // of other go routines.
-func (s *Serializer) run() {
+func (s *serializer) run() {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println(s.StateMachine.Status().Pretty())
+			fmt.Println(s.stateMachine.status().Pretty())
 			panic(r)
 		}
 	}()
@@ -69,26 +69,26 @@ func (s *Serializer) run() {
 		if actions.IsEmpty() {
 			actionsC = nil
 		} else {
-			actionsC = s.ActionsC
+			actionsC = s.actionsC
 		}
-		s.StateMachine.Config.Logger.Debug("serializer waiting for consumer", zap.Bool("actions", actionsC != nil))
+		s.stateMachine.myConfig.Logger.Debug("serializer waiting for consumer", zap.Bool("actions", actionsC != nil))
 
 		select {
-		case data := <-s.PropC:
-			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "proposal"))
-			actions.Append(s.StateMachine.Propose(data))
-		case step := <-s.StepC:
-			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "step"))
-			actions.Append(s.StateMachine.Step(NodeID(step.Source), step.Msg))
+		case data := <-s.propC:
+			s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "proposal"))
+			actions.Append(s.stateMachine.Propose(data))
+		case step := <-s.stepC:
+			s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "step"))
+			actions.Append(s.stateMachine.step(NodeID(step.Source), step.Msg))
 		case actionsC <- *actions:
-			s.StateMachine.Config.Logger.Debug("serializer sent actions")
+			s.stateMachine.myConfig.Logger.Debug("serializer sent actions")
 			actions.Clear()
-		case results := <-s.ResultsC:
-			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "results"))
-			actions.Append(s.StateMachine.ProcessResults(results))
-		case statusReq := <-s.StatusC:
-			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "status"))
-			status := s.StateMachine.Status()
+		case results := <-s.resultsC:
+			s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "results"))
+			actions.Append(s.stateMachine.processResults(results))
+		case statusReq := <-s.statusC:
+			s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "status"))
+			status := s.stateMachine.status()
 			var statusStr string
 			if statusReq.JSON {
 				statusStr = status.JSON()
@@ -97,13 +97,13 @@ func (s *Serializer) run() {
 			}
 			select {
 			case statusReq.ReplyC <- statusStr:
-			case <-s.DoneC:
+			case <-s.doneC:
 			}
-		case <-s.TickC:
-			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "tick"))
-			actions.Append(s.StateMachine.Tick())
-		case <-s.DoneC:
-			s.StateMachine.Config.Logger.Debug("serializer receiving", zap.String("type", "done"))
+		case <-s.tickC:
+			s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "tick"))
+			actions.Append(s.stateMachine.tick())
+		case <-s.doneC:
+			s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "done"))
 			return
 		}
 	}

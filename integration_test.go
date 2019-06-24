@@ -4,13 +4,12 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package mirbft_test
+package mirbft
 
 import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 
 	"go.uber.org/zap"
@@ -18,12 +17,12 @@ import (
 
 var _ = Describe("Integration", func() {
 	var (
-		serializer     *mirbft.Serializer
-		stateMachine   *mirbft.StateMachine
-		epoch          *mirbft.Epoch
-		epochConfig    *mirbft.EpochConfig
-		consumerConfig *mirbft.Config
-		logger         *zap.Logger
+		serializer      *serializer
+		stateMachineVal *stateMachine
+		epoch           *epoch
+		epochConfigVal  *epochConfig
+		consumerConfig  *Config
+		logger          *zap.Logger
 
 		doneC chan struct{}
 	)
@@ -33,10 +32,10 @@ var _ = Describe("Integration", func() {
 		logger, err = zap.NewDevelopment()
 		Expect(err).NotTo(HaveOccurred())
 
-		consumerConfig = &mirbft.Config{
+		consumerConfig = &Config{
 			ID:     0,
 			Logger: logger,
-			BatchParameters: mirbft.BatchParameters{
+			BatchParameters: BatchParameters{
 				CutSizeBytes: 1,
 			},
 		}
@@ -51,38 +50,38 @@ var _ = Describe("Integration", func() {
 
 	Describe("F=0,N=1", func() {
 		BeforeEach(func() {
-			epochConfig = &mirbft.EpochConfig{
-				MyConfig: consumerConfig,
-				Oddities: &mirbft.Oddities{
-					Nodes: map[mirbft.NodeID]*mirbft.Oddity{},
+			epochConfigVal = &epochConfig{
+				myConfig: consumerConfig,
+				oddities: &oddities{
+					nodes: map[NodeID]*oddity{},
 				},
-				Number:             3,
-				CheckpointInterval: 2,
-				HighWatermark:      20,
-				LowWatermark:       0,
-				F:                  0,
-				Nodes:              []mirbft.NodeID{0},
-				Buckets:            map[mirbft.BucketID]mirbft.NodeID{0: 0},
+				number:             3,
+				checkpointInterval: 2,
+				highWatermark:      20,
+				lowWatermark:       0,
+				f:                  0,
+				nodes:              []NodeID{0},
+				buckets:            map[BucketID]NodeID{0: 0},
 			}
 
-			epoch = mirbft.NewEpoch(epochConfig)
+			epoch = newEpoch(epochConfigVal)
 
-			stateMachine = &mirbft.StateMachine{
-				Config:       consumerConfig,
-				CurrentEpoch: epoch,
+			stateMachineVal = &stateMachine{
+				myConfig:     consumerConfig,
+				currentEpoch: epoch,
 			}
 
-			serializer = mirbft.NewSerializer(stateMachine, doneC)
+			serializer = newSerializer(stateMachineVal, doneC)
 
 		})
 
 		It("works from proposal through commit", func() {
 			By("proposing a message")
-			serializer.PropC <- []byte("data")
-			actions := &mirbft.Actions{}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
-				Preprocess: []mirbft.Proposal{
+			serializer.propC <- []byte("data")
+			actions := &Actions{}
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Preprocess: []Proposal{
 					{
 						Source: 0,
 						Data:   []byte("data"),
@@ -91,19 +90,19 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("returning a processed version of the proposal")
-			serializer.ResultsC <- mirbft.ActionResults{
-				Preprocesses: []mirbft.PreprocessResult{
+			serializer.resultsC <- ActionResults{
+				Preprocesses: []PreprocessResult{
 					{
 						Cup: 7,
-						Proposal: mirbft.Proposal{
+						Proposal: Proposal{
 							Source: 0,
 							Data:   []byte("data"),
 						},
 					},
 				},
 			}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Preprepare{
@@ -119,13 +118,13 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("broadcasting the preprepare to myself")
-			serializer.StepC <- mirbft.Step{
+			serializer.stepC <- step{
 				Source: 0,
 				Msg:    actions.Broadcast[0],
 			}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
-				Digest: []*mirbft.Entry{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Digest: []*Entry{
 					{
 						Epoch:    3,
 						BucketID: 0,
@@ -136,10 +135,10 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("returning a digest for the batch")
-			serializer.ResultsC <- mirbft.ActionResults{
-				Digests: []mirbft.DigestResult{
+			serializer.resultsC <- ActionResults{
+				Digests: []DigestResult{
 					{
-						Entry: &mirbft.Entry{
+						Entry: &Entry{
 							Epoch:    3,
 							BucketID: 0,
 							SeqNo:    1,
@@ -149,8 +148,8 @@ var _ = Describe("Integration", func() {
 					},
 				},
 			}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Commit{
@@ -166,13 +165,13 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("broadcasting the commit to myself")
-			serializer.StepC <- mirbft.Step{
+			serializer.stepC <- step{
 				Source: 0,
 				Msg:    actions.Broadcast[0],
 			}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
-				Commit: []*mirbft.Entry{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Commit: []*Entry{
 					{
 						Epoch:    3,
 						BucketID: 0,
@@ -186,38 +185,38 @@ var _ = Describe("Integration", func() {
 
 	Describe("F=1,N=4", func() {
 		BeforeEach(func() {
-			epochConfig = &mirbft.EpochConfig{
-				MyConfig: consumerConfig,
-				Oddities: &mirbft.Oddities{
-					Nodes: map[mirbft.NodeID]*mirbft.Oddity{},
+			epochConfigVal = &epochConfig{
+				myConfig: consumerConfig,
+				oddities: &oddities{
+					nodes: map[NodeID]*oddity{},
 				},
-				Number:             3,
-				CheckpointInterval: 2,
-				HighWatermark:      20,
-				LowWatermark:       0,
-				F:                  1,
-				Nodes:              []mirbft.NodeID{0, 1, 2, 3},
-				Buckets:            map[mirbft.BucketID]mirbft.NodeID{0: 0, 1: 1, 2: 2, 3: 3},
+				number:             3,
+				checkpointInterval: 2,
+				highWatermark:      20,
+				lowWatermark:       0,
+				f:                  1,
+				nodes:              []NodeID{0, 1, 2, 3},
+				buckets:            map[BucketID]NodeID{0: 0, 1: 1, 2: 2, 3: 3},
 			}
 
-			epoch = mirbft.NewEpoch(epochConfig)
+			epoch = newEpoch(epochConfigVal)
 
-			stateMachine = &mirbft.StateMachine{
-				Config:       consumerConfig,
-				CurrentEpoch: epoch,
+			stateMachineVal = &stateMachine{
+				myConfig:     consumerConfig,
+				currentEpoch: epoch,
 			}
 
-			serializer = mirbft.NewSerializer(stateMachine, doneC)
+			serializer = newSerializer(stateMachineVal, doneC)
 
 		})
 
 		It("works from proposal through commit", func() {
 			By("proposing a message")
-			serializer.PropC <- []byte("data")
-			actions := &mirbft.Actions{}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
-				Preprocess: []mirbft.Proposal{
+			serializer.propC <- []byte("data")
+			actions := &Actions{}
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Preprocess: []Proposal{
 					{
 						Source: 0,
 						Data:   []byte("data"),
@@ -226,20 +225,20 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("returning a processed version of the proposal")
-			serializer.ResultsC <- mirbft.ActionResults{
-				Preprocesses: []mirbft.PreprocessResult{
+			serializer.resultsC <- ActionResults{
+				Preprocesses: []PreprocessResult{
 					{
 						Cup: 7,
-						Proposal: mirbft.Proposal{
+						Proposal: Proposal{
 							Source: 0,
 							Data:   []byte("data"),
 						},
 					},
 				},
 			}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
-				Unicast: []mirbft.Unicast{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Unicast: []Unicast{
 					{
 						Target: 3,
 						Msg: &pb.Msg{
@@ -256,7 +255,7 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("faking a preprepare from the leader")
-			serializer.StepC <- mirbft.Step{
+			serializer.stepC <- step{
 				Source: 3,
 				Msg: &pb.Msg{
 					Type: &pb.Msg_Preprepare{
@@ -269,9 +268,9 @@ var _ = Describe("Integration", func() {
 					},
 				},
 			}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
-				Digest: []*mirbft.Entry{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Digest: []*Entry{
 					{
 						Epoch:    3,
 						BucketID: 3,
@@ -282,10 +281,10 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("returning a digest for the batch")
-			serializer.ResultsC <- mirbft.ActionResults{
-				Digests: []mirbft.DigestResult{
+			serializer.resultsC <- ActionResults{
+				Digests: []DigestResult{
 					{
-						Entry: &mirbft.Entry{
+						Entry: &Entry{
 							Epoch:    3,
 							BucketID: 3,
 							SeqNo:    1,
@@ -295,9 +294,9 @@ var _ = Describe("Integration", func() {
 					},
 				},
 			}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
-				Validate: []*mirbft.Entry{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Validate: []*Entry{
 					{
 						Epoch:    3,
 						BucketID: 3,
@@ -308,10 +307,10 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("returning a successful validatation for the batch")
-			serializer.ResultsC <- mirbft.ActionResults{
-				Validations: []mirbft.ValidateResult{
+			serializer.resultsC <- ActionResults{
+				Validations: []ValidateResult{
 					{
-						Entry: &mirbft.Entry{
+						Entry: &Entry{
 							Epoch:    3,
 							BucketID: 3,
 							SeqNo:    1,
@@ -321,8 +320,8 @@ var _ = Describe("Integration", func() {
 					},
 				},
 			}
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Prepare{
@@ -338,18 +337,18 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("broadcasting the prepare to myself, and from one other node")
-			serializer.StepC <- mirbft.Step{
+			serializer.stepC <- step{
 				Source: 0,
 				Msg:    actions.Broadcast[0],
 			}
 
-			serializer.StepC <- mirbft.Step{
+			serializer.stepC <- step{
 				Source: 1,
 				Msg:    actions.Broadcast[0],
 			}
 
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Commit{
@@ -365,24 +364,24 @@ var _ = Describe("Integration", func() {
 			}))
 
 			By("broadcasting the commit to myself, and from two other nodes")
-			serializer.StepC <- mirbft.Step{
+			serializer.stepC <- step{
 				Source: 0,
 				Msg:    actions.Broadcast[0],
 			}
 
-			serializer.StepC <- mirbft.Step{
+			serializer.stepC <- step{
 				Source: 1,
 				Msg:    actions.Broadcast[0],
 			}
 
-			serializer.StepC <- mirbft.Step{
+			serializer.stepC <- step{
 				Source: 3,
 				Msg:    actions.Broadcast[0],
 			}
 
-			Eventually(serializer.ActionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&mirbft.Actions{
-				Commit: []*mirbft.Entry{
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Commit: []*Entry{
 					{
 						Epoch:    3,
 						BucketID: 3,

@@ -6,66 +6,66 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
-type Applyable int
+type applyable int
 
 const (
-	Invalid Applyable = iota
+	Invalid applyable = iota
 	Past
 	Current
 	Future
 )
 
 // Node tracks the expect next message to apply on a per bucket basis
-type NodeMsgs struct {
-	ID NodeID
+type nodeMsgs struct {
+	id NodeID
 
-	EpochConfig *EpochConfig
+	epochConfig *epochConfig
 
-	// Next maintains the info about the next expected messages for
+	// next maintains the info about the next expected messages for
 	// a particular bucket.
-	Next map[BucketID]*NextMsg
+	next map[BucketID]*nextMsg
 
-	NextCheckpoint SeqNo
+	nextCheckpoint SeqNo
 
-	LeadsSomeBucket bool
+	leadsSomeBucket bool
 
-	LargestPreprepare SeqNo
+	largestPreprepare SeqNo
 }
 
-type NextMsg struct {
-	Leader  bool
-	Prepare SeqNo // Note Prepare is Preprepare if Leader is true
-	Commit  SeqNo
+type nextMsg struct {
+	leader  bool
+	prepare SeqNo // Note Prepare is Preprepare if Leader is true
+	commit  SeqNo
 }
 
-func NewNodeMsgs(nodeID NodeID, epochConfig *EpochConfig) *NodeMsgs {
-	next := map[BucketID]*NextMsg{}
+func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig) *nodeMsgs {
+	next := map[BucketID]*nextMsg{}
 	leadsSomeBucket := false
-	for bucketID, leaderID := range epochConfig.Buckets {
+	for bucketID, leaderID := range epochConfig.buckets {
 		leadsSomeBucket = true
-		next[bucketID] = &NextMsg{
-			Leader:  nodeID == leaderID,
-			Prepare: epochConfig.LowWatermark + 1,
-			Commit:  epochConfig.LowWatermark + 1,
+		next[bucketID] = &nextMsg{
+			leader:  nodeID == leaderID,
+			prepare: epochConfig.lowWatermark + 1,
+			commit:  epochConfig.lowWatermark + 1,
 		}
 	}
-	return &NodeMsgs{
-		ID:              nodeID,
-		EpochConfig:     epochConfig,
-		Next:            next,
-		NextCheckpoint:  epochConfig.LowWatermark + epochConfig.CheckpointInterval,
-		LeadsSomeBucket: leadsSomeBucket,
+	return &nodeMsgs{
+		id:              nodeID,
+		epochConfig:     epochConfig,
+		next:            next,
+		nextCheckpoint:  epochConfig.lowWatermark + epochConfig.checkpointInterval,
+		leadsSomeBucket: leadsSomeBucket,
 	}
 }
 
-func (n *NodeMsgs) InspectPreprepare(seqNo SeqNo, bucket BucketID) Applyable {
-	next := n.Next[bucket]
+func (n *nodeMsgs) inspectPreprepare(seqNo SeqNo, bucket BucketID) applyable {
+	next := n.next[bucket]
 	switch {
-	case !next.Leader:
+	case !next.leader:
 		return Invalid
-	case next.Prepare > seqNo:
+	case next.prepare > seqNo:
 		return Past
-	case next.Prepare == seqNo:
+	case next.prepare == seqNo:
 		return Current
 	default:
 		// next.Prepare > seqNo
@@ -73,14 +73,14 @@ func (n *NodeMsgs) InspectPreprepare(seqNo SeqNo, bucket BucketID) Applyable {
 	}
 }
 
-func (n *NodeMsgs) InspectPrepare(seqNo SeqNo, bucket BucketID) Applyable {
-	next := n.Next[bucket]
+func (n *nodeMsgs) inspectPrepare(seqNo SeqNo, bucket BucketID) applyable {
+	next := n.next[bucket]
 	switch {
-	case next.Leader:
+	case next.leader:
 		return Invalid
-	case next.Prepare > seqNo:
+	case next.prepare > seqNo:
 		return Past
-	case next.Prepare == seqNo:
+	case next.prepare == seqNo:
 		return Current
 	default:
 		// next.Prepare > seqNo
@@ -88,76 +88,76 @@ func (n *NodeMsgs) InspectPrepare(seqNo SeqNo, bucket BucketID) Applyable {
 	}
 }
 
-func (n *NodeMsgs) InspectCommit(seqNo SeqNo, bucket BucketID) Applyable {
-	next := n.Next[bucket]
+func (n *nodeMsgs) inspectCommit(seqNo SeqNo, bucket BucketID) applyable {
+	next := n.next[bucket]
 	switch {
-	case next.Commit > seqNo:
+	case next.commit > seqNo:
 		return Past
-	case next.Commit == seqNo && next.Prepare > next.Commit:
+	case next.commit == seqNo && next.prepare > next.commit:
 		return Current
 	default:
 		return Future
 	}
 }
 
-func (n *NodeMsgs) InspectCheckpoint(seqNo SeqNo) Applyable {
-	for _, next := range n.Next {
-		if next.Commit < seqNo {
+func (n *nodeMsgs) inspectCheckpoint(seqNo SeqNo) applyable {
+	for _, next := range n.next {
+		if next.commit < seqNo {
 			return Future
 		}
 	}
 
 	switch {
-	case n.NextCheckpoint > seqNo:
+	case n.nextCheckpoint > seqNo:
 		return Past
-	case n.NextCheckpoint == seqNo:
+	case n.nextCheckpoint == seqNo:
 		return Current
 	default:
 		return Future
 	}
 }
 
-// ApplyPreprepare returns true if a new largest preprepare was observed
-func (n *NodeMsgs) ApplyPreprepare(seqNo SeqNo, bucket BucketID) bool {
-	next := n.Next[bucket]
-	next.Prepare = seqNo + 1
-	if n.LargestPreprepare < seqNo {
-		n.LargestPreprepare = seqNo
+// applyPreprepare returns true if a new largest preprepare was observed
+func (n *nodeMsgs) applyPreprepare(seqNo SeqNo, bucket BucketID) bool {
+	next := n.next[bucket]
+	next.prepare = seqNo + 1
+	if n.largestPreprepare < seqNo {
+		n.largestPreprepare = seqNo
 		return true
 	}
 	return false
 }
 
-func (n *NodeMsgs) ApplyPrepare(seqNo SeqNo, bucket BucketID) {
-	next := n.Next[bucket]
-	next.Prepare = seqNo + 1
+func (n *nodeMsgs) applyPrepare(seqNo SeqNo, bucket BucketID) {
+	next := n.next[bucket]
+	next.prepare = seqNo + 1
 }
 
-func (n *NodeMsgs) ApplyCommit(seqNo SeqNo, bucket BucketID) {
-	next := n.Next[bucket]
-	next.Commit = seqNo + 1
+func (n *nodeMsgs) applyCommit(seqNo SeqNo, bucket BucketID) {
+	next := n.next[bucket]
+	next.commit = seqNo + 1
 }
 
-func (n *NodeMsgs) ApplyCheckpoint(seqNo SeqNo) {
-	n.NextCheckpoint = seqNo + n.EpochConfig.CheckpointInterval
+func (n *nodeMsgs) applyCheckpoint(seqNo SeqNo) {
+	n.nextCheckpoint = seqNo + n.epochConfig.checkpointInterval
 }
 
-func (n *NodeMsgs) MoveWatermarks() {
-	for _, next := range n.Next {
-		if next.Prepare < n.EpochConfig.LowWatermark {
+func (n *nodeMsgs) moveWatermarks() {
+	for _, next := range n.next {
+		if next.prepare < n.epochConfig.lowWatermark {
 			// TODO log warning
-			next.Prepare = n.EpochConfig.LowWatermark
+			next.prepare = n.epochConfig.lowWatermark
 		}
 
-		if next.Commit < n.EpochConfig.LowWatermark {
+		if next.commit < n.epochConfig.lowWatermark {
 			// TODO log warning
-			next.Commit = n.EpochConfig.LowWatermark
+			next.commit = n.epochConfig.lowWatermark
 		}
 	}
 
-	if n.NextCheckpoint < n.EpochConfig.LowWatermark {
+	if n.nextCheckpoint < n.epochConfig.lowWatermark {
 		// TODO log warning
-		n.NextCheckpoint = n.EpochConfig.LowWatermark
+		n.nextCheckpoint = n.epochConfig.lowWatermark
 	}
 }
 
@@ -174,21 +174,21 @@ type NodeBucketStatus struct {
 	LastCheckpoint uint64
 }
 
-func (n *NodeMsgs) Status() *NodeStatus {
-	bucketStatuses := make([]NodeBucketStatus, len(n.Next))
+func (n *nodeMsgs) status() *NodeStatus {
+	bucketStatuses := make([]NodeBucketStatus, len(n.next))
 	for bucketID := range bucketStatuses {
-		nextMsg := n.Next[BucketID(bucketID)]
+		nextMsg := n.next[BucketID(bucketID)]
 		bucketStatuses[bucketID] = NodeBucketStatus{
 			BucketID:       bucketID,
-			IsLeader:       nextMsg.Leader,
-			LastCheckpoint: uint64(n.NextCheckpoint - n.EpochConfig.CheckpointInterval),
-			LastPrepare:    uint64(nextMsg.Prepare - 1), // XXX ignoring the underflow, need to re-index at 1 anyway
-			LastCommit:     uint64(nextMsg.Commit - 1),
+			IsLeader:       nextMsg.leader,
+			LastCheckpoint: uint64(n.nextCheckpoint - n.epochConfig.checkpointInterval),
+			LastPrepare:    uint64(nextMsg.prepare - 1), // No underflow is possible, we start at seq 1
+			LastCommit:     uint64(nextMsg.commit - 1),
 		}
 	}
 
 	return &NodeStatus{
-		ID:             uint64(n.ID),
+		ID:             uint64(n.id),
 		BucketStatuses: bucketStatuses,
 	}
 }

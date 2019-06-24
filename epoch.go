@@ -12,100 +12,100 @@ import (
 	"go.uber.org/zap"
 )
 
-// EpochConfig is the information required by the various
+// epochConfig is the information required by the various
 // state machines whose state is scoped to an epoch
-type EpochConfig struct {
-	// MyConfig is the configuration specific to this node
-	MyConfig *Config
+type epochConfig struct {
+	// myConfig is the configuration specific to this node
+	myConfig *Config
 
-	// Oddities stores counts of suspicious acitivities and logs them.
-	Oddities *Oddities
+	// oddities stores counts of suspicious acitivities and logs them.
+	oddities *oddities
 
-	// Number is the epoch number this config applies to
-	Number uint64
+	// number is the epoch number this config applies to
+	number uint64
 
-	// HighWatermark is the current maximum seqno that may be processed
-	HighWatermark SeqNo
+	// highWatermark is the current maximum seqno that may be processed
+	highWatermark SeqNo
 
-	// LowWatermark is the current minimum seqno for which messages are valid
-	LowWatermark SeqNo
+	// lowWatermark is the current minimum seqno for which messages are valid
+	lowWatermark SeqNo
 
 	// F is the total number of faults tolerated by the network
-	F int
+	f int
 
 	// CheckpointInterval is the number of sequence numbers to commit before broadcasting a checkpoint
-	CheckpointInterval SeqNo
+	checkpointInterval SeqNo
 
-	// Nodes is all the node ids in the network
-	Nodes []NodeID
+	// nodes is all the node ids in the network
+	nodes []NodeID
 
-	// Buckets is a map from bucket ID to leader ID
-	Buckets map[BucketID]NodeID
+	// buckets is a map from bucket ID to leader ID
+	buckets map[BucketID]NodeID
 }
 
-type Epoch struct {
-	EpochConfig *EpochConfig
+type epoch struct {
+	epochConfig *epochConfig
 
-	NodeMsgs map[NodeID]*NodeMsgs
+	nodeMsgs map[NodeID]*nodeMsgs
 
-	Buckets map[BucketID]*Bucket
+	buckets map[BucketID]*bucket
 
-	Proposer *Proposer
+	proposer *proposer
 
-	CheckpointWindows map[SeqNo]*CheckpointWindow
+	checkpointWindows map[SeqNo]*checkpointWindow
 }
 
-func NewEpoch(config *EpochConfig) *Epoch {
-	nodeMsgs := map[NodeID]*NodeMsgs{}
-	for _, id := range config.Nodes {
-		nodeMsgs[id] = NewNodeMsgs(id, config)
+func newEpoch(config *epochConfig) *epoch {
+	nodeMsgs := map[NodeID]*nodeMsgs{}
+	for _, id := range config.nodes {
+		nodeMsgs[id] = newNodeMsgs(id, config)
 	}
 
-	buckets := map[BucketID]*Bucket{}
-	for bucketID := range config.Buckets {
-		buckets[bucketID] = NewBucket(config, bucketID)
+	buckets := map[BucketID]*bucket{}
+	for bucketID := range config.buckets {
+		buckets[bucketID] = newBucket(config, bucketID)
 	}
 
-	checkpointWindows := map[SeqNo]*CheckpointWindow{}
-	for seqNo := config.LowWatermark + config.CheckpointInterval; seqNo <= config.HighWatermark; seqNo += config.CheckpointInterval {
-		checkpointWindows[seqNo] = NewCheckpointWindow(seqNo, config)
+	checkpointWindows := map[SeqNo]*checkpointWindow{}
+	for seqNo := config.lowWatermark + config.checkpointInterval; seqNo <= config.highWatermark; seqNo += config.checkpointInterval {
+		checkpointWindows[seqNo] = newCheckpointWindow(seqNo, config)
 	}
 
-	return &Epoch{
-		EpochConfig:       config,
-		NodeMsgs:          nodeMsgs,
-		Buckets:           buckets,
-		CheckpointWindows: checkpointWindows,
-		Proposer:          NewProposer(config),
+	return &epoch{
+		epochConfig:       config,
+		nodeMsgs:          nodeMsgs,
+		buckets:           buckets,
+		checkpointWindows: checkpointWindows,
+		proposer:          newProposer(config),
 	}
 }
 
-func (e *Epoch) ValidateMsg(
+func (e *epoch) validateMsg(
 	source NodeID,
 	seqNo SeqNo,
 	bucket BucketID,
 	msgType string,
-	inspect func(node *NodeMsgs) Applyable,
-	apply func(node *NodeMsgs) *Actions,
+	inspect func(node *nodeMsgs) applyable,
+	apply func(node *nodeMsgs) *Actions,
 ) *Actions {
-	if bucket > BucketID(len(e.EpochConfig.Buckets)) {
-		e.EpochConfig.Oddities.BadBucket(e.EpochConfig, msgType, source, seqNo, bucket)
+	if bucket > BucketID(len(e.epochConfig.buckets)) {
+		e.epochConfig.oddities.badBucket(e.epochConfig, msgType, source, seqNo, bucket)
 		return &Actions{}
 	}
 
-	if seqNo < e.EpochConfig.LowWatermark {
-		e.EpochConfig.Oddities.BelowWatermarks(e.EpochConfig, msgType, source, seqNo, bucket)
+	if seqNo < e.epochConfig.lowWatermark {
+		e.epochConfig.oddities.belowWatermarks(e.epochConfig, msgType, source, seqNo, bucket)
 		return &Actions{}
 	}
 
-	if seqNo > e.EpochConfig.HighWatermark {
-		e.EpochConfig.Oddities.AboveWatermarks(e.EpochConfig, msgType, source, seqNo, bucket)
+	if seqNo > e.epochConfig.highWatermark {
+		e.epochConfig.oddities.aboveWatermarks(e.epochConfig, msgType, source, seqNo, bucket)
 		return &Actions{}
 	}
 
-	node, ok := e.NodeMsgs[source]
+	node, ok := e.nodeMsgs[source]
 	if !ok {
-		e.EpochConfig.MyConfig.Logger.Panic("unknown node")
+		e.epochConfig.myConfig.Logger.Panic("unknown node")
 		// TODO perhaps handle this a bit more gracefully? We should never get a message for a node
 		// not defined in this epoch, but at the time of this writing, it's not clear whether
 		// a subtle bug could cause this or whether this is an obvious panic situation
@@ -113,27 +113,27 @@ func (e *Epoch) ValidateMsg(
 
 	switch inspect(node) {
 	case Past:
-		e.EpochConfig.Oddities.AlreadyProcessed(e.EpochConfig, msgType, source, seqNo, bucket)
+		e.epochConfig.oddities.AlreadyProcessed(e.epochConfig, msgType, source, seqNo, bucket)
 	case Future:
-		e.EpochConfig.MyConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(source)), zap.Uint64("bucket", uint64(bucket)), zap.Uint64("SeqNo", uint64(seqNo)))
+		e.epochConfig.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(source)), zap.Uint64("bucket", uint64(bucket)), zap.Uint64("SeqNo", uint64(seqNo)))
 		// TODO handle this with some sort of 'unprocessed' cache, but ignoring for now
 	case Current:
-		e.EpochConfig.MyConfig.Logger.Debug("applying", zap.Uint64("NodeID", uint64(source)), zap.Uint64("bucket", uint64(bucket)), zap.Uint64("SeqNo", uint64(seqNo)))
+		e.epochConfig.myConfig.Logger.Debug("applying", zap.Uint64("NodeID", uint64(source)), zap.Uint64("bucket", uint64(bucket)), zap.Uint64("SeqNo", uint64(seqNo)))
 		return apply(node)
 	default: // Invalid
-		e.EpochConfig.Oddities.InvalidMessage(e.EpochConfig, msgType, source, seqNo, bucket)
+		e.epochConfig.oddities.InvalidMessage(e.epochConfig, msgType, source, seqNo, bucket)
 	}
 	return &Actions{}
 }
 
-func (e *Epoch) Process(preprocessResult PreprocessResult) *Actions {
-	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.EpochConfig.Buckets)))
-	nodeID := e.EpochConfig.Buckets[bucketID]
-	if nodeID == NodeID(e.EpochConfig.MyConfig.ID) {
-		return e.Proposer.Propose(preprocessResult.Proposal.Data)
+func (e *epoch) process(preprocessResult PreprocessResult) *Actions {
+	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.epochConfig.buckets)))
+	nodeID := e.epochConfig.buckets[bucketID]
+	if nodeID == NodeID(e.epochConfig.myConfig.ID) {
+		return e.proposer.propose(preprocessResult.Proposal.Data)
 	}
 
-	if preprocessResult.Proposal.Source == e.EpochConfig.MyConfig.ID {
+	if preprocessResult.Proposal.Source == e.epochConfig.myConfig.ID {
 		// I originated this proposal, but someone else leads this bucket,
 		// forward the message to them
 		return &Actions{
@@ -143,7 +143,7 @@ func (e *Epoch) Process(preprocessResult PreprocessResult) *Actions {
 					Msg: &pb.Msg{
 						Type: &pb.Msg_Forward{
 							Forward: &pb.Forward{
-								Epoch:  e.EpochConfig.Number,
+								Epoch:  e.epochConfig.number,
 								Bucket: uint64(bucketID),
 								Data:   preprocessResult.Proposal.Data,
 							},
@@ -159,56 +159,56 @@ func (e *Epoch) Process(preprocessResult PreprocessResult) *Actions {
 	return &Actions{}
 }
 
-func (e *Epoch) Preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
-	return e.ValidateMsg(
+func (e *epoch) Preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
+	return e.validateMsg(
 		source, seqNo, bucket, "Preprepare",
-		func(node *NodeMsgs) Applyable { return node.InspectPreprepare(seqNo, bucket) },
-		func(node *NodeMsgs) *Actions {
+		func(node *nodeMsgs) applyable { return node.inspectPreprepare(seqNo, bucket) },
+		func(node *nodeMsgs) *Actions {
 			actions := &Actions{}
-			newLargest := node.ApplyPreprepare(seqNo, bucket)
-			if newLargest && node.LargestPreprepare >= e.Proposer.NextAssigned+e.EpochConfig.CheckpointInterval {
+			newLargest := node.applyPreprepare(seqNo, bucket)
+			if newLargest && node.largestPreprepare >= e.proposer.nextAssigned+e.epochConfig.checkpointInterval {
 				// XXX this is really a kind of heuristic check, to make sure
 				// that if the network is advancing without us, possibly because
 				// of unbalanced buckets, that we keep up, it's worth formalizing.
 				nodesFurtherThanMe := 0
-				for _, node := range e.NodeMsgs {
-					if node.LeadsSomeBucket && node.LargestPreprepare >= e.Proposer.NextAssigned {
+				for _, node := range e.nodeMsgs {
+					if node.leadsSomeBucket && node.largestPreprepare >= e.proposer.nextAssigned {
 						nodesFurtherThanMe++
 					}
 				}
 
-				if nodesFurtherThanMe > e.EpochConfig.F {
-					actions.Append(e.Proposer.NoopAdvance())
+				if nodesFurtherThanMe > e.epochConfig.f {
+					actions.Append(e.proposer.noopAdvance())
 				}
 			}
-			actions.Append(e.Buckets[bucket].ApplyPreprepare(seqNo, batch))
+			actions.Append(e.buckets[bucket].applyPreprepare(seqNo, batch))
 			return actions
 		},
 	)
 }
 
-func (e *Epoch) Prepare(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	return e.ValidateMsg(
+func (e *epoch) Prepare(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+	return e.validateMsg(
 		source, seqNo, bucket, "Prepare",
-		func(node *NodeMsgs) Applyable { return node.InspectPrepare(seqNo, bucket) },
-		func(node *NodeMsgs) *Actions {
-			node.ApplyPrepare(seqNo, bucket)
-			return e.Buckets[bucket].ApplyPrepare(source, seqNo, digest)
+		func(node *nodeMsgs) applyable { return node.inspectPrepare(seqNo, bucket) },
+		func(node *nodeMsgs) *Actions {
+			node.applyPrepare(seqNo, bucket)
+			return e.buckets[bucket].applyPrepare(source, seqNo, digest)
 		},
 	)
 }
 
-func (e *Epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	return e.ValidateMsg(
+func (e *epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+	return e.validateMsg(
 		source, seqNo, bucket, "Commit",
-		func(node *NodeMsgs) Applyable { return node.InspectCommit(seqNo, bucket) },
-		func(node *NodeMsgs) *Actions {
-			node.ApplyCommit(seqNo, bucket)
-			actions := e.Buckets[bucket].ApplyCommit(source, seqNo, digest)
+		func(node *nodeMsgs) applyable { return node.inspectCommit(seqNo, bucket) },
+		func(node *nodeMsgs) *Actions {
+			node.applyCommit(seqNo, bucket)
+			actions := e.buckets[bucket].applyCommit(source, seqNo, digest)
 			if len(actions.Commit) > 0 {
 				// XXX this is a moderately hacky way to determine if this commit msg triggered
 				// a commit, is there a better way?
-				if checkpointWindow, ok := e.CheckpointWindows[seqNo]; ok {
+				if checkpointWindow, ok := e.checkpointWindows[seqNo]; ok {
 					actions.Append(checkpointWindow.Committed(bucket))
 				}
 			}
@@ -217,19 +217,19 @@ func (e *Epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byt
 	)
 }
 
-func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
-	return e.ValidateMsg(
+func (e *epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
+	return e.validateMsg(
 		source, seqNo, 0, "Checkpoint", // XXX using bucket '0' for checkpoints is a bit of a hack, as it has no bucket
-		func(node *NodeMsgs) Applyable { return node.InspectCheckpoint(seqNo) },
-		func(node *NodeMsgs) *Actions {
-			node.ApplyCheckpoint(seqNo)
-			checkpointWindow := e.CheckpointWindows[seqNo]
-			actions := checkpointWindow.ApplyCheckpointMsg(source, value, attestation)
-			if checkpointWindow.GarbageCollectible {
-				checkpointWindows := []*CheckpointWindow{}
-				for seqNo := e.EpochConfig.LowWatermark + e.EpochConfig.CheckpointInterval; seqNo <= e.EpochConfig.HighWatermark; seqNo += e.EpochConfig.CheckpointInterval {
-					checkpointWindow := e.CheckpointWindows[seqNo]
-					if !checkpointWindow.GarbageCollectible {
+		func(node *nodeMsgs) applyable { return node.inspectCheckpoint(seqNo) },
+		func(node *nodeMsgs) *Actions {
+			node.applyCheckpoint(seqNo)
+			cw := e.checkpointWindows[seqNo]
+			actions := cw.applyCheckpointMsg(source, value, attestation)
+			if cw.garbageCollectible {
+				checkpointWindows := []*checkpointWindow{}
+				for seqNo := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval; seqNo <= e.epochConfig.highWatermark; seqNo += e.epochConfig.checkpointInterval {
+					checkpointWindow := e.checkpointWindows[seqNo]
+					if !checkpointWindow.garbageCollectible {
 						break
 					}
 					checkpointWindows = append(checkpointWindows, checkpointWindow)
@@ -237,10 +237,10 @@ func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte
 					// bucket.go and assumes the network is configured for 10 total checkpoints, but not enforced.
 					// Also, if there are at least 2 checkpoints, and the first one is obsolete (meaning all
 					// nodes have acknowledged it, not simply a quorum), garbage collect it.
-					if len(checkpointWindows) > 4 || (len(checkpointWindows) > 2 && checkpointWindows[0].Obsolete) {
-						newLowWatermark := e.EpochConfig.LowWatermark + e.EpochConfig.CheckpointInterval
-						newHighWatermark := e.EpochConfig.HighWatermark + e.EpochConfig.CheckpointInterval
-						actions.Append(e.MoveWatermarks(newLowWatermark, newHighWatermark))
+					if len(checkpointWindows) > 4 || (len(checkpointWindows) > 2 && checkpointWindows[0].obsolete) {
+						newLowWatermark := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval
+						newHighWatermark := e.epochConfig.highWatermark + e.epochConfig.checkpointInterval
+						actions.Append(e.moveWatermarks(newLowWatermark, newHighWatermark))
 						checkpointWindows = checkpointWindows[1:]
 					}
 				}
@@ -250,62 +250,62 @@ func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte
 	)
 }
 
-func (e *Epoch) MoveWatermarks(low, high SeqNo) *Actions {
-	originalLowWatermark := e.EpochConfig.LowWatermark
-	originalHighWatermark := e.EpochConfig.HighWatermark
-	e.EpochConfig.LowWatermark = low
-	e.EpochConfig.HighWatermark = high
+func (e *epoch) moveWatermarks(low, high SeqNo) *Actions {
+	originalLowWatermark := e.epochConfig.lowWatermark
+	originalHighWatermark := e.epochConfig.highWatermark
+	e.epochConfig.lowWatermark = low
+	e.epochConfig.highWatermark = high
 
-	for _, bucket := range e.Buckets {
-		bucket.MoveWatermarks()
+	for _, bucket := range e.buckets {
+		bucket.moveWatermarks()
 	}
 
-	for _, node := range e.NodeMsgs {
-		node.MoveWatermarks()
+	for _, node := range e.nodeMsgs {
+		node.moveWatermarks()
 	}
 
-	for seqNo := originalLowWatermark; seqNo < low && seqNo <= originalHighWatermark; seqNo += e.EpochConfig.CheckpointInterval {
-		delete(e.CheckpointWindows, seqNo)
+	for seqNo := originalLowWatermark; seqNo < low && seqNo <= originalHighWatermark; seqNo += e.epochConfig.checkpointInterval {
+		delete(e.checkpointWindows, seqNo)
 	}
 
-	for seqNo := low; seqNo <= high; seqNo += e.EpochConfig.CheckpointInterval {
+	for seqNo := low; seqNo <= high; seqNo += e.epochConfig.checkpointInterval {
 		if seqNo < originalHighWatermark {
 			continue
 		}
-		e.CheckpointWindows[seqNo] = NewCheckpointWindow(seqNo, e.EpochConfig)
+		e.checkpointWindows[seqNo] = newCheckpointWindow(seqNo, e.epochConfig)
 	}
 
-	return e.Proposer.DrainQueue()
+	return e.proposer.drainQueue()
 }
 
-func (e *Epoch) CheckpointResult(seqNo SeqNo, value, attestation []byte) *Actions {
-	checkpointWindow, ok := e.CheckpointWindows[seqNo]
+func (e *epoch) checkpointResult(seqNo SeqNo, value, attestation []byte) *Actions {
+	checkpointWindow, ok := e.checkpointWindows[seqNo]
 	if !ok {
 		panic("received an unexpected checkpoint result")
 	}
-	return checkpointWindow.ApplyCheckpointResult(value, attestation)
+	return checkpointWindow.applyCheckpointResult(value, attestation)
 }
 
-func (e *Epoch) Digest(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	return e.ValidateMsg(
-		NodeID(e.EpochConfig.MyConfig.ID), seqNo, bucket, "Digest",
-		func(node *NodeMsgs) Applyable { return Current },
-		func(node *NodeMsgs) *Actions {
-			return e.Buckets[bucket].ApplyDigestResult(seqNo, digest)
+func (e *epoch) digest(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+	return e.validateMsg(
+		NodeID(e.epochConfig.myConfig.ID), seqNo, bucket, "Digest",
+		func(node *nodeMsgs) applyable { return Current },
+		func(node *nodeMsgs) *Actions {
+			return e.buckets[bucket].applyDigestResult(seqNo, digest)
 		},
 	)
 }
 
-func (e *Epoch) Validate(seqNo SeqNo, bucket BucketID, valid bool) *Actions {
-	return e.ValidateMsg(
-		NodeID(e.EpochConfig.MyConfig.ID), seqNo, bucket, "Validate",
-		func(node *NodeMsgs) Applyable { return Current },
-		func(node *NodeMsgs) *Actions {
-			return e.Buckets[bucket].ApplyValidateResult(seqNo, valid)
+func (e *epoch) validate(seqNo SeqNo, bucket BucketID, valid bool) *Actions {
+	return e.validateMsg(
+		NodeID(e.epochConfig.myConfig.ID), seqNo, bucket, "Validate",
+		func(node *nodeMsgs) applyable { return Current },
+		func(node *nodeMsgs) *Actions {
+			return e.buckets[bucket].applyValidateResult(seqNo, valid)
 		},
 	)
 }
 
-func (e *Epoch) Tick() *Actions {
-	return e.Proposer.NoopAdvance()
+func (e *epoch) Tick() *Actions {
+	return e.proposer.noopAdvance()
 }

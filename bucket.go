@@ -6,117 +6,101 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
-type BucketID uint64
-type SeqNo uint64
-type NodeID uint64
+type bucket struct {
+	epochConfig *epochConfig
 
-type Bucket struct {
-	EpochConfig *EpochConfig
+	leader NodeID
 
-	Leader NodeID
-	ID     BucketID
+	id BucketID
 
-	// Sequences are the current active sequence numbers in this bucket
-	Sequences map[SeqNo]*Sequence
-
-	NextAssigned   SeqNo
-	NextPreprepare SeqNo
-
-	// The variables below are only set if this Bucket is led locally
-	Queue     [][]byte
-	SizeBytes int
-	Pending   [][][]byte
+	// sequences are the current active sequence numbers in this bucket
+	sequences map[SeqNo]*sequence
 }
 
-func NewBucket(config *EpochConfig, bucketID BucketID) *Bucket {
-	sequences := map[SeqNo]*Sequence{}
-	b := &Bucket{
-		Leader:       config.Buckets[bucketID],
-		ID:           bucketID,
-		EpochConfig:  config,
-		Sequences:    sequences,
-		NextAssigned: config.LowWatermark + 1,
+func newBucket(config *epochConfig, bucketID BucketID) *bucket {
+	sequences := map[SeqNo]*sequence{}
+	b := &bucket{
+		leader:      config.buckets[bucketID],
+		id:          bucketID,
+		epochConfig: config,
+		sequences:   sequences,
 	}
-	b.MoveWatermarks()
+	b.moveWatermarks()
 	return b
 }
 
-func (b *Bucket) MoveWatermarks() {
+func (b *bucket) moveWatermarks() {
 	// XXX this is a pretty obviously suboptimal way of moving watermarks,
 	// we know they're in order, so iterating through all sequences twice
 	// is wasteful, but it's easy to show it's correct, so implementing naively for now
 
-	for seqNo := range b.Sequences {
-		if seqNo < b.EpochConfig.LowWatermark {
-			delete(b.Sequences, seqNo)
+	for seqNo := range b.sequences {
+		if seqNo < b.epochConfig.lowWatermark {
+			delete(b.sequences, seqNo)
 		}
 	}
 
-	for i := b.EpochConfig.LowWatermark; i <= b.EpochConfig.HighWatermark; i++ {
-		if _, ok := b.Sequences[i]; !ok {
-			b.Sequences[i] = NewSequence(b.EpochConfig, i, b.ID)
+	for i := b.epochConfig.lowWatermark; i <= b.epochConfig.highWatermark; i++ {
+		if _, ok := b.sequences[i]; !ok {
+			b.sequences[i] = newSequence(b.epochConfig, i, b.id)
 		}
 	}
 }
 
-func (b *Bucket) IAmLeader() bool {
-	return b.Leader == NodeID(b.EpochConfig.MyConfig.ID)
+func (b *bucket) iAmLeader() bool {
+	return b.leader == NodeID(b.epochConfig.myConfig.ID)
 }
 
-func (b *Bucket) ApplyPreprepare(seqNo SeqNo, batch [][]byte) *Actions {
-	b.NextPreprepare = seqNo + 1
-	return b.Sequences[seqNo].ApplyPreprepare(batch)
+func (b *bucket) applyPreprepare(seqNo SeqNo, batch [][]byte) *Actions {
+	return b.sequences[seqNo].applyPreprepare(batch)
 }
 
-func (b *Bucket) ApplyDigestResult(seqNo SeqNo, digest []byte) *Actions {
-	s := b.Sequences[seqNo]
-	actions := s.ApplyDigestResult(digest)
-	if b.IAmLeader() {
+func (b *bucket) applyDigestResult(seqNo SeqNo, digest []byte) *Actions {
+	s := b.sequences[seqNo]
+	actions := s.applyDigestResult(digest)
+	if b.iAmLeader() {
 		// We are the leader, no need to check ourselves for byzantine behavior
 		// And no need to send the resulting prepare
-		_ = s.ApplyValidateResult(true)
-		return s.ApplyPrepare(b.Leader, digest)
+		_ = s.applyValidateResult(true)
+		return s.applyPrepare(b.leader, digest)
 	}
 	return actions
 }
 
-func (b *Bucket) ApplyValidateResult(seqNo SeqNo, valid bool) *Actions {
-	s := b.Sequences[seqNo]
-	actions := s.ApplyValidateResult(valid)
-	if !b.IAmLeader() {
+func (b *bucket) applyValidateResult(seqNo SeqNo, valid bool) *Actions {
+	s := b.sequences[seqNo]
+	actions := s.applyValidateResult(valid)
+	if !b.iAmLeader() {
 		// We are not the leader, so let's apply a virtual prepare from
 		// the leader that will not be sent, as there is no need to prepare
-		actions.Append(s.ApplyPrepare(b.Leader, s.Digest))
+		actions.Append(s.applyPrepare(b.leader, s.digest))
 	}
 	return actions
 }
 
-func (b *Bucket) ApplyPrepare(source NodeID, seqNo SeqNo, digest []byte) *Actions {
-	return b.Sequences[seqNo].ApplyPrepare(source, digest)
+func (b *bucket) applyPrepare(source NodeID, seqNo SeqNo, digest []byte) *Actions {
+	return b.sequences[seqNo].applyPrepare(source, digest)
 }
 
-func (b *Bucket) ApplyCommit(source NodeID, seqNo SeqNo, digest []byte) *Actions {
-	return b.Sequences[seqNo].ApplyCommit(source, digest)
+func (b *bucket) applyCommit(source NodeID, seqNo SeqNo, digest []byte) *Actions {
+	return b.sequences[seqNo].applyCommit(source, digest)
 }
 
+// BucketStatus represents the current
 type BucketStatus struct {
-	ID             uint64
-	Leader         bool
-	NextAssigned   SeqNo
-	BatchesPending int
-	Sequences      []SequenceState
+	ID        uint64
+	Leader    bool
+	Sequences []SequenceState
 }
 
-func (b *Bucket) Status() *BucketStatus {
-	sequences := make([]SequenceState, int(b.EpochConfig.HighWatermark-b.EpochConfig.LowWatermark)+1)
+func (b *bucket) status() *BucketStatus {
+	sequences := make([]SequenceState, int(b.epochConfig.highWatermark-b.epochConfig.lowWatermark)+1)
 	for i := range sequences {
-		sequences[i] = b.Sequences[SeqNo(i)+b.EpochConfig.LowWatermark].State
+		sequences[i] = b.sequences[SeqNo(i)+b.epochConfig.lowWatermark].state
 	}
 	return &BucketStatus{
-		ID:             uint64(b.ID),
-		Leader:         b.IAmLeader(),
-		NextAssigned:   b.NextAssigned,
-		BatchesPending: len(b.Pending),
-		Sequences:      sequences,
+		ID:        uint64(b.id),
+		Leader:    b.iAmLeader(),
+		Sequences: sequences,
 	}
 }
