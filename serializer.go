@@ -4,12 +4,11 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package internal
+package mirbft
 
 import (
 	"fmt"
 
-	"github.com/IBM/mirbft/consumer"
 	pb "github.com/IBM/mirbft/mirbftpb"
 
 	"go.uber.org/zap"
@@ -23,10 +22,10 @@ type Step struct {
 // Serializer provides a single threaded way to access the Mir state machine
 // and passes work to/from the state machine.
 type Serializer struct {
-	ActionsC chan consumer.Actions
+	ActionsC chan Actions
 	DoneC    <-chan struct{}
 	PropC    chan []byte
-	ResultsC chan consumer.ActionResults
+	ResultsC chan ActionResults
 	StatusC  chan StatusReq
 	StepC    chan Step
 	TickC    chan struct{}
@@ -41,10 +40,10 @@ type StatusReq struct {
 
 func NewSerializer(stateMachine *StateMachine, doneC <-chan struct{}) *Serializer {
 	s := &Serializer{
-		ActionsC:     make(chan consumer.Actions),
+		ActionsC:     make(chan Actions),
 		DoneC:        doneC,
 		PropC:        make(chan []byte),
-		ResultsC:     make(chan consumer.ActionResults),
+		ResultsC:     make(chan ActionResults),
 		StatusC:      make(chan StatusReq),
 		StepC:        make(chan Step),
 		TickC:        make(chan struct{}),
@@ -64,8 +63,8 @@ func (s *Serializer) run() {
 		}
 	}()
 
-	actions := &consumer.Actions{}
-	var actionsC chan<- consumer.Actions
+	actions := &Actions{}
+	var actionsC chan<- Actions
 	for {
 		if actions.IsEmpty() {
 			actionsC = nil

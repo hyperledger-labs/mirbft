@@ -4,10 +4,9 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package internal
+package mirbft
 
 import (
-	"github.com/IBM/mirbft/consumer"
 	pb "github.com/IBM/mirbft/mirbftpb"
 
 	"go.uber.org/zap"
@@ -17,7 +16,7 @@ import (
 // state machines whose state is scoped to an epoch
 type EpochConfig struct {
 	// MyConfig is the configuration specific to this node
-	MyConfig *consumer.Config
+	MyConfig *Config
 
 	// Oddities stores counts of suspicious acitivities and logs them.
 	Oddities *Oddities
@@ -47,7 +46,7 @@ type EpochConfig struct {
 type Epoch struct {
 	EpochConfig *EpochConfig
 
-	Nodes map[NodeID]*Node
+	NodeMsgs map[NodeID]*NodeMsgs
 
 	Buckets map[BucketID]*Bucket
 
@@ -57,9 +56,9 @@ type Epoch struct {
 }
 
 func NewEpoch(config *EpochConfig) *Epoch {
-	nodes := map[NodeID]*Node{}
+	nodeMsgs := map[NodeID]*NodeMsgs{}
 	for _, id := range config.Nodes {
-		nodes[id] = NewNode(id, config)
+		nodeMsgs[id] = NewNodeMsgs(id, config)
 	}
 
 	buckets := map[BucketID]*Bucket{}
@@ -74,7 +73,7 @@ func NewEpoch(config *EpochConfig) *Epoch {
 
 	return &Epoch{
 		EpochConfig:       config,
-		Nodes:             nodes,
+		NodeMsgs:          nodeMsgs,
 		Buckets:           buckets,
 		CheckpointWindows: checkpointWindows,
 		Proposer:          NewProposer(config),
@@ -86,25 +85,25 @@ func (e *Epoch) ValidateMsg(
 	seqNo SeqNo,
 	bucket BucketID,
 	msgType string,
-	inspect func(node *Node) Applyable,
-	apply func(node *Node) *consumer.Actions,
-) *consumer.Actions {
+	inspect func(node *NodeMsgs) Applyable,
+	apply func(node *NodeMsgs) *Actions,
+) *Actions {
 	if bucket > BucketID(len(e.EpochConfig.Buckets)) {
 		e.EpochConfig.Oddities.BadBucket(e.EpochConfig, msgType, source, seqNo, bucket)
-		return &consumer.Actions{}
+		return &Actions{}
 	}
 
 	if seqNo < e.EpochConfig.LowWatermark {
 		e.EpochConfig.Oddities.BelowWatermarks(e.EpochConfig, msgType, source, seqNo, bucket)
-		return &consumer.Actions{}
+		return &Actions{}
 	}
 
 	if seqNo > e.EpochConfig.HighWatermark {
 		e.EpochConfig.Oddities.AboveWatermarks(e.EpochConfig, msgType, source, seqNo, bucket)
-		return &consumer.Actions{}
+		return &Actions{}
 	}
 
-	node, ok := e.Nodes[source]
+	node, ok := e.NodeMsgs[source]
 	if !ok {
 		e.EpochConfig.MyConfig.Logger.Panic("unknown node")
 		// TODO perhaps handle this a bit more gracefully? We should never get a message for a node
@@ -124,10 +123,10 @@ func (e *Epoch) ValidateMsg(
 	default: // Invalid
 		e.EpochConfig.Oddities.InvalidMessage(e.EpochConfig, msgType, source, seqNo, bucket)
 	}
-	return &consumer.Actions{}
+	return &Actions{}
 }
 
-func (e *Epoch) Process(preprocessResult consumer.PreprocessResult) *consumer.Actions {
+func (e *Epoch) Process(preprocessResult PreprocessResult) *Actions {
 	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.EpochConfig.Buckets)))
 	nodeID := e.EpochConfig.Buckets[bucketID]
 	if nodeID == NodeID(e.EpochConfig.MyConfig.ID) {
@@ -137,8 +136,8 @@ func (e *Epoch) Process(preprocessResult consumer.PreprocessResult) *consumer.Ac
 	if preprocessResult.Proposal.Source == e.EpochConfig.MyConfig.ID {
 		// I originated this proposal, but someone else leads this bucket,
 		// forward the message to them
-		return &consumer.Actions{
-			Unicast: []consumer.Unicast{
+		return &Actions{
+			Unicast: []Unicast{
 				{
 					Target: uint64(nodeID),
 					Msg: &pb.Msg{
@@ -157,22 +156,22 @@ func (e *Epoch) Process(preprocessResult consumer.PreprocessResult) *consumer.Ac
 
 	// Someone forwarded me this proposal, but I'm not responsible for it's bucket
 	// TODO, log oddity? Assign it to the wrong bucket? Forward it again?
-	return &consumer.Actions{}
+	return &Actions{}
 }
 
-func (e *Epoch) Preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *consumer.Actions {
+func (e *Epoch) Preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
 	return e.ValidateMsg(
 		source, seqNo, bucket, "Preprepare",
-		func(node *Node) Applyable { return node.InspectPreprepare(seqNo, bucket) },
-		func(node *Node) *consumer.Actions {
-			actions := &consumer.Actions{}
+		func(node *NodeMsgs) Applyable { return node.InspectPreprepare(seqNo, bucket) },
+		func(node *NodeMsgs) *Actions {
+			actions := &Actions{}
 			newLargest := node.ApplyPreprepare(seqNo, bucket)
 			if newLargest && node.LargestPreprepare >= e.Proposer.NextAssigned+e.EpochConfig.CheckpointInterval {
 				// XXX this is really a kind of heuristic check, to make sure
 				// that if the network is advancing without us, possibly because
 				// of unbalanced buckets, that we keep up, it's worth formalizing.
 				nodesFurtherThanMe := 0
-				for _, node := range e.Nodes {
+				for _, node := range e.NodeMsgs {
 					if node.LeadsSomeBucket && node.LargestPreprepare >= e.Proposer.NextAssigned {
 						nodesFurtherThanMe++
 					}
@@ -188,22 +187,22 @@ func (e *Epoch) Preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch []
 	)
 }
 
-func (e *Epoch) Prepare(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *consumer.Actions {
+func (e *Epoch) Prepare(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
 	return e.ValidateMsg(
 		source, seqNo, bucket, "Prepare",
-		func(node *Node) Applyable { return node.InspectPrepare(seqNo, bucket) },
-		func(node *Node) *consumer.Actions {
+		func(node *NodeMsgs) Applyable { return node.InspectPrepare(seqNo, bucket) },
+		func(node *NodeMsgs) *Actions {
 			node.ApplyPrepare(seqNo, bucket)
 			return e.Buckets[bucket].ApplyPrepare(source, seqNo, digest)
 		},
 	)
 }
 
-func (e *Epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *consumer.Actions {
+func (e *Epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
 	return e.ValidateMsg(
 		source, seqNo, bucket, "Commit",
-		func(node *Node) Applyable { return node.InspectCommit(seqNo, bucket) },
-		func(node *Node) *consumer.Actions {
+		func(node *NodeMsgs) Applyable { return node.InspectCommit(seqNo, bucket) },
+		func(node *NodeMsgs) *Actions {
 			node.ApplyCommit(seqNo, bucket)
 			actions := e.Buckets[bucket].ApplyCommit(source, seqNo, digest)
 			if len(actions.Commit) > 0 {
@@ -218,11 +217,11 @@ func (e *Epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byt
 	)
 }
 
-func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *consumer.Actions {
+func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
 	return e.ValidateMsg(
 		source, seqNo, 0, "Checkpoint", // XXX using bucket '0' for checkpoints is a bit of a hack, as it has no bucket
-		func(node *Node) Applyable { return node.InspectCheckpoint(seqNo) },
-		func(node *Node) *consumer.Actions {
+		func(node *NodeMsgs) Applyable { return node.InspectCheckpoint(seqNo) },
+		func(node *NodeMsgs) *Actions {
 			node.ApplyCheckpoint(seqNo)
 			checkpointWindow := e.CheckpointWindows[seqNo]
 			actions := checkpointWindow.ApplyCheckpointMsg(source, value, attestation)
@@ -251,7 +250,7 @@ func (e *Epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte
 	)
 }
 
-func (e *Epoch) MoveWatermarks(low, high SeqNo) *consumer.Actions {
+func (e *Epoch) MoveWatermarks(low, high SeqNo) *Actions {
 	originalLowWatermark := e.EpochConfig.LowWatermark
 	originalHighWatermark := e.EpochConfig.HighWatermark
 	e.EpochConfig.LowWatermark = low
@@ -261,7 +260,7 @@ func (e *Epoch) MoveWatermarks(low, high SeqNo) *consumer.Actions {
 		bucket.MoveWatermarks()
 	}
 
-	for _, node := range e.Nodes {
+	for _, node := range e.NodeMsgs {
 		node.MoveWatermarks()
 	}
 
@@ -279,7 +278,7 @@ func (e *Epoch) MoveWatermarks(low, high SeqNo) *consumer.Actions {
 	return e.Proposer.DrainQueue()
 }
 
-func (e *Epoch) CheckpointResult(seqNo SeqNo, value, attestation []byte) *consumer.Actions {
+func (e *Epoch) CheckpointResult(seqNo SeqNo, value, attestation []byte) *Actions {
 	checkpointWindow, ok := e.CheckpointWindows[seqNo]
 	if !ok {
 		panic("received an unexpected checkpoint result")
@@ -287,26 +286,26 @@ func (e *Epoch) CheckpointResult(seqNo SeqNo, value, attestation []byte) *consum
 	return checkpointWindow.ApplyCheckpointResult(value, attestation)
 }
 
-func (e *Epoch) Digest(seqNo SeqNo, bucket BucketID, digest []byte) *consumer.Actions {
+func (e *Epoch) Digest(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
 	return e.ValidateMsg(
 		NodeID(e.EpochConfig.MyConfig.ID), seqNo, bucket, "Digest",
-		func(node *Node) Applyable { return Current },
-		func(node *Node) *consumer.Actions {
+		func(node *NodeMsgs) Applyable { return Current },
+		func(node *NodeMsgs) *Actions {
 			return e.Buckets[bucket].ApplyDigestResult(seqNo, digest)
 		},
 	)
 }
 
-func (e *Epoch) Validate(seqNo SeqNo, bucket BucketID, valid bool) *consumer.Actions {
+func (e *Epoch) Validate(seqNo SeqNo, bucket BucketID, valid bool) *Actions {
 	return e.ValidateMsg(
 		NodeID(e.EpochConfig.MyConfig.ID), seqNo, bucket, "Validate",
-		func(node *Node) Applyable { return Current },
-		func(node *Node) *consumer.Actions {
+		func(node *NodeMsgs) Applyable { return Current },
+		func(node *NodeMsgs) *Actions {
 			return e.Buckets[bucket].ApplyValidateResult(seqNo, valid)
 		},
 	)
 }
 
-func (e *Epoch) Tick() *consumer.Actions {
+func (e *Epoch) Tick() *Actions {
 	return e.Proposer.NoopAdvance()
 }

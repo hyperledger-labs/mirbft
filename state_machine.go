@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package internal
+package mirbft
 
 import (
 	"bytes"
@@ -12,20 +12,19 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/IBM/mirbft/consumer"
 	pb "github.com/IBM/mirbft/mirbftpb"
 
 	"go.uber.org/zap"
 )
 
 type StateMachine struct {
-	Config       *consumer.Config
+	Config       *Config
 	CurrentEpoch *Epoch
 }
 
-func (sm *StateMachine) Propose(data []byte) *consumer.Actions {
-	return &consumer.Actions{
-		Preprocess: []consumer.Proposal{
+func (sm *StateMachine) Propose(data []byte) *Actions {
+	return &Actions{
+		Preprocess: []Proposal{
 			{
 				Source: sm.Config.ID,
 				Data:   data,
@@ -34,7 +33,7 @@ func (sm *StateMachine) Propose(data []byte) *consumer.Actions {
 	}
 }
 
-func (sm *StateMachine) Step(source NodeID, outerMsg *pb.Msg) *consumer.Actions {
+func (sm *StateMachine) Step(source NodeID, outerMsg *pb.Msg) *Actions {
 	switch innerMsg := outerMsg.Type.(type) {
 	case *pb.Msg_Preprepare:
 		msg := innerMsg.Preprepare
@@ -55,8 +54,8 @@ func (sm *StateMachine) Step(source NodeID, outerMsg *pb.Msg) *consumer.Actions 
 	case *pb.Msg_Forward:
 		msg := innerMsg.Forward
 		// TODO check for nil and log oddity
-		return &consumer.Actions{
-			Preprocess: []consumer.Proposal{
+		return &Actions{
+			Preprocess: []Proposal{
 				{
 					Source: uint64(source),
 					Data:   msg.Data,
@@ -65,12 +64,12 @@ func (sm *StateMachine) Step(source NodeID, outerMsg *pb.Msg) *consumer.Actions 
 		}
 	default:
 		// TODO mark oddity
-		return &consumer.Actions{}
+		return &Actions{}
 	}
 }
 
-func (sm *StateMachine) ProcessResults(results consumer.ActionResults) *consumer.Actions {
-	actions := &consumer.Actions{}
+func (sm *StateMachine) ProcessResults(results ActionResults) *Actions {
+	actions := &Actions{}
 	for i, preprocessResult := range results.Preprocesses {
 		sm.Config.Logger.Debug("applying preprocess result", zap.Int("index", i))
 		actions.Append(sm.CurrentEpoch.Process(preprocessResult))
@@ -94,7 +93,7 @@ func (sm *StateMachine) ProcessResults(results consumer.ActionResults) *consumer
 	return actions
 }
 
-func (sm *StateMachine) Tick() *consumer.Actions {
+func (sm *StateMachine) Tick() *Actions {
 	return sm.CurrentEpoch.Tick()
 }
 
@@ -103,7 +102,7 @@ func (sm *StateMachine) Status() *Status {
 
 	nodes := make([]*NodeStatus, len(sm.CurrentEpoch.EpochConfig.Nodes))
 	for i, nodeID := range epochConfig.Nodes {
-		nodes[i] = sm.CurrentEpoch.Nodes[nodeID].Status()
+		nodes[i] = sm.CurrentEpoch.NodeMsgs[nodeID].Status()
 	}
 
 	buckets := make([]*BucketStatus, len(sm.CurrentEpoch.Buckets))

@@ -4,11 +4,10 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package internal
+package mirbft
 
 import (
 	"bytes"
-	"github.com/IBM/mirbft/consumer"
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
@@ -43,17 +42,17 @@ func NewCheckpointWindow(number SeqNo, config *EpochConfig) *CheckpointWindow {
 	}
 }
 
-func (cw *CheckpointWindow) Committed(bucket BucketID) *consumer.Actions {
+func (cw *CheckpointWindow) Committed(bucket BucketID) *Actions {
 	delete(cw.PendingCommits, bucket)
 	if len(cw.PendingCommits) > 0 {
-		return &consumer.Actions{}
+		return &Actions{}
 	}
-	return &consumer.Actions{
+	return &Actions{
 		Checkpoint: []uint64{uint64(cw.Number)},
 	}
 }
 
-func (cw *CheckpointWindow) ApplyCheckpointMsg(source NodeID, value, attestation []byte) *consumer.Actions {
+func (cw *CheckpointWindow) ApplyCheckpointMsg(source NodeID, value, attestation []byte) *Actions {
 	checkpointValueNodes := append(cw.Values[string(value)], NodeAttestation{
 		Node:        source,
 		Attestation: attestation,
@@ -88,11 +87,11 @@ func (cw *CheckpointWindow) ApplyCheckpointMsg(source NodeID, value, attestation
 		}
 	}
 
-	return &consumer.Actions{}
+	return &Actions{}
 }
 
-func (cw *CheckpointWindow) ApplyCheckpointResult(value, attestation []byte) *consumer.Actions {
-	return &consumer.Actions{
+func (cw *CheckpointWindow) ApplyCheckpointResult(value, attestation []byte) *Actions {
+	return &Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_Checkpoint{

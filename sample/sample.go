@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/IBM/mirbft"
-	"github.com/IBM/mirbft/consumer"
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
@@ -42,7 +41,7 @@ type Hasher interface {
 }
 
 type Log interface {
-	Apply(*consumer.Entry)
+	Apply(*mirbft.Entry)
 	Snap() (id, attestation []byte)
 	CheckSnap(id, attestation []byte) error
 }
@@ -50,20 +49,20 @@ type Log interface {
 type SerialCommitter struct {
 	Log                  Log
 	CurrentSeqNo         uint64
-	OutstandingSeqBucket map[uint64]map[uint64]*consumer.Entry
+	OutstandingSeqBucket map[uint64]map[uint64]*mirbft.Entry
 }
 
-func (sc *SerialCommitter) Commit(commits []*consumer.Entry, checkpoints []uint64) []*consumer.CheckpointResult {
+func (sc *SerialCommitter) Commit(commits []*mirbft.Entry, checkpoints []uint64) []*mirbft.CheckpointResult {
 	for _, commit := range commits {
 		buckets, ok := sc.OutstandingSeqBucket[commit.SeqNo]
 		if !ok {
-			buckets = map[uint64]*consumer.Entry{}
+			buckets = map[uint64]*mirbft.Entry{}
 			sc.OutstandingSeqBucket[commit.SeqNo] = buckets
 		}
 		buckets[commit.BucketID] = commit
 	}
 
-	results := []*consumer.CheckpointResult{}
+	results := []*mirbft.CheckpointResult{}
 
 	// If a checkpoint is present, then all commits prior to that seqno must be present
 	// TODO We could make commit more efficient here by passing in the number of buckets,
@@ -88,7 +87,7 @@ func (sc *SerialCommitter) Commit(commits []*consumer.Entry, checkpoints []uint6
 		}
 
 		value, attestation := sc.Log.Snap()
-		results = append(results, &consumer.CheckpointResult{
+		results = append(results, &mirbft.CheckpointResult{
 			SeqNo:       sc.CurrentSeqNo,
 			Value:       value,
 			Attestation: attestation,
@@ -108,7 +107,7 @@ type SerialProcessor struct {
 	DoneC     <-chan struct{}
 }
 
-func (c *SerialProcessor) Process(actions *consumer.Actions) {
+func (c *SerialProcessor) Process(actions *mirbft.Actions) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("Printing state machine status")
@@ -124,10 +123,10 @@ func (c *SerialProcessor) Process(actions *consumer.Actions) {
 		}
 	}()
 
-	actionResults := &consumer.ActionResults{
-		Preprocesses: make([]consumer.PreprocessResult, len(actions.Preprocess)),
-		Digests:      make([]consumer.DigestResult, len(actions.Digest)),
-		Validations:  make([]consumer.ValidateResult, len(actions.Validate)),
+	actionResults := &mirbft.ActionResults{
+		Preprocesses: make([]mirbft.PreprocessResult, len(actions.Preprocess)),
+		Digests:      make([]mirbft.DigestResult, len(actions.Digest)),
+		Validations:  make([]mirbft.ValidateResult, len(actions.Validate)),
 	}
 
 	for _, broadcast := range actions.Broadcast {
@@ -147,7 +146,7 @@ func (c *SerialProcessor) Process(actions *consumer.Actions) {
 	for i, proposal := range actions.Preprocess {
 		hash := c.Hasher.Hash(proposal.Data)
 
-		actionResults.Preprocesses[i] = consumer.PreprocessResult{
+		actionResults.Preprocesses[i] = mirbft.PreprocessResult{
 			Proposal: proposal,
 			Cup:      binary.LittleEndian.Uint64(hash[0:8]),
 		}
@@ -163,7 +162,7 @@ func (c *SerialProcessor) Process(actions *consumer.Actions) {
 			hashes = append(hashes, c.Hasher.Hash(data)...)
 		}
 
-		actionResults.Digests[i] = consumer.DigestResult{
+		actionResults.Digests[i] = mirbft.DigestResult{
 			Entry:  entry,
 			Digest: c.Hasher.Hash(hashes),
 		}
@@ -178,7 +177,7 @@ func (c *SerialProcessor) Process(actions *consumer.Actions) {
 			}
 		}
 
-		actionResults.Validations[i] = consumer.ValidateResult{
+		actionResults.Validations[i] = mirbft.ValidateResult{
 			Entry: entry,
 			Valid: valid,
 		}

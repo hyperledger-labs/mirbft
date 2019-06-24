@@ -17,7 +17,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/IBM/mirbft"
-	"github.com/IBM/mirbft/consumer"
 	"github.com/IBM/mirbft/sample"
 
 	"go.uber.org/zap"
@@ -51,10 +50,10 @@ var _ = Describe("MirBFT", func() {
 		)
 
 		BeforeEach(func() {
-			config := &consumer.Config{
+			config := &mirbft.Config{
 				ID:     0,
 				Logger: logger.Named("node0"),
-				BatchParameters: consumer.BatchParameters{
+				BatchParameters: mirbft.BatchParameters{
 					CutSizeBytes: 1,
 				},
 			}
@@ -65,7 +64,7 @@ var _ = Describe("MirBFT", func() {
 			Expect(node).NotTo(BeNil())
 
 			fakeLog = &FakeLog{
-				CommitC: make(chan *consumer.Entry, 1000),
+				CommitC: make(chan *mirbft.Entry, 1000),
 			}
 
 			processor = &sample.SerialProcessor{
@@ -74,7 +73,7 @@ var _ = Describe("MirBFT", func() {
 				Hasher:    sample.HasherFunc(func(data []byte) []byte { return data }),
 				Committer: &sample.SerialCommitter{
 					Log:                  fakeLog,
-					OutstandingSeqBucket: map[uint64]map[uint64]*consumer.Entry{},
+					OutstandingSeqBucket: map[uint64]map[uint64]*mirbft.Entry{},
 				},
 				DoneC: doneC,
 			}
@@ -109,12 +108,12 @@ var _ = Describe("MirBFT", func() {
 			lastObserved := uint64(0)
 			lastSeq := uint64(0)
 			for iterations := uint64(1); lastObserved < 1000; iterations++ {
-				entry := &consumer.Entry{}
+				entry := &mirbft.Entry{}
 				Eventually(fakeLog.CommitC).Should(Receive(&entry))
 				Expect(lastSeq).To(BeNumerically("<", entry.SeqNo))
 				lastSeq = entry.SeqNo
 				lastObserved++
-				Expect(entry).To(Equal(&consumer.Entry{
+				Expect(entry).To(Equal(&mirbft.Entry{
 					SeqNo:    lastSeq,
 					BucketID: 0,
 					Epoch:    0,
@@ -150,10 +149,10 @@ var _ = Describe("MirBFT", func() {
 
 			replicas := []mirbft.Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}}
 			for i := range nodes {
-				config := &consumer.Config{
+				config := &mirbft.Config{
 					ID:     uint64(i),
 					Logger: logger.Named(fmt.Sprintf("node%d", i)),
-					BatchParameters: consumer.BatchParameters{
+					BatchParameters: mirbft.BatchParameters{
 						CutSizeBytes: 1,
 					},
 				}
@@ -168,7 +167,7 @@ var _ = Describe("MirBFT", func() {
 			for i, node := range nodes {
 				node := node
 				fakeLog := &FakeLog{
-					CommitC: make(chan *consumer.Entry, 1000),
+					CommitC: make(chan *mirbft.Entry, 1000),
 				}
 				fakeLogs[i] = fakeLog
 
@@ -179,7 +178,7 @@ var _ = Describe("MirBFT", func() {
 					Hasher:    sample.HasherFunc(func(data []byte) []byte { return data }),
 					Committer: &sample.SerialCommitter{
 						Log:                  fakeLog,
-						OutstandingSeqBucket: map[uint64]map[uint64]*consumer.Entry{},
+						OutstandingSeqBucket: map[uint64]map[uint64]*mirbft.Entry{},
 					},
 					DoneC: doneC,
 				}
@@ -221,7 +220,7 @@ var _ = Describe("MirBFT", func() {
 			for j, fakeLog := range fakeLogs {
 				By(fmt.Sprintf("checking for node %d that each message only commits once", j))
 				for len(observations) < 1000 {
-					entry := &consumer.Entry{}
+					entry := &mirbft.Entry{}
 					Eventually(fakeLog.CommitC).Should(Receive(&entry))
 					Expect(entry.Epoch).To(Equal(uint64(0)))
 
@@ -258,11 +257,11 @@ var _ = Describe("MirBFT", func() {
 })
 
 type FakeLog struct {
-	Entries []*consumer.Entry
-	CommitC chan *consumer.Entry
+	Entries []*mirbft.Entry
+	CommitC chan *mirbft.Entry
 }
 
-func (fl *FakeLog) Apply(entry *consumer.Entry) {
+func (fl *FakeLog) Apply(entry *mirbft.Entry) {
 	if entry.Batch == nil {
 		// this is a no-op batch from a tick, or catchup, ignore it
 		return

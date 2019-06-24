@@ -10,8 +10,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/IBM/mirbft/consumer"
-	"github.com/IBM/mirbft/internal"
 	pb "github.com/IBM/mirbft/mirbftpb"
 
 	"github.com/pkg/errors"
@@ -31,31 +29,31 @@ type Replica struct {
 }
 
 type Node struct {
-	Config   *consumer.Config
-	s        *internal.Serializer
+	Config   *Config
+	s        *Serializer
 	Replicas []Replica
 }
 
-func StartNewNode(config *consumer.Config, doneC <-chan struct{}, replicas []Replica) (*Node, error) {
-	buckets := map[internal.BucketID]internal.NodeID{}
-	nodes := []internal.NodeID{}
+func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*Node, error) {
+	buckets := map[BucketID]NodeID{}
+	nodes := []NodeID{}
 	for _, replica := range replicas {
-		buckets[internal.BucketID(replica.ID)] = internal.NodeID(replica.ID)
-		nodes = append(nodes, internal.NodeID(replica.ID))
+		buckets[BucketID(replica.ID)] = NodeID(replica.ID)
+		nodes = append(nodes, NodeID(replica.ID))
 	}
-	if _, ok := buckets[internal.BucketID(config.ID)]; !ok {
+	if _, ok := buckets[BucketID(config.ID)]; !ok {
 		return nil, errors.Errorf("configured replica ID %d is not in the replica set", config.ID)
 	}
 	f := (len(replicas) - 1) / 3
 	return &Node{
 		Config:   config,
 		Replicas: replicas,
-		s: internal.NewSerializer(&internal.StateMachine{
+		s: NewSerializer(&StateMachine{
 			Config: config,
-			CurrentEpoch: internal.NewEpoch(&internal.EpochConfig{
+			CurrentEpoch: NewEpoch(&EpochConfig{
 				MyConfig: config,
-				Oddities: &internal.Oddities{
-					Nodes: map[internal.NodeID]*internal.Oddity{},
+				Oddities: &Oddities{
+					Nodes: map[NodeID]*Oddity{},
 				},
 				Number:             0,
 				CheckpointInterval: 5,
@@ -82,7 +80,7 @@ func (n *Node) Propose(ctx context.Context, data []byte) error {
 
 func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 	select {
-	case n.s.StepC <- internal.Step{Source: source, Msg: msg}:
+	case n.s.StepC <- Step{Source: source, Msg: msg}:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -97,7 +95,7 @@ func (n *Node) Status(ctx context.Context, encoding StatusEncoding) (string, err
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
-	case n.s.StatusC <- internal.StatusReq{
+	case n.s.StatusC <- StatusReq{
 		JSON:   encoding == JSONEncoding,
 		ReplyC: statusC,
 	}:
@@ -112,7 +110,7 @@ func (n *Node) Status(ctx context.Context, encoding StatusEncoding) (string, err
 	}
 }
 
-func (n *Node) Ready() <-chan consumer.Actions {
+func (n *Node) Ready() <-chan Actions {
 	return n.s.ActionsC
 }
 
@@ -120,7 +118,7 @@ func (n *Node) Tick() {
 	n.s.TickC <- struct{}{}
 }
 
-func (n *Node) AddResults(results consumer.ActionResults) error {
+func (n *Node) AddResults(results ActionResults) error {
 	select {
 	case n.s.ResultsC <- results:
 		return nil

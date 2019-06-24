@@ -4,11 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package internal
-
-import (
-	"github.com/IBM/mirbft/consumer"
-)
+package mirbft
 
 type BucketID uint64
 type SeqNo uint64
@@ -67,12 +63,12 @@ func (b *Bucket) IAmLeader() bool {
 	return b.Leader == NodeID(b.EpochConfig.MyConfig.ID)
 }
 
-func (b *Bucket) ApplyPreprepare(seqNo SeqNo, batch [][]byte) *consumer.Actions {
+func (b *Bucket) ApplyPreprepare(seqNo SeqNo, batch [][]byte) *Actions {
 	b.NextPreprepare = seqNo + 1
 	return b.Sequences[seqNo].ApplyPreprepare(batch)
 }
 
-func (b *Bucket) ApplyDigestResult(seqNo SeqNo, digest []byte) *consumer.Actions {
+func (b *Bucket) ApplyDigestResult(seqNo SeqNo, digest []byte) *Actions {
 	s := b.Sequences[seqNo]
 	actions := s.ApplyDigestResult(digest)
 	if b.IAmLeader() {
@@ -84,7 +80,7 @@ func (b *Bucket) ApplyDigestResult(seqNo SeqNo, digest []byte) *consumer.Actions
 	return actions
 }
 
-func (b *Bucket) ApplyValidateResult(seqNo SeqNo, valid bool) *consumer.Actions {
+func (b *Bucket) ApplyValidateResult(seqNo SeqNo, valid bool) *Actions {
 	s := b.Sequences[seqNo]
 	actions := s.ApplyValidateResult(valid)
 	if !b.IAmLeader() {
@@ -95,11 +91,11 @@ func (b *Bucket) ApplyValidateResult(seqNo SeqNo, valid bool) *consumer.Actions 
 	return actions
 }
 
-func (b *Bucket) ApplyPrepare(source NodeID, seqNo SeqNo, digest []byte) *consumer.Actions {
+func (b *Bucket) ApplyPrepare(source NodeID, seqNo SeqNo, digest []byte) *Actions {
 	return b.Sequences[seqNo].ApplyPrepare(source, digest)
 }
 
-func (b *Bucket) ApplyCommit(source NodeID, seqNo SeqNo, digest []byte) *consumer.Actions {
+func (b *Bucket) ApplyCommit(source NodeID, seqNo SeqNo, digest []byte) *Actions {
 	return b.Sequences[seqNo].ApplyCommit(source, digest)
 }
 

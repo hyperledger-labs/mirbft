@@ -4,10 +4,9 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package internal
+package mirbft
 
 import (
-	"github.com/IBM/mirbft/consumer"
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
@@ -38,7 +37,7 @@ func NewProposer(config *EpochConfig) *Proposer {
 	}
 }
 
-func (p *Proposer) Propose(data []byte) *consumer.Actions {
+func (p *Proposer) Propose(data []byte) *Actions {
 	p.Queue = append(p.Queue, data)
 	p.SizeBytes += len(data)
 	if p.SizeBytes >= p.EpochConfig.MyConfig.BatchParameters.CutSizeBytes {
@@ -50,7 +49,7 @@ func (p *Proposer) Propose(data []byte) *consumer.Actions {
 	return p.DrainQueue()
 }
 
-func (p *Proposer) NoopAdvance() *consumer.Actions {
+func (p *Proposer) NoopAdvance() *Actions {
 	initialSeq := p.NextAssigned
 
 	actions := p.DrainQueue() // XXX this really shouldn't ever be necessary, double check
@@ -69,8 +68,8 @@ func (p *Proposer) NoopAdvance() *consumer.Actions {
 	return actions
 }
 
-func (p *Proposer) DrainQueue() *consumer.Actions {
-	actions := &consumer.Actions{}
+func (p *Proposer) DrainQueue() *Actions {
+	actions := &Actions{}
 
 	for p.RoomToAssign() && len(p.Pending) > 0 {
 		actions.Append(p.Advance(p.Pending[0]))
@@ -88,8 +87,8 @@ func (p *Proposer) RoomToAssign() bool {
 	return p.NextAssigned <= p.EpochConfig.HighWatermark-5*p.EpochConfig.CheckpointInterval
 }
 
-func (p *Proposer) Advance(batch [][]byte) *consumer.Actions {
-	actions := &consumer.Actions{
+func (p *Proposer) Advance(batch [][]byte) *Actions {
+	actions := &Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_Preprepare{

@@ -4,38 +4,37 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package internal_test
+package mirbft_test
 
 import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/IBM/mirbft/consumer"
-	"github.com/IBM/mirbft/internal"
+	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
 var _ = Describe("Sequence", func() {
 	var (
-		s *internal.Sequence
+		s *mirbft.Sequence
 	)
 
 	BeforeEach(func() {
-		s = &internal.Sequence{
-			EpochConfig: &internal.EpochConfig{
-				MyConfig: &consumer.Config{
+		s = &mirbft.Sequence{
+			EpochConfig: &mirbft.EpochConfig{
+				MyConfig: &mirbft.Config{
 					ID: 1,
 				},
 				Number: 4,
 				F:      1,
 			},
-			Entry: &consumer.Entry{
+			Entry: &mirbft.Entry{
 				Epoch:    4,
 				SeqNo:    5,
 				BucketID: 3,
 			},
-			Prepares: map[string]map[internal.NodeID]struct{}{},
-			Commits:  map[string]map[internal.NodeID]struct{}{},
+			Prepares: map[string]map[mirbft.NodeID]struct{}{},
+			Commits:  map[string]map[mirbft.NodeID]struct{}{},
 		}
 	})
 
@@ -48,8 +47,8 @@ var _ = Describe("Sequence", func() {
 				},
 			)
 
-			Expect(actions).To(Equal(&consumer.Actions{
-				Digest: []*consumer.Entry{
+			Expect(actions).To(Equal(&mirbft.Actions{
+				Digest: []*mirbft.Entry{
 					{
 						SeqNo:    5,
 						Epoch:    4,
@@ -62,7 +61,7 @@ var _ = Describe("Sequence", func() {
 				},
 			}))
 
-			Expect(s.State).To(Equal(internal.Preprepared))
+			Expect(s.State).To(Equal(mirbft.Preprepared))
 			Expect(s.Entry.Batch).To(Equal(
 				[][]byte{
 					[]byte("msg1"),
@@ -73,7 +72,7 @@ var _ = Describe("Sequence", func() {
 
 		Context("when the current state is not Unknown", func() {
 			BeforeEach(func() {
-				s.State = internal.Validated
+				s.State = mirbft.Validated
 			})
 
 			It("does not transition and instead panics", func() {
@@ -86,20 +85,20 @@ var _ = Describe("Sequence", func() {
 					)
 				}
 				Expect(badTransition).To(Panic())
-				Expect(s.State).To(Equal(internal.Validated))
+				Expect(s.State).To(Equal(mirbft.Validated))
 			})
 		})
 	})
 
 	Describe("ApplyValidateResult", func() {
 		BeforeEach(func() {
-			s.State = internal.Digested
+			s.State = mirbft.Digested
 			s.Digest = []byte("digest")
 		})
 
 		It("transitions from Preprepared to Validated", func() {
 			actions := s.ApplyValidateResult(true)
-			Expect(actions).To(Equal(&consumer.Actions{
+			Expect(actions).To(Equal(&mirbft.Actions{
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Prepare{
@@ -114,12 +113,12 @@ var _ = Describe("Sequence", func() {
 				},
 			}))
 			Expect(s.Digest).To(Equal([]byte("digest")))
-			Expect(s.State).To(Equal(internal.Validated))
+			Expect(s.State).To(Equal(mirbft.Validated))
 		})
 
 		Context("when the state is not Preprepared", func() {
 			BeforeEach(func() {
-				s.State = internal.Prepared
+				s.State = mirbft.Prepared
 			})
 
 			It("does not transition the state and panics", func() {
@@ -127,24 +126,24 @@ var _ = Describe("Sequence", func() {
 					s.ApplyValidateResult(true)
 				}
 				Expect(badTransition).To(Panic())
-				Expect(s.State).To(Equal(internal.Prepared))
+				Expect(s.State).To(Equal(mirbft.Prepared))
 			})
 		})
 
 		Context("when the validation is not successful", func() {
 			It("transitions the state to InvalidBatch", func() {
 				actions := s.ApplyValidateResult(false)
-				Expect(actions).To(Equal(&consumer.Actions{}))
-				Expect(s.State).To(Equal(internal.InvalidBatch))
+				Expect(actions).To(Equal(&mirbft.Actions{}))
+				Expect(s.State).To(Equal(mirbft.InvalidBatch))
 			})
 		})
 	})
 
 	Describe("ApplyPrepare", func() {
 		BeforeEach(func() {
-			s.State = internal.Validated
+			s.State = mirbft.Validated
 			s.Digest = []byte("digest")
-			s.Prepares["digest"] = map[internal.NodeID]struct{}{
+			s.Prepares["digest"] = map[mirbft.NodeID]struct{}{
 				1: {},
 				2: {},
 			}
@@ -152,7 +151,7 @@ var _ = Describe("Sequence", func() {
 
 		It("transitions from Validated to Prepared", func() {
 			actions := s.ApplyPrepare(0, []byte("digest"))
-			Expect(actions).To(Equal(&consumer.Actions{
+			Expect(actions).To(Equal(&mirbft.Actions{
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Commit{

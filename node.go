@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package internal
+package mirbft
 
 type Applyable int
 
@@ -16,7 +16,7 @@ const (
 )
 
 // Node tracks the expect next message to apply on a per bucket basis
-type Node struct {
+type NodeMsgs struct {
 	ID NodeID
 
 	EpochConfig *EpochConfig
@@ -38,7 +38,7 @@ type NextMsg struct {
 	Commit  SeqNo
 }
 
-func NewNode(nodeID NodeID, epochConfig *EpochConfig) *Node {
+func NewNodeMsgs(nodeID NodeID, epochConfig *EpochConfig) *NodeMsgs {
 	next := map[BucketID]*NextMsg{}
 	leadsSomeBucket := false
 	for bucketID, leaderID := range epochConfig.Buckets {
@@ -49,7 +49,7 @@ func NewNode(nodeID NodeID, epochConfig *EpochConfig) *Node {
 			Commit:  epochConfig.LowWatermark + 1,
 		}
 	}
-	return &Node{
+	return &NodeMsgs{
 		ID:              nodeID,
 		EpochConfig:     epochConfig,
 		Next:            next,
@@ -58,7 +58,7 @@ func NewNode(nodeID NodeID, epochConfig *EpochConfig) *Node {
 	}
 }
 
-func (n *Node) InspectPreprepare(seqNo SeqNo, bucket BucketID) Applyable {
+func (n *NodeMsgs) InspectPreprepare(seqNo SeqNo, bucket BucketID) Applyable {
 	next := n.Next[bucket]
 	switch {
 	case !next.Leader:
@@ -73,7 +73,7 @@ func (n *Node) InspectPreprepare(seqNo SeqNo, bucket BucketID) Applyable {
 	}
 }
 
-func (n *Node) InspectPrepare(seqNo SeqNo, bucket BucketID) Applyable {
+func (n *NodeMsgs) InspectPrepare(seqNo SeqNo, bucket BucketID) Applyable {
 	next := n.Next[bucket]
 	switch {
 	case next.Leader:
@@ -88,7 +88,7 @@ func (n *Node) InspectPrepare(seqNo SeqNo, bucket BucketID) Applyable {
 	}
 }
 
-func (n *Node) InspectCommit(seqNo SeqNo, bucket BucketID) Applyable {
+func (n *NodeMsgs) InspectCommit(seqNo SeqNo, bucket BucketID) Applyable {
 	next := n.Next[bucket]
 	switch {
 	case next.Commit > seqNo:
@@ -100,7 +100,7 @@ func (n *Node) InspectCommit(seqNo SeqNo, bucket BucketID) Applyable {
 	}
 }
 
-func (n *Node) InspectCheckpoint(seqNo SeqNo) Applyable {
+func (n *NodeMsgs) InspectCheckpoint(seqNo SeqNo) Applyable {
 	for _, next := range n.Next {
 		if next.Commit < seqNo {
 			return Future
@@ -118,7 +118,7 @@ func (n *Node) InspectCheckpoint(seqNo SeqNo) Applyable {
 }
 
 // ApplyPreprepare returns true if a new largest preprepare was observed
-func (n *Node) ApplyPreprepare(seqNo SeqNo, bucket BucketID) bool {
+func (n *NodeMsgs) ApplyPreprepare(seqNo SeqNo, bucket BucketID) bool {
 	next := n.Next[bucket]
 	next.Prepare = seqNo + 1
 	if n.LargestPreprepare < seqNo {
@@ -128,21 +128,21 @@ func (n *Node) ApplyPreprepare(seqNo SeqNo, bucket BucketID) bool {
 	return false
 }
 
-func (n *Node) ApplyPrepare(seqNo SeqNo, bucket BucketID) {
+func (n *NodeMsgs) ApplyPrepare(seqNo SeqNo, bucket BucketID) {
 	next := n.Next[bucket]
 	next.Prepare = seqNo + 1
 }
 
-func (n *Node) ApplyCommit(seqNo SeqNo, bucket BucketID) {
+func (n *NodeMsgs) ApplyCommit(seqNo SeqNo, bucket BucketID) {
 	next := n.Next[bucket]
 	next.Commit = seqNo + 1
 }
 
-func (n *Node) ApplyCheckpoint(seqNo SeqNo) {
+func (n *NodeMsgs) ApplyCheckpoint(seqNo SeqNo) {
 	n.NextCheckpoint = seqNo + n.EpochConfig.CheckpointInterval
 }
 
-func (n *Node) MoveWatermarks() {
+func (n *NodeMsgs) MoveWatermarks() {
 	for _, next := range n.Next {
 		if next.Prepare < n.EpochConfig.LowWatermark {
 			// TODO log warning
@@ -174,7 +174,7 @@ type NodeBucketStatus struct {
 	LastCheckpoint uint64
 }
 
-func (n *Node) Status() *NodeStatus {
+func (n *NodeMsgs) Status() *NodeStatus {
 	bucketStatuses := make([]NodeBucketStatus, len(n.Next))
 	for bucketID := range bucketStatuses {
 		nextMsg := n.Next[BucketID(bucketID)]
