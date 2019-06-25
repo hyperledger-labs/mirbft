@@ -107,7 +107,7 @@ type SerialProcessor struct {
 	DoneC     <-chan struct{}
 }
 
-func (c *SerialProcessor) Process(actions *mirbft.Actions) {
+func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("Printing state machine status")
@@ -185,9 +185,7 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) {
 
 	actionResults.Checkpoints = c.Committer.Commit(actions.Commit, actions.Checkpoint)
 
-	if err := c.Node.AddResults(*actionResults); err != nil {
-		return
-	}
+	return actionResults
 }
 
 type FakeLink struct {

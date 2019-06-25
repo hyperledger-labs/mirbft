@@ -89,7 +89,7 @@ var _ = Describe("MirBFT", func() {
 				for {
 					select {
 					case actions := <-node.Ready():
-						processor.Process(&actions)
+						node.AddResults(*processor.Process(&actions))
 					case <-doneC:
 						return
 					case <-ticker.C:
@@ -194,7 +194,7 @@ var _ = Describe("MirBFT", func() {
 					for {
 						select {
 						case actions := <-node.Ready():
-							processors[i].Process(&actions)
+							node.AddResults(*processors[i].Process(&actions))
 						case <-doneC:
 							return
 						case <-ticker.C:

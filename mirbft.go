@@ -4,6 +4,13 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
+// Package mirbft is a consensus library, implementing the Mir BFT consensus protocol.
+//
+// This library can be used by applications which desire distributed, byzantine fault
+// tolerant consensus on message order.  Unlike many traditional consensus algorithms,
+// Mir BFT is a multi-leader protocol, allowing throughput to scale with the number of
+// nodes (even over WANs), where the performance of traditional consenus algorithms
+// begin to degrade.
 package mirbft
 
 import (
@@ -119,7 +126,7 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 // This method necessarily exposes some of the internal architecture of the system, and
 // especially while the library is in development, the data structures may change substantially.
 // This method only returns an error if the context ends, or the node is stopped.
-// In the case that the ndoe is stopped, it returns ErrStopped.
+// In the case that the node is stopped, it returns ErrStopped.
 func (n *Node) Status(ctx context.Context) (*Status, error) {
 	statusC := make(chan *Status, 1)
 
@@ -155,7 +162,8 @@ func (n *Node) Tick() {
 
 // AddResults is a callback from the consumer to the state machine, informing the
 // state machine that Actions have been carried out, and the result of those
-// Actions is applicable.
+// Actions is applicable.  In the case that the node is stopped, it returns
+// ErrStopped, otherwise nil is returned.
 func (n *Node) AddResults(results ActionResults) error {
 	select {
 	case n.s.resultsC <- results:
