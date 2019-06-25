@@ -8,7 +8,6 @@ package mirbft
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"math"
 
@@ -22,7 +21,7 @@ type stateMachine struct {
 	currentEpoch *epoch
 }
 
-func (sm *stateMachine) Propose(data []byte) *Actions {
+func (sm *stateMachine) propose(data []byte) *Actions {
 	return &Actions{
 		Preprocess: []Proposal{
 			{
@@ -54,6 +53,8 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	case *pb.Msg_Forward:
 		msg := innerMsg.Forward
 		// TODO check for nil and log oddity
+		// TODO should we have a separate validate step here?  How do we prevent
+		// forwarded messages with bad data from poisoning our batch?
 		return &Actions{
 			Preprocess: []Proposal{
 				{
@@ -132,14 +133,6 @@ type Status struct {
 	Nodes         []*NodeStatus
 	Buckets       []*BucketStatus
 	Checkpoints   []*CheckpointStatus
-}
-
-func (s *Status) JSON() string {
-	result, err := json.Marshal(s)
-	if err != nil {
-		panic(err)
-	}
-	return string(result)
 }
 
 func (s *Status) Pretty() string {

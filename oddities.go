@@ -18,7 +18,7 @@ const (
 	MsgTypeLog  = "MsgType"
 )
 
-func LogBasics(msgType string, source NodeID, seqNo SeqNo, bucket BucketID, epoch uint64) []zap.Field {
+func logBasics(msgType string, source NodeID, seqNo SeqNo, bucket BucketID, epoch uint64) []zap.Field {
 	return []zap.Field{
 		zap.String(MsgTypeLog, msgType),
 		zap.Uint64(SeqNoLog, uint64(seqNo)),
@@ -42,7 +42,7 @@ type oddity struct {
 	badBucket       uint64
 }
 
-func (o *oddities) GetNode(nodeID NodeID) *oddity {
+func (o *oddities) getNode(nodeID NodeID) *oddity {
 	od, ok := o.nodes[nodeID]
 	if !ok {
 		od = &oddity{}
@@ -52,26 +52,26 @@ func (o *oddities) GetNode(nodeID NodeID) *oddity {
 }
 
 func (o *oddities) aboveWatermarks(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.myConfig.Logger.Warn("received message above watermarks", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
-	o.GetNode(source).aboveWatermarks++
+	epochConfig.myConfig.Logger.Warn("received message above watermarks", logBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.getNode(source).aboveWatermarks++
 }
 
 func (o *oddities) AlreadyProcessed(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.myConfig.Logger.Warn("already processed message", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
-	o.GetNode(source).aboveWatermarks++
+	epochConfig.myConfig.Logger.Warn("already processed message", logBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.getNode(source).aboveWatermarks++
 }
 
 func (o *oddities) belowWatermarks(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.myConfig.Logger.Warn("received message below watermarks", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
-	o.GetNode(source).belowWatermarks++
+	epochConfig.myConfig.Logger.Warn("received message below watermarks", logBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.getNode(source).belowWatermarks++
 }
 
 func (o *oddities) badBucket(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.myConfig.Logger.Warn("received message for bad bucket", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
-	o.GetNode(source).badBucket++
+	epochConfig.myConfig.Logger.Warn("received message for bad bucket", logBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.getNode(source).badBucket++
 }
 
 func (o *oddities) InvalidMessage(epochConfig *epochConfig, msgType string, source NodeID, seqNo SeqNo, bucket BucketID) {
-	epochConfig.myConfig.Logger.Error("invalid message", LogBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
-	o.GetNode(source).aboveWatermarks++
+	epochConfig.myConfig.Logger.Error("invalid message", logBasics(msgType, source, seqNo, bucket, epochConfig.number)...)
+	o.getNode(source).aboveWatermarks++
 }

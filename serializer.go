@@ -71,7 +71,7 @@ func (s *serializer) run() {
 		select {
 		case data := <-s.propC:
 			s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "proposal"))
-			actions.Append(s.stateMachine.Propose(data))
+			actions.Append(s.stateMachine.propose(data))
 		case step := <-s.stepC:
 			s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "step"))
 			actions.Append(s.stateMachine.step(NodeID(step.Source), step.Msg))
