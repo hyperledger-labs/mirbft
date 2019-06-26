@@ -223,7 +223,7 @@ func (s *Status) Pretty() string {
 	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
 		checkpoint := s.Checkpoints[i]
 		if seqNo == SeqNo(checkpoint.SeqNo) {
-			buffer.WriteString(fmt.Sprintf("|%d", checkpoint.pendingCommits))
+			buffer.WriteString(fmt.Sprintf("|%d", checkpoint.PendingCommits))
 			i++
 			continue
 		}

@@ -40,7 +40,7 @@ func (b *bucket) moveWatermarks() {
 		}
 	}
 
-	for i := b.epochConfig.lowWatermark; i <= b.epochConfig.highWatermark; i++ {
+	for i := b.epochConfig.lowWatermark + 1; i <= b.epochConfig.highWatermark; i++ {
 		if _, ok := b.sequences[i]; !ok {
 			b.sequences[i] = newSequence(b.epochConfig, i, b.id)
 		}
@@ -94,9 +94,9 @@ type BucketStatus struct {
 }
 
 func (b *bucket) status() *BucketStatus {
-	sequences := make([]SequenceState, int(b.epochConfig.highWatermark-b.epochConfig.lowWatermark)+1)
+	sequences := make([]SequenceState, int(b.epochConfig.highWatermark-b.epochConfig.lowWatermark))
 	for i := range sequences {
-		sequences[i] = b.sequences[SeqNo(i)+b.epochConfig.lowWatermark].state
+		sequences[i] = b.sequences[SeqNo(i)+b.epochConfig.lowWatermark+1].state
 	}
 	return &BucketStatus{
 		ID:        uint64(b.id),

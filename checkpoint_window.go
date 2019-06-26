@@ -108,7 +108,7 @@ func (cw *checkpointWindow) applyCheckpointResult(value, attestation []byte) *Ac
 
 type CheckpointStatus struct {
 	SeqNo          uint64
-	pendingCommits int
+	PendingCommits int
 	NetQuorum      bool
 	LocalAgreement bool
 }
@@ -116,7 +116,7 @@ type CheckpointStatus struct {
 func (cw *checkpointWindow) status() *CheckpointStatus {
 	return &CheckpointStatus{
 		SeqNo:          uint64(cw.number),
-		pendingCommits: len(cw.pendingCommits),
+		PendingCommits: len(cw.pendingCommits),
 		NetQuorum:      cw.committedValue != nil,
 		LocalAgreement: cw.committedValue != nil && bytes.Equal(cw.committedValue, cw.myValue),
 	}
