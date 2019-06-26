@@ -38,8 +38,8 @@ type oddities struct {
 type oddity struct {
 	aboveWatermarks uint64
 	belowWatermarks uint64
-	wrongEpoch      uint64
-	badBucket       uint64
+	// wrongEpoch      uint64
+	badBucket uint64
 }
 
 func (o *oddities) getNode(nodeID NodeID) *oddity {
