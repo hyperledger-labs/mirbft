@@ -19,7 +19,6 @@ var _ = Describe("Integration", func() {
 	var (
 		serializer      *serializer
 		stateMachineVal *stateMachine
-		epoch           *epoch
 		epochConfigVal  *epochConfig
 		consumerConfig  *Config
 		logger          *zap.Logger
@@ -64,12 +63,7 @@ var _ = Describe("Integration", func() {
 				buckets:            map[BucketID]NodeID{0: 0},
 			}
 
-			epoch = newEpoch(epochConfigVal)
-
-			stateMachineVal = &stateMachine{
-				myConfig:     consumerConfig,
-				currentEpoch: epoch,
-			}
+			stateMachineVal = newStateMachine(epochConfigVal)
 
 			serializer = newSerializer(stateMachineVal, doneC)
 
@@ -199,12 +193,7 @@ var _ = Describe("Integration", func() {
 				buckets:            map[BucketID]NodeID{0: 0, 1: 1, 2: 2, 3: 3},
 			}
 
-			epoch = newEpoch(epochConfigVal)
-
-			stateMachineVal = &stateMachine{
-				myConfig:     consumerConfig,
-				currentEpoch: epoch,
-			}
+			stateMachineVal = newStateMachine(epochConfigVal)
 
 			serializer = newSerializer(stateMachineVal, doneC)
 

@@ -44,8 +44,6 @@ type epochConfig struct {
 type epoch struct {
 	epochConfig *epochConfig
 
-	nodeMsgs map[NodeID]*nodeMsgs
-
 	buckets map[BucketID]*bucket
 
 	proposer *proposer
@@ -56,10 +54,8 @@ type epoch struct {
 }
 
 func newEpoch(config *epochConfig) *epoch {
-	nodeMsgs := map[NodeID]*nodeMsgs{}
 	largestPreprepares := map[NodeID]SeqNo{}
 	for _, id := range config.nodes {
-		nodeMsgs[id] = newNodeMsgs(id, config)
 		largestPreprepares[id] = config.lowWatermark
 	}
 
@@ -75,7 +71,6 @@ func newEpoch(config *epochConfig) *epoch {
 
 	return &epoch{
 		epochConfig:        config,
-		nodeMsgs:           nodeMsgs,
 		buckets:            buckets,
 		checkpointWindows:  checkpointWindows,
 		largestPreprepares: largestPreprepares,
@@ -163,55 +158,9 @@ func (e *epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byt
 	return actions
 }
 
-func (e *epoch) Checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
-	cw := e.checkpointWindows[seqNo]
-	actions := cw.applyCheckpointMsg(source, value, attestation)
-	if cw.garbageCollectible {
-		checkpointWindows := []*checkpointWindow{}
-		for seqNo := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval; seqNo <= e.epochConfig.highWatermark; seqNo += e.epochConfig.checkpointInterval {
-			checkpointWindow := e.checkpointWindows[seqNo]
-			if !checkpointWindow.garbageCollectible {
-				break
-			}
-			checkpointWindows = append(checkpointWindows, checkpointWindow)
-			// XXX, the constant '4' garbage checkpoints is tied to the constant '5' free checkpoints in
-			// bucket.go and assumes the network is configured for 10 total checkpoints, but not enforced.
-			// Also, if there are at least 2 checkpoints, and the first one is obsolete (meaning all
-			// nodes have acknowledged it, not simply a quorum), garbage collect it.
-			if len(checkpointWindows) > 4 || (len(checkpointWindows) > 2 && checkpointWindows[0].obsolete) {
-				newLowWatermark := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval
-				newHighWatermark := e.epochConfig.highWatermark + e.epochConfig.checkpointInterval
-				actions.Append(e.moveWatermarks(newLowWatermark, newHighWatermark))
-				checkpointWindows = checkpointWindows[1:]
-			}
-		}
-	}
-	return actions
-}
-
-func (e *epoch) moveWatermarks(low, high SeqNo) *Actions {
-	originalLowWatermark := e.epochConfig.lowWatermark
-	originalHighWatermark := e.epochConfig.highWatermark
-	e.epochConfig.lowWatermark = low
-	e.epochConfig.highWatermark = high
-
+func (e *epoch) moveWatermarks() *Actions {
 	for _, bucket := range e.buckets {
 		bucket.moveWatermarks()
-	}
-
-	for _, node := range e.nodeMsgs {
-		node.moveWatermarks()
-	}
-
-	for seqNo := originalLowWatermark; seqNo < low && seqNo <= originalHighWatermark; seqNo += e.epochConfig.checkpointInterval {
-		delete(e.checkpointWindows, seqNo)
-	}
-
-	for seqNo := low; seqNo <= high; seqNo += e.epochConfig.checkpointInterval {
-		if seqNo < originalHighWatermark {
-			continue
-		}
-		e.checkpointWindows[seqNo] = newCheckpointWindow(seqNo, e.epochConfig)
 	}
 
 	return e.proposer.drainQueue()

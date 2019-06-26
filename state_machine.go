@@ -18,7 +18,21 @@ import (
 
 type stateMachine struct {
 	myConfig     *Config
+	nodeMsgs     map[NodeID]*nodeMsgs
 	currentEpoch *epoch
+}
+
+func newStateMachine(config *epochConfig) *stateMachine {
+	nodeMsgs := map[NodeID]*nodeMsgs{}
+	for _, id := range config.nodes {
+		nodeMsgs[id] = newNodeMsgs(id, config)
+	}
+
+	return &stateMachine{
+		myConfig:     config.myConfig,
+		currentEpoch: newEpoch(config),
+		nodeMsgs:     nodeMsgs,
+	}
 }
 
 func (sm *stateMachine) propose(data []byte) *Actions {
@@ -33,9 +47,9 @@ func (sm *stateMachine) propose(data []byte) *Actions {
 }
 
 func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
-	nodeMsgs, ok := sm.currentEpoch.nodeMsgs[source]
+	nodeMsgs, ok := sm.nodeMsgs[source]
 	if !ok {
-		sm.myConfig.Logger.Panic("received a message from a node ID that does not exist")
+		sm.myConfig.Logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
 	}
 	msgs := nodeMsgs.processMsg(outerMsg)
 
@@ -56,7 +70,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 		case *pb.Msg_Checkpoint:
 			msg := innerMsg.Checkpoint
 			// TODO check for nil and log oddity
-			return sm.currentEpoch.Checkpoint(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation)
+			return sm.checkpoint(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation)
 		case *pb.Msg_Forward:
 			msg := innerMsg.Forward
 			// TODO check for nil and log oddity
@@ -77,6 +91,60 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	}
 
 	return &Actions{}
+}
+
+func (sm *stateMachine) checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
+	e := sm.currentEpoch
+
+	cw := e.checkpointWindows[seqNo]
+	actions := cw.applyCheckpointMsg(source, value, attestation)
+	if cw.garbageCollectible {
+		checkpointWindows := []*checkpointWindow{}
+		for seqNo := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval; seqNo <= e.epochConfig.highWatermark; seqNo += e.epochConfig.checkpointInterval {
+			checkpointWindow := e.checkpointWindows[seqNo]
+			if !checkpointWindow.garbageCollectible {
+				break
+			}
+			checkpointWindows = append(checkpointWindows, checkpointWindow)
+			// XXX, the constant '4' garbage checkpoints is tied to the constant '5' free checkpoints in
+			// bucket.go and assumes the network is configured for 10 total checkpoints, but not enforced.
+			// Also, if there are at least 2 checkpoints, and the first one is obsolete (meaning all
+			// nodes have acknowledged it, not simply a quorum), garbage collect it.
+			if len(checkpointWindows) > 4 || (len(checkpointWindows) > 2 && checkpointWindows[0].obsolete) {
+				newLowWatermark := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval
+				newHighWatermark := e.epochConfig.highWatermark + e.epochConfig.checkpointInterval
+				actions.Append(sm.moveWatermarks(newLowWatermark, newHighWatermark))
+				checkpointWindows = checkpointWindows[1:]
+			}
+		}
+	}
+	return actions
+}
+
+func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
+	e := sm.currentEpoch
+
+	originalLowWatermark := e.epochConfig.lowWatermark
+	originalHighWatermark := e.epochConfig.highWatermark
+	e.epochConfig.lowWatermark = low
+	e.epochConfig.highWatermark = high
+
+	for seqNo := originalLowWatermark; seqNo < low && seqNo <= originalHighWatermark; seqNo += e.epochConfig.checkpointInterval {
+		delete(e.checkpointWindows, seqNo)
+	}
+
+	for seqNo := low; seqNo <= high; seqNo += e.epochConfig.checkpointInterval {
+		if seqNo < originalHighWatermark {
+			continue
+		}
+		e.checkpointWindows[seqNo] = newCheckpointWindow(seqNo, e.epochConfig)
+	}
+
+	for _, node := range sm.nodeMsgs {
+		node.moveWatermarks()
+	}
+
+	return e.moveWatermarks()
 }
 
 func (sm *stateMachine) processResults(results ActionResults) *Actions {
@@ -113,7 +181,7 @@ func (sm *stateMachine) status() *Status {
 
 	nodes := make([]*NodeStatus, len(sm.currentEpoch.epochConfig.nodes))
 	for i, nodeID := range epochConfig.nodes {
-		nodes[i] = sm.currentEpoch.nodeMsgs[nodeID].status()
+		nodes[i] = sm.nodeMsgs[nodeID].status()
 	}
 
 	buckets := make([]*BucketStatus, len(sm.currentEpoch.buckets))
