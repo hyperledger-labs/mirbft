@@ -20,6 +20,8 @@ type stateMachine struct {
 	myConfig     *Config
 	nodeMsgs     map[NodeID]*nodeMsgs
 	currentEpoch *epoch
+
+	checkpointWindows map[SeqNo]*checkpointWindow
 }
 
 func newStateMachine(config *epochConfig) *stateMachine {
@@ -28,10 +30,16 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		nodeMsgs[id] = newNodeMsgs(id, config)
 	}
 
+	checkpointWindows := map[SeqNo]*checkpointWindow{}
+	for seqNo := config.lowWatermark + config.checkpointInterval; seqNo <= config.highWatermark; seqNo += config.checkpointInterval {
+		checkpointWindows[seqNo] = newCheckpointWindow(seqNo, config)
+	}
+
 	return &stateMachine{
-		myConfig:     config.myConfig,
-		currentEpoch: newEpoch(config),
-		nodeMsgs:     nodeMsgs,
+		myConfig:          config.myConfig,
+		currentEpoch:      newEpoch(config),
+		nodeMsgs:          nodeMsgs,
+		checkpointWindows: checkpointWindows,
 	}
 }
 
@@ -58,15 +66,23 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 		case *pb.Msg_Preprepare:
 			msg := innerMsg.Preprepare
 			// TODO check for nil and log oddity
-			return sm.currentEpoch.Preprepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
+			return sm.currentEpoch.preprepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
 		case *pb.Msg_Prepare:
 			msg := innerMsg.Prepare
 			// TODO check for nil and log oddity
-			return sm.currentEpoch.Prepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+			return sm.currentEpoch.prepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
 		case *pb.Msg_Commit:
 			msg := innerMsg.Commit
 			// TODO check for nil and log oddity
-			return sm.currentEpoch.Commit(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+			actions := sm.currentEpoch.commit(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+			if len(actions.Commit) > 0 {
+				// XXX this is a moderately hacky way to determine if this commit msg triggered
+				// a commit, is there a better way?
+				if checkpointWindow, ok := sm.checkpointWindows[SeqNo(msg.SeqNo)]; ok {
+					actions.Append(checkpointWindow.Committed(BucketID(msg.Bucket)))
+				}
+			}
+			return actions
 		case *pb.Msg_Checkpoint:
 			msg := innerMsg.Checkpoint
 			// TODO check for nil and log oddity
@@ -96,12 +112,12 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 func (sm *stateMachine) checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
 	e := sm.currentEpoch
 
-	cw := e.checkpointWindows[seqNo]
+	cw := sm.checkpointWindows[seqNo]
 	actions := cw.applyCheckpointMsg(source, value, attestation)
 	if cw.garbageCollectible {
 		checkpointWindows := []*checkpointWindow{}
 		for seqNo := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval; seqNo <= e.epochConfig.highWatermark; seqNo += e.epochConfig.checkpointInterval {
-			checkpointWindow := e.checkpointWindows[seqNo]
+			checkpointWindow := sm.checkpointWindows[seqNo]
 			if !checkpointWindow.garbageCollectible {
 				break
 			}
@@ -130,14 +146,14 @@ func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 	e.epochConfig.highWatermark = high
 
 	for seqNo := originalLowWatermark; seqNo < low && seqNo <= originalHighWatermark; seqNo += e.epochConfig.checkpointInterval {
-		delete(e.checkpointWindows, seqNo)
+		delete(sm.checkpointWindows, seqNo)
 	}
 
 	for seqNo := low; seqNo <= high; seqNo += e.epochConfig.checkpointInterval {
 		if seqNo < originalHighWatermark {
 			continue
 		}
-		e.checkpointWindows[seqNo] = newCheckpointWindow(seqNo, e.epochConfig)
+		sm.checkpointWindows[seqNo] = newCheckpointWindow(seqNo, e.epochConfig)
 	}
 
 	for _, node := range sm.nodeMsgs {
@@ -166,14 +182,22 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 
 	for i, checkpointResult := range results.Checkpoints {
 		sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
-		actions.Append(sm.currentEpoch.checkpointResult(SeqNo(checkpointResult.SeqNo), checkpointResult.Value, checkpointResult.Attestation))
+		actions.Append(sm.checkpointResult(SeqNo(checkpointResult.SeqNo), checkpointResult.Value, checkpointResult.Attestation))
 	}
 
 	return actions
 }
 
+func (sm *stateMachine) checkpointResult(seqNo SeqNo, value, attestation []byte) *Actions {
+	checkpointWindow, ok := sm.checkpointWindows[seqNo]
+	if !ok {
+		panic("received an unexpected checkpoint result")
+	}
+	return checkpointWindow.applyCheckpointResult(value, attestation)
+}
+
 func (sm *stateMachine) tick() *Actions {
-	return sm.currentEpoch.Tick()
+	return sm.currentEpoch.tick()
 }
 
 func (sm *stateMachine) status() *Status {
@@ -191,7 +215,7 @@ func (sm *stateMachine) status() *Status {
 
 	checkpoints := []*CheckpointStatus{}
 	for seqNo := epochConfig.lowWatermark + epochConfig.checkpointInterval; seqNo <= epochConfig.highWatermark; seqNo += epochConfig.checkpointInterval {
-		checkpoints = append(checkpoints, sm.currentEpoch.checkpointWindows[seqNo].status())
+		checkpoints = append(checkpoints, sm.checkpointWindows[seqNo].status())
 	}
 
 	return &Status{

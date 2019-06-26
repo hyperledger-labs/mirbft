@@ -48,8 +48,6 @@ type epoch struct {
 
 	proposer *proposer
 
-	checkpointWindows map[SeqNo]*checkpointWindow
-
 	largestPreprepares map[NodeID]SeqNo
 }
 
@@ -64,15 +62,9 @@ func newEpoch(config *epochConfig) *epoch {
 		buckets[bucketID] = newBucket(config, bucketID)
 	}
 
-	checkpointWindows := map[SeqNo]*checkpointWindow{}
-	for seqNo := config.lowWatermark + config.checkpointInterval; seqNo <= config.highWatermark; seqNo += config.checkpointInterval {
-		checkpointWindows[seqNo] = newCheckpointWindow(seqNo, config)
-	}
-
 	return &epoch{
 		epochConfig:        config,
 		buckets:            buckets,
-		checkpointWindows:  checkpointWindows,
 		largestPreprepares: largestPreprepares,
 		proposer:           newProposer(config),
 	}
@@ -111,7 +103,7 @@ func (e *epoch) process(preprocessResult PreprocessResult) *Actions {
 	return &Actions{}
 }
 
-func (e *epoch) Preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
+func (e *epoch) preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
 	actions := &Actions{}
 
 	if e.largestPreprepares[source] < seqNo {
@@ -142,20 +134,12 @@ func (e *epoch) Preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch []
 	return actions
 }
 
-func (e *epoch) Prepare(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+func (e *epoch) prepare(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
 	return e.buckets[bucket].applyPrepare(source, seqNo, digest)
 }
 
-func (e *epoch) Commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	actions := e.buckets[bucket].applyCommit(source, seqNo, digest)
-	if len(actions.Commit) > 0 {
-		// XXX this is a moderately hacky way to determine if this commit msg triggered
-		// a commit, is there a better way?
-		if checkpointWindow, ok := e.checkpointWindows[seqNo]; ok {
-			actions.Append(checkpointWindow.Committed(bucket))
-		}
-	}
-	return actions
+func (e *epoch) commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+	return e.buckets[bucket].applyCommit(source, seqNo, digest)
 }
 
 func (e *epoch) moveWatermarks() *Actions {
@@ -166,14 +150,6 @@ func (e *epoch) moveWatermarks() *Actions {
 	return e.proposer.drainQueue()
 }
 
-func (e *epoch) checkpointResult(seqNo SeqNo, value, attestation []byte) *Actions {
-	checkpointWindow, ok := e.checkpointWindows[seqNo]
-	if !ok {
-		panic("received an unexpected checkpoint result")
-	}
-	return checkpointWindow.applyCheckpointResult(value, attestation)
-}
-
 func (e *epoch) digest(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
 	return e.buckets[bucket].applyDigestResult(seqNo, digest)
 }
@@ -182,6 +158,6 @@ func (e *epoch) validate(seqNo SeqNo, bucket BucketID, valid bool) *Actions {
 	return e.buckets[bucket].applyValidateResult(seqNo, valid)
 }
 
-func (e *epoch) Tick() *Actions {
+func (e *epoch) tick() *Actions {
 	return e.proposer.noopAdvance()
 }
