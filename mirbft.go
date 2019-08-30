@@ -34,6 +34,11 @@ type BucketID uint64
 // values with different meanings.
 type SeqNo uint64
 
+// EpochNo represents an epoch number.  It is a simple alias to a uint64, but
+// is used to help disambiguate function signatures which accept multiple uint64
+// values with different meanings.
+type EpochNo uint64
+
 // NodeID represents the identifier assigned to a node.  It is a simple alias to a uint64, but
 // is used to help disambiguate function signatures which accept multiple uint64
 // values with different meanings.

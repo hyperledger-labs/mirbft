@@ -33,40 +33,50 @@ func (sm *stateMachine) propose(data []byte) *Actions {
 }
 
 func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
-	switch innerMsg := outerMsg.Type.(type) {
-	case *pb.Msg_Preprepare:
-		msg := innerMsg.Preprepare
-		// TODO check for nil and log oddity
-		return sm.currentEpoch.Preprepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
-	case *pb.Msg_Prepare:
-		msg := innerMsg.Prepare
-		// TODO check for nil and log oddity
-		return sm.currentEpoch.Prepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
-	case *pb.Msg_Commit:
-		msg := innerMsg.Commit
-		// TODO check for nil and log oddity
-		return sm.currentEpoch.Commit(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
-	case *pb.Msg_Checkpoint:
-		msg := innerMsg.Checkpoint
-		// TODO check for nil and log oddity
-		return sm.currentEpoch.Checkpoint(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation)
-	case *pb.Msg_Forward:
-		msg := innerMsg.Forward
-		// TODO check for nil and log oddity
-		// TODO should we have a separate validate step here?  How do we prevent
-		// forwarded messages with bad data from poisoning our batch?
-		return &Actions{
-			Preprocess: []Proposal{
-				{
-					Source: uint64(source),
-					Data:   msg.Data,
-				},
-			},
-		}
-	default:
-		// TODO mark oddity
-		return &Actions{}
+	nodeMsgs, ok := sm.currentEpoch.nodeMsgs[source]
+	if !ok {
+		sm.myConfig.Logger.Panic("received a message from a node ID that does not exist")
 	}
+	msgs := nodeMsgs.processMsg(outerMsg)
+
+	for _, msg := range msgs {
+		switch innerMsg := msg.Type.(type) {
+		case *pb.Msg_Preprepare:
+			msg := innerMsg.Preprepare
+			// TODO check for nil and log oddity
+			return sm.currentEpoch.Preprepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
+		case *pb.Msg_Prepare:
+			msg := innerMsg.Prepare
+			// TODO check for nil and log oddity
+			return sm.currentEpoch.Prepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+		case *pb.Msg_Commit:
+			msg := innerMsg.Commit
+			// TODO check for nil and log oddity
+			return sm.currentEpoch.Commit(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+		case *pb.Msg_Checkpoint:
+			msg := innerMsg.Checkpoint
+			// TODO check for nil and log oddity
+			return sm.currentEpoch.Checkpoint(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation)
+		case *pb.Msg_Forward:
+			msg := innerMsg.Forward
+			// TODO check for nil and log oddity
+			// TODO should we have a separate validate step here?  How do we prevent
+			// forwarded messages with bad data from poisoning our batch?
+			return &Actions{
+				Preprocess: []Proposal{
+					{
+						Source: uint64(source),
+						Data:   msg.Data,
+					},
+				},
+			}
+		default:
+			// TODO mark oddity
+			return &Actions{}
+		}
+	}
+
+	return &Actions{}
 }
 
 func (sm *stateMachine) processResults(results ActionResults) *Actions {
@@ -154,6 +164,8 @@ func (s *Status) Pretty() string {
 	}
 
 	for _, nodeStatus := range s.Nodes {
+
+		fmt.Printf("%+v\n\n\n", nodeStatus)
 
 		hRule()
 		buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeStatus.ID))
