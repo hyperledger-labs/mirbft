@@ -22,6 +22,10 @@ type stateMachine struct {
 	currentEpoch *epoch
 
 	checkpointWindows map[SeqNo]*checkpointWindow
+
+	//checkpointWs should really be named checkpointWindows, but
+	// trying to go incrementally and non-invasively.
+	checkpointWs []*checkpointWindow
 }
 
 func newStateMachine(config *epochConfig) *stateMachine {
@@ -31,8 +35,11 @@ func newStateMachine(config *epochConfig) *stateMachine {
 	}
 
 	checkpointWindows := map[SeqNo]*checkpointWindow{}
+	checkpointWs := []*checkpointWindow{}
 	for seqNo := config.lowWatermark + config.checkpointInterval; seqNo <= config.highWatermark; seqNo += config.checkpointInterval {
-		checkpointWindows[seqNo] = newCheckpointWindow(seqNo, config)
+		cw := newCheckpointWindow(seqNo, config)
+		checkpointWindows[seqNo] = cw
+		checkpointWs = append(checkpointWs, cw)
 	}
 
 	return &stateMachine{
@@ -40,6 +47,7 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		currentEpoch:      newEpoch(config),
 		nodeMsgs:          nodeMsgs,
 		checkpointWindows: checkpointWindows,
+		checkpointWs:      checkpointWs,
 	}
 }
 
@@ -86,7 +94,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 		case *pb.Msg_Checkpoint:
 			msg := innerMsg.Checkpoint
 			// TODO check for nil and log oddity
-			return sm.checkpoint(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation)
+			return sm.checkpointMsg(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation)
 		case *pb.Msg_Forward:
 			msg := innerMsg.Forward
 			// TODO check for nil and log oddity
@@ -109,31 +117,45 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	return &Actions{}
 }
 
-func (sm *stateMachine) checkpoint(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
+func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
 	e := sm.currentEpoch
 
 	cw := sm.checkpointWindows[seqNo]
+
 	actions := cw.applyCheckpointMsg(source, value, attestation)
-	if cw.garbageCollectible {
-		checkpointWindows := []*checkpointWindow{}
-		for seqNo := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval; seqNo <= e.epochConfig.highWatermark; seqNo += e.epochConfig.checkpointInterval {
-			checkpointWindow := sm.checkpointWindows[seqNo]
-			if !checkpointWindow.garbageCollectible {
-				break
-			}
-			checkpointWindows = append(checkpointWindows, checkpointWindow)
-			// XXX, the constant '4' garbage checkpoints is tied to the constant '5' free checkpoints in
-			// bucket.go and assumes the network is configured for 10 total checkpoints, but not enforced.
-			// Also, if there are at least 2 checkpoints, and the first one is obsolete (meaning all
-			// nodes have acknowledged it, not simply a quorum), garbage collect it.
-			if len(checkpointWindows) > 4 || (len(checkpointWindows) > 2 && checkpointWindows[0].obsolete) {
-				newLowWatermark := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval
-				newHighWatermark := e.epochConfig.highWatermark + e.epochConfig.checkpointInterval
-				actions.Append(sm.moveWatermarks(newLowWatermark, newHighWatermark))
-				checkpointWindows = checkpointWindows[1:]
-			}
-		}
+	if !cw.garbageCollectible {
+		return actions
 	}
+
+	garbageCollectible := []*checkpointWindow{}
+	for _, cw := range sm.checkpointWs {
+		if !cw.garbageCollectible {
+			break
+		}
+		garbageCollectible = append(garbageCollectible, cw)
+	}
+
+	for {
+		// XXX, the constant '4' garbage checkpoints is tied to the constant '5' free checkpoints in
+		// bucket.go and assumes the network is configured for 10 total checkpoints, but not enforced.
+		// Also, if there are at least 2 checkpoints, and the first one is obsolete (meaning all
+		// nodes have acknowledged it, not simply a quorum), garbage collect it.
+		if len(garbageCollectible) > 4 || (len(garbageCollectible) > 2 && garbageCollectible[0].obsolete) {
+			newLowWatermark := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval
+			newHighWatermark := e.epochConfig.highWatermark + e.epochConfig.checkpointInterval
+			actions.Append(sm.moveWatermarks(newLowWatermark, newHighWatermark))
+			garbageCollectible = garbageCollectible[1:]
+			continue
+		}
+
+		break
+	}
+
+	seqnos := []uint64{}
+	for _, gc := range garbageCollectible {
+		seqnos = append(seqnos, uint64(gc.number))
+	}
+
 	return actions
 }
 
@@ -149,11 +171,23 @@ func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 		delete(sm.checkpointWindows, seqNo)
 	}
 
-	for seqNo := low; seqNo <= high; seqNo += e.epochConfig.checkpointInterval {
-		if seqNo < originalHighWatermark {
+	for len(sm.checkpointWs) > 0 {
+		cw := sm.checkpointWs[0]
+		if cw.number < low {
+			sm.checkpointWs = sm.checkpointWs[1:]
 			continue
 		}
-		sm.checkpointWindows[seqNo] = newCheckpointWindow(seqNo, e.epochConfig)
+		break
+	}
+
+	for seqNo := low; seqNo <= high; seqNo += e.epochConfig.checkpointInterval {
+		if seqNo <= originalHighWatermark {
+			continue
+		}
+		cw := newCheckpointWindow(seqNo, e.epochConfig)
+		sm.checkpointWindows[seqNo] = cw
+		sm.checkpointWs = append(sm.checkpointWs, cw)
+
 	}
 
 	for _, node := range sm.nodeMsgs {

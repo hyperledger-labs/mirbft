@@ -211,7 +211,6 @@ var _ = Describe("MirBFT", func() {
 			for i := uint64(0); i < 1000; i++ {
 				value := make([]byte, 8)
 				binary.LittleEndian.PutUint64(value, i)
-
 				// Propose to only the first 3 nodes round robin, ensuring some are forwarded and others not
 				nodes[i%3].Propose(ctx, value)
 			}
@@ -236,6 +235,7 @@ var _ = Describe("MirBFT", func() {
 					observations[msgNo] = struct{}{}
 				}
 			}
+
 		})
 
 		JustAfterEach(func() {
