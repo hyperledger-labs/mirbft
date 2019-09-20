@@ -80,7 +80,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 				// XXX this is a moderately hacky way to determine if this commit msg triggered
 				// a commit, is there a better way?
 				cw := sm.checkpointWindow(SeqNo(msg.SeqNo))
-				if cw != nil {
+				if cw != nil && cw.end == SeqNo(msg.SeqNo) {
 					actions.Append(cw.Committed(BucketID(msg.Bucket)))
 				}
 			}
@@ -215,7 +215,7 @@ func (sm *stateMachine) checkpointWindow(seqNo SeqNo) *checkpointWindow {
 		if cw.start > seqNo {
 			break
 		}
-		if cw.end == seqNo {
+		if cw.end >= seqNo {
 			return cw
 		}
 	}
