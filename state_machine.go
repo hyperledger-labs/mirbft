@@ -21,9 +21,7 @@ type stateMachine struct {
 	nodeMsgs     map[NodeID]*nodeMsgs
 	currentEpoch *epoch
 
-	//checkpointWs should really be named checkpointWindows, but
-	// trying to go incrementally and non-invasively.
-	checkpointWs []*checkpointWindow
+	checkpointWindows []*checkpointWindow
 }
 
 func newStateMachine(config *epochConfig) *stateMachine {
@@ -32,17 +30,17 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		nodeMsgs[id] = newNodeMsgs(id, config)
 	}
 
-	checkpointWs := []*checkpointWindow{}
+	checkpointWindows := []*checkpointWindow{}
 	for seqNo := config.lowWatermark + config.checkpointInterval; seqNo <= config.highWatermark; seqNo += config.checkpointInterval {
 		cw := newCheckpointWindow(seqNo-config.checkpointInterval+1, seqNo, config)
-		checkpointWs = append(checkpointWs, cw)
+		checkpointWindows = append(checkpointWindows, cw)
 	}
 
 	return &stateMachine{
-		myConfig:     config.myConfig,
-		currentEpoch: newEpoch(config),
-		nodeMsgs:     nodeMsgs,
-		checkpointWs: checkpointWs,
+		myConfig:          config.myConfig,
+		currentEpoch:      newEpoch(config),
+		nodeMsgs:          nodeMsgs,
+		checkpointWindows: checkpointWindows,
 	}
 }
 
@@ -124,7 +122,7 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 	}
 
 	garbageCollectible := []*checkpointWindow{}
-	for _, cw := range sm.checkpointWs {
+	for _, cw := range sm.checkpointWindows {
 		if !cw.garbageCollectible {
 			break
 		}
@@ -162,10 +160,10 @@ func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 	e.epochConfig.lowWatermark = low
 	e.epochConfig.highWatermark = high
 
-	for len(sm.checkpointWs) > 0 {
-		cw := sm.checkpointWs[0]
+	for len(sm.checkpointWindows) > 0 {
+		cw := sm.checkpointWindows[0]
 		if cw.end < low {
-			sm.checkpointWs = sm.checkpointWs[1:]
+			sm.checkpointWindows = sm.checkpointWindows[1:]
 			continue
 		}
 		break
@@ -176,7 +174,7 @@ func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 			continue
 		}
 		cw := newCheckpointWindow(seqNo-e.epochConfig.checkpointInterval+1, seqNo, e.epochConfig)
-		sm.checkpointWs = append(sm.checkpointWs, cw)
+		sm.checkpointWindows = append(sm.checkpointWindows, cw)
 
 	}
 
@@ -213,7 +211,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 }
 
 func (sm *stateMachine) checkpointWindow(seqNo SeqNo) *checkpointWindow {
-	for _, cw := range sm.checkpointWs {
+	for _, cw := range sm.checkpointWindows {
 		if cw.start > seqNo {
 			break
 		}
