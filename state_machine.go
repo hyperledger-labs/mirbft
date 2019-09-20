@@ -21,8 +21,6 @@ type stateMachine struct {
 	nodeMsgs     map[NodeID]*nodeMsgs
 	currentEpoch *epoch
 
-	checkpointWindows map[SeqNo]*checkpointWindow
-
 	//checkpointWs should really be named checkpointWindows, but
 	// trying to go incrementally and non-invasively.
 	checkpointWs []*checkpointWindow
@@ -34,20 +32,17 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		nodeMsgs[id] = newNodeMsgs(id, config)
 	}
 
-	checkpointWindows := map[SeqNo]*checkpointWindow{}
 	checkpointWs := []*checkpointWindow{}
 	for seqNo := config.lowWatermark + config.checkpointInterval; seqNo <= config.highWatermark; seqNo += config.checkpointInterval {
 		cw := newCheckpointWindow(seqNo-config.checkpointInterval+1, seqNo, config)
-		checkpointWindows[seqNo] = cw
 		checkpointWs = append(checkpointWs, cw)
 	}
 
 	return &stateMachine{
-		myConfig:          config.myConfig,
-		currentEpoch:      newEpoch(config),
-		nodeMsgs:          nodeMsgs,
-		checkpointWindows: checkpointWindows,
-		checkpointWs:      checkpointWs,
+		myConfig:     config.myConfig,
+		currentEpoch: newEpoch(config),
+		nodeMsgs:     nodeMsgs,
+		checkpointWs: checkpointWs,
 	}
 }
 
@@ -86,8 +81,9 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 			if len(actions.Commit) > 0 {
 				// XXX this is a moderately hacky way to determine if this commit msg triggered
 				// a commit, is there a better way?
-				if checkpointWindow, ok := sm.checkpointWindows[SeqNo(msg.SeqNo)]; ok {
-					actions.Append(checkpointWindow.Committed(BucketID(msg.Bucket)))
+				cw := sm.checkpointWindow(SeqNo(msg.SeqNo))
+				if cw != nil {
+					actions.Append(cw.Committed(BucketID(msg.Bucket)))
 				}
 			}
 			return actions
@@ -120,7 +116,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
 	e := sm.currentEpoch
 
-	cw := sm.checkpointWindows[seqNo]
+	cw := sm.checkpointWindow(seqNo)
 
 	actions := cw.applyCheckpointMsg(source, value, attestation)
 	if !cw.garbageCollectible {
@@ -162,14 +158,9 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 	e := sm.currentEpoch
 
-	originalLowWatermark := e.epochConfig.lowWatermark
 	originalHighWatermark := e.epochConfig.highWatermark
 	e.epochConfig.lowWatermark = low
 	e.epochConfig.highWatermark = high
-
-	for seqNo := originalLowWatermark; seqNo < low && seqNo <= originalHighWatermark; seqNo += e.epochConfig.checkpointInterval {
-		delete(sm.checkpointWindows, seqNo)
-	}
 
 	for len(sm.checkpointWs) > 0 {
 		cw := sm.checkpointWs[0]
@@ -185,7 +176,6 @@ func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 			continue
 		}
 		cw := newCheckpointWindow(seqNo-e.epochConfig.checkpointInterval+1, seqNo, e.epochConfig)
-		sm.checkpointWindows[seqNo] = cw
 		sm.checkpointWs = append(sm.checkpointWs, cw)
 
 	}
@@ -222,12 +212,24 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	return actions
 }
 
+func (sm *stateMachine) checkpointWindow(seqNo SeqNo) *checkpointWindow {
+	for _, cw := range sm.checkpointWs {
+		if cw.start > seqNo {
+			break
+		}
+		if cw.end == seqNo {
+			return cw
+		}
+	}
+	return nil
+}
+
 func (sm *stateMachine) checkpointResult(seqNo SeqNo, value, attestation []byte) *Actions {
-	checkpointWindow, ok := sm.checkpointWindows[seqNo]
-	if !ok {
+	cw := sm.checkpointWindow(seqNo)
+	if cw == nil {
 		panic("received an unexpected checkpoint result")
 	}
-	return checkpointWindow.applyCheckpointResult(value, attestation)
+	return cw.applyCheckpointResult(value, attestation)
 }
 
 func (sm *stateMachine) tick() *Actions {
@@ -249,7 +251,7 @@ func (sm *stateMachine) status() *Status {
 
 	checkpoints := []*CheckpointStatus{}
 	for seqNo := epochConfig.lowWatermark + epochConfig.checkpointInterval; seqNo <= epochConfig.highWatermark; seqNo += epochConfig.checkpointInterval {
-		checkpoints = append(checkpoints, sm.checkpointWindows[seqNo].status())
+		checkpoints = append(checkpoints, sm.checkpointWindow(seqNo).status())
 	}
 
 	return &Status{
