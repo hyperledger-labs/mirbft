@@ -12,7 +12,8 @@ import (
 )
 
 type checkpointWindow struct {
-	number      SeqNo
+	start       SeqNo
+	end         SeqNo
 	epochConfig *epochConfig
 
 	pendingCommits     map[BucketID]struct{}
@@ -28,14 +29,15 @@ type nodeAttestation struct {
 	attestation []byte
 }
 
-func newCheckpointWindow(number SeqNo, config *epochConfig) *checkpointWindow {
+func newCheckpointWindow(start, end SeqNo, config *epochConfig) *checkpointWindow {
 	pendingCommits := map[BucketID]struct{}{}
 	for bucketID := range config.buckets {
 		pendingCommits[bucketID] = struct{}{}
 	}
 
 	return &checkpointWindow{
-		number:         number,
+		start:          start,
+		end:            end,
 		epochConfig:    config,
 		pendingCommits: pendingCommits,
 		values:         map[string][]nodeAttestation{},
@@ -48,7 +50,7 @@ func (cw *checkpointWindow) Committed(bucket BucketID) *Actions {
 		return &Actions{}
 	}
 	return &Actions{
-		Checkpoint: []uint64{uint64(cw.number)},
+		Checkpoint: []uint64{uint64(cw.end)},
 	}
 }
 
@@ -96,7 +98,7 @@ func (cw *checkpointWindow) applyCheckpointResult(value, attestation []byte) *Ac
 			{
 				Type: &pb.Msg_Checkpoint{
 					Checkpoint: &pb.Checkpoint{
-						SeqNo:       uint64(cw.number),
+						SeqNo:       uint64(cw.end),
 						Value:       value,
 						Attestation: attestation,
 					},
@@ -115,7 +117,7 @@ type CheckpointStatus struct {
 
 func (cw *checkpointWindow) status() *CheckpointStatus {
 	return &CheckpointStatus{
-		SeqNo:          uint64(cw.number),
+		SeqNo:          uint64(cw.end),
 		PendingCommits: len(cw.pendingCommits),
 		NetQuorum:      cw.committedValue != nil,
 		LocalAgreement: cw.committedValue != nil && bytes.Equal(cw.committedValue, cw.myValue),

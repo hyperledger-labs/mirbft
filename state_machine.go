@@ -37,7 +37,7 @@ func newStateMachine(config *epochConfig) *stateMachine {
 	checkpointWindows := map[SeqNo]*checkpointWindow{}
 	checkpointWs := []*checkpointWindow{}
 	for seqNo := config.lowWatermark + config.checkpointInterval; seqNo <= config.highWatermark; seqNo += config.checkpointInterval {
-		cw := newCheckpointWindow(seqNo, config)
+		cw := newCheckpointWindow(seqNo-config.checkpointInterval+1, seqNo, config)
 		checkpointWindows[seqNo] = cw
 		checkpointWs = append(checkpointWs, cw)
 	}
@@ -153,7 +153,7 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 
 	seqnos := []uint64{}
 	for _, gc := range garbageCollectible {
-		seqnos = append(seqnos, uint64(gc.number))
+		seqnos = append(seqnos, uint64(gc.end))
 	}
 
 	return actions
@@ -173,7 +173,7 @@ func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 
 	for len(sm.checkpointWs) > 0 {
 		cw := sm.checkpointWs[0]
-		if cw.number < low {
+		if cw.end < low {
 			sm.checkpointWs = sm.checkpointWs[1:]
 			continue
 		}
@@ -184,7 +184,7 @@ func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 		if seqNo <= originalHighWatermark {
 			continue
 		}
-		cw := newCheckpointWindow(seqNo, e.epochConfig)
+		cw := newCheckpointWindow(seqNo-e.epochConfig.checkpointInterval+1, seqNo, e.epochConfig)
 		sm.checkpointWindows[seqNo] = cw
 		sm.checkpointWs = append(sm.checkpointWs, cw)
 
