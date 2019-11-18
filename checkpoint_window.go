@@ -16,7 +16,9 @@ type checkpointWindow struct {
 	end         SeqNo
 	epochConfig *epochConfig
 
-	pendingCommits     map[BucketID]struct{}
+	buckets map[BucketID]*bucket
+
+	outstandingBuckets map[BucketID]struct{}
 	values             map[string][]nodeAttestation
 	committedValue     []byte
 	myValue            []byte
@@ -30,23 +32,46 @@ type nodeAttestation struct {
 }
 
 func newCheckpointWindow(start, end SeqNo, config *epochConfig) *checkpointWindow {
-	pendingCommits := map[BucketID]struct{}{}
+	outstandingBuckets := map[BucketID]struct{}{}
+	buckets := map[BucketID]*bucket{}
 	for bucketID := range config.buckets {
-		pendingCommits[bucketID] = struct{}{}
+		outstandingBuckets[bucketID] = struct{}{}
+		buckets[bucketID] = newBucket(config, bucketID)
 	}
 
 	return &checkpointWindow{
-		start:          start,
-		end:            end,
-		epochConfig:    config,
-		pendingCommits: pendingCommits,
-		values:         map[string][]nodeAttestation{},
+		start:              start,
+		end:                end,
+		epochConfig:        config,
+		outstandingBuckets: outstandingBuckets,
+		buckets:            buckets,
+		values:             map[string][]nodeAttestation{},
 	}
 }
 
-func (cw *checkpointWindow) Committed(bucket BucketID) *Actions {
-	delete(cw.pendingCommits, bucket)
-	if len(cw.pendingCommits) > 0 {
+func (cw *checkpointWindow) preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
+	return cw.buckets[bucket].applyPreprepare(seqNo, batch)
+}
+
+func (cw *checkpointWindow) prepare(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+	return cw.buckets[bucket].applyPrepare(source, seqNo, digest)
+}
+
+func (cw *checkpointWindow) commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+	return cw.buckets[bucket].applyCommit(source, seqNo, digest)
+}
+
+func (cw *checkpointWindow) digest(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+	return cw.buckets[bucket].applyDigestResult(seqNo, digest)
+}
+
+func (cw *checkpointWindow) validate(seqNo SeqNo, bucket BucketID, valid bool) *Actions {
+	return cw.buckets[bucket].applyValidateResult(seqNo, valid)
+}
+
+func (cw *checkpointWindow) committed(bucket BucketID) *Actions {
+	delete(cw.outstandingBuckets, bucket)
+	if len(cw.outstandingBuckets) > 0 {
 		return &Actions{}
 	}
 	return &Actions{
@@ -118,7 +143,7 @@ type CheckpointStatus struct {
 func (cw *checkpointWindow) status() *CheckpointStatus {
 	return &CheckpointStatus{
 		SeqNo:          uint64(cw.end),
-		PendingCommits: len(cw.pendingCommits),
+		PendingCommits: len(cw.outstandingBuckets),
 		NetQuorum:      cw.committedValue != nil,
 		LocalAgreement: cw.committedValue != nil && bytes.Equal(cw.committedValue, cw.myValue),
 	}

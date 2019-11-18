@@ -44,8 +44,6 @@ type epochConfig struct {
 type epoch struct {
 	epochConfig *epochConfig
 
-	buckets map[BucketID]*bucket
-
 	proposer *proposer
 
 	largestPreprepares map[NodeID]SeqNo
@@ -57,14 +55,8 @@ func newEpoch(config *epochConfig) *epoch {
 		largestPreprepares[id] = config.lowWatermark
 	}
 
-	buckets := map[BucketID]*bucket{}
-	for bucketID := range config.buckets {
-		buckets[bucketID] = newBucket(config, bucketID)
-	}
-
 	return &epoch{
 		epochConfig:        config,
-		buckets:            buckets,
 		largestPreprepares: largestPreprepares,
 		proposer:           newProposer(config),
 	}
@@ -130,32 +122,11 @@ func (e *epoch) preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch []
 		}
 	}
 
-	actions.Append(e.buckets[bucket].applyPreprepare(seqNo, batch))
 	return actions
 }
 
-func (e *epoch) prepare(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	return e.buckets[bucket].applyPrepare(source, seqNo, digest)
-}
-
-func (e *epoch) commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	return e.buckets[bucket].applyCommit(source, seqNo, digest)
-}
-
 func (e *epoch) moveWatermarks() *Actions {
-	for _, bucket := range e.buckets {
-		bucket.moveWatermarks()
-	}
-
 	return e.proposer.drainQueue()
-}
-
-func (e *epoch) digest(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	return e.buckets[bucket].applyDigestResult(seqNo, digest)
-}
-
-func (e *epoch) validate(seqNo SeqNo, bucket BucketID, valid bool) *Actions {
-	return e.buckets[bucket].applyValidateResult(seqNo, valid)
 }
 
 func (e *epoch) tick() *Actions {

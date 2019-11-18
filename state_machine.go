@@ -55,6 +55,12 @@ func (sm *stateMachine) propose(data []byte) *Actions {
 	}
 }
 
+func (sm *stateMachine) checkpointWindowForSeqNo(seqNo uint64) *checkpointWindow {
+	offset := seqNo - uint64(sm.checkpointWindows[0].start)
+	index := offset / uint64(sm.currentEpoch.epochConfig.checkpointInterval)
+	return sm.checkpointWindows[index]
+}
+
 func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	nodeMsgs, ok := sm.nodeMsgs[source]
 	if !ok {
@@ -67,21 +73,21 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 		case *pb.Msg_Preprepare:
 			msg := innerMsg.Preprepare
 			// TODO check for nil and log oddity
-			return sm.currentEpoch.preprepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
+			return sm.checkpointWindowForSeqNo(msg.SeqNo).preprepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
 		case *pb.Msg_Prepare:
 			msg := innerMsg.Prepare
 			// TODO check for nil and log oddity
-			return sm.currentEpoch.prepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+			return sm.checkpointWindowForSeqNo(msg.SeqNo).prepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
 		case *pb.Msg_Commit:
 			msg := innerMsg.Commit
 			// TODO check for nil and log oddity
-			actions := sm.currentEpoch.commit(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+			actions := sm.checkpointWindowForSeqNo(msg.SeqNo).commit(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
 			if len(actions.Commit) > 0 {
 				// XXX this is a moderately hacky way to determine if this commit msg triggered
 				// a commit, is there a better way?
 				cw := sm.checkpointWindow(SeqNo(msg.SeqNo))
 				if cw != nil && cw.end == SeqNo(msg.SeqNo) {
-					actions.Append(cw.Committed(BucketID(msg.Bucket)))
+					actions.Append(cw.committed(BucketID(msg.Bucket)))
 				}
 			}
 			return actions
@@ -194,12 +200,14 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 
 	for i, digestResult := range results.Digests {
 		sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
-		actions.Append(sm.currentEpoch.digest(SeqNo(digestResult.Entry.SeqNo), BucketID(digestResult.Entry.BucketID), digestResult.Digest))
+		seqNo := digestResult.Entry.SeqNo
+		actions.Append(sm.checkpointWindowForSeqNo(seqNo).digest(SeqNo(seqNo), BucketID(digestResult.Entry.BucketID), digestResult.Digest))
 	}
 
 	for i, validateResult := range results.Validations {
 		sm.myConfig.Logger.Debug("applying validate result", zap.Int("index", i))
-		actions.Append(sm.currentEpoch.validate(SeqNo(validateResult.Entry.SeqNo), BucketID(validateResult.Entry.BucketID), validateResult.Valid))
+		seqNo := validateResult.Entry.SeqNo
+		actions.Append(sm.checkpointWindowForSeqNo(seqNo).validate(SeqNo(seqNo), BucketID(validateResult.Entry.BucketID), validateResult.Valid))
 	}
 
 	for i, checkpointResult := range results.Checkpoints {
@@ -242,14 +250,17 @@ func (sm *stateMachine) status() *Status {
 		nodes[i] = sm.nodeMsgs[nodeID].status()
 	}
 
-	buckets := make([]*BucketStatus, len(sm.currentEpoch.buckets))
-	for i := BucketID(0); i < BucketID(len(sm.currentEpoch.buckets)); i++ {
-		buckets[int(i)] = sm.currentEpoch.buckets[i].status()
-	}
-
+	bucketsLen := 0
 	checkpoints := []*CheckpointStatus{}
 	for seqNo := epochConfig.lowWatermark + epochConfig.checkpointInterval; seqNo <= epochConfig.highWatermark; seqNo += epochConfig.checkpointInterval {
-		checkpoints = append(checkpoints, sm.checkpointWindow(seqNo).status())
+		cw := sm.checkpointWindow(seqNo)
+		checkpoints = append(checkpoints, cw.status())
+		bucketsLen += len(cw.buckets)
+	}
+
+	buckets := make([]*BucketStatus, bucketsLen)
+	for i := BucketID(0); i < BucketID(len(sm.checkpointWindows[0].buckets)); i++ {
+		buckets[int(i)] = sm.checkpointWindows[0].buckets[i].status() // TODO FIXME, this is wrong - the buckets need to be a property of the checkpoint window
 	}
 
 	return &Status{
