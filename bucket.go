@@ -82,9 +82,9 @@ type BucketStatus struct {
 }
 
 func (b *bucket) status() *BucketStatus {
-	sequences := make([]SequenceState, int(b.end-b.start))
+	sequences := make([]SequenceState, int(b.end-b.start+1))
 	for i := range sequences {
-		sequences[i] = b.sequences[SeqNo(i)+b.start+1].state
+		sequences[i] = b.sequences[SeqNo(i)+b.start].state
 	}
 	return &BucketStatus{
 		ID:        uint64(b.id),
