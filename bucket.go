@@ -7,6 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 type bucket struct {
+	start SeqNo
+	end   SeqNo
+
 	epochConfig *epochConfig
 
 	leader NodeID
@@ -17,33 +20,18 @@ type bucket struct {
 	sequences map[SeqNo]*sequence
 }
 
-func newBucket(config *epochConfig, bucketID BucketID) *bucket {
+func newBucket(start, end SeqNo, config *epochConfig, bucketID BucketID) *bucket {
 	sequences := map[SeqNo]*sequence{}
-	b := &bucket{
-		leader:      config.buckets[bucketID],
+	for seqNo := start; seqNo <= end; seqNo++ {
+		sequences[seqNo] = newSequence(config, seqNo, bucketID)
+	}
+	return &bucket{
+		start:       start,
+		end:         end,
+		sequences:   sequences,
 		id:          bucketID,
 		epochConfig: config,
-		sequences:   sequences,
-	}
-	b.moveWatermarks()
-	return b
-}
-
-func (b *bucket) moveWatermarks() {
-	// XXX this is a pretty obviously suboptimal way of moving watermarks,
-	// we know they're in order, so iterating through all sequences twice
-	// is wasteful, but it's easy to show it's correct, so implementing naively for now
-
-	for seqNo := range b.sequences {
-		if seqNo < b.epochConfig.lowWatermark {
-			delete(b.sequences, seqNo)
-		}
-	}
-
-	for i := b.epochConfig.lowWatermark + 1; i <= b.epochConfig.highWatermark; i++ {
-		if _, ok := b.sequences[i]; !ok {
-			b.sequences[i] = newSequence(b.epochConfig, i, b.id)
-		}
+		leader:      config.buckets[bucketID],
 	}
 }
 
@@ -94,9 +82,9 @@ type BucketStatus struct {
 }
 
 func (b *bucket) status() *BucketStatus {
-	sequences := make([]SequenceState, int(b.epochConfig.highWatermark-b.epochConfig.lowWatermark))
+	sequences := make([]SequenceState, int(b.end-b.start))
 	for i := range sequences {
-		sequences[i] = b.sequences[SeqNo(i)+b.epochConfig.lowWatermark+1].state
+		sequences[i] = b.sequences[SeqNo(i)+b.start+1].state
 	}
 	return &BucketStatus{
 		ID:        uint64(b.id),

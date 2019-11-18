@@ -250,17 +250,21 @@ func (sm *stateMachine) status() *Status {
 		nodes[i] = sm.nodeMsgs[nodeID].status()
 	}
 
-	bucketsLen := 0
+	var buckets []*BucketStatus
 	checkpoints := []*CheckpointStatus{}
 	for seqNo := epochConfig.lowWatermark + epochConfig.checkpointInterval; seqNo <= epochConfig.highWatermark; seqNo += epochConfig.checkpointInterval {
 		cw := sm.checkpointWindow(seqNo)
 		checkpoints = append(checkpoints, cw.status())
-		bucketsLen += len(cw.buckets)
-	}
-
-	buckets := make([]*BucketStatus, bucketsLen)
-	for i := BucketID(0); i < BucketID(len(sm.checkpointWindows[0].buckets)); i++ {
-		buckets[int(i)] = sm.checkpointWindows[0].buckets[i].status() // TODO FIXME, this is wrong - the buckets need to be a property of the checkpoint window
+		if buckets == nil {
+			buckets = make([]*BucketStatus, len(cw.buckets))
+			for i := BucketID(0); i < BucketID(len(sm.checkpointWindows[0].buckets)); i++ {
+				buckets[int(i)] = cw.buckets[i].status()
+			}
+		} else {
+			for i := BucketID(0); i < BucketID(len(sm.checkpointWindows[0].buckets)); i++ {
+				buckets[int(i)].Sequences = append(buckets[int(i)].Sequences, cw.buckets[i].status().Sequences...)
+			}
+		}
 	}
 
 	return &Status{

@@ -33,10 +33,11 @@ type nodeAttestation struct {
 
 func newCheckpointWindow(start, end SeqNo, config *epochConfig) *checkpointWindow {
 	outstandingBuckets := map[BucketID]struct{}{}
+
 	buckets := map[BucketID]*bucket{}
 	for bucketID := range config.buckets {
 		outstandingBuckets[bucketID] = struct{}{}
-		buckets[bucketID] = newBucket(config, bucketID)
+		buckets[bucketID] = newBucket(start, end, config, bucketID)
 	}
 
 	return &checkpointWindow{
