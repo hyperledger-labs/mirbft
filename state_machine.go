@@ -17,9 +17,10 @@ import (
 )
 
 type stateMachine struct {
-	myConfig     *Config
-	nodeMsgs     map[NodeID]*nodeMsgs
-	currentEpoch *epoch
+	myConfig           *Config
+	nodeMsgs           map[NodeID]*nodeMsgs
+	currentEpochConfig *epochConfig
+	proposer           *proposer
 
 	checkpointWindows []*checkpointWindow
 }
@@ -37,10 +38,11 @@ func newStateMachine(config *epochConfig) *stateMachine {
 	}
 
 	return &stateMachine{
-		myConfig:          config.myConfig,
-		currentEpoch:      newEpoch(config),
-		nodeMsgs:          nodeMsgs,
-		checkpointWindows: checkpointWindows,
+		myConfig:           config.myConfig,
+		currentEpochConfig: config,
+		nodeMsgs:           nodeMsgs,
+		checkpointWindows:  checkpointWindows,
+		proposer:           newProposer(config),
 	}
 }
 
@@ -57,7 +59,7 @@ func (sm *stateMachine) propose(data []byte) *Actions {
 
 func (sm *stateMachine) checkpointWindowForSeqNo(seqNo uint64) *checkpointWindow {
 	offset := seqNo - uint64(sm.checkpointWindows[0].start)
-	index := offset / uint64(sm.currentEpoch.epochConfig.checkpointInterval)
+	index := offset / uint64(sm.currentEpochConfig.checkpointInterval)
 	return sm.checkpointWindows[index]
 }
 
@@ -118,8 +120,6 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 }
 
 func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
-	e := sm.currentEpoch
-
 	cw := sm.checkpointWindow(seqNo)
 
 	actions := cw.applyCheckpointMsg(source, value, attestation)
@@ -141,8 +141,8 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 		// Also, if there are at least 2 checkpoints, and the first one is obsolete (meaning all
 		// nodes have acknowledged it, not simply a quorum), garbage collect it.
 		if len(garbageCollectible) > 4 || (len(garbageCollectible) > 2 && garbageCollectible[0].obsolete) {
-			newLowWatermark := e.epochConfig.lowWatermark + e.epochConfig.checkpointInterval
-			newHighWatermark := e.epochConfig.highWatermark + e.epochConfig.checkpointInterval
+			newLowWatermark := sm.currentEpochConfig.lowWatermark + sm.currentEpochConfig.checkpointInterval
+			newHighWatermark := sm.currentEpochConfig.highWatermark + sm.currentEpochConfig.checkpointInterval
 			actions.Append(sm.moveWatermarks(newLowWatermark, newHighWatermark))
 			garbageCollectible = garbageCollectible[1:]
 			continue
@@ -160,11 +160,9 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 }
 
 func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
-	e := sm.currentEpoch
-
-	originalHighWatermark := e.epochConfig.highWatermark
-	e.epochConfig.lowWatermark = low
-	e.epochConfig.highWatermark = high
+	originalHighWatermark := sm.currentEpochConfig.highWatermark
+	sm.currentEpochConfig.lowWatermark = low
+	sm.currentEpochConfig.highWatermark = high
 
 	for len(sm.checkpointWindows) > 0 {
 		cw := sm.checkpointWindows[0]
@@ -175,11 +173,11 @@ func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 		break
 	}
 
-	for seqNo := low; seqNo <= high; seqNo += e.epochConfig.checkpointInterval {
+	for seqNo := low; seqNo <= high; seqNo += sm.currentEpochConfig.checkpointInterval {
 		if seqNo <= originalHighWatermark {
 			continue
 		}
-		cw := newCheckpointWindow(seqNo-e.epochConfig.checkpointInterval+1, seqNo, e.epochConfig)
+		cw := newCheckpointWindow(seqNo-sm.currentEpochConfig.checkpointInterval+1, seqNo, sm.currentEpochConfig)
 		sm.checkpointWindows = append(sm.checkpointWindows, cw)
 
 	}
@@ -188,14 +186,14 @@ func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
 		node.moveWatermarks()
 	}
 
-	return e.moveWatermarks()
+	return sm.proposer.drainQueue()
 }
 
 func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	actions := &Actions{}
 	for i, preprocessResult := range results.Preprocesses {
 		sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
-		actions.Append(sm.currentEpoch.process(preprocessResult))
+		actions.Append(sm.process(preprocessResult))
 	}
 
 	for i, digestResult := range results.Digests {
@@ -238,14 +236,47 @@ func (sm *stateMachine) checkpointResult(seqNo SeqNo, value, attestation []byte)
 	return cw.applyCheckpointResult(value, attestation)
 }
 
+func (sm *stateMachine) process(preprocessResult PreprocessResult) *Actions {
+	bucketID := BucketID(preprocessResult.Cup % uint64(len(sm.currentEpochConfig.buckets)))
+	nodeID := sm.currentEpochConfig.buckets[bucketID]
+	if nodeID == NodeID(sm.currentEpochConfig.myConfig.ID) {
+		return sm.proposer.propose(preprocessResult.Proposal.Data)
+	}
+
+	if preprocessResult.Proposal.Source == sm.currentEpochConfig.myConfig.ID {
+		// I originated this proposal, but someone else leads this bucket,
+		// forward the message to them
+		return &Actions{
+			Unicast: []Unicast{
+				{
+					Target: uint64(nodeID),
+					Msg: &pb.Msg{
+						Type: &pb.Msg_Forward{
+							Forward: &pb.Forward{
+								Epoch:  sm.currentEpochConfig.number,
+								Bucket: uint64(bucketID),
+								Data:   preprocessResult.Proposal.Data,
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	// Someone forwarded me this proposal, but I'm not responsible for it's bucket
+	// TODO, log oddity? Assign it to the wrong bucket? Forward it again?
+	return &Actions{}
+}
+
 func (sm *stateMachine) tick() *Actions {
-	return sm.currentEpoch.tick()
+	return sm.proposer.noopAdvance()
 }
 
 func (sm *stateMachine) status() *Status {
-	epochConfig := sm.currentEpoch.epochConfig
+	epochConfig := sm.currentEpochConfig
 
-	nodes := make([]*NodeStatus, len(sm.currentEpoch.epochConfig.nodes))
+	nodes := make([]*NodeStatus, len(epochConfig.nodes))
 	for i, nodeID := range epochConfig.nodes {
 		nodes[i] = sm.nodeMsgs[nodeID].status()
 	}
