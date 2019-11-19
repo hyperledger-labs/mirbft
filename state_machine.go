@@ -129,9 +129,14 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 	cw := sm.checkpointWindow(seqNo)
 
 	actions := cw.applyCheckpointMsg(source, value, attestation)
-	if !cw.garbageCollectible || cw != sm.checkpointWindows[1] {
+
+	if !sm.checkpointWindows[0].obsolete && !sm.checkpointWindows[1].garbageCollectible {
 		return actions
 	}
+
+	// Either the oldest checkpoint is obsolete (because all nodes have emitted a checkpoint
+	// for it), or the second oldest checkpoint is garbage collectible.  In either event,
+	// clean up the oldest checkpoint interval.
 
 	sm.checkpointWindows = sm.checkpointWindows[1:]
 	lcw := sm.checkpointWindows[len(sm.checkpointWindows)-1]
