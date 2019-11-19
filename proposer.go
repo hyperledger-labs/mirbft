@@ -80,11 +80,11 @@ func (p *proposer) drainQueue() *Actions {
 }
 
 func (p *proposer) roomToAssign() bool {
-	// We leave one empty checkpoint interval within the watermarks to avoid messages being dropped when
-	// from the first nodes to move watermarks.
-	// XXX, the constant '4' garbage checkpoints in epoch.go is tied to the constant '5' free checkpoints
-	// defined here and assumes the network is configured for 10 total checkpoints, but not enforced
-	return p.nextAssigned <= p.epochConfig.highWatermark-5*p.epochConfig.checkpointInterval
+	// TODO, this is a bit of an odd hardcoded check.  It assumes a total of
+	// 4 checkpoint windows in play. An oldest to avoid "out of watermarks" errors on slow
+	// nodes, a newest to avoid "out of watermarks" on fast nodes, and two middle ones which
+	// are intended to be actually active.
+	return p.nextAssigned <= p.epochConfig.highWatermark-2*p.epochConfig.checkpointInterval
 }
 
 func (p *proposer) advance(batch [][]byte) *Actions {

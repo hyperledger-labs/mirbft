@@ -32,9 +32,12 @@ func newStateMachine(config *epochConfig) *stateMachine {
 	}
 
 	checkpointWindows := []*checkpointWindow{}
-	for seqNo := config.lowWatermark + config.checkpointInterval; seqNo <= config.highWatermark; seqNo += config.checkpointInterval {
-		cw := newCheckpointWindow(seqNo-config.checkpointInterval+1, seqNo, config)
+	lastEnd := SeqNo(0)
+	for i := 0; i < 4; i++ {
+		newLastEnd := lastEnd + config.checkpointInterval
+		cw := newCheckpointWindow(lastEnd+1, newLastEnd, config)
 		checkpointWindows = append(checkpointWindows, cw)
+		lastEnd = newLastEnd
 	}
 
 	return &stateMachine{
@@ -126,64 +129,26 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 	cw := sm.checkpointWindow(seqNo)
 
 	actions := cw.applyCheckpointMsg(source, value, attestation)
-	if !cw.garbageCollectible {
+	if !cw.garbageCollectible || cw != sm.checkpointWindows[1] {
 		return actions
 	}
 
-	garbageCollectible := []*checkpointWindow{}
-	for _, cw := range sm.checkpointWindows {
-		if !cw.garbageCollectible {
-			break
-		}
-		garbageCollectible = append(garbageCollectible, cw)
-	}
+	sm.checkpointWindows = sm.checkpointWindows[1:]
+	lcw := sm.checkpointWindows[len(sm.checkpointWindows)-1]
+	lowWatermark := sm.checkpointWindows[0].start
+	highWatermark := lcw.end + sm.currentEpochConfig.checkpointInterval
 
-	for {
-		// XXX, the constant '4' garbage checkpoints is tied to the constant '5' free checkpoints in
-		// bucket.go and assumes the network is configured for 10 total checkpoints, but not enforced.
-		// Also, if there are at least 2 checkpoints, and the first one is obsolete (meaning all
-		// nodes have acknowledged it, not simply a quorum), garbage collect it.
-		if len(garbageCollectible) > 4 || (len(garbageCollectible) > 2 && garbageCollectible[0].obsolete) {
-			newLowWatermark := sm.currentEpochConfig.lowWatermark + sm.currentEpochConfig.checkpointInterval
-			newHighWatermark := sm.currentEpochConfig.highWatermark + sm.currentEpochConfig.checkpointInterval
-			actions.Append(sm.moveWatermarks(newLowWatermark, newHighWatermark))
-			garbageCollectible = garbageCollectible[1:]
-			continue
-		}
+	sm.checkpointWindows = append(
+		sm.checkpointWindows,
+		newCheckpointWindow(
+			lcw.end+1,
+			highWatermark,
+			sm.currentEpochConfig,
+		),
+	)
 
-		break
-	}
-
-	seqnos := []uint64{}
-	for _, gc := range garbageCollectible {
-		seqnos = append(seqnos, uint64(gc.end))
-	}
-
-	return actions
-}
-
-func (sm *stateMachine) moveWatermarks(low, high SeqNo) *Actions {
-	originalHighWatermark := sm.currentEpochConfig.highWatermark
-	sm.currentEpochConfig.lowWatermark = low
-	sm.currentEpochConfig.highWatermark = high
-
-	for len(sm.checkpointWindows) > 0 {
-		cw := sm.checkpointWindows[0]
-		if cw.end < low {
-			sm.checkpointWindows = sm.checkpointWindows[1:]
-			continue
-		}
-		break
-	}
-
-	for seqNo := low; seqNo <= high; seqNo += sm.currentEpochConfig.checkpointInterval {
-		if seqNo <= originalHighWatermark {
-			continue
-		}
-		cw := newCheckpointWindow(seqNo-sm.currentEpochConfig.checkpointInterval+1, seqNo, sm.currentEpochConfig)
-		sm.checkpointWindows = append(sm.checkpointWindows, cw)
-
-	}
+	sm.currentEpochConfig.lowWatermark = lowWatermark
+	sm.currentEpochConfig.highWatermark = highWatermark
 
 	for _, node := range sm.nodeMsgs {
 		node.moveWatermarks()
@@ -286,8 +251,7 @@ func (sm *stateMachine) status() *Status {
 
 	var buckets []*BucketStatus
 	checkpoints := []*CheckpointStatus{}
-	for seqNo := epochConfig.lowWatermark + epochConfig.checkpointInterval; seqNo <= epochConfig.highWatermark; seqNo += epochConfig.checkpointInterval {
-		cw := sm.checkpointWindow(seqNo)
+	for _, cw := range sm.checkpointWindows {
 		checkpoints = append(checkpoints, cw.status())
 		if buckets == nil {
 			buckets = make([]*BucketStatus, len(cw.buckets))
