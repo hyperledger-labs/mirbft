@@ -68,21 +68,24 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	if !ok {
 		sm.myConfig.Logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
 	}
-	msgs := nodeMsgs.processMsg(outerMsg)
 
-	for _, msg := range msgs {
+	nodeMsgs.ingest(outerMsg)
+
+	for {
+		msg := nodeMsgs.next()
+		if msg == nil {
+			break
+		}
+
 		switch innerMsg := msg.Type.(type) {
 		case *pb.Msg_Preprepare:
 			msg := innerMsg.Preprepare
-			// TODO check for nil and log oddity
 			return sm.checkpointWindowForSeqNo(msg.SeqNo).preprepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
 		case *pb.Msg_Prepare:
 			msg := innerMsg.Prepare
-			// TODO check for nil and log oddity
 			return sm.checkpointWindowForSeqNo(msg.SeqNo).prepare(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
 		case *pb.Msg_Commit:
 			msg := innerMsg.Commit
-			// TODO check for nil and log oddity
 			actions := sm.checkpointWindowForSeqNo(msg.SeqNo).commit(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
 			if len(actions.Commit) > 0 {
 				// XXX this is a moderately hacky way to determine if this commit msg triggered

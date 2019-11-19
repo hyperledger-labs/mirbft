@@ -26,6 +26,10 @@ const (
 type nodeMsgs struct {
 	id NodeID
 
+	nextMsg *pb.Msg
+
+	buffer []*pb.Msg
+
 	epochMsgs map[EpochNo]*epochMsgs
 
 	nextCheckpoint SeqNo
@@ -37,10 +41,6 @@ type epochMsgs struct {
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
 	next map[BucketID]*nextMsg
-
-	leadsSomeBucket bool
-
-	largestPreprepare SeqNo
 }
 
 type nextMsg struct {
@@ -50,115 +50,109 @@ type nextMsg struct {
 }
 
 func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig) *nodeMsgs {
+	em := newEpochMsgs(nodeID, epochConfig)
 	return &nodeMsgs{
 		id: nodeID,
 		epochMsgs: map[EpochNo]*epochMsgs{
-			0: newEpochMsgs(nodeID, epochConfig),
+			0:                           em, // TODO remove this dirty hack
+			EpochNo(epochConfig.number): em,
 		},
 		nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 	}
 }
 
-// processMsg returns a possibly empty list of in-order msgs ready to be processed from this node.
-// Note, this list will either include the message passed in, or be empty.
-// XXX for now, the list will be at most size 1, but, this will change in the future.
-func (n *nodeMsgs) processMsg(outerMsg *pb.Msg) []*pb.Msg {
-	// XXX we are completely ignoring epoch for the moment
-	epochMsgs := n.epochMsgs[0]
-
-	// XXX this whole function is a poorly structured hack, as part of an incremental approach
-	// to refactoring.  Ultimately, inspect/apply should be merged into a single call.
-
-	var status applyable
-	var msgType string
-	var seqNo SeqNo
-	var bucket BucketID
-	var apply func()
-
-	switch innerMsg := outerMsg.Type.(type) {
-	case *pb.Msg_Preprepare:
-		msg := innerMsg.Preprepare
-		msgType, seqNo, bucket = "Preprepare", SeqNo(msg.SeqNo), BucketID(msg.Bucket)
-		status = epochMsgs.inspectPreprepare(seqNo, bucket)
-		apply = func() { epochMsgs.applyPreprepare(seqNo, bucket) }
-	case *pb.Msg_Prepare:
-		msg := innerMsg.Prepare
-		msgType, seqNo, bucket = "Prepare", SeqNo(msg.SeqNo), BucketID(msg.Bucket)
-		status = epochMsgs.inspectPrepare(SeqNo(msg.SeqNo), BucketID(msg.Bucket))
-		apply = func() { epochMsgs.applyPrepare(seqNo, bucket) }
-	case *pb.Msg_Commit:
-		msg := innerMsg.Commit
-		msgType, seqNo, bucket = "Commit", SeqNo(msg.SeqNo), BucketID(msg.Bucket)
-		status = epochMsgs.inspectCommit(SeqNo(msg.SeqNo), BucketID(msg.Bucket))
-		apply = func() { epochMsgs.applyCommit(seqNo, bucket) }
-	case *pb.Msg_Checkpoint:
-		msg := innerMsg.Checkpoint
-		msgType, seqNo, bucket = "Checkpoint", SeqNo(msg.SeqNo), BucketID(0) // XXX Bucket 0 is a hack
-		status = n.inspectCheckpoint(SeqNo(msg.SeqNo))
-		apply = func() { n.applyCheckpoint(seqNo) }
-	case *pb.Msg_Forward:
-		return []*pb.Msg{outerMsg}
-	default:
-		// TODO mark oddity
-		return nil
-	}
-
-	// These three checks belong elsewhere
-	if bucket > BucketID(len(epochMsgs.epochConfig.buckets)) {
-		epochMsgs.epochConfig.oddities.badBucket(epochMsgs.epochConfig, msgType, n.id, seqNo, bucket)
-		return nil
-	}
-
-	if seqNo < epochMsgs.epochConfig.lowWatermark {
-		epochMsgs.epochConfig.oddities.belowWatermarks(epochMsgs.epochConfig, msgType, n.id, seqNo, bucket)
-		return nil
-	}
-
-	if seqNo > epochMsgs.epochConfig.highWatermark {
-		epochMsgs.epochConfig.oddities.aboveWatermarks(epochMsgs.epochConfig, msgType, n.id, seqNo, bucket)
-		return nil
-	}
-
-	switch status {
-	case past:
-		epochMsgs.epochConfig.oddities.AlreadyProcessed(epochMsgs.epochConfig, msgType, n.id, seqNo, bucket)
-	case future:
-		epochMsgs.epochConfig.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(n.id)), zap.Uint64("bucket", uint64(bucket)), zap.Uint64("SeqNo", uint64(seqNo)))
-		// TODO handle this with some sort of 'unprocessed' cache, but ignoring for now
-	case current:
-		epochMsgs.epochConfig.myConfig.Logger.Debug("applying", zap.Uint64("NodeID", uint64(n.id)), zap.Uint64("bucket", uint64(bucket)), zap.Uint64("SeqNo", uint64(seqNo)))
-		apply()
-	default: // invalid
-		epochMsgs.epochConfig.oddities.InvalidMessage(epochMsgs.epochConfig, msgType, n.id, seqNo, bucket)
-	}
-
-	return []*pb.Msg{outerMsg}
+// ingest the message for management by the nodeMsgs.  This message
+// may immediately become available to read from next(), or it may be enqueued
+// for fufture consumption
+func (n *nodeMsgs) ingest(outerMsg *pb.Msg) {
+	n.buffer = append(n.buffer, outerMsg)
 }
 
-func (n *nodeMsgs) inspectCheckpoint(seqNo SeqNo) applyable {
+func (n *nodeMsgs) next() *pb.Msg {
+	// TODO handle copying the buffer for still pending stuff
+	if len(n.buffer) > 1 {
+		panic("did not expect more than one message to be ingested before processing")
+	}
+
+	defer func() {
+		n.buffer = nil
+	}()
+
+	for _, outerMsg := range n.buffer {
+
+		var status applyable
+
+		// TODO, prune based on epoch number
+
+		switch innerMsg := outerMsg.Type.(type) {
+		case *pb.Msg_Preprepare:
+			msg := innerMsg.Preprepare
+			em, ok := n.epochMsgs[EpochNo(msg.Epoch)]
+			if !ok {
+				panic("here")
+
+				continue
+			}
+			status = em.processPreprepare(msg)
+		case *pb.Msg_Prepare:
+			msg := innerMsg.Prepare
+			em, ok := n.epochMsgs[EpochNo(msg.Epoch)]
+			if !ok {
+				continue
+			}
+			status = em.processPrepare(msg)
+		case *pb.Msg_Commit:
+			msg := innerMsg.Commit
+			em, ok := n.epochMsgs[EpochNo(msg.Epoch)]
+			if !ok {
+				continue
+			}
+			status = em.processCommit(msg)
+		case *pb.Msg_Checkpoint:
+			status = n.processCheckpoint(innerMsg.Checkpoint)
+		case *pb.Msg_Forward:
+			status = current
+		default:
+			// TODO log oddity
+			status = invalid
+		}
+
+		switch status {
+		case past:
+			//epochMsgs.epochConfig.oddities.AlreadyProcessed(epochMsgs.epochConfig, msgType, n.id, seqNo, bucket)
+			n.epochMsgs[0].epochConfig.myConfig.Logger.Debug("skipping apply as it's from the past", zap.Uint64("NodeID", uint64(n.id)))
+		case future:
+			n.epochMsgs[0].epochConfig.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(n.id)))
+		case current:
+			return outerMsg
+		default: // invalid
+			//n.epochMsgs[0].epochConfig.oddities.InvalidMessage(epochMsgs.epochConfig, msgType, n.id, seqNo, bucket)
+			n.epochMsgs[0].epochConfig.myConfig.Logger.Debug("skipping apply as it's invalid", zap.Uint64("NodeID", uint64(n.id)))
+		}
+	}
+
+	return nil
+}
+
+func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	// XXX we are completely ignoring epoch for the moment
 	epochMsgs := n.epochMsgs[0]
 
 	for _, next := range epochMsgs.next {
-		if next.commit < seqNo {
+		if next.commit < SeqNo(msg.SeqNo) {
 			return future
 		}
 	}
 
 	switch {
-	case n.nextCheckpoint > seqNo:
+	case n.nextCheckpoint > SeqNo(msg.SeqNo):
 		return past
-	case n.nextCheckpoint == seqNo:
+	case n.nextCheckpoint == SeqNo(msg.SeqNo):
+		n.nextCheckpoint = SeqNo(msg.SeqNo) + epochMsgs.epochConfig.checkpointInterval
 		return current
 	default:
 		return future
 	}
-}
-
-func (n *nodeMsgs) applyCheckpoint(seqNo SeqNo) {
-	// XXX we are completely ignoring epoch for the moment
-	epochMsgs := n.epochMsgs[0]
-	n.nextCheckpoint = seqNo + epochMsgs.epochConfig.checkpointInterval
 }
 
 func (n *nodeMsgs) moveWatermarks() {
@@ -184,9 +178,7 @@ func (n *nodeMsgs) moveWatermarks() {
 
 func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
-	leadsSomeBucket := false
 	for bucketID, leaderID := range epochConfig.buckets {
-		leadsSomeBucket = true
 		next[bucketID] = &nextMsg{
 			leader:  nodeID == leaderID,
 			prepare: epochConfig.lowWatermark + 1,
@@ -194,73 +186,64 @@ func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig) *epochMsgs {
 		}
 	}
 	return &epochMsgs{
-		epochConfig:     epochConfig,
-		next:            next,
-		leadsSomeBucket: leadsSomeBucket,
+		epochConfig: epochConfig,
+		next:        next,
 	}
 }
 
-func (n *epochMsgs) inspectPreprepare(seqNo SeqNo, bucket BucketID) applyable {
-	next := n.next[bucket]
+func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
+	next, ok := n.next[BucketID(msg.Bucket)]
+	if !ok {
+		return invalid
+	}
+
 	switch {
 	case !next.leader:
 		return invalid
-	case next.prepare > seqNo:
+	case next.prepare > SeqNo(msg.SeqNo):
 		return past
-	case next.prepare == seqNo:
+	case next.prepare == SeqNo(msg.SeqNo):
+		next.prepare = SeqNo(msg.SeqNo) + 1
 		return current
 	default:
-		// next.Prepare > seqNo
 		return future
 	}
 }
 
-func (n *epochMsgs) inspectPrepare(seqNo SeqNo, bucket BucketID) applyable {
-	next := n.next[bucket]
+func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
+	next, ok := n.next[BucketID(msg.Bucket)]
+	if !ok {
+		return invalid
+	}
+
 	switch {
 	case next.leader:
 		return invalid
-	case next.prepare > seqNo:
+	case next.prepare > SeqNo(msg.SeqNo):
 		return past
-	case next.prepare == seqNo:
+	case next.prepare == SeqNo(msg.SeqNo):
+		next.prepare = SeqNo(msg.SeqNo) + 1
 		return current
 	default:
-		// next.Prepare > seqNo
 		return future
 	}
 }
 
-func (n *epochMsgs) inspectCommit(seqNo SeqNo, bucket BucketID) applyable {
-	next := n.next[bucket]
+func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
+	next, ok := n.next[BucketID(msg.Bucket)]
+	if !ok {
+		return invalid
+	}
+
 	switch {
-	case next.commit > seqNo:
+	case next.commit > SeqNo(msg.SeqNo):
 		return past
-	case next.commit == seqNo && next.prepare > next.commit:
+	case next.commit == SeqNo(msg.SeqNo) && next.prepare > next.commit:
+		next.commit = SeqNo(msg.SeqNo) + 1
 		return current
 	default:
 		return future
 	}
-}
-
-// applyPreprepare returns true if a new largest preprepare was observed
-func (n *epochMsgs) applyPreprepare(seqNo SeqNo, bucket BucketID) bool {
-	next := n.next[bucket]
-	next.prepare = seqNo + 1
-	if n.largestPreprepare < seqNo {
-		n.largestPreprepare = seqNo
-		return true
-	}
-	return false
-}
-
-func (n *epochMsgs) applyPrepare(seqNo SeqNo, bucket BucketID) {
-	next := n.next[bucket]
-	next.prepare = seqNo + 1
-}
-
-func (n *epochMsgs) applyCommit(seqNo SeqNo, bucket BucketID) {
-	next := n.next[bucket]
-	next.commit = seqNo + 1
 }
 
 type NodeStatus struct {
