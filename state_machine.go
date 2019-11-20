@@ -26,9 +26,12 @@ type stateMachine struct {
 }
 
 func newStateMachine(config *epochConfig) *stateMachine {
+	oddities := &oddities{
+		logger: config.myConfig.Logger,
+	}
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	for _, id := range config.nodes {
-		nodeMsgs[id] = newNodeMsgs(id, config)
+		nodeMsgs[id] = newNodeMsgs(id, config, oddities)
 	}
 
 	checkpointWindows := []*checkpointWindow{}

@@ -12,9 +12,6 @@ type epochConfig struct {
 	// myConfig is the configuration specific to this node
 	myConfig *Config
 
-	// oddities stores counts of suspicious acitivities and logs them.
-	oddities *oddities
-
 	// number is the epoch number this config applies to
 	number uint64
 

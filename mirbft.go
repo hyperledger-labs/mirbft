@@ -81,10 +81,7 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 		s: newSerializer(
 			newStateMachine(
 				&epochConfig{
-					myConfig: config,
-					oddities: &oddities{
-						nodes: map[NodeID]*oddity{},
-					},
+					myConfig:           config,
 					number:             0,
 					checkpointInterval: 5,
 					highWatermark:      20,

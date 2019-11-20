@@ -24,14 +24,10 @@ const (
 // nodeMsgs buffers incoming messages from a node, and allowing them to be applied
 // in order, even though links may be out of order.
 type nodeMsgs struct {
-	id NodeID
-
-	nextMsg *pb.Msg
-
-	buffer []*pb.Msg
-
-	epochMsgs map[EpochNo]*epochMsgs
-
+	id             NodeID
+	oddities       *oddities
+	buffer         []*pb.Msg
+	epochMsgs      map[EpochNo]*epochMsgs
 	nextCheckpoint SeqNo
 }
 
@@ -49,10 +45,11 @@ type nextMsg struct {
 	commit  SeqNo
 }
 
-func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig) *nodeMsgs {
+func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, oddities *oddities) *nodeMsgs {
 	em := newEpochMsgs(nodeID, epochConfig)
 	return &nodeMsgs{
-		id: nodeID,
+		id:       nodeID,
+		oddities: oddities,
 		epochMsgs: map[EpochNo]*epochMsgs{
 			0:                           em, // TODO remove this dirty hack
 			EpochNo(epochConfig.number): em,
@@ -119,15 +116,13 @@ func (n *nodeMsgs) next() *pb.Msg {
 
 		switch status {
 		case past:
-			//epochMsgs.epochConfig.oddities.AlreadyProcessed(epochMsgs.epochConfig, msgType, n.id, seqNo, bucket)
-			n.epochMsgs[0].epochConfig.myConfig.Logger.Debug("skipping apply as it's from the past", zap.Uint64("NodeID", uint64(n.id)))
+			n.oddities.alreadyProcessed(n.id, outerMsg)
 		case future:
 			n.epochMsgs[0].epochConfig.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(n.id)))
 		case current:
 			return outerMsg
 		default: // invalid
-			//n.epochMsgs[0].epochConfig.oddities.InvalidMessage(epochMsgs.epochConfig, msgType, n.id, seqNo, bucket)
-			n.epochMsgs[0].epochConfig.myConfig.Logger.Debug("skipping apply as it's invalid", zap.Uint64("NodeID", uint64(n.id)))
+			n.oddities.invalidMessage(n.id, outerMsg)
 		}
 	}
 

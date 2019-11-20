@@ -50,10 +50,7 @@ var _ = Describe("Integration", func() {
 	Describe("F=0,N=1", func() {
 		BeforeEach(func() {
 			epochConfigVal = &epochConfig{
-				myConfig: consumerConfig,
-				oddities: &oddities{
-					nodes: map[NodeID]*oddity{},
-				},
+				myConfig:           consumerConfig,
 				number:             3,
 				checkpointInterval: 2,
 				highWatermark:      20,
@@ -180,10 +177,7 @@ var _ = Describe("Integration", func() {
 	Describe("F=1,N=4", func() {
 		BeforeEach(func() {
 			epochConfigVal = &epochConfig{
-				myConfig: consumerConfig,
-				oddities: &oddities{
-					nodes: map[NodeID]*oddity{},
-				},
+				myConfig:           consumerConfig,
 				number:             3,
 				checkpointInterval: 2,
 				highWatermark:      20,
