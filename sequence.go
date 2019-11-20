@@ -56,7 +56,7 @@ func newSequence(epochConfig *epochConfig, number SeqNo, bucket BucketID) *seque
 // applyPreprepare attempts to apply a batch from a preprepare message to the state machine.
 // If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
 // It transitions to Preprepared and returns a ValidationRequest message.
-func (s *sequence) applyPreprepare(batch [][]byte) *Actions {
+func (s *sequence) applyPreprepareMsg(batch [][]byte) *Actions {
 	if s.state != Uninitialized {
 		s.epochConfig.myConfig.Logger.Panic("illegal state for preprepare", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(BucketIDLog, s.entry.BucketID), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Uninitialized)))
 	}
@@ -111,7 +111,7 @@ func (s *sequence) applyValidateResult(valid bool) *Actions {
 	}
 }
 
-func (s *sequence) applyPrepare(source NodeID, digest []byte) *Actions {
+func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 	// TODO, if the digest is known, mark a mismatch as oddity
 	agreements := s.prepares[string(digest)]
 	if agreements == nil {
@@ -154,7 +154,7 @@ func (s *sequence) applyPrepare(source NodeID, digest []byte) *Actions {
 	}
 }
 
-func (s *sequence) applyCommit(source NodeID, digest []byte) *Actions {
+func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
 	// TODO, if the digest is known, mark a mismatch as oddity
 	agreements := s.commits[string(digest)]
 	if agreements == nil {

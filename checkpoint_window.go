@@ -50,23 +50,23 @@ func newCheckpointWindow(start, end SeqNo, config *epochConfig) *checkpointWindo
 	}
 }
 
-func (cw *checkpointWindow) preprepare(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
-	return cw.buckets[bucket].applyPreprepare(seqNo, batch)
+func (cw *checkpointWindow) applyPreprepareMsg(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
+	return cw.buckets[bucket].applyPreprepareMsg(seqNo, batch)
 }
 
-func (cw *checkpointWindow) prepare(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	return cw.buckets[bucket].applyPrepare(source, seqNo, digest)
+func (cw *checkpointWindow) applyPrepareMsg(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+	return cw.buckets[bucket].applyPrepareMsg(source, seqNo, digest)
 }
 
-func (cw *checkpointWindow) commit(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	return cw.buckets[bucket].applyCommit(source, seqNo, digest)
+func (cw *checkpointWindow) applyCommitMsg(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+	return cw.buckets[bucket].applyCommitMsg(source, seqNo, digest)
 }
 
-func (cw *checkpointWindow) digest(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+func (cw *checkpointWindow) applyDigestResult(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
 	return cw.buckets[bucket].applyDigestResult(seqNo, digest)
 }
 
-func (cw *checkpointWindow) validate(seqNo SeqNo, bucket BucketID, valid bool) *Actions {
+func (cw *checkpointWindow) applyValidateResult(seqNo SeqNo, bucket BucketID, valid bool) *Actions {
 	return cw.buckets[bucket].applyValidateResult(seqNo, valid)
 }
 

@@ -39,8 +39,8 @@ func (b *bucket) iAmLeader() bool {
 	return b.leader == NodeID(b.epochConfig.myConfig.ID)
 }
 
-func (b *bucket) applyPreprepare(seqNo SeqNo, batch [][]byte) *Actions {
-	return b.sequences[seqNo].applyPreprepare(batch)
+func (b *bucket) applyPreprepareMsg(seqNo SeqNo, batch [][]byte) *Actions {
+	return b.sequences[seqNo].applyPreprepareMsg(batch)
 }
 
 func (b *bucket) applyDigestResult(seqNo SeqNo, digest []byte) *Actions {
@@ -50,7 +50,7 @@ func (b *bucket) applyDigestResult(seqNo SeqNo, digest []byte) *Actions {
 		// We are the leader, no need to check ourselves for byzantine behavior
 		// And no need to send the resulting prepare
 		_ = s.applyValidateResult(true)
-		return s.applyPrepare(b.leader, digest)
+		return s.applyPrepareMsg(b.leader, digest)
 	}
 	return actions
 }
@@ -61,17 +61,17 @@ func (b *bucket) applyValidateResult(seqNo SeqNo, valid bool) *Actions {
 	if !b.iAmLeader() {
 		// We are not the leader, so let's apply a virtual prepare from
 		// the leader that will not be sent, as there is no need to prepare
-		actions.Append(s.applyPrepare(b.leader, s.digest))
+		actions.Append(s.applyPrepareMsg(b.leader, s.digest))
 	}
 	return actions
 }
 
-func (b *bucket) applyPrepare(source NodeID, seqNo SeqNo, digest []byte) *Actions {
-	return b.sequences[seqNo].applyPrepare(source, digest)
+func (b *bucket) applyPrepareMsg(source NodeID, seqNo SeqNo, digest []byte) *Actions {
+	return b.sequences[seqNo].applyPrepareMsg(source, digest)
 }
 
-func (b *bucket) applyCommit(source NodeID, seqNo SeqNo, digest []byte) *Actions {
-	return b.sequences[seqNo].applyCommit(source, digest)
+func (b *bucket) applyCommitMsg(source NodeID, seqNo SeqNo, digest []byte) *Actions {
+	return b.sequences[seqNo].applyCommitMsg(source, digest)
 }
 
 // BucketStatus represents the current

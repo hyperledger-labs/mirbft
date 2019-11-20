@@ -37,9 +37,9 @@ var _ = Describe("sequence", func() {
 		}
 	})
 
-	Describe("applyPreprepare", func() {
+	Describe("applyPreprepareMsg", func() {
 		It("transitions from Unknown to Preprepared", func() {
-			actions := s.applyPreprepare(
+			actions := s.applyPreprepareMsg(
 				[][]byte{
 					[]byte("msg1"),
 					[]byte("msg2"),
@@ -76,7 +76,7 @@ var _ = Describe("sequence", func() {
 
 			It("does not transition and instead panics", func() {
 				badTransition := func() {
-					s.applyPreprepare(
+					s.applyPreprepareMsg(
 						[][]byte{
 							[]byte("msg1"),
 							[]byte("msg2"),
@@ -138,7 +138,7 @@ var _ = Describe("sequence", func() {
 		})
 	})
 
-	Describe("applyPrepare", func() {
+	Describe("applyPrepareMsg", func() {
 		BeforeEach(func() {
 			s.state = Validated
 			s.digest = []byte("digest")
@@ -149,7 +149,7 @@ var _ = Describe("sequence", func() {
 		})
 
 		It("transitions from Validated to Prepared", func() {
-			actions := s.applyPrepare(0, []byte("digest"))
+			actions := s.applyPrepareMsg(0, []byte("digest"))
 			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{
