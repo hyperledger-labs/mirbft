@@ -95,16 +95,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 			return sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPrepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
 		case *pb.Msg_Commit:
 			msg := innerMsg.Commit
-			actions := sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyCommitMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
-			if len(actions.Commit) > 0 {
-				// XXX this is a moderately hacky way to determine if this commit msg triggered
-				// a commit, is there a better way?
-				cw := sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo))
-				if cw != nil && cw.end == SeqNo(msg.SeqNo) {
-					actions.Append(cw.committed(BucketID(msg.Bucket)))
-				}
-			}
-			return actions
+			return sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyCommitMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
 		case *pb.Msg_Checkpoint:
 			msg := innerMsg.Checkpoint
 			return sm.checkpointMsg(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation)
@@ -170,7 +161,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	actions := &Actions{}
 	for i, preprocessResult := range results.Preprocesses {
 		sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
-		actions.Append(sm.process(preprocessResult))
+		actions.Append(sm.applyPreprocessResult(preprocessResult))
 	}
 
 	for i, digestResult := range results.Digests {
@@ -201,7 +192,7 @@ func (sm *stateMachine) applyCheckpointResult(seqNo SeqNo, value, attestation []
 	return cw.applyCheckpointResult(value, attestation)
 }
 
-func (sm *stateMachine) process(preprocessResult PreprocessResult) *Actions {
+func (sm *stateMachine) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
 	bucketID := BucketID(preprocessResult.Cup % uint64(len(sm.currentEpochConfig.buckets)))
 	nodeID := sm.currentEpochConfig.buckets[bucketID]
 	if nodeID == NodeID(sm.currentEpochConfig.myConfig.ID) {

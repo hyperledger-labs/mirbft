@@ -59,7 +59,14 @@ func (cw *checkpointWindow) applyPrepareMsg(source NodeID, seqNo SeqNo, bucket B
 }
 
 func (cw *checkpointWindow) applyCommitMsg(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
-	return cw.buckets[bucket].applyCommitMsg(source, seqNo, digest)
+	actions := cw.buckets[bucket].applyCommitMsg(source, seqNo, digest)
+	// XXX this is a moderately hacky way to determine if this commit msg triggered
+	// a commit, is there a better way?
+	if len(actions.Commit) > 0 && seqNo == cw.end {
+		actions.Append(cw.committed(bucket))
+	}
+	return actions
+
 }
 
 func (cw *checkpointWindow) applyDigestResult(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
