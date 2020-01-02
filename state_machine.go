@@ -36,7 +36,7 @@ func newStateMachine(config *epochConfig) *stateMachine {
 
 	checkpointWindows := []*checkpointWindow{}
 	lastEnd := SeqNo(0)
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 2; i++ {
 		newLastEnd := lastEnd + config.checkpointInterval
 		cw := newCheckpointWindow(lastEnd+1, newLastEnd, config)
 		checkpointWindows = append(checkpointWindows, cw)
@@ -80,6 +80,8 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 
 	nodeMsgs.ingest(outerMsg)
 
+	actions := &Actions{}
+
 	for {
 		msg := nodeMsgs.next()
 		if msg == nil {
@@ -89,35 +91,52 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 		switch innerMsg := msg.Type.(type) {
 		case *pb.Msg_Preprepare:
 			msg := innerMsg.Preprepare
-			return sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPreprepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
+			actions.Append(sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPreprepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch))
 		case *pb.Msg_Prepare:
 			msg := innerMsg.Prepare
-			return sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPrepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+			actions.Append(sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPrepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest))
 		case *pb.Msg_Commit:
 			msg := innerMsg.Commit
-			return sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyCommitMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+			actions.Append(sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyCommitMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest))
 		case *pb.Msg_Checkpoint:
 			msg := innerMsg.Checkpoint
-			return sm.checkpointMsg(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation)
+			actions.Append(sm.checkpointMsg(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation))
 		case *pb.Msg_Forward:
 			msg := innerMsg.Forward
 			// TODO should we have a separate validate step here?  How do we prevent
 			// forwarded messages with bad data from poisoning our batch?
-			return &Actions{
+			actions.Append(&Actions{
 				Preprocess: []Proposal{
 					{
 						Source: uint64(source),
 						Data:   msg.Data,
 					},
 				},
-			}
+			})
 		default:
-			// TODO mark oddity
-			return &Actions{}
+			// This should be unreachable, as the nodeMsgs filters based on type as well
+			panic("unexpected bad message type, should have been detected earlier")
 		}
 	}
 
-	return &Actions{}
+	lastCW := sm.checkpointWindows[len(sm.checkpointWindows)-1]
+	secondToLastCW := sm.checkpointWindows[len(sm.checkpointWindows)-2]
+
+	if len(secondToLastCW.outstandingBuckets) == 0 {
+		highWatermark := lastCW.end + sm.currentEpochConfig.checkpointInterval
+		sm.checkpointWindows = append(
+			sm.checkpointWindows,
+			newCheckpointWindow(
+				lastCW.end+1,
+				highWatermark,
+				sm.currentEpochConfig,
+			),
+		)
+		sm.currentEpochConfig.highWatermark = highWatermark
+	}
+	actions.Append(sm.proposer.drainQueue())
+
+	return actions
 }
 
 func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
@@ -125,36 +144,17 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 
 	actions := cw.applyCheckpointMsg(source, value, attestation)
 
-	if !sm.checkpointWindows[0].obsolete && !sm.checkpointWindows[1].garbageCollectible {
-		return actions
+	for sm.checkpointWindows[0].obsolete || sm.checkpointWindows[1].garbageCollectible {
+		sm.checkpointWindows = sm.checkpointWindows[1:]
 	}
 
-	// Either the oldest checkpoint is obsolete (because all nodes have emitted a checkpoint
-	// for it), or the second oldest checkpoint is garbage collectible.  In either event,
-	// clean up the oldest checkpoint interval.
-
-	sm.checkpointWindows = sm.checkpointWindows[1:]
-	lcw := sm.checkpointWindows[len(sm.checkpointWindows)-1]
-	lowWatermark := sm.checkpointWindows[0].start
-	highWatermark := lcw.end + sm.currentEpochConfig.checkpointInterval
-
-	sm.checkpointWindows = append(
-		sm.checkpointWindows,
-		newCheckpointWindow(
-			lcw.end+1,
-			highWatermark,
-			sm.currentEpochConfig,
-		),
-	)
-
-	sm.currentEpochConfig.lowWatermark = lowWatermark
-	sm.currentEpochConfig.highWatermark = highWatermark
+	sm.currentEpochConfig.lowWatermark = sm.checkpointWindows[0].start
 
 	for _, node := range sm.nodeMsgs {
 		node.moveWatermarks()
 	}
 
-	return sm.proposer.drainQueue()
+	return actions
 }
 
 func (sm *stateMachine) processResults(results ActionResults) *Actions {
@@ -257,9 +257,9 @@ func (sm *stateMachine) status() *Status {
 		LowWatermark:  epochConfig.lowWatermark,
 		HighWatermark: epochConfig.highWatermark,
 		EpochNumber:   epochConfig.number,
-		Nodes:         nodes,
-		Buckets:       buckets,
-		Checkpoints:   checkpoints,
+
+		Buckets:     buckets,
+		Checkpoints: checkpoints,
 	}
 }
 
@@ -288,6 +288,11 @@ func (s *Status) Pretty() string {
 			buffer.WriteString(fmt.Sprintf(" %d", seqNo/magnitude%10))
 		}
 		buffer.WriteString("\n")
+	}
+
+	if s.LowWatermark == s.HighWatermark {
+		buffer.WriteString("Empty Watermarks\n")
+		return buffer.String()
 	}
 
 	for _, nodeStatus := range s.Nodes {
@@ -360,29 +365,33 @@ func (s *Status) Pretty() string {
 	buffer.WriteString("- === Checkpoints ===\n")
 	i := 0
 	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-		checkpoint := s.Checkpoints[i]
-		if seqNo == SeqNo(checkpoint.SeqNo) {
-			buffer.WriteString(fmt.Sprintf("|%d", checkpoint.PendingCommits))
-			i++
-			continue
+		if len(s.Checkpoints) > i {
+			checkpoint := s.Checkpoints[i]
+			if seqNo == SeqNo(checkpoint.SeqNo) {
+				buffer.WriteString(fmt.Sprintf("|%d", checkpoint.PendingCommits))
+				i++
+				continue
+			}
 		}
 		buffer.WriteString("| ")
 	}
 	buffer.WriteString("| Pending Commits\n")
 	i = 0
 	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-		checkpoint := s.Checkpoints[i]
-		if seqNo == SeqNo(s.Checkpoints[i].SeqNo) {
-			switch {
-			case checkpoint.NetQuorum && !checkpoint.LocalAgreement:
-				buffer.WriteString("|N")
-			case checkpoint.NetQuorum && checkpoint.LocalAgreement:
-				buffer.WriteString("|G")
-			default:
-				buffer.WriteString("|P")
+		if len(s.Checkpoints) > i {
+			checkpoint := s.Checkpoints[i]
+			if seqNo == SeqNo(s.Checkpoints[i].SeqNo) {
+				switch {
+				case checkpoint.NetQuorum && !checkpoint.LocalAgreement:
+					buffer.WriteString("|N")
+				case checkpoint.NetQuorum && checkpoint.LocalAgreement:
+					buffer.WriteString("|G")
+				default:
+					buffer.WriteString("|P")
+				}
+				i++
+				continue
 			}
-			i++
-			continue
 		}
 		buffer.WriteString("| ")
 	}

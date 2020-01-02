@@ -80,11 +80,8 @@ func (p *proposer) drainQueue() *Actions {
 }
 
 func (p *proposer) roomToAssign() bool {
-	// TODO, this is a bit of an odd hardcoded check.  It assumes a total of
-	// 4 checkpoint windows in play. An oldest to avoid "out of watermarks" errors on slow
-	// nodes, a newest to avoid "out of watermarks" on fast nodes, and two middle ones which
-	// are intended to be actually active.
-	return p.nextAssigned <= p.epochConfig.highWatermark-2*p.epochConfig.checkpointInterval
+	// TODO, this is a bit of an odd hardcoded check.  And should be removed.
+	return p.nextAssigned <= p.epochConfig.highWatermark-p.epochConfig.checkpointInterval
 }
 
 func (p *proposer) advance(batch [][]byte) *Actions {
