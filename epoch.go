@@ -15,12 +15,6 @@ type epochConfig struct {
 	// number is the epoch number this config applies to
 	number uint64
 
-	// highWatermark is the current maximum seqno that may be processed
-	highWatermark SeqNo
-
-	// lowWatermark is the current minimum seqno for which messages are valid
-	lowWatermark SeqNo
-
 	// F is the total number of faults tolerated by the network
 	f int
 

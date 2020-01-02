@@ -11,7 +11,8 @@ import (
 )
 
 type proposer struct {
-	epochConfig *epochConfig
+	epochConfig   *epochConfig
+	maxAssignable SeqNo
 
 	nextAssigned    SeqNo
 	ownedBuckets    []BucketID
@@ -33,7 +34,9 @@ func newProposer(config *epochConfig) *proposer {
 	return &proposer{
 		epochConfig:  config,
 		ownedBuckets: ownedBuckets,
-		nextAssigned: config.lowWatermark + 1,
+		// nextAssigned: config.lowWatermark + 1,
+		// XXX initialize this properly, sort of like the above
+		nextAssigned: 1,
 	}
 }
 
@@ -81,7 +84,7 @@ func (p *proposer) drainQueue() *Actions {
 
 func (p *proposer) roomToAssign() bool {
 	// TODO, this is a bit of an odd hardcoded check.  And should be removed.
-	return p.nextAssigned <= p.epochConfig.highWatermark-p.epochConfig.checkpointInterval
+	return p.nextAssigned <= p.maxAssignable
 }
 
 func (p *proposer) advance(batch [][]byte) *Actions {

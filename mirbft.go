@@ -84,8 +84,6 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 					myConfig:           config,
 					number:             0,
 					checkpointInterval: 5,
-					highWatermark:      10,
-					lowWatermark:       1,
 					f:                  f,
 					nodes:              nodes,
 					buckets:            buckets,

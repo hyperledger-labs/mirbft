@@ -54,7 +54,9 @@ func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, oddities *oddities) *n
 			0:                           em, // TODO remove this dirty hack
 			EpochNo(epochConfig.number): em,
 		},
-		nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
+		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
+		// XXX we should initialize this properly, sort of like the above
+		nextCheckpoint: epochConfig.checkpointInterval,
 	}
 }
 
@@ -151,33 +153,21 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 }
 
 func (n *nodeMsgs) moveWatermarks() {
-	// XXX we are completely ignoring epoch for the moment
-	epochMsgs := n.epochMsgs[0]
-	for _, next := range epochMsgs.next {
-		if next.prepare < epochMsgs.epochConfig.lowWatermark {
-			// TODO log warning
-			next.prepare = epochMsgs.epochConfig.lowWatermark
-		}
-
-		if next.commit < epochMsgs.epochConfig.lowWatermark {
-			// TODO log warning
-			next.commit = epochMsgs.epochConfig.lowWatermark
-		}
-	}
-
-	if n.nextCheckpoint < epochMsgs.epochConfig.lowWatermark {
-		// TODO log warning
-		n.nextCheckpoint = epochMsgs.epochConfig.lowWatermark
-	}
+	// XXX this should handle state transfer cases
+	// where nodes skip seqnos, it sort of used to
+	// but deleted to refactor
 }
 
 func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
 	for bucketID, leaderID := range epochConfig.buckets {
 		next[bucketID] = &nextMsg{
-			leader:  nodeID == leaderID,
-			prepare: epochConfig.lowWatermark + 1,
-			commit:  epochConfig.lowWatermark + 1,
+			leader: nodeID == leaderID,
+			// prepare: epochConfig.lowWatermark + 1,
+			// commit:  epochConfig.lowWatermark + 1,
+			// XXX initialize these properly, sort of like the above
+			prepare: 1,
+			commit:  1,
 		}
 	}
 	return &epochMsgs{

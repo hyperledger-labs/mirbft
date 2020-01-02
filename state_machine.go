@@ -43,12 +43,16 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		lastEnd = newLastEnd
 	}
 
+	proposer := newProposer(config)
+	proposer.maxAssignable = config.checkpointInterval
+	// TODO collapse this logic with the new checkpoint allocation logic
+
 	return &stateMachine{
 		myConfig:           config.myConfig,
 		currentEpochConfig: config,
 		nodeMsgs:           nodeMsgs,
 		checkpointWindows:  checkpointWindows,
-		proposer:           newProposer(config),
+		proposer:           proposer,
 	}
 }
 
@@ -123,16 +127,15 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	secondToLastCW := sm.checkpointWindows[len(sm.checkpointWindows)-2]
 
 	if len(secondToLastCW.outstandingBuckets) == 0 {
-		highWatermark := lastCW.end + sm.currentEpochConfig.checkpointInterval
+		sm.proposer.maxAssignable = lastCW.end
 		sm.checkpointWindows = append(
 			sm.checkpointWindows,
 			newCheckpointWindow(
 				lastCW.end+1,
-				highWatermark,
+				lastCW.end+sm.currentEpochConfig.checkpointInterval,
 				sm.currentEpochConfig,
 			),
 		)
-		sm.currentEpochConfig.highWatermark = highWatermark
 	}
 	actions.Append(sm.proposer.drainQueue())
 
@@ -147,8 +150,6 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 	for sm.checkpointWindows[0].obsolete || sm.checkpointWindows[1].garbageCollectible {
 		sm.checkpointWindows = sm.checkpointWindows[1:]
 	}
-
-	sm.currentEpochConfig.lowWatermark = sm.checkpointWindows[0].start
 
 	for _, node := range sm.nodeMsgs {
 		node.moveWatermarks()
@@ -239,6 +240,7 @@ func (sm *stateMachine) status() *Status {
 
 	var buckets []*BucketStatus
 	checkpoints := []*CheckpointStatus{}
+
 	for _, cw := range sm.checkpointWindows {
 		checkpoints = append(checkpoints, cw.status())
 		if buckets == nil {
@@ -253,9 +255,12 @@ func (sm *stateMachine) status() *Status {
 		}
 	}
 
+	lowWatermark := sm.checkpointWindows[0].start
+	highWatermark := sm.checkpointWindows[len(sm.checkpointWindows)-1].end
+
 	return &Status{
-		LowWatermark:  epochConfig.lowWatermark,
-		HighWatermark: epochConfig.highWatermark,
+		LowWatermark:  lowWatermark,
+		HighWatermark: highWatermark,
 		EpochNumber:   epochConfig.number,
 
 		Buckets:     buckets,
