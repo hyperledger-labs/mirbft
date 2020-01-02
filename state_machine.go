@@ -17,11 +17,11 @@ import (
 )
 
 type stateMachine struct {
-	myConfig           *Config
-	nodeMsgs           map[NodeID]*nodeMsgs
-	currentEpochConfig *epochConfig
-	proposer           *proposer
+	myConfig *Config
+	nodeMsgs map[NodeID]*nodeMsgs
+	proposer *proposer
 
+	epochWindows      []*epochConfig
 	checkpointWindows []*checkpointWindow
 }
 
@@ -48,11 +48,11 @@ func newStateMachine(config *epochConfig) *stateMachine {
 	// TODO collapse this logic with the new checkpoint allocation logic
 
 	return &stateMachine{
-		myConfig:           config.myConfig,
-		currentEpochConfig: config,
-		nodeMsgs:           nodeMsgs,
-		checkpointWindows:  checkpointWindows,
-		proposer:           proposer,
+		myConfig:          config.myConfig,
+		epochWindows:      []*epochConfig{config},
+		nodeMsgs:          nodeMsgs,
+		checkpointWindows: checkpointWindows,
+		proposer:          proposer,
 	}
 }
 
@@ -68,8 +68,20 @@ func (sm *stateMachine) propose(data []byte) *Actions {
 }
 
 func (sm *stateMachine) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
+	var currentEpochConfig *epochConfig
+	for _, ec := range sm.epochWindows {
+		if ec.plannedExpiration >= seqNo {
+			currentEpochConfig = ec
+			break
+		}
+	}
+
+	if currentEpochConfig == nil {
+		return nil
+	}
+
 	offset := seqNo - SeqNo(sm.checkpointWindows[0].start)
-	index := offset / SeqNo(sm.currentEpochConfig.checkpointInterval)
+	index := offset / SeqNo(currentEpochConfig.checkpointInterval)
 	if int(index) >= len(sm.checkpointWindows) {
 		return nil
 	}
@@ -126,14 +138,35 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	lastCW := sm.checkpointWindows[len(sm.checkpointWindows)-1]
 	secondToLastCW := sm.checkpointWindows[len(sm.checkpointWindows)-2]
 
+	var nextCWEpochConfig *epochConfig
+
+	if lastCW.epochConfig.plannedExpiration == lastCW.end {
+		// The next checkpoint window will belong to a new epoch
+
+		for _, ec := range sm.epochWindows {
+			if ec.plannedExpiration > lastCW.end {
+				nextCWEpochConfig = ec
+				break
+			}
+		}
+
+		if nextCWEpochConfig == nil {
+			// We must still be waiting for the next epoch config from the leader
+
+			return actions
+		}
+	} else {
+		nextCWEpochConfig = lastCW.epochConfig
+	}
+
 	if len(secondToLastCW.outstandingBuckets) == 0 {
 		sm.proposer.maxAssignable = lastCW.end
 		sm.checkpointWindows = append(
 			sm.checkpointWindows,
 			newCheckpointWindow(
 				lastCW.end+1,
-				lastCW.end+sm.currentEpochConfig.checkpointInterval,
-				sm.currentEpochConfig,
+				lastCW.end+nextCWEpochConfig.checkpointInterval,
+				nextCWEpochConfig,
 			),
 		)
 	}
@@ -194,13 +227,26 @@ func (sm *stateMachine) applyCheckpointResult(seqNo SeqNo, value, attestation []
 }
 
 func (sm *stateMachine) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
-	bucketID := BucketID(preprocessResult.Cup % uint64(len(sm.currentEpochConfig.buckets)))
-	nodeID := sm.currentEpochConfig.buckets[bucketID]
-	if nodeID == NodeID(sm.currentEpochConfig.myConfig.ID) {
+	// XXX it's tricky dealing with this when we are mid-epoch change, as we need to
+	// decide which epoch config to use to assign it a bucket.  The immediate scheme that
+	// comes to mind, is to evaluate it first, using the old epoch config, if we own it,
+	// great propose it.  If we don't, check using the next epoch config, if we own it,
+	// also propose it.  The tricky part comes when evaluating it on the other side, today
+	// we don't enforce that the message really belongs in the assigned bucket.  In fact,
+	// we deliberately distribute messages round robin across all buckets a node owns.
+	// Since there's nuance to this though, ignoring for now, and always using the most recent
+	// epoch config when deciding if 'we own' or not.  This will likely be a bug as soon
+	// as we implement planned epoch rotation.
+	lastCW := sm.checkpointWindows[len(sm.checkpointWindows)-1]
+
+	currentEpochConfig := lastCW.epochConfig
+	bucketID := BucketID(preprocessResult.Cup % uint64(len(currentEpochConfig.buckets)))
+	nodeID := currentEpochConfig.buckets[bucketID]
+	if nodeID == NodeID(sm.myConfig.ID) {
 		return sm.proposer.propose(preprocessResult.Proposal.Data)
 	}
 
-	if preprocessResult.Proposal.Source == sm.currentEpochConfig.myConfig.ID {
+	if preprocessResult.Proposal.Source == sm.myConfig.ID {
 		// I originated this proposal, but someone else leads this bucket,
 		// forward the message to them
 		return &Actions{
@@ -210,7 +256,7 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult PreprocessResult)
 					Msg: &pb.Msg{
 						Type: &pb.Msg_Forward{
 							Forward: &pb.Forward{
-								Epoch:  sm.currentEpochConfig.number,
+								Epoch:  currentEpochConfig.number,
 								Bucket: uint64(bucketID),
 								Data:   preprocessResult.Proposal.Data,
 							},
@@ -231,7 +277,7 @@ func (sm *stateMachine) tick() *Actions {
 }
 
 func (sm *stateMachine) status() *Status {
-	epochConfig := sm.currentEpochConfig
+	epochConfig := sm.epochWindows[0]
 
 	nodes := make([]*NodeStatus, len(epochConfig.nodes))
 	for i, nodeID := range epochConfig.nodes {

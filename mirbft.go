@@ -84,6 +84,7 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 					myConfig:           config,
 					number:             0,
 					checkpointInterval: 5,
+					plannedExpiration:  10000000000000,
 					f:                  f,
 					nodes:              nodes,
 					buckets:            buckets,

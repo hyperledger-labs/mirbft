@@ -53,6 +53,7 @@ var _ = Describe("Integration", func() {
 				myConfig:           consumerConfig,
 				number:             3,
 				checkpointInterval: 2,
+				plannedExpiration:  1000000000000,
 				f:                  0,
 				nodes:              []NodeID{0},
 				buckets:            map[BucketID]NodeID{0: 0},
@@ -179,6 +180,7 @@ var _ = Describe("Integration", func() {
 				number:             3,
 				checkpointInterval: 2,
 				f:                  1,
+				plannedExpiration:  1000000000000,
 				nodes:              []NodeID{0, 1, 2, 3},
 				buckets:            map[BucketID]NodeID{0: 0, 1: 1, 2: 2, 3: 3},
 			}

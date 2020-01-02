@@ -15,6 +15,9 @@ type epochConfig struct {
 	// number is the epoch number this config applies to
 	number uint64
 
+	// plannedExpiration is when this epoch ends, if it ends gracefully
+	plannedExpiration SeqNo
+
 	// F is the total number of faults tolerated by the network
 	f int
 
