@@ -135,6 +135,14 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 		}
 	}
 
+	return actions
+}
+
+func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
+	cw := sm.checkpointWindowForSeqNo(seqNo)
+
+	actions := cw.applyCheckpointMsg(source, value, attestation)
+
 	lastCW := sm.checkpointWindows[len(sm.checkpointWindows)-1]
 	secondToLastCW := sm.checkpointWindows[len(sm.checkpointWindows)-2]
 
@@ -153,13 +161,13 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 		if nextCWEpochConfig == nil {
 			// We must still be waiting for the next epoch config from the leader
 
-			return actions
+			panic("unhandled")
 		}
 	} else {
 		nextCWEpochConfig = lastCW.epochConfig
 	}
 
-	if len(secondToLastCW.outstandingBuckets) == 0 {
+	if secondToLastCW.garbageCollectible {
 		sm.proposer.maxAssignable = lastCW.end
 		sm.checkpointWindows = append(
 			sm.checkpointWindows,
@@ -170,17 +178,9 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 			),
 		)
 	}
+
 	actions.Append(sm.proposer.drainQueue())
-
-	return actions
-}
-
-func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
-	cw := sm.checkpointWindowForSeqNo(seqNo)
-
-	actions := cw.applyCheckpointMsg(source, value, attestation)
-
-	for sm.checkpointWindows[0].obsolete || sm.checkpointWindows[1].garbageCollectible {
+	for len(sm.checkpointWindows) > 2 && (sm.checkpointWindows[0].obsolete || sm.checkpointWindows[1].garbageCollectible) {
 		sm.checkpointWindows = sm.checkpointWindows[1:]
 	}
 

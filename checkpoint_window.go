@@ -93,7 +93,10 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value, attestation
 		attestation: attestation,
 	})
 	cw.values[string(value)] = checkpointValueNodes
-	if len(checkpointValueNodes) == 2*cw.epochConfig.f+1 {
+
+	agreements := len(checkpointValueNodes)
+
+	if agreements == cw.epochConfig.f+1 {
 		cw.committedValue = value
 	}
 
@@ -110,7 +113,10 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value, attestation
 		}
 
 		// This checkpoint has 2f+1 agreements, including my own, it may now be garbage collectable
-		cw.garbageCollectible = true
+		// Note, this must be >= because my agreement could come after 2f+1 from the network.
+		if agreements >= 2*cw.epochConfig.f+1 {
+			cw.garbageCollectible = true
+		}
 
 		// TODO, eventually, we should return the checkpoint value and set of attestations
 		// to the caller, as they may want to do something with the set of attestations to preserve them.
