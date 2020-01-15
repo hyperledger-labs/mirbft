@@ -21,7 +21,7 @@ type stateMachine struct {
 	nodeMsgs map[NodeID]*nodeMsgs
 	proposer *proposer
 
-	epochWindows      []*epochConfig
+	epochs            []*epoch
 	checkpointWindows []*checkpointWindow
 }
 
@@ -49,7 +49,7 @@ func newStateMachine(config *epochConfig) *stateMachine {
 
 	return &stateMachine{
 		myConfig:          config.myConfig,
-		epochWindows:      []*epochConfig{config},
+		epochs:            []*epoch{{config: config}},
 		nodeMsgs:          nodeMsgs,
 		checkpointWindows: checkpointWindows,
 		proposer:          proposer,
@@ -69,9 +69,9 @@ func (sm *stateMachine) propose(data []byte) *Actions {
 
 func (sm *stateMachine) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
 	var currentEpochConfig *epochConfig
-	for _, ec := range sm.epochWindows {
-		if ec.plannedExpiration >= seqNo {
-			currentEpochConfig = ec
+	for _, ec := range sm.epochs {
+		if ec.config.plannedExpiration >= seqNo {
+			currentEpochConfig = ec.config
 			break
 		}
 	}
@@ -129,6 +129,10 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 					},
 				},
 			})
+		case *pb.Msg_Suspect:
+			sm.suspectMsg(source, innerMsg.Suspect.Epoch)
+		case *pb.Msg_EpochChange:
+			sm.epochChangeMsg(source, innerMsg.EpochChange)
 		default:
 			// This should be unreachable, as the nodeMsgs filters based on type as well
 			panic("unexpected bad message type, should have been detected earlier")
@@ -136,6 +140,22 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	}
 
 	return actions
+}
+
+func (sm *stateMachine) suspectMsg(source NodeID, epoch uint64) {
+	for _, ew := range sm.epochs {
+		if ew.config.number == epoch {
+			ew.suspicions[source] = struct{}{}
+		}
+	}
+}
+
+func (sm *stateMachine) epochChangeMsg(source NodeID, msg *pb.EpochChange) {
+	for _, ew := range sm.epochs {
+		if ew.config.number == msg.Epoch {
+			ew.changes[source] = msg
+		}
+	}
 }
 
 func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
@@ -151,9 +171,9 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attesta
 	if lastCW.epochConfig.plannedExpiration == lastCW.end {
 		// The next checkpoint window will belong to a new epoch
 
-		for _, ec := range sm.epochWindows {
-			if ec.plannedExpiration > lastCW.end {
-				nextCWEpochConfig = ec
+		for _, ec := range sm.epochs {
+			if ec.config.plannedExpiration > lastCW.end {
+				nextCWEpochConfig = ec.config
 				break
 			}
 		}
@@ -277,7 +297,7 @@ func (sm *stateMachine) tick() *Actions {
 }
 
 func (sm *stateMachine) status() *Status {
-	epochConfig := sm.epochWindows[0]
+	epochConfig := sm.epochs[0].config
 
 	nodes := make([]*NodeStatus, len(epochConfig.nodes))
 	for i, nodeID := range epochConfig.nodes {

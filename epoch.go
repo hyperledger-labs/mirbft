@@ -6,6 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
+import pb "github.com/IBM/mirbft/mirbftpb"
+
 // epochConfig is the information required by the various
 // state machines whose state is scoped to an epoch
 type epochConfig struct {
@@ -29,4 +31,15 @@ type epochConfig struct {
 
 	// buckets is a map from bucket ID to leader ID
 	buckets map[BucketID]NodeID
+}
+
+type epoch struct {
+	// config contains the static components of the epoch
+	config *epochConfig
+
+	active bool
+
+	suspicions map[NodeID]struct{}
+
+	changes map[NodeID]*pb.EpochChange
 }
