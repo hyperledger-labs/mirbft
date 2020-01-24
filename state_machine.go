@@ -17,9 +17,11 @@ import (
 )
 
 type stateMachine struct {
-	myConfig *Config
-	nodeMsgs map[NodeID]*nodeMsgs
-	proposer *proposer
+	myConfig      *Config
+	nodeMsgs      map[NodeID]*nodeMsgs
+	proposer      *proposer
+	ticks         uint64
+	heartbeatTick int
 
 	epochs            []*epoch
 	checkpointWindows []*checkpointWindow
@@ -293,7 +295,14 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult PreprocessResult)
 }
 
 func (sm *stateMachine) tick() *Actions {
-	return sm.proposer.noopAdvance()
+	actions := &Actions{}
+
+	sm.ticks++
+	if sm.heartbeatTick != 0 && sm.ticks%uint64(sm.heartbeatTick) == 0 {
+		actions.Append(sm.proposer.noopAdvance())
+	}
+
+	return actions
 }
 
 func (sm *stateMachine) status() *Status {
