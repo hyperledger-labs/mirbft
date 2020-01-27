@@ -27,7 +27,7 @@ type nodeMsgs struct {
 	id             NodeID
 	oddities       *oddities
 	buffer         map[*pb.Msg]struct{} // TODO, this could be much better optimized via a ring buffer
-	epochMsgs      map[EpochNo]*epochMsgs
+	epochMsgs      *epochMsgs
 	nextCheckpoint SeqNo
 }
 
@@ -48,17 +48,19 @@ type nextMsg struct {
 func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, oddities *oddities) *nodeMsgs {
 	em := newEpochMsgs(nodeID, epochConfig)
 	return &nodeMsgs{
-		id:       nodeID,
-		oddities: oddities,
-		epochMsgs: map[EpochNo]*epochMsgs{
-			0:                           em, // TODO remove this dirty hack
-			EpochNo(epochConfig.number): em,
-		},
+		id:        nodeID,
+		oddities:  oddities,
+		epochMsgs: em,
+
 		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 		// XXX we should initialize this properly, sort of like the above
 		nextCheckpoint: epochConfig.checkpointInterval,
 		buffer:         map[*pb.Msg]struct{}{},
 	}
+}
+
+func (n *nodeMsgs) newEpoch(epochConfig *epochConfig) {
+	n.epochMsgs = newEpochMsgs(n.id, epochConfig)
 }
 
 // ingest the message for management by the nodeMsgs.  This message
@@ -69,20 +71,20 @@ func (n *nodeMsgs) ingest(outerMsg *pb.Msg) {
 }
 
 func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
-	var epoch EpochNo
+	var epoch uint64
 	switch innerMsg := outerMsg.Type.(type) {
 	case *pb.Msg_Preprepare:
-		epoch = EpochNo(innerMsg.Preprepare.Epoch)
+		epoch = innerMsg.Preprepare.Epoch
 	case *pb.Msg_Prepare:
-		epoch = EpochNo(innerMsg.Prepare.Epoch)
+		epoch = innerMsg.Prepare.Epoch
 	case *pb.Msg_Commit:
-		epoch = EpochNo(innerMsg.Commit.Epoch)
+		epoch = innerMsg.Commit.Epoch
 	case *pb.Msg_Suspect:
-		epoch = EpochNo(innerMsg.Suspect.Epoch)
+		epoch = innerMsg.Suspect.Epoch
 	case *pb.Msg_Checkpoint:
 		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_Forward:
-		epoch = EpochNo(innerMsg.Forward.Epoch)
+		epoch = innerMsg.Forward.Epoch
 	default:
 		n.oddities.invalidMessage(n.id, outerMsg)
 		// TODO don't panic here, just return, left here for dev
@@ -90,12 +92,16 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		panic("unknown message type")
 	}
 
-	em, ok := n.epochMsgs[epoch]
-	if !ok {
+	switch {
+	case n.epochMsgs.epochConfig.number < epoch:
+		return past
+	case n.epochMsgs.epochConfig.number > epoch:
 		return future
 	}
 
-	return em.process(outerMsg)
+	// current
+
+	return n.epochMsgs.process(outerMsg)
 }
 
 func (n *nodeMsgs) next() *pb.Msg {
@@ -108,7 +114,7 @@ func (n *nodeMsgs) next() *pb.Msg {
 			delete(n.buffer, msg)
 			return msg
 		case future:
-			n.epochMsgs[0].epochConfig.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(n.id)))
+			n.epochMsgs.epochConfig.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(n.id)))
 		}
 	}
 
@@ -116,20 +122,17 @@ func (n *nodeMsgs) next() *pb.Msg {
 }
 
 func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
-	// XXX we are completely ignoring epoch for the moment
-	epochMsgs := n.epochMsgs[0]
-
 	switch {
 	case n.nextCheckpoint > SeqNo(msg.SeqNo):
 		return past
 	case n.nextCheckpoint == SeqNo(msg.SeqNo):
-		for _, next := range epochMsgs.next {
+		for _, next := range n.epochMsgs.next {
 			if next.commit < SeqNo(msg.SeqNo) {
 				return future
 			}
 		}
 
-		n.nextCheckpoint = SeqNo(msg.SeqNo) + epochMsgs.epochConfig.checkpointInterval
+		n.nextCheckpoint = SeqNo(msg.SeqNo) + n.epochMsgs.epochConfig.checkpointInterval
 		return current
 	default:
 		return future
@@ -249,16 +252,13 @@ type NodeBucketStatus struct {
 }
 
 func (n *nodeMsgs) status() *NodeStatus {
-	// XXX we are completely ignoring epoch for the moment
-	epochMsgs := n.epochMsgs[0]
-
-	bucketStatuses := make([]NodeBucketStatus, len(epochMsgs.next))
+	bucketStatuses := make([]NodeBucketStatus, len(n.epochMsgs.next))
 	for bucketID := range bucketStatuses {
-		nextMsg := epochMsgs.next[BucketID(bucketID)]
+		nextMsg := n.epochMsgs.next[BucketID(bucketID)]
 		bucketStatuses[bucketID] = NodeBucketStatus{
 			BucketID:       bucketID,
 			IsLeader:       nextMsg.leader,
-			LastCheckpoint: uint64(n.nextCheckpoint - epochMsgs.epochConfig.checkpointInterval),
+			LastCheckpoint: uint64(n.nextCheckpoint - n.epochMsgs.epochConfig.checkpointInterval),
 			LastPrepare:    uint64(nextMsg.prepare - 1), // No underflow is possible, we start at seq 1
 			LastCommit:     uint64(nextMsg.commit - 1),
 		}
