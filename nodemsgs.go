@@ -88,8 +88,6 @@ func (n *nodeMsgs) next() *pb.Msg {
 			msg := innerMsg.Preprepare
 			em, ok := n.epochMsgs[EpochNo(msg.Epoch)]
 			if !ok {
-				panic("here")
-
 				continue
 			}
 			status = em.processPreprepare(msg)
@@ -110,6 +108,9 @@ func (n *nodeMsgs) next() *pb.Msg {
 		case *pb.Msg_Checkpoint:
 			status = n.processCheckpoint(innerMsg.Checkpoint)
 		case *pb.Msg_Forward:
+			status = current
+		case *pb.Msg_Suspect:
+			// TODO, this is epoch dependent as to whether it's current
 			status = current
 		default:
 			// TODO log oddity

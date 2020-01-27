@@ -147,6 +147,14 @@ func (cw *checkpointWindow) applyCheckpointResult(value, attestation []byte) *Ac
 	}
 }
 
+func (cw *checkpointWindow) tick() *Actions {
+	actions := &Actions{}
+	for _, bucket := range cw.buckets {
+		actions.Append(bucket.tick())
+	}
+	return actions
+}
+
 type CheckpointStatus struct {
 	SeqNo          uint64
 	PendingCommits int

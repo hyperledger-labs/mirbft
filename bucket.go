@@ -6,6 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
+import pb "github.com/IBM/mirbft/mirbftpb"
+
 type bucket struct {
 	start SeqNo
 	end   SeqNo
@@ -15,6 +17,8 @@ type bucket struct {
 	leader NodeID
 
 	id BucketID
+
+	ticksSinceProgress int
 
 	// sequences are the current active sequence numbers in this bucket
 	sequences map[SeqNo]*sequence
@@ -40,6 +44,7 @@ func (b *bucket) iAmLeader() bool {
 }
 
 func (b *bucket) applyPreprepareMsg(seqNo SeqNo, batch [][]byte) *Actions {
+	b.ticksSinceProgress = 0
 	return b.sequences[seqNo].applyPreprepareMsg(batch)
 }
 
@@ -67,11 +72,31 @@ func (b *bucket) applyValidateResult(seqNo SeqNo, valid bool) *Actions {
 }
 
 func (b *bucket) applyPrepareMsg(source NodeID, seqNo SeqNo, digest []byte) *Actions {
+	b.ticksSinceProgress = 0
 	return b.sequences[seqNo].applyPrepareMsg(source, digest)
 }
 
 func (b *bucket) applyCommitMsg(source NodeID, seqNo SeqNo, digest []byte) *Actions {
+	b.ticksSinceProgress = 0
 	return b.sequences[seqNo].applyCommitMsg(source, digest)
+}
+
+func (b *bucket) tick() *Actions {
+	b.ticksSinceProgress++
+	if b.ticksSinceProgress > b.epochConfig.myConfig.SuspectTicks {
+		return &Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_Suspect{
+						Suspect: &pb.Suspect{
+							Epoch: b.epochConfig.number,
+						},
+					},
+				},
+			},
+		}
+	}
+	return &Actions{}
 }
 
 // BucketStatus represents the current

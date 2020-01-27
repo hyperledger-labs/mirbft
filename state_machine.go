@@ -17,11 +17,10 @@ import (
 )
 
 type stateMachine struct {
-	myConfig      *Config
-	nodeMsgs      map[NodeID]*nodeMsgs
-	proposer      *proposer
-	ticks         uint64
-	heartbeatTick int
+	myConfig *Config
+	nodeMsgs map[NodeID]*nodeMsgs
+	proposer *proposer
+	ticks    uint64
 
 	epochs            []*epoch
 	checkpointWindows []*checkpointWindow
@@ -50,8 +49,14 @@ func newStateMachine(config *epochConfig) *stateMachine {
 	// TODO collapse this logic with the new checkpoint allocation logic
 
 	return &stateMachine{
-		myConfig:          config.myConfig,
-		epochs:            []*epoch{{config: config}},
+		myConfig: config.myConfig,
+		epochs: []*epoch{
+			{
+				config:     config,
+				suspicions: map[NodeID]struct{}{},
+				changes:    map[NodeID]*pb.EpochChange{},
+			},
+		},
 		nodeMsgs:          nodeMsgs,
 		checkpointWindows: checkpointWindows,
 		proposer:          proposer,
@@ -298,8 +303,12 @@ func (sm *stateMachine) tick() *Actions {
 	actions := &Actions{}
 
 	sm.ticks++
-	if sm.heartbeatTick != 0 && sm.ticks%uint64(sm.heartbeatTick) == 0 {
+	if sm.myConfig.HeartbeatTicks != 0 && sm.ticks%uint64(sm.myConfig.HeartbeatTicks) == 0 {
 		actions.Append(sm.proposer.noopAdvance())
+	}
+
+	for _, cw := range sm.checkpointWindows {
+		actions.Append(cw.tick())
 	}
 
 	return actions

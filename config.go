@@ -16,6 +16,14 @@ type Config struct {
 	// BatchParameters determines under what conditions the queued
 	// pieces of data should be converted into a batch and consented on
 	BatchParameters BatchParameters
+
+	// HeartbeatTicks is the number of ticks before a heartbeat is emitted
+	// by a leader.
+	HeartbeatTicks int
+
+	// SuspectTicks is the number of ticks a bucket may not progress before
+	// the node suspects the epoch has gone bad.
+	SuspectTicks int
 }
 
 type BatchParameters struct {
