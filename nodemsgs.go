@@ -26,7 +26,7 @@ const (
 type nodeMsgs struct {
 	id             NodeID
 	oddities       *oddities
-	buffer         []*pb.Msg
+	buffer         map[*pb.Msg]struct{} // TODO, this could be much better optimized via a ring buffer
 	epochMsgs      map[EpochNo]*epochMsgs
 	nextCheckpoint SeqNo
 }
@@ -57,75 +57,58 @@ func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, oddities *oddities) *n
 		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 		// XXX we should initialize this properly, sort of like the above
 		nextCheckpoint: epochConfig.checkpointInterval,
+		buffer:         map[*pb.Msg]struct{}{},
 	}
 }
 
 // ingest the message for management by the nodeMsgs.  This message
 // may immediately become available to read from next(), or it may be enqueued
-// for fufture consumption
+// for future consumption
 func (n *nodeMsgs) ingest(outerMsg *pb.Msg) {
-	n.buffer = append(n.buffer, outerMsg)
+	n.buffer[outerMsg] = struct{}{}
+}
+
+func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
+	var epoch EpochNo
+	switch innerMsg := outerMsg.Type.(type) {
+	case *pb.Msg_Preprepare:
+		epoch = EpochNo(innerMsg.Preprepare.Epoch)
+	case *pb.Msg_Prepare:
+		epoch = EpochNo(innerMsg.Prepare.Epoch)
+	case *pb.Msg_Commit:
+		epoch = EpochNo(innerMsg.Commit.Epoch)
+	case *pb.Msg_Suspect:
+		epoch = EpochNo(innerMsg.Suspect.Epoch)
+	case *pb.Msg_Checkpoint:
+		return n.processCheckpoint(innerMsg.Checkpoint)
+	case *pb.Msg_Forward:
+		epoch = EpochNo(innerMsg.Forward.Epoch)
+	default:
+		n.oddities.invalidMessage(n.id, outerMsg)
+		// TODO don't panic here, just return, left here for dev
+		// as only a byzantine node with custom protos gets us here.
+		panic("unknown message type")
+	}
+
+	em, ok := n.epochMsgs[epoch]
+	if !ok {
+		return future
+	}
+
+	return em.process(outerMsg)
 }
 
 func (n *nodeMsgs) next() *pb.Msg {
-	// TODO handle copying the buffer for still pending stuff
-	if len(n.buffer) > 1 {
-		panic("did not expect more than one message to be ingested before processing")
-	}
-
-	defer func() {
-		n.buffer = nil
-	}()
-
-	for _, outerMsg := range n.buffer {
-
-		var status applyable
-
-		// TODO, prune based on epoch number
-
-		switch innerMsg := outerMsg.Type.(type) {
-		case *pb.Msg_Preprepare:
-			msg := innerMsg.Preprepare
-			em, ok := n.epochMsgs[EpochNo(msg.Epoch)]
-			if !ok {
-				continue
-			}
-			status = em.processPreprepare(msg)
-		case *pb.Msg_Prepare:
-			msg := innerMsg.Prepare
-			em, ok := n.epochMsgs[EpochNo(msg.Epoch)]
-			if !ok {
-				continue
-			}
-			status = em.processPrepare(msg)
-		case *pb.Msg_Commit:
-			msg := innerMsg.Commit
-			em, ok := n.epochMsgs[EpochNo(msg.Epoch)]
-			if !ok {
-				continue
-			}
-			status = em.processCommit(msg)
-		case *pb.Msg_Checkpoint:
-			status = n.processCheckpoint(innerMsg.Checkpoint)
-		case *pb.Msg_Forward:
-			status = current
-		case *pb.Msg_Suspect:
-			// TODO, this is epoch dependent as to whether it's current
-			status = current
-		default:
-			// TODO log oddity
-			status = invalid
-		}
-
-		switch status {
+	for msg := range n.buffer {
+		switch n.process(msg) {
 		case past:
-			n.oddities.alreadyProcessed(n.id, outerMsg)
+			n.oddities.alreadyProcessed(n.id, msg)
+			delete(n.buffer, msg)
+		case current:
+			delete(n.buffer, msg)
+			return msg
 		case future:
 			n.epochMsgs[0].epochConfig.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(n.id)))
-		case current:
-			return outerMsg
-		default: // invalid
-			n.oddities.invalidMessage(n.id, outerMsg)
 		}
 	}
 
@@ -136,16 +119,16 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	// XXX we are completely ignoring epoch for the moment
 	epochMsgs := n.epochMsgs[0]
 
-	for _, next := range epochMsgs.next {
-		if next.commit < SeqNo(msg.SeqNo) {
-			return future
-		}
-	}
-
 	switch {
 	case n.nextCheckpoint > SeqNo(msg.SeqNo):
 		return past
 	case n.nextCheckpoint == SeqNo(msg.SeqNo):
+		for _, next := range epochMsgs.next {
+			if next.commit < SeqNo(msg.SeqNo) {
+				return future
+			}
+		}
+
 		n.nextCheckpoint = SeqNo(msg.SeqNo) + epochMsgs.epochConfig.checkpointInterval
 		return current
 	default:
@@ -175,6 +158,26 @@ func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig) *epochMsgs {
 		epochConfig: epochConfig,
 		next:        next,
 	}
+}
+
+func (n *epochMsgs) process(outerMsg *pb.Msg) applyable {
+	switch innerMsg := outerMsg.Type.(type) {
+	case *pb.Msg_Preprepare:
+		return n.processPreprepare(innerMsg.Preprepare)
+	case *pb.Msg_Prepare:
+		return n.processPrepare(innerMsg.Prepare)
+	case *pb.Msg_Commit:
+		return n.processCommit(innerMsg.Commit)
+	case *pb.Msg_Checkpoint:
+		panic("programming error, checkpoints should not go through this path")
+	case *pb.Msg_Forward:
+		return current
+	case *pb.Msg_Suspect:
+		// TODO, do we care about duplicates?
+		return current
+	}
+
+	panic("programming error, unreachable")
 }
 
 func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
