@@ -42,8 +42,7 @@ type Hasher interface {
 
 type Log interface {
 	Apply(*mirbft.Entry)
-	Snap() (id, attestation []byte)
-	CheckSnap(id, attestation []byte) error
+	Snap() (id []byte)
 }
 
 type SerialCommitter struct {
@@ -86,11 +85,10 @@ func (sc *SerialCommitter) Commit(commits []*mirbft.Entry, checkpoints []uint64)
 			sc.CurrentSeqNo++
 		}
 
-		value, attestation := sc.Log.Snap()
+		value := sc.Log.Snap()
 		results = append(results, &mirbft.CheckpointResult{
-			SeqNo:       sc.CurrentSeqNo,
-			Value:       value,
-			Attestation: attestation,
+			SeqNo: sc.CurrentSeqNo,
+			Value: value,
 		})
 	}
 

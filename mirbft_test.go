@@ -7,7 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -270,15 +269,8 @@ func (fl *FakeLog) Apply(entry *mirbft.Entry) {
 	fl.CommitC <- entry
 }
 
-func (fl *FakeLog) Snap() ([]byte, []byte) {
+func (fl *FakeLog) Snap() []byte {
 	value := make([]byte, 8)
 	binary.LittleEndian.PutUint64(value, uint64(len(fl.Entries)))
-	return value, value
-}
-
-func (fl *FakeLog) CheckSnap(id, attestation []byte) error {
-	if bytes.Equal(id, attestation) {
-		return nil
-	}
-	return fmt.Errorf("fake-error")
+	return value
 }

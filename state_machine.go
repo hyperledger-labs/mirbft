@@ -52,9 +52,10 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		myConfig: config.myConfig,
 		epochs: []*epoch{
 			{
-				config:     config,
-				suspicions: map[NodeID]struct{}{},
-				changes:    map[NodeID]*pb.EpochChange{},
+				config:            config,
+				suspicions:        map[NodeID]struct{}{},
+				changes:           map[NodeID]*pb.EpochChange{},
+				checkpointWindows: append([]*checkpointWindow{}, checkpointWindows...), // (copy)
 			},
 		},
 		nodeMsgs:          nodeMsgs,
@@ -123,7 +124,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 			actions.Append(sm.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyCommitMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest))
 		case *pb.Msg_Checkpoint:
 			msg := innerMsg.Checkpoint
-			actions.Append(sm.checkpointMsg(source, SeqNo(msg.SeqNo), msg.Value, msg.Attestation))
+			actions.Append(sm.checkpointMsg(source, SeqNo(msg.SeqNo), msg.Value))
 		case *pb.Msg_Forward:
 			msg := innerMsg.Forward
 			// TODO should we have a separate validate step here?  How do we prevent
@@ -165,10 +166,10 @@ func (sm *stateMachine) epochChangeMsg(source NodeID, msg *pb.EpochChange) {
 	}
 }
 
-func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value, attestation []byte) *Actions {
+func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value []byte) *Actions {
 	cw := sm.checkpointWindowForSeqNo(seqNo)
 
-	actions := cw.applyCheckpointMsg(source, value, attestation)
+	actions := cw.applyCheckpointMsg(source, value)
 
 	lastCW := sm.checkpointWindows[len(sm.checkpointWindows)-1]
 	secondToLastCW := sm.checkpointWindows[len(sm.checkpointWindows)-2]
@@ -239,18 +240,18 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 
 	for i, checkpointResult := range results.Checkpoints {
 		sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
-		actions.Append(sm.applyCheckpointResult(SeqNo(checkpointResult.SeqNo), checkpointResult.Value, checkpointResult.Attestation))
+		actions.Append(sm.applyCheckpointResult(SeqNo(checkpointResult.SeqNo), checkpointResult.Value))
 	}
 
 	return actions
 }
 
-func (sm *stateMachine) applyCheckpointResult(seqNo SeqNo, value, attestation []byte) *Actions {
+func (sm *stateMachine) applyCheckpointResult(seqNo SeqNo, value []byte) *Actions {
 	cw := sm.checkpointWindowForSeqNo(seqNo)
 	if cw == nil {
 		panic("received an unexpected checkpoint result")
 	}
-	return cw.applyCheckpointResult(value, attestation)
+	return cw.applyCheckpointResult(value)
 }
 
 func (sm *stateMachine) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {

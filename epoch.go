@@ -42,4 +42,6 @@ type epoch struct {
 	suspicions map[NodeID]struct{}
 
 	changes map[NodeID]*pb.EpochChange
+
+	checkpointWindows []*checkpointWindow
 }

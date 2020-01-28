@@ -19,16 +19,11 @@ type checkpointWindow struct {
 	buckets map[BucketID]*bucket
 
 	outstandingBuckets map[BucketID]struct{}
-	values             map[string][]nodeAttestation
+	values             map[string][]NodeID
 	committedValue     []byte
 	myValue            []byte
 	garbageCollectible bool
 	obsolete           bool
-}
-
-type nodeAttestation struct {
-	node        NodeID
-	attestation []byte
 }
 
 func newCheckpointWindow(start, end SeqNo, config *epochConfig) *checkpointWindow {
@@ -46,7 +41,7 @@ func newCheckpointWindow(start, end SeqNo, config *epochConfig) *checkpointWindo
 		epochConfig:        config,
 		outstandingBuckets: outstandingBuckets,
 		buckets:            buckets,
-		values:             map[string][]nodeAttestation{},
+		values:             map[string][]NodeID{},
 	}
 }
 
@@ -87,11 +82,8 @@ func (cw *checkpointWindow) committed(bucket BucketID) *Actions {
 	}
 }
 
-func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value, attestation []byte) *Actions {
-	checkpointValueNodes := append(cw.values[string(value)], nodeAttestation{
-		node:        source,
-		attestation: attestation,
-	})
+func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value []byte) *Actions {
+	checkpointValueNodes := append(cw.values[string(value)], source)
 	cw.values[string(value)] = checkpointValueNodes
 
 	agreements := len(checkpointValueNodes)
@@ -131,15 +123,14 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value, attestation
 	return &Actions{}
 }
 
-func (cw *checkpointWindow) applyCheckpointResult(value, attestation []byte) *Actions {
+func (cw *checkpointWindow) applyCheckpointResult(value []byte) *Actions {
 	return &Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_Checkpoint{
 					Checkpoint: &pb.Checkpoint{
-						SeqNo:       uint64(cw.end),
-						Value:       value,
-						Attestation: attestation,
+						SeqNo: uint64(cw.end),
+						Value: value,
 					},
 				},
 			},

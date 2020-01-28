@@ -115,11 +115,6 @@ type CheckpointResult struct {
 	// computed from a Merkle tree, hash chain, or other structure exihibiting
 	// the properties of a strong hash function.
 	Value []byte
-
-	// Attestation is non-repudiable evidence that this node agrees with the checkpoint
-	// Value for this sequence number.  Typically, this is a signature from a private key
-	// of a known public/private key pair, but other schemes are possible.
-	Attestation []byte
 }
 
 // Proposal is data which is proposed to be included in a batch and appended to the log.
