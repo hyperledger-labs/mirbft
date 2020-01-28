@@ -33,15 +33,153 @@ type epochConfig struct {
 	buckets map[BucketID]NodeID
 }
 
+type epochState int
+
+const (
+	pending epochState = iota
+	active
+	done
+)
+
 type epoch struct {
 	// config contains the static components of the epoch
 	config *epochConfig
 
-	active bool
+	ticks uint64
+
+	proposer *proposer
+
+	state epochState
 
 	suspicions map[NodeID]struct{}
 
 	changes map[NodeID]*pb.EpochChange
 
 	checkpointWindows []*checkpointWindow
+}
+
+func (e *epoch) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
+	if e.config.plannedExpiration < seqNo {
+		return nil
+	}
+
+	if e.checkpointWindows[0].start > seqNo {
+		return nil
+	}
+
+	offset := seqNo - SeqNo(e.checkpointWindows[0].start)
+	index := offset / SeqNo(e.config.checkpointInterval)
+	if int(index) >= len(e.checkpointWindows) {
+		return nil
+	}
+	return e.checkpointWindows[index]
+}
+
+func (e *epoch) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
+	return e.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPreprepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
+}
+
+func (e *epoch) applyPrepareMsg(source NodeID, msg *pb.Prepare) *Actions {
+	return e.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPrepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+}
+
+func (e *epoch) applyCommitMsg(source NodeID, msg *pb.Commit) *Actions {
+	return e.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyCommitMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+}
+
+func (e *epoch) applyCheckpointMsg(source NodeID, seqNo SeqNo, value []byte) *Actions {
+	lastCW := e.checkpointWindows[len(e.checkpointWindows)-1]
+
+	if lastCW.epochConfig.plannedExpiration == lastCW.end {
+		// This epoch is about to end gracefully, don't allocate new windows
+		// so no need to go into allocation or garbage collection logic.
+		return &Actions{}
+	}
+
+	cw := e.checkpointWindowForSeqNo(seqNo)
+
+	secondToLastCW := e.checkpointWindows[len(e.checkpointWindows)-2]
+	actions := cw.applyCheckpointMsg(source, value)
+
+	if secondToLastCW.garbageCollectible {
+		e.proposer.maxAssignable = lastCW.end
+		e.checkpointWindows = append(
+			e.checkpointWindows,
+			newCheckpointWindow(
+				lastCW.end+1,
+				lastCW.end+e.config.checkpointInterval,
+				e.config,
+			),
+		)
+	}
+
+	actions.Append(e.proposer.drainQueue())
+	for len(e.checkpointWindows) > 2 && (e.checkpointWindows[0].obsolete || e.checkpointWindows[1].garbageCollectible) {
+		e.checkpointWindows = e.checkpointWindows[1:]
+	}
+
+	return actions
+}
+
+func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
+	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.config.buckets)))
+	nodeID := e.config.buckets[bucketID]
+	if nodeID == NodeID(e.config.myConfig.ID) {
+		return e.proposer.propose(preprocessResult.Proposal.Data)
+	}
+
+	if preprocessResult.Proposal.Source == e.config.myConfig.ID {
+		// I originated this proposal, but someone else leads this bucket,
+		// forward the message to them
+		return &Actions{
+			Unicast: []Unicast{
+				{
+					Target: uint64(nodeID),
+					Msg: &pb.Msg{
+						Type: &pb.Msg_Forward{
+							Forward: &pb.Forward{
+								Epoch:  e.config.number,
+								Bucket: uint64(bucketID),
+								Data:   preprocessResult.Proposal.Data,
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	// Someone forwarded me this proposal, but I'm not responsible for it's bucket
+	// TODO, log oddity? Assign it to the wrong bucket? Forward it again?
+	return &Actions{}
+}
+
+func (e *epoch) applyDigestResult(seqNo SeqNo, bucketID BucketID, digest []byte) *Actions {
+	return e.checkpointWindowForSeqNo(seqNo).applyDigestResult(seqNo, bucketID, digest)
+}
+
+func (e *epoch) applyValidateResult(seqNo SeqNo, bucketID BucketID, valid bool) *Actions {
+	return e.checkpointWindowForSeqNo(seqNo).applyValidateResult(seqNo, bucketID, valid)
+}
+
+func (e *epoch) applyCheckpointResult(seqNo SeqNo, value []byte) *Actions {
+	cw := e.checkpointWindowForSeqNo(seqNo)
+	if cw == nil {
+		panic("received an unexpected checkpoint result")
+	}
+	return cw.applyCheckpointResult(value)
+}
+
+func (e *epoch) tick() *Actions {
+	actions := &Actions{}
+
+	e.ticks++
+	if e.config.myConfig.HeartbeatTicks != 0 && e.ticks%uint64(e.config.myConfig.HeartbeatTicks) == 0 {
+		actions.Append(e.proposer.noopAdvance())
+	}
+
+	for _, cw := range e.checkpointWindows {
+		actions.Append(cw.tick())
+	}
+	return actions
 }
