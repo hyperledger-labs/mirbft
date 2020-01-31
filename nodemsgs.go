@@ -85,6 +85,8 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_Forward:
 		epoch = innerMsg.Forward.Epoch
+	case *pb.Msg_EpochChange:
+		epoch = innerMsg.EpochChange.NewEpoch
 	default:
 		n.oddities.invalidMessage(n.id, outerMsg)
 		// TODO don't panic here, just return, left here for dev
@@ -177,6 +179,9 @@ func (n *epochMsgs) process(outerMsg *pb.Msg) applyable {
 		return current
 	case *pb.Msg_Suspect:
 		// TODO, do we care about duplicates?
+		return current
+	case *pb.Msg_EpochChange:
+		// TODO, filter
 		return current
 	}
 

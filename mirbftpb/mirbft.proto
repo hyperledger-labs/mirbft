@@ -60,38 +60,40 @@ message Suspect {
     uint64 epoch = 1;
 }
 
+// EpochChange messages are used to implement the classical PBFT view-change
+// protocol, (very) slightly modified to adapt to Mir.  The assorted sets
+// are encoded as repeated fields, rather than as maps for ease of serialization
+// and particularly for computing a digest to attest to.  If any set contains
+// a duplicated entry, the message may be discarded as byzantine.
 message EpochChange {
     // attestation should be a signature covering the remainder of the fields
     // in the message.  additional information may optionally be encoded in the
     // attestation.
     bytes attestation = 1;
 
-    uint64 epoch = 2;
-    uint64 low_watermark = 3;
+    uint64 new_epoch = 2;
 
     message Checkpoint {
         uint64 seq_no = 1;
         bytes value = 2;
     }
 
-    // checkpoints is the C-set
-    repeated Checkpoint checkpoints = 4;
+    // c_set contains the entries for the C-set as defined by the classical
+    // PBFT view-change protocol.
+    repeated Checkpoint checkpoints = 3;
 
-    message BucketSet {
-        // highest_prepared is essentially the P-set (for the bucket).  Because this implementation
-        // of Mir does not allow out-of-order preparing, a seqno indicating the highest
-        // prepared is adequate.  This is equivalent to indicating "I have sent commit messages
-        // for this, and all previous sequence numbers in this bucket."
-        uint64 highest_prepared = 1;
-
-        // preprepared is essentially the Q-set (for the bucket).  Because this implementation
-        // of Mir does not allow out-of-order prepreparing, indexes are relative to
-        // the last_checkpoint_seq_no. The contents of the index is the digest of the preprepare.
-        // This is equivalent to indicating "I have sent prepare messages for all of these sequence
-        // numbers."
-        repeated bytes preprepared = 2;
+    message SetEntry {
+        uint64 bucket = 1;
+        uint64 epoch = 2;
+        uint64 seq_no = 3;
+        bytes digest = 4;
     }
 
-    repeated BucketSet bucket_sets = 5;
+    // p_set contains the entries for the P-set as defined by the classical
+    // PBFT view-change protocol.  
+    repeated SetEntry p_set = 4;
 
+    // q_set contains the entries for the Q-set as defined by the classical
+    // PBFT view-change protocol.
+    repeated SetEntry q_set = 5;
 }

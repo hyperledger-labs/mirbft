@@ -55,6 +55,7 @@ var _ = Describe("MirBFT", func() {
 				BatchParameters: mirbft.BatchParameters{
 					CutSizeBytes: 1,
 				},
+				SuspectTicks: 4,
 			}
 
 			var err error
@@ -154,6 +155,7 @@ var _ = Describe("MirBFT", func() {
 					BatchParameters: mirbft.BatchParameters{
 						CutSizeBytes: 1,
 					},
+					SuspectTicks: 4,
 				}
 
 				node, err := mirbft.StartNewNode(config, doneC, replicas)

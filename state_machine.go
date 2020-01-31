@@ -23,6 +23,9 @@ type stateMachine struct {
 
 	activeEpoch *epoch
 	epochs      []*epoch
+
+	latestSuspicion   map[NodeID]*pb.Suspect
+	latestEpochChange map[NodeID]*pb.EpochChange
 }
 
 func newStateMachine(config *epochConfig) *stateMachine {
@@ -56,10 +59,12 @@ func newStateMachine(config *epochConfig) *stateMachine {
 	}
 
 	return &stateMachine{
-		myConfig:    config.myConfig,
-		activeEpoch: activeEpoch,
-		epochs:      []*epoch{activeEpoch},
-		nodeMsgs:    nodeMsgs,
+		myConfig:          config.myConfig,
+		activeEpoch:       activeEpoch,
+		epochs:            []*epoch{activeEpoch},
+		nodeMsgs:          nodeMsgs,
+		latestSuspicion:   map[NodeID]*pb.Suspect{},
+		latestEpochChange: map[NodeID]*pb.EpochChange{},
 	}
 }
 
@@ -113,7 +118,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 				},
 			})
 		case *pb.Msg_Suspect:
-			sm.suspectMsg(source, innerMsg.Suspect.Epoch)
+			sm.suspectMsg(source, innerMsg.Suspect)
 		case *pb.Msg_EpochChange:
 			sm.epochChangeMsg(source, innerMsg.EpochChange)
 		default:
@@ -125,20 +130,19 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) suspectMsg(source NodeID, epoch uint64) {
+func (sm *stateMachine) suspectMsg(source NodeID, msg *pb.Suspect) {
+	sm.latestSuspicion[source] = msg
+
 	for _, ew := range sm.epochs {
-		if ew.config.number == epoch {
+		if ew.config.number == msg.Epoch {
 			ew.suspicions[source] = struct{}{}
+			return
 		}
 	}
 }
 
 func (sm *stateMachine) epochChangeMsg(source NodeID, msg *pb.EpochChange) {
-	for _, ew := range sm.epochs {
-		if ew.config.number == msg.Epoch {
-			ew.changes[source] = msg
-		}
-	}
+	sm.latestEpochChange[source] = msg
 }
 
 func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value []byte) *Actions {

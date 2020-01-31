@@ -36,7 +36,8 @@ type epochConfig struct {
 type epochState int
 
 const (
-	pending epochState = iota
+	prepending epochState = iota
+	pending
 	active
 	done
 )
@@ -51,9 +52,13 @@ type epoch struct {
 
 	state epochState
 
-	suspicions map[NodeID]struct{}
+	newEpochPending bool
+
+	inactiveTicks int
 
 	changes map[NodeID]*pb.EpochChange
+
+	suspicions map[NodeID]struct{}
 
 	checkpointWindows []*checkpointWindow
 }
@@ -76,18 +81,34 @@ func (e *epoch) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
 }
 
 func (e *epoch) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
+	if e.state == done {
+		return &Actions{}
+	}
+
 	return e.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPreprepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
 }
 
 func (e *epoch) applyPrepareMsg(source NodeID, msg *pb.Prepare) *Actions {
+	if e.state == done {
+		return &Actions{}
+	}
+
 	return e.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPrepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
 }
 
 func (e *epoch) applyCommitMsg(source NodeID, msg *pb.Commit) *Actions {
+	if e.state == done {
+		return &Actions{}
+	}
+
 	return e.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyCommitMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
 }
 
 func (e *epoch) applyCheckpointMsg(source NodeID, seqNo SeqNo, value []byte) *Actions {
+	if e.state == done {
+		return &Actions{}
+	}
+
 	lastCW := e.checkpointWindows[len(e.checkpointWindows)-1]
 
 	if lastCW.epochConfig.plannedExpiration == lastCW.end {
@@ -122,6 +143,10 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo SeqNo, value []byte) *Ac
 }
 
 func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
+	if e.state == done {
+		return &Actions{}
+	}
+
 	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.config.buckets)))
 	nodeID := e.config.buckets[bucketID]
 	if nodeID == NodeID(e.config.myConfig.ID) {
@@ -155,14 +180,26 @@ func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Action
 }
 
 func (e *epoch) applyDigestResult(seqNo SeqNo, bucketID BucketID, digest []byte) *Actions {
+	if e.state == done {
+		return &Actions{}
+	}
+
 	return e.checkpointWindowForSeqNo(seqNo).applyDigestResult(seqNo, bucketID, digest)
 }
 
 func (e *epoch) applyValidateResult(seqNo SeqNo, bucketID BucketID, valid bool) *Actions {
+	if e.state == done {
+		return &Actions{}
+	}
+
 	return e.checkpointWindowForSeqNo(seqNo).applyValidateResult(seqNo, bucketID, valid)
 }
 
 func (e *epoch) applyCheckpointResult(seqNo SeqNo, value []byte) *Actions {
+	if e.state == done {
+		return &Actions{}
+	}
+
 	cw := e.checkpointWindowForSeqNo(seqNo)
 	if cw == nil {
 		panic("received an unexpected checkpoint result")
@@ -171,9 +208,78 @@ func (e *epoch) applyCheckpointResult(seqNo SeqNo, value []byte) *Actions {
 }
 
 func (e *epoch) tick() *Actions {
+	e.ticks++
+
 	actions := &Actions{}
 
-	e.ticks++
+	if e.state != done {
+		// This is done first, as this tick may transition
+		// the state to done.
+		actions.Append(e.tickNotDone())
+	}
+
+	switch e.state {
+	case prepending:
+		actions.Append(e.tickPrepending())
+	case pending:
+		actions.Append(e.tickPending())
+	case active:
+		actions.Append(e.tickActive())
+	default: // case done:
+	}
+
+	return actions
+}
+
+func (e *epoch) tickPrepending() *Actions {
+	newEpoch := e.constructNewEpoch() // TODO, recomputing over and over again isn't useful unless we've gotten new epoch change messages in the meantime, should we somehow store the last one we computed?
+
+	if newEpoch == nil {
+		return &Actions{}
+	}
+
+	e.newEpochPending = true
+
+	if e.config.number%uint64(len(e.config.nodes)) == e.config.myConfig.ID {
+		return &Actions{
+			Broadcast: []*pb.Msg{
+				// TODO return new epoch here
+			},
+		}
+	}
+
+	return &Actions{}
+}
+
+func (e *epoch) tickPending() *Actions {
+	e.inactiveTicks++
+	// TODO new view timeout
+	return &Actions{}
+}
+
+func (e *epoch) tickNotDone() *Actions {
+	// Wait for 2f+1 suspicions before initiating an epoch change,
+	if len(e.suspicions) < 2*e.config.f+1 {
+		return &Actions{}
+	}
+
+	e.state = done
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_EpochChange{
+					// TODO, actually construct the message
+					EpochChange: &pb.EpochChange{},
+				},
+			},
+		},
+	}
+
+}
+
+func (e *epoch) tickActive() *Actions {
+	actions := &Actions{}
 	if e.config.myConfig.HeartbeatTicks != 0 && e.ticks%uint64(e.config.myConfig.HeartbeatTicks) == 0 {
 		actions.Append(e.proposer.noopAdvance())
 	}
@@ -182,4 +288,24 @@ func (e *epoch) tick() *Actions {
 		actions.Append(cw.tick())
 	}
 	return actions
+}
+
+func (e *epoch) constructEpochChange() *pb.EpochChange {
+	epochChange := &pb.EpochChange{}
+	for _, cw := range e.checkpointWindows {
+		if cw.myValue == nil {
+			// Checkpoints necessarily generated in order, no further checkpoints are ready
+			break
+		}
+		epochChange.Checkpoints = append(epochChange.Checkpoints, &pb.EpochChange_Checkpoint{
+			SeqNo: uint64(cw.end),
+			Value: cw.myValue,
+		})
+	}
+	return epochChange
+}
+
+func (e *epoch) constructNewEpoch() *pb.Msg {
+	// XXX this should probably return a *pb.NewEpoch (which doesn't currently exist)
+	return nil
 }
