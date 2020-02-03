@@ -128,10 +128,15 @@ message EpochConfig {
 message NewEpoch {
     EpochConfig config = 1;
 
+    message RemoteEpochChange {
+        uint64 node_id = 1;
+        EpochChange epoch_change = 2;
+    }
+
     // epoch_changes must contains at least 2f+1 EpochChange messages from
     // replicas in the network.  If two EpochChanges originated from the same
     // replica, then the NewEpoch message is invalid.
-    repeated EpochChange epoch_changes = 2;
+    repeated RemoteEpochChange epoch_changes = 2;
 }
 
 // NewEpochReady is for the second round of the classical Bracha reliable broadcast.  Note,

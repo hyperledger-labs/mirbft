@@ -45,6 +45,35 @@ func newCheckpointWindow(start, end SeqNo, config *epochConfig) *checkpointWindo
 	}
 }
 
+func (cw *checkpointWindow) clone() *checkpointWindow {
+	ncw := &checkpointWindow{
+		start:              cw.start,
+		end:                cw.end,
+		epochConfig:        cw.epochConfig,
+		buckets:            map[BucketID]*bucket{},
+		outstandingBuckets: map[BucketID]struct{}{},
+		values:             map[string][]NodeID{},
+		committedValue:     append([]byte{}, cw.committedValue...),
+		myValue:            append([]byte{}, cw.myValue...),
+		garbageCollectible: cw.garbageCollectible,
+		obsolete:           cw.obsolete,
+	}
+
+	for bucketID, bucket := range cw.buckets {
+		ncw.buckets[bucketID] = bucket // XXX, this should be .Clone()
+	}
+
+	for bucketID := range cw.outstandingBuckets {
+		ncw.outstandingBuckets[bucketID] = struct{}{}
+	}
+
+	for value, nodes := range cw.values {
+		ncw.values[value] = append([]NodeID{}, nodes...)
+	}
+
+	return ncw
+}
+
 func (cw *checkpointWindow) applyPreprepareMsg(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
 	return cw.buckets[bucket].applyPreprepareMsg(seqNo, batch)
 }

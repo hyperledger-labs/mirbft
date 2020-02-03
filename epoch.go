@@ -6,7 +6,10 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
-import pb "github.com/IBM/mirbft/mirbftpb"
+import (
+	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/golang/protobuf/proto"
+)
 
 // epochConfig is the information required by the various
 // state machines whose state is scoped to an epoch
@@ -38,6 +41,8 @@ type epochState int
 const (
 	prepending epochState = iota
 	pending
+	echoed
+	readyed
 	active
 	done
 )
@@ -56,6 +61,10 @@ type epoch struct {
 
 	inactiveTicks int
 
+	echos map[NodeID]*pb.EpochConfig
+
+	readies map[NodeID]*pb.EpochConfig
+
 	changes map[NodeID]*pb.EpochChange
 
 	suspicions map[NodeID]struct{}
@@ -63,6 +72,97 @@ type epoch struct {
 	checkpointWindows []*checkpointWindow
 
 	baseCheckpointValue []byte
+}
+
+// newEpoch creates a new epoch.  It uses the supplied initial checkpointWindows until
+// new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
+// windows may be empty, of length 1, or length 2.
+func newEpoch(lastSeqNo SeqNo, startingCheckpointValue []byte, config *epochConfig, initialCheckpointWindows []*checkpointWindow) *epoch {
+	proposer := newProposer(config)
+	proposer.maxAssignable = config.checkpointInterval
+
+	checkpointWindows := make([]*checkpointWindow, 2)
+	lastEnd := lastSeqNo
+	for i := 0; i < 2; i++ {
+		if len(initialCheckpointWindows) > i {
+			checkpointWindows[i] = initialCheckpointWindows[i].clone()
+			lastEnd = checkpointWindows[i].end
+			continue
+		}
+		newLastEnd := lastEnd + config.checkpointInterval
+		checkpointWindows[i] = newCheckpointWindow(lastEnd+1, newLastEnd, config)
+		lastEnd = newLastEnd
+	}
+
+	return &epoch{
+		baseCheckpointValue: startingCheckpointValue,
+		config:              config,
+		suspicions:          map[NodeID]struct{}{},
+		changes:             map[NodeID]*pb.EpochChange{},
+		checkpointWindows:   checkpointWindows,
+		proposer:            proposer,
+	}
+}
+
+// Summary of Bracha reliable broadcast from:
+//   https://dcl.epfl.ch/site/_media/education/sdc_byzconsensus.pdf
+//
+// upon r-broadcast(m): // only Ps
+// send message (SEND, m) to all
+//
+// upon receiving a message (SEND, m) from Ps:
+// send message (ECHO, m) to all
+//
+// upon receiving ceil((n+t+1)/2)
+// e messages(ECHO, m) and not having sent a READY message:
+// send message (READY, m) to all
+//
+// upon receiving t+1 messages(READY, m) and not having sent a READY message:
+// send message (READY, m) to all
+// upon receiving 2t + 1 messages (READY, m):
+//
+// r-deliver(m)
+
+func (e *epoch) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
+	if e.state != pending {
+		// TODO log oddity? maybe ensure not possible via nodemsgs
+		return &Actions{}
+	}
+
+	epochChanges := map[NodeID]*pb.EpochChange{}
+	for _, remoteEpochChange := range msg.EpochChanges {
+		if _, ok := epochChanges[NodeID(remoteEpochChange.NodeId)]; ok {
+			// TODO, malformed, log oddity
+			return &Actions{}
+		}
+
+		epochChanges[NodeID(remoteEpochChange.NodeId)] = remoteEpochChange.EpochChange
+	}
+
+	// XXX need to validate the signatures on the epoch changes
+
+	newEpochConfig := constructNewEpochConfig(epochChanges)
+
+	if !proto.Equal(newEpochConfig, msg.Config) {
+		// TODO byzantine, log oddity
+		return &Actions{}
+	}
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_NewEpochEcho{
+					NewEpochEcho: &pb.NewEpochEcho{
+						Config: msg.Config,
+					},
+				},
+			},
+		},
+	}
+}
+
+func (e *epoch) applyNewEpochEchoMsg(msg *pb.NewEpochEcho) {
+
 }
 
 func (e *epoch) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
@@ -322,7 +422,27 @@ func (e *epoch) constructEpochChange() *pb.EpochChange {
 }
 
 func (e *epoch) constructNewEpoch() *pb.NewEpoch {
+	config := constructNewEpochConfig(e.changes)
+	if config == nil {
+		return nil
+	}
+
+	remoteChanges := make([]*pb.NewEpoch_RemoteEpochChange, len(e.changes), 0)
+	for nodeID, change := range e.changes {
+		remoteChanges = append(remoteChanges, &pb.NewEpoch_RemoteEpochChange{
+			NodeId:      uint64(nodeID),
+			EpochChange: change,
+		})
+	}
+
+	return &pb.NewEpoch{
+		Config:       config,
+		EpochChanges: remoteChanges,
+	}
+}
+
+func constructNewEpochConfig(epochChanges map[NodeID]*pb.EpochChange) *pb.EpochConfig {
 	// XXX implement
 
-	return &pb.NewEpoch{}
+	return &pb.EpochConfig{}
 }

@@ -19,7 +19,6 @@ import (
 type stateMachine struct {
 	myConfig *Config
 	nodeMsgs map[NodeID]*nodeMsgs
-	proposer *proposer
 
 	activeEpoch *epoch
 	epochs      []*epoch
@@ -37,26 +36,7 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		nodeMsgs[id] = newNodeMsgs(id, config, oddities)
 	}
 
-	checkpointWindows := []*checkpointWindow{}
-	lastEnd := SeqNo(0)
-	for i := 0; i < 2; i++ {
-		newLastEnd := lastEnd + config.checkpointInterval
-		cw := newCheckpointWindow(lastEnd+1, newLastEnd, config)
-		checkpointWindows = append(checkpointWindows, cw)
-		lastEnd = newLastEnd
-	}
-
-	proposer := newProposer(config)
-	proposer.maxAssignable = config.checkpointInterval
-	// TODO collapse this logic with the new checkpoint allocation logic
-
-	activeEpoch := &epoch{
-		config:            config,
-		suspicions:        map[NodeID]struct{}{},
-		changes:           map[NodeID]*pb.EpochChange{},
-		checkpointWindows: checkpointWindows,
-		proposer:          proposer,
-	}
+	activeEpoch := newEpoch(0, []byte("TODO, get from state"), config, []*checkpointWindow{})
 
 	return &stateMachine{
 		myConfig:          config.myConfig,
