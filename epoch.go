@@ -48,11 +48,11 @@ type epoch struct {
 
 	ticks uint64
 
+	myNewEpoch *pb.NewEpoch
+
 	proposer *proposer
 
 	state epochState
-
-	newEpochPending bool
 
 	inactiveTicks int
 
@@ -61,6 +61,8 @@ type epoch struct {
 	suspicions map[NodeID]struct{}
 
 	checkpointWindows []*checkpointWindow
+
+	baseCheckpointValue []byte
 }
 
 func (e *epoch) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
@@ -136,6 +138,7 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo SeqNo, value []byte) *Ac
 
 	actions.Append(e.proposer.drainQueue())
 	for len(e.checkpointWindows) > 2 && (e.checkpointWindows[0].obsolete || e.checkpointWindows[1].garbageCollectible) {
+		e.baseCheckpointValue = e.checkpointWindows[0].myValue
 		e.checkpointWindows = e.checkpointWindows[1:]
 	}
 
@@ -238,12 +241,17 @@ func (e *epoch) tickPrepending() *Actions {
 		return &Actions{}
 	}
 
-	e.newEpochPending = true
+	e.state = pending
+	e.myNewEpoch = newEpoch
 
 	if e.config.number%uint64(len(e.config.nodes)) == e.config.myConfig.ID {
 		return &Actions{
 			Broadcast: []*pb.Msg{
-				// TODO return new epoch here
+				{
+					Type: &pb.Msg_NewEpoch{
+						NewEpoch: newEpoch,
+					},
+				},
 			},
 		}
 	}
@@ -269,8 +277,7 @@ func (e *epoch) tickNotDone() *Actions {
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_EpochChange{
-					// TODO, actually construct the message
-					EpochChange: &pb.EpochChange{},
+					EpochChange: e.constructEpochChange(),
 				},
 			},
 		},
@@ -287,25 +294,35 @@ func (e *epoch) tickActive() *Actions {
 	for _, cw := range e.checkpointWindows {
 		actions.Append(cw.tick())
 	}
+
 	return actions
 }
 
 func (e *epoch) constructEpochChange() *pb.EpochChange {
 	epochChange := &pb.EpochChange{}
+
+	if e.checkpointWindows[0].myValue == nil {
+
+	}
+
 	for _, cw := range e.checkpointWindows {
 		if cw.myValue == nil {
 			// Checkpoints necessarily generated in order, no further checkpoints are ready
 			break
 		}
-		epochChange.Checkpoints = append(epochChange.Checkpoints, &pb.EpochChange_Checkpoint{
+		epochChange.Checkpoints = append(epochChange.Checkpoints, &pb.Checkpoint{
 			SeqNo: uint64(cw.end),
 			Value: cw.myValue,
 		})
 	}
+
+	// XXX implement
+
 	return epochChange
 }
 
-func (e *epoch) constructNewEpoch() *pb.Msg {
-	// XXX this should probably return a *pb.NewEpoch (which doesn't currently exist)
-	return nil
+func (e *epoch) constructNewEpoch() *pb.NewEpoch {
+	// XXX implement
+
+	return &pb.NewEpoch{}
 }

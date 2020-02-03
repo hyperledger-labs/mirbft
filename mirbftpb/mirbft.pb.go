@@ -27,6 +27,9 @@ type Msg struct {
 	//	*Msg_Checkpoint
 	//	*Msg_Suspect
 	//	*Msg_EpochChange
+	//	*Msg_NewEpoch
+	//	*Msg_NewEpochEcho
+	//	*Msg_NewEpochReady
 	Type                 isMsg_Type `protobuf_oneof:"type"`
 	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
 	XXX_unrecognized     []byte     `json:"-"`
@@ -37,7 +40,7 @@ func (m *Msg) Reset()         { *m = Msg{} }
 func (m *Msg) String() string { return proto.CompactTextString(m) }
 func (*Msg) ProtoMessage()    {}
 func (*Msg) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{0}
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{0}
 }
 func (m *Msg) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Msg.Unmarshal(m, b)
@@ -89,6 +92,18 @@ type Msg_EpochChange struct {
 	EpochChange *EpochChange `protobuf:"bytes,7,opt,name=epoch_change,json=epochChange,proto3,oneof"`
 }
 
+type Msg_NewEpoch struct {
+	NewEpoch *NewEpoch `protobuf:"bytes,8,opt,name=new_epoch,json=newEpoch,proto3,oneof"`
+}
+
+type Msg_NewEpochEcho struct {
+	NewEpochEcho *NewEpochEcho `protobuf:"bytes,9,opt,name=new_epoch_echo,json=newEpochEcho,proto3,oneof"`
+}
+
+type Msg_NewEpochReady struct {
+	NewEpochReady *NewEpochReady `protobuf:"bytes,10,opt,name=new_epoch_ready,json=newEpochReady,proto3,oneof"`
+}
+
 func (*Msg_Preprepare) isMsg_Type() {}
 
 func (*Msg_Prepare) isMsg_Type() {}
@@ -102,6 +117,12 @@ func (*Msg_Checkpoint) isMsg_Type() {}
 func (*Msg_Suspect) isMsg_Type() {}
 
 func (*Msg_EpochChange) isMsg_Type() {}
+
+func (*Msg_NewEpoch) isMsg_Type() {}
+
+func (*Msg_NewEpochEcho) isMsg_Type() {}
+
+func (*Msg_NewEpochReady) isMsg_Type() {}
 
 func (m *Msg) GetType() isMsg_Type {
 	if m != nil {
@@ -159,6 +180,27 @@ func (m *Msg) GetEpochChange() *EpochChange {
 	return nil
 }
 
+func (m *Msg) GetNewEpoch() *NewEpoch {
+	if x, ok := m.GetType().(*Msg_NewEpoch); ok {
+		return x.NewEpoch
+	}
+	return nil
+}
+
+func (m *Msg) GetNewEpochEcho() *NewEpochEcho {
+	if x, ok := m.GetType().(*Msg_NewEpochEcho); ok {
+		return x.NewEpochEcho
+	}
+	return nil
+}
+
+func (m *Msg) GetNewEpochReady() *NewEpochReady {
+	if x, ok := m.GetType().(*Msg_NewEpochReady); ok {
+		return x.NewEpochReady
+	}
+	return nil
+}
+
 // XXX_OneofFuncs is for the internal use of the proto package.
 func (*Msg) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
 	return _Msg_OneofMarshaler, _Msg_OneofUnmarshaler, _Msg_OneofSizer, []interface{}{
@@ -169,6 +211,9 @@ func (*Msg) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, fu
 		(*Msg_Checkpoint)(nil),
 		(*Msg_Suspect)(nil),
 		(*Msg_EpochChange)(nil),
+		(*Msg_NewEpoch)(nil),
+		(*Msg_NewEpochEcho)(nil),
+		(*Msg_NewEpochReady)(nil),
 	}
 }
 
@@ -209,6 +254,21 @@ func _Msg_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
 	case *Msg_EpochChange:
 		b.EncodeVarint(7<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.EpochChange); err != nil {
+			return err
+		}
+	case *Msg_NewEpoch:
+		b.EncodeVarint(8<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.NewEpoch); err != nil {
+			return err
+		}
+	case *Msg_NewEpochEcho:
+		b.EncodeVarint(9<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.NewEpochEcho); err != nil {
+			return err
+		}
+	case *Msg_NewEpochReady:
+		b.EncodeVarint(10<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.NewEpochReady); err != nil {
 			return err
 		}
 	case nil:
@@ -277,6 +337,30 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_EpochChange{msg}
 		return true, err
+	case 8: // type.new_epoch
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(NewEpoch)
+		err := b.DecodeMessage(msg)
+		m.Type = &Msg_NewEpoch{msg}
+		return true, err
+	case 9: // type.new_epoch_echo
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(NewEpochEcho)
+		err := b.DecodeMessage(msg)
+		m.Type = &Msg_NewEpochEcho{msg}
+		return true, err
+	case 10: // type.new_epoch_ready
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(NewEpochReady)
+		err := b.DecodeMessage(msg)
+		m.Type = &Msg_NewEpochReady{msg}
+		return true, err
 	default:
 		return false, nil
 	}
@@ -321,6 +405,21 @@ func _Msg_OneofSizer(msg proto.Message) (n int) {
 		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
+	case *Msg_NewEpoch:
+		s := proto.Size(x.NewEpoch)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *Msg_NewEpochEcho:
+		s := proto.Size(x.NewEpochEcho)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *Msg_NewEpochReady:
+		s := proto.Size(x.NewEpochReady)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
 	case nil:
 	default:
 		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
@@ -342,7 +441,7 @@ func (m *Preprepare) Reset()         { *m = Preprepare{} }
 func (m *Preprepare) String() string { return proto.CompactTextString(m) }
 func (*Preprepare) ProtoMessage()    {}
 func (*Preprepare) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{1}
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{1}
 }
 func (m *Preprepare) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Preprepare.Unmarshal(m, b)
@@ -404,7 +503,7 @@ func (m *Prepare) Reset()         { *m = Prepare{} }
 func (m *Prepare) String() string { return proto.CompactTextString(m) }
 func (*Prepare) ProtoMessage()    {}
 func (*Prepare) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{2}
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{2}
 }
 func (m *Prepare) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Prepare.Unmarshal(m, b)
@@ -466,7 +565,7 @@ func (m *Commit) Reset()         { *m = Commit{} }
 func (m *Commit) String() string { return proto.CompactTextString(m) }
 func (*Commit) ProtoMessage()    {}
 func (*Commit) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{3}
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{3}
 }
 func (m *Commit) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Commit.Unmarshal(m, b)
@@ -526,7 +625,7 @@ func (m *Checkpoint) Reset()         { *m = Checkpoint{} }
 func (m *Checkpoint) String() string { return proto.CompactTextString(m) }
 func (*Checkpoint) ProtoMessage()    {}
 func (*Checkpoint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{4}
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{4}
 }
 func (m *Checkpoint) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Checkpoint.Unmarshal(m, b)
@@ -573,7 +672,7 @@ func (m *Forward) Reset()         { *m = Forward{} }
 func (m *Forward) String() string { return proto.CompactTextString(m) }
 func (*Forward) ProtoMessage()    {}
 func (*Forward) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{5}
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{5}
 }
 func (m *Forward) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Forward.Unmarshal(m, b)
@@ -625,7 +724,7 @@ func (m *Suspect) Reset()         { *m = Suspect{} }
 func (m *Suspect) String() string { return proto.CompactTextString(m) }
 func (*Suspect) ProtoMessage()    {}
 func (*Suspect) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{6}
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{6}
 }
 func (m *Suspect) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Suspect.Unmarshal(m, b)
@@ -665,7 +764,7 @@ type EpochChange struct {
 	NewEpoch    uint64 `protobuf:"varint,2,opt,name=new_epoch,json=newEpoch,proto3" json:"new_epoch,omitempty"`
 	// c_set contains the entries for the C-set as defined by the classical
 	// PBFT view-change protocol.
-	Checkpoints []*EpochChange_Checkpoint `protobuf:"bytes,3,rep,name=checkpoints,proto3" json:"checkpoints,omitempty"`
+	Checkpoints []*Checkpoint `protobuf:"bytes,3,rep,name=checkpoints,proto3" json:"checkpoints,omitempty"`
 	// p_set contains the entries for the P-set as defined by the classical
 	// PBFT view-change protocol.
 	PSet []*EpochChange_SetEntry `protobuf:"bytes,4,rep,name=p_set,json=pSet,proto3" json:"p_set,omitempty"`
@@ -681,7 +780,7 @@ func (m *EpochChange) Reset()         { *m = EpochChange{} }
 func (m *EpochChange) String() string { return proto.CompactTextString(m) }
 func (*EpochChange) ProtoMessage()    {}
 func (*EpochChange) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{7}
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{7}
 }
 func (m *EpochChange) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_EpochChange.Unmarshal(m, b)
@@ -715,7 +814,7 @@ func (m *EpochChange) GetNewEpoch() uint64 {
 	return 0
 }
 
-func (m *EpochChange) GetCheckpoints() []*EpochChange_Checkpoint {
+func (m *EpochChange) GetCheckpoints() []*Checkpoint {
 	if m != nil {
 		return m.Checkpoints
 	}
@@ -736,52 +835,6 @@ func (m *EpochChange) GetQSet() []*EpochChange_SetEntry {
 	return nil
 }
 
-type EpochChange_Checkpoint struct {
-	SeqNo                uint64   `protobuf:"varint,1,opt,name=seq_no,json=seqNo,proto3" json:"seq_no,omitempty"`
-	Value                []byte   `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *EpochChange_Checkpoint) Reset()         { *m = EpochChange_Checkpoint{} }
-func (m *EpochChange_Checkpoint) String() string { return proto.CompactTextString(m) }
-func (*EpochChange_Checkpoint) ProtoMessage()    {}
-func (*EpochChange_Checkpoint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{7, 0}
-}
-func (m *EpochChange_Checkpoint) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_EpochChange_Checkpoint.Unmarshal(m, b)
-}
-func (m *EpochChange_Checkpoint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_EpochChange_Checkpoint.Marshal(b, m, deterministic)
-}
-func (dst *EpochChange_Checkpoint) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_EpochChange_Checkpoint.Merge(dst, src)
-}
-func (m *EpochChange_Checkpoint) XXX_Size() int {
-	return xxx_messageInfo_EpochChange_Checkpoint.Size(m)
-}
-func (m *EpochChange_Checkpoint) XXX_DiscardUnknown() {
-	xxx_messageInfo_EpochChange_Checkpoint.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_EpochChange_Checkpoint proto.InternalMessageInfo
-
-func (m *EpochChange_Checkpoint) GetSeqNo() uint64 {
-	if m != nil {
-		return m.SeqNo
-	}
-	return 0
-}
-
-func (m *EpochChange_Checkpoint) GetValue() []byte {
-	if m != nil {
-		return m.Value
-	}
-	return nil
-}
-
 type EpochChange_SetEntry struct {
 	Bucket               uint64   `protobuf:"varint,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
 	Epoch                uint64   `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
@@ -796,7 +849,7 @@ func (m *EpochChange_SetEntry) Reset()         { *m = EpochChange_SetEntry{} }
 func (m *EpochChange_SetEntry) String() string { return proto.CompactTextString(m) }
 func (*EpochChange_SetEntry) ProtoMessage()    {}
 func (*EpochChange_SetEntry) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_ce584394f7ea0875, []int{7, 1}
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{7, 0}
 }
 func (m *EpochChange_SetEntry) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_EpochChange_SetEntry.Unmarshal(m, b)
@@ -844,6 +897,252 @@ func (m *EpochChange_SetEntry) GetDigest() []byte {
 	return nil
 }
 
+type EpochConfig struct {
+	// number of this new epoch
+	Number             uint64      `protobuf:"varint,1,opt,name=number,proto3" json:"number,omitempty"`
+	StartingCheckpoint *Checkpoint `protobuf:"bytes,2,opt,name=starting_checkpoint,json=startingCheckpoint,proto3" json:"starting_checkpoint,omitempty"`
+	Leaders            []uint64    `protobuf:"varint,3,rep,packed,name=leaders,proto3" json:"leaders,omitempty"`
+	// final_preprepares finalizes the last checkpoint window or windows
+	// which some correct replica preprepared a sequence in.  Notably
+	// the bucket configuration is derived from the last active epoch.
+	// By active epoch, we mean any epoch for which some correct replica
+	// prepared a request.
+	FinalPreprepares     []*EpochConfig_Bucket `protobuf:"bytes,4,rep,name=final_preprepares,json=finalPreprepares,proto3" json:"final_preprepares,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
+}
+
+func (m *EpochConfig) Reset()         { *m = EpochConfig{} }
+func (m *EpochConfig) String() string { return proto.CompactTextString(m) }
+func (*EpochConfig) ProtoMessage()    {}
+func (*EpochConfig) Descriptor() ([]byte, []int) {
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{8}
+}
+func (m *EpochConfig) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_EpochConfig.Unmarshal(m, b)
+}
+func (m *EpochConfig) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_EpochConfig.Marshal(b, m, deterministic)
+}
+func (dst *EpochConfig) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_EpochConfig.Merge(dst, src)
+}
+func (m *EpochConfig) XXX_Size() int {
+	return xxx_messageInfo_EpochConfig.Size(m)
+}
+func (m *EpochConfig) XXX_DiscardUnknown() {
+	xxx_messageInfo_EpochConfig.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_EpochConfig proto.InternalMessageInfo
+
+func (m *EpochConfig) GetNumber() uint64 {
+	if m != nil {
+		return m.Number
+	}
+	return 0
+}
+
+func (m *EpochConfig) GetStartingCheckpoint() *Checkpoint {
+	if m != nil {
+		return m.StartingCheckpoint
+	}
+	return nil
+}
+
+func (m *EpochConfig) GetLeaders() []uint64 {
+	if m != nil {
+		return m.Leaders
+	}
+	return nil
+}
+
+func (m *EpochConfig) GetFinalPreprepares() []*EpochConfig_Bucket {
+	if m != nil {
+		return m.FinalPreprepares
+	}
+	return nil
+}
+
+type EpochConfig_Bucket struct {
+	// digests is indexed by sequence number offset by the
+	// starting_checkpoint seq_no. An empty digest corresponds
+	// to a null request.
+	Digests              [][]byte `protobuf:"bytes,1,rep,name=digests,proto3" json:"digests,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *EpochConfig_Bucket) Reset()         { *m = EpochConfig_Bucket{} }
+func (m *EpochConfig_Bucket) String() string { return proto.CompactTextString(m) }
+func (*EpochConfig_Bucket) ProtoMessage()    {}
+func (*EpochConfig_Bucket) Descriptor() ([]byte, []int) {
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{8, 0}
+}
+func (m *EpochConfig_Bucket) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_EpochConfig_Bucket.Unmarshal(m, b)
+}
+func (m *EpochConfig_Bucket) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_EpochConfig_Bucket.Marshal(b, m, deterministic)
+}
+func (dst *EpochConfig_Bucket) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_EpochConfig_Bucket.Merge(dst, src)
+}
+func (m *EpochConfig_Bucket) XXX_Size() int {
+	return xxx_messageInfo_EpochConfig_Bucket.Size(m)
+}
+func (m *EpochConfig_Bucket) XXX_DiscardUnknown() {
+	xxx_messageInfo_EpochConfig_Bucket.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_EpochConfig_Bucket proto.InternalMessageInfo
+
+func (m *EpochConfig_Bucket) GetDigests() [][]byte {
+	if m != nil {
+		return m.Digests
+	}
+	return nil
+}
+
+// NewEpoch is akin to the NewView message in classical PBFT and follows the same
+// semantics.  Optionally, for graceful epoch change, the epoch_changes field may
+// be empty.  In the event that the previous epoch does not complete gracefully,
+// the graceful NewEpoch is ignored.  Unlike in classical PBFT, we employ a classical
+// Bracha reliable broadcast on embedded config.  A replica should respond to a NewEpoch
+// message with a NewEpochEcho (assuming that the NewEpoch message is validly constructed).
+type NewEpoch struct {
+	Config *EpochConfig `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	// epoch_changes must contains at least 2f+1 EpochChange messages from
+	// replicas in the network.  If two EpochChanges originated from the same
+	// replica, then the NewEpoch message is invalid.
+	EpochChanges         []*EpochChange `protobuf:"bytes,2,rep,name=epoch_changes,json=epochChanges,proto3" json:"epoch_changes,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
+	XXX_unrecognized     []byte         `json:"-"`
+	XXX_sizecache        int32          `json:"-"`
+}
+
+func (m *NewEpoch) Reset()         { *m = NewEpoch{} }
+func (m *NewEpoch) String() string { return proto.CompactTextString(m) }
+func (*NewEpoch) ProtoMessage()    {}
+func (*NewEpoch) Descriptor() ([]byte, []int) {
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{9}
+}
+func (m *NewEpoch) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_NewEpoch.Unmarshal(m, b)
+}
+func (m *NewEpoch) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_NewEpoch.Marshal(b, m, deterministic)
+}
+func (dst *NewEpoch) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_NewEpoch.Merge(dst, src)
+}
+func (m *NewEpoch) XXX_Size() int {
+	return xxx_messageInfo_NewEpoch.Size(m)
+}
+func (m *NewEpoch) XXX_DiscardUnknown() {
+	xxx_messageInfo_NewEpoch.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_NewEpoch proto.InternalMessageInfo
+
+func (m *NewEpoch) GetConfig() *EpochConfig {
+	if m != nil {
+		return m.Config
+	}
+	return nil
+}
+
+func (m *NewEpoch) GetEpochChanges() []*EpochChange {
+	if m != nil {
+		return m.EpochChanges
+	}
+	return nil
+}
+
+// NewEpochReady is for the second round of the classical Bracha reliable broadcast.  Note,
+// that the message embeds only the config.  This is because the config is derived from
+// the epoch_changes, and a correct replica will only echo the request if the config is validly
+// constructed.  Since the echo phase only proceeds to ready if 2f+1 echos occur, some (actually, f+1)
+// correct replicas must have validated the new config according to the epoch_changes.
+type NewEpochEcho struct {
+	Config               *EpochConfig `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *NewEpochEcho) Reset()         { *m = NewEpochEcho{} }
+func (m *NewEpochEcho) String() string { return proto.CompactTextString(m) }
+func (*NewEpochEcho) ProtoMessage()    {}
+func (*NewEpochEcho) Descriptor() ([]byte, []int) {
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{10}
+}
+func (m *NewEpochEcho) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_NewEpochEcho.Unmarshal(m, b)
+}
+func (m *NewEpochEcho) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_NewEpochEcho.Marshal(b, m, deterministic)
+}
+func (dst *NewEpochEcho) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_NewEpochEcho.Merge(dst, src)
+}
+func (m *NewEpochEcho) XXX_Size() int {
+	return xxx_messageInfo_NewEpochEcho.Size(m)
+}
+func (m *NewEpochEcho) XXX_DiscardUnknown() {
+	xxx_messageInfo_NewEpochEcho.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_NewEpochEcho proto.InternalMessageInfo
+
+func (m *NewEpochEcho) GetConfig() *EpochConfig {
+	if m != nil {
+		return m.Config
+	}
+	return nil
+}
+
+// NewEpochReady is for the final round fo the classical Bracha reliable broadcast.
+type NewEpochReady struct {
+	Config               *EpochConfig `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *NewEpochReady) Reset()         { *m = NewEpochReady{} }
+func (m *NewEpochReady) String() string { return proto.CompactTextString(m) }
+func (*NewEpochReady) ProtoMessage()    {}
+func (*NewEpochReady) Descriptor() ([]byte, []int) {
+	return fileDescriptor_mirbft_3ceba1f5503892f7, []int{11}
+}
+func (m *NewEpochReady) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_NewEpochReady.Unmarshal(m, b)
+}
+func (m *NewEpochReady) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_NewEpochReady.Marshal(b, m, deterministic)
+}
+func (dst *NewEpochReady) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_NewEpochReady.Merge(dst, src)
+}
+func (m *NewEpochReady) XXX_Size() int {
+	return xxx_messageInfo_NewEpochReady.Size(m)
+}
+func (m *NewEpochReady) XXX_DiscardUnknown() {
+	xxx_messageInfo_NewEpochReady.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_NewEpochReady proto.InternalMessageInfo
+
+func (m *NewEpochReady) GetConfig() *EpochConfig {
+	if m != nil {
+		return m.Config
+	}
+	return nil
+}
+
 func init() {
 	proto.RegisterType((*Msg)(nil), "mirbftpb.Msg")
 	proto.RegisterType((*Preprepare)(nil), "mirbftpb.Preprepare")
@@ -853,43 +1152,60 @@ func init() {
 	proto.RegisterType((*Forward)(nil), "mirbftpb.Forward")
 	proto.RegisterType((*Suspect)(nil), "mirbftpb.Suspect")
 	proto.RegisterType((*EpochChange)(nil), "mirbftpb.EpochChange")
-	proto.RegisterType((*EpochChange_Checkpoint)(nil), "mirbftpb.EpochChange.Checkpoint")
 	proto.RegisterType((*EpochChange_SetEntry)(nil), "mirbftpb.EpochChange.SetEntry")
+	proto.RegisterType((*EpochConfig)(nil), "mirbftpb.EpochConfig")
+	proto.RegisterType((*EpochConfig_Bucket)(nil), "mirbftpb.EpochConfig.Bucket")
+	proto.RegisterType((*NewEpoch)(nil), "mirbftpb.NewEpoch")
+	proto.RegisterType((*NewEpochEcho)(nil), "mirbftpb.NewEpochEcho")
+	proto.RegisterType((*NewEpochReady)(nil), "mirbftpb.NewEpochReady")
 }
 
-func init() { proto.RegisterFile("mirbft.proto", fileDescriptor_mirbft_ce584394f7ea0875) }
+func init() { proto.RegisterFile("mirbft.proto", fileDescriptor_mirbft_3ceba1f5503892f7) }
 
-var fileDescriptor_mirbft_ce584394f7ea0875 = []byte{
-	// 493 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x54, 0x5d, 0x8b, 0xd3, 0x40,
-	0x14, 0xdd, 0x36, 0x5f, 0xf5, 0x26, 0x0f, 0x3a, 0xec, 0x2e, 0x61, 0x05, 0x0d, 0x79, 0x2a, 0x82,
-	0x7d, 0xe8, 0x82, 0xa0, 0x8f, 0x5b, 0x56, 0x0a, 0xa2, 0x2c, 0xd3, 0x1f, 0x50, 0x92, 0xf4, 0x36,
-	0x0d, 0x6b, 0x93, 0x34, 0x73, 0x6b, 0xd9, 0x3f, 0xe3, 0x8f, 0xf4, 0x17, 0xc8, 0xcc, 0xa4, 0x3b,
-	0xd9, 0x12, 0x45, 0x44, 0xa1, 0x0f, 0x3d, 0x73, 0xcf, 0xb9, 0x67, 0xe6, 0xde, 0x43, 0x20, 0xd8,
-	0x16, 0x4d, 0xba, 0xa6, 0x49, 0xdd, 0x54, 0x54, 0xb1, 0x91, 0x46, 0x75, 0x1a, 0xff, 0x18, 0x82,
-	0xf5, 0x59, 0xe4, 0xec, 0x1d, 0x40, 0xdd, 0xa0, 0xfc, 0x25, 0x0d, 0x86, 0x83, 0x68, 0x30, 0xf6,
-	0xa7, 0xe7, 0x93, 0x23, 0x6d, 0x72, 0xf7, 0x58, 0x9b, 0x9f, 0xf1, 0x0e, 0x93, 0xbd, 0x05, 0xef,
-	0x28, 0x1a, 0x2a, 0xd1, 0x8b, 0xa7, 0x22, 0xad, 0x38, 0x72, 0xd8, 0x1b, 0x70, 0xb3, 0x6a, 0xbb,
-	0x2d, 0x28, 0xb4, 0x14, 0xfb, 0xb9, 0x61, 0xcf, 0xd4, 0xf9, 0xfc, 0x8c, 0xb7, 0x0c, 0xd9, 0x7a,
-	0x5d, 0x35, 0x87, 0xa4, 0x59, 0x85, 0xf6, 0x69, 0xeb, 0x8f, 0xba, 0x20, 0x5b, 0xb7, 0x1c, 0xf9,
-	0x82, 0x6c, 0x83, 0xd9, 0x7d, 0x5d, 0x15, 0x25, 0x85, 0xce, 0xe9, 0x0b, 0x66, 0x8f, 0x35, 0xf9,
-	0x02, 0xc3, 0x94, 0x36, 0x62, 0x2f, 0x6a, 0xcc, 0x28, 0x74, 0x4f, 0x6d, 0x16, 0xba, 0x20, 0x6d,
-	0x5a, 0x0e, 0xfb, 0x00, 0x01, 0xd6, 0x55, 0xb6, 0x59, 0x66, 0x9b, 0xa4, 0xcc, 0x31, 0xf4, 0x94,
-	0xe6, 0xc2, 0x68, 0x6e, 0x65, 0x75, 0xa6, 0x8a, 0xf3, 0x33, 0xee, 0xa3, 0x81, 0x37, 0x2e, 0xd8,
-	0xf4, 0x50, 0x63, 0x9c, 0x03, 0x98, 0x81, 0xb2, 0x0b, 0x70, 0x05, 0xee, 0x96, 0x65, 0xa5, 0xc6,
-	0x6e, 0x73, 0x47, 0xe0, 0xee, 0x4b, 0xc5, 0xce, 0xc1, 0x51, 0x5a, 0x35, 0x57, 0x9b, 0x6b, 0xc0,
-	0x2e, 0xc1, 0x4d, 0xf7, 0xd9, 0x3d, 0xea, 0x01, 0xda, 0xbc, 0x45, 0x92, 0x9d, 0x26, 0x94, 0x6d,
-	0x42, 0x3b, 0xb2, 0xc6, 0x01, 0xd7, 0x20, 0x5e, 0x83, 0x77, 0xf7, 0x2f, 0x5d, 0x2e, 0xc1, 0x5d,
-	0x15, 0x39, 0x0a, 0x52, 0x1b, 0x09, 0x78, 0x8b, 0x62, 0x04, 0x57, 0xaf, 0xef, 0xff, 0xda, 0xbc,
-	0x07, 0x30, 0x6b, 0xfc, 0x8d, 0xd5, 0xb7, 0xe4, 0xeb, 0x5e, 0xe7, 0x31, 0xe0, 0x1a, 0xc4, 0x9f,
-	0xc0, 0x6b, 0x33, 0x63, 0xee, 0x32, 0xe8, 0xbf, 0xcb, 0xf0, 0xc9, 0x5d, 0x18, 0xd8, 0xab, 0x84,
-	0x12, 0x75, 0xc3, 0x80, 0xab, 0xff, 0xf1, 0x6b, 0xf0, 0xda, 0x64, 0xf4, 0x37, 0x8b, 0xbf, 0x5b,
-	0xe0, 0x77, 0x72, 0xc0, 0x22, 0xf0, 0x13, 0x22, 0x14, 0x94, 0x50, 0x51, 0x95, 0x8a, 0x1b, 0xf0,
-	0xee, 0x11, 0x7b, 0x09, 0xcf, 0x4a, 0x3c, 0x2c, 0xbb, 0x43, 0x1a, 0x95, 0x78, 0x50, 0x4d, 0xd8,
-	0x0d, 0xf8, 0x26, 0xb0, 0x22, 0xb4, 0x22, 0x6b, 0xec, 0x4f, 0xa3, 0xde, 0xc8, 0x75, 0x72, 0xce,
-	0xbb, 0x22, 0x76, 0x0d, 0x4e, 0xbd, 0x14, 0x48, 0x2a, 0x20, 0xfe, 0xf4, 0x55, 0xbf, 0x7a, 0x81,
-	0x74, 0x5b, 0x52, 0xf3, 0xc0, 0xed, 0x7a, 0x81, 0x24, 0x45, 0x3b, 0x25, 0x72, 0xfe, 0x4c, 0xb4,
-	0x5b, 0x20, 0x5d, 0xfd, 0xfd, 0x96, 0xae, 0x72, 0x18, 0x1d, 0x9b, 0x75, 0x16, 0x32, 0x38, 0x4d,
-	0x7a, 0x4f, 0x94, 0x8c, 0x8d, 0xd5, 0xb5, 0xf9, 0x45, 0x92, 0x52, 0x57, 0x7d, 0x07, 0xaf, 0x7f,
-	0x06, 0x00, 0x00, 0xff, 0xff, 0x8d, 0xed, 0x32, 0x9b, 0x17, 0x05, 0x00, 0x00,
+var fileDescriptor_mirbft_3ceba1f5503892f7 = []byte{
+	// 704 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x55, 0xdd, 0x6a, 0x1b, 0x3b,
+	0x10, 0xf6, 0xcf, 0x7a, 0xed, 0x8c, 0x37, 0xe7, 0x24, 0x3a, 0x49, 0x8e, 0x48, 0x4b, 0x6b, 0xf6,
+	0x2a, 0x14, 0x62, 0x68, 0x02, 0x81, 0x06, 0x1a, 0x68, 0x82, 0x8b, 0x4b, 0x69, 0x08, 0xf2, 0x03,
+	0x2c, 0xf2, 0x5a, 0x5e, 0x2f, 0x89, 0xb5, 0xeb, 0x95, 0xdc, 0x90, 0x37, 0xea, 0x1b, 0xf5, 0x49,
+	0x7a, 0x5f, 0x24, 0xed, 0x46, 0x8a, 0xe3, 0x94, 0x06, 0x5a, 0xf0, 0x85, 0x47, 0xf3, 0x7d, 0x33,
+	0xa3, 0xd1, 0x37, 0xb3, 0x10, 0xcc, 0xd3, 0x62, 0x3c, 0x95, 0xfd, 0xbc, 0xc8, 0x64, 0x86, 0x3a,
+	0xc6, 0xca, 0xc7, 0xe1, 0x37, 0x0f, 0x9a, 0x5f, 0x44, 0x82, 0x4e, 0x00, 0xf2, 0x82, 0xa9, 0x1f,
+	0x2d, 0x18, 0xae, 0xf7, 0xea, 0x07, 0xdd, 0xa3, 0x9d, 0x7e, 0x05, 0xeb, 0x5f, 0xdd, 0xfb, 0x86,
+	0x35, 0xe2, 0x20, 0xd1, 0x21, 0xb4, 0x2b, 0x52, 0x43, 0x93, 0xb6, 0x1f, 0x92, 0x0c, 0xa3, 0xc2,
+	0xa0, 0x37, 0xe0, 0xc7, 0xd9, 0x7c, 0x9e, 0x4a, 0xdc, 0xd4, 0xe8, 0x2d, 0x8b, 0xbe, 0xd0, 0xe7,
+	0xc3, 0x1a, 0x29, 0x11, 0x2a, 0xf4, 0x34, 0x2b, 0x6e, 0x69, 0x31, 0xc1, 0xde, 0x6a, 0xe8, 0x8f,
+	0xc6, 0xa1, 0x42, 0x97, 0x18, 0x75, 0x83, 0x78, 0xc6, 0xe2, 0xeb, 0x3c, 0x4b, 0xb9, 0xc4, 0xad,
+	0xd5, 0x1b, 0x5c, 0xdc, 0xfb, 0xd4, 0x0d, 0x2c, 0x52, 0xa5, 0x11, 0x4b, 0x91, 0xb3, 0x58, 0x62,
+	0x7f, 0x35, 0xcd, 0xc8, 0x38, 0x54, 0x9a, 0x12, 0x83, 0x4e, 0x21, 0x60, 0x79, 0x16, 0xcf, 0xa2,
+	0x78, 0x46, 0x79, 0xc2, 0x70, 0x5b, 0x73, 0x76, 0x2d, 0x67, 0xa0, 0xbc, 0x17, 0xda, 0x39, 0xac,
+	0x91, 0x2e, 0xb3, 0x26, 0x7a, 0x0b, 0x1b, 0x9c, 0xdd, 0x46, 0xfa, 0x08, 0x77, 0x34, 0x11, 0x59,
+	0xe2, 0x25, 0xbb, 0xd5, 0xdc, 0x61, 0x8d, 0x74, 0x78, 0xf9, 0x1f, 0x9d, 0xc1, 0x3f, 0xf7, 0x94,
+	0x88, 0xc5, 0xb3, 0x0c, 0x6f, 0x68, 0xde, 0xde, 0x63, 0xde, 0x20, 0x9e, 0x65, 0xc3, 0x1a, 0x09,
+	0xb8, 0x63, 0xa3, 0x0f, 0xf0, 0xaf, 0xe5, 0x17, 0x8c, 0x4e, 0xee, 0x30, 0xe8, 0x00, 0xff, 0x3f,
+	0x0e, 0x40, 0x94, 0x7b, 0x58, 0x23, 0x9b, 0xdc, 0x3d, 0x38, 0xf7, 0xc1, 0x93, 0x77, 0x39, 0x0b,
+	0x13, 0x00, 0x2b, 0x03, 0xb4, 0x0b, 0xbe, 0x60, 0x8b, 0x88, 0x67, 0x5a, 0x2c, 0x1e, 0x69, 0x09,
+	0xb6, 0xb8, 0xcc, 0xd0, 0x0e, 0xb4, 0xcc, 0xf5, 0x1a, 0xe6, 0x54, 0x1b, 0x68, 0x0f, 0xfc, 0xf1,
+	0x32, 0xbe, 0x66, 0xe6, 0xd9, 0x3d, 0x52, 0x5a, 0x0a, 0x3d, 0xa6, 0x32, 0x9e, 0x61, 0xaf, 0xd7,
+	0x3c, 0x08, 0x88, 0x31, 0xc2, 0x29, 0xb4, 0xaf, 0xfe, 0x64, 0x96, 0x3d, 0xf0, 0x27, 0x69, 0xc2,
+	0x84, 0xd4, 0x3a, 0x0a, 0x48, 0x69, 0x85, 0x0c, 0x7c, 0x23, 0xba, 0xbf, 0x9b, 0xe6, 0x1d, 0x80,
+	0x15, 0xdf, 0x2f, 0x52, 0x7d, 0xa5, 0x37, 0x4b, 0x33, 0x45, 0x01, 0x31, 0x46, 0xf8, 0x19, 0xda,
+	0xa5, 0xd2, 0x6d, 0x2d, 0xf5, 0xf5, 0xb5, 0x34, 0x1e, 0xd4, 0x82, 0xc0, 0x9b, 0x50, 0x49, 0x75,
+	0x85, 0x01, 0xd1, 0xff, 0xc3, 0xd7, 0xd0, 0x2e, 0xf5, 0xbc, 0x3e, 0x58, 0xf8, 0xbd, 0x01, 0x5d,
+	0x47, 0xbd, 0xa8, 0x07, 0x5d, 0x2a, 0x25, 0x13, 0x92, 0xca, 0x34, 0xe3, 0x1a, 0x1b, 0x10, 0xf7,
+	0x08, 0xbd, 0x70, 0x05, 0x6d, 0x2a, 0xb0, 0xd2, 0x3d, 0x81, 0xae, 0x1d, 0x33, 0x81, 0x9b, 0xbd,
+	0xe6, 0x53, 0x13, 0x49, 0x5c, 0x20, 0x3a, 0x86, 0x56, 0x1e, 0x09, 0x26, 0xb5, 0x28, 0xba, 0x47,
+	0xaf, 0xd6, 0x8e, 0x56, 0x7f, 0xc4, 0xe4, 0x80, 0xcb, 0xe2, 0x8e, 0x78, 0xf9, 0x88, 0x49, 0x45,
+	0x5a, 0x68, 0x52, 0xeb, 0xf7, 0x48, 0x8b, 0x11, 0x93, 0xfb, 0x09, 0x74, 0xaa, 0x13, 0xa7, 0x93,
+	0xf5, 0x55, 0x89, 0xae, 0xd1, 0x80, 0x7d, 0xc5, 0xa6, 0xfb, 0x8a, 0x4f, 0x49, 0xe0, 0x47, 0xbd,
+	0xea, 0x6c, 0xc6, 0xa7, 0x69, 0xa2, 0x70, 0x7c, 0x39, 0x1f, 0xb3, 0xa2, 0x4a, 0x66, 0x2c, 0x34,
+	0x80, 0xff, 0x84, 0xa4, 0x85, 0x4c, 0x79, 0x12, 0x39, 0xcb, 0xac, 0xf1, 0xf4, 0x32, 0x23, 0xa8,
+	0x22, 0x38, 0x1a, 0xc3, 0xd0, 0xbe, 0x61, 0x74, 0xc2, 0x0a, 0xd3, 0x75, 0x8f, 0x54, 0x26, 0xfa,
+	0x04, 0xdb, 0xd3, 0x94, 0xd3, 0x9b, 0xc8, 0xae, 0x70, 0x51, 0xf6, 0xf9, 0xe5, 0x6a, 0xcb, 0x74,
+	0xa9, 0xfd, 0x73, 0xdd, 0x06, 0xb2, 0xa5, 0x69, 0x76, 0xfe, 0xc5, 0x7e, 0x08, 0xbe, 0xf1, 0xa9,
+	0x74, 0xe6, 0x9e, 0x02, 0xd7, 0xf5, 0x1c, 0x57, 0x66, 0xb8, 0x84, 0x4e, 0xb5, 0x5c, 0xd0, 0xa1,
+	0x5a, 0xfd, 0x2a, 0x64, 0xf9, 0x75, 0xd9, 0x5d, 0x9b, 0x8f, 0x94, 0x20, 0x74, 0x0a, 0x9b, 0xee,
+	0x9e, 0x15, 0xb8, 0xa1, 0xab, 0x5c, 0xbf, 0x68, 0x49, 0xe0, 0xac, 0x59, 0x11, 0xbe, 0x87, 0xc0,
+	0x5d, 0x8a, 0xcf, 0x4c, 0x1d, 0x9e, 0xc1, 0xe6, 0x83, 0x95, 0xf8, 0x4c, 0xfe, 0xd8, 0xd7, 0x1f,
+	0xd9, 0xe3, 0x9f, 0x01, 0x00, 0x00, 0xff, 0xff, 0x73, 0x8f, 0x02, 0x65, 0x74, 0x07, 0x00, 0x00,
 }

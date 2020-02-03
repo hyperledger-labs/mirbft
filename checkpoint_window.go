@@ -22,7 +22,7 @@ type checkpointWindow struct {
 	values             map[string][]NodeID
 	committedValue     []byte
 	myValue            []byte
-	garbageCollectible bool
+	garbageCollectible bool // TODO, probably rename this to 'stable'
 	obsolete           bool
 }
 

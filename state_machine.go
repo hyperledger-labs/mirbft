@@ -121,6 +121,8 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 			sm.suspectMsg(source, innerMsg.Suspect)
 		case *pb.Msg_EpochChange:
 			sm.epochChangeMsg(source, innerMsg.EpochChange)
+		case *pb.Msg_NewEpoch:
+			// TODO, handle this
 		default:
 			// This should be unreachable, as the nodeMsgs filters based on type as well
 			panic("unexpected bad message type, should have been detected earlier")
