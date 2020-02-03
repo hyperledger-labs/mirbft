@@ -36,13 +36,26 @@ type epochConfig struct {
 	buckets map[BucketID]NodeID
 }
 
+// intersectionQuorum is the number of nodes required to agree
+// such that any two sets intersected will each contain some same
+// correct node.  This is ceil((n+f+1)/2), which is equivalent to
+// (n+f+2)/2 under truncating integer math.
+func (ec *epochConfig) intersectionQuorum() int {
+	return (len(ec.nodes) + ec.f + 2) / 2
+}
+
+// weakQuorum is f+1
+func (ec *epochConfig) someCorrectQuorum() int {
+	return ec.f + 1
+}
+
 type epochState int
 
 const (
 	prepending epochState = iota
 	pending
-	echoed
-	readyed
+	echoing
+	readying
 	active
 	done
 )
@@ -97,6 +110,8 @@ func newEpoch(lastSeqNo SeqNo, startingCheckpointValue []byte, config *epochConf
 	return &epoch{
 		baseCheckpointValue: startingCheckpointValue,
 		config:              config,
+		echos:               map[NodeID]*pb.EpochConfig{},
+		readies:             map[NodeID]*pb.EpochConfig{},
 		suspicions:          map[NodeID]struct{}{},
 		changes:             map[NodeID]*pb.EpochChange{},
 		checkpointWindows:   checkpointWindows,
@@ -148,6 +163,8 @@ func (e *epoch) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 		return &Actions{}
 	}
 
+	e.state = echoing
+
 	return &Actions{
 		Broadcast: []*pb.Msg{
 			{
@@ -161,8 +178,83 @@ func (e *epoch) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 	}
 }
 
-func (e *epoch) applyNewEpochEchoMsg(msg *pb.NewEpochEcho) {
+func (e *epoch) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
+	if _, ok := e.echos[source]; ok {
+		// TODO, if different, byzantine, oddities
+		return &Actions{}
+	}
 
+	e.echos[source] = msg.Config
+
+	if len(e.echos) < e.config.intersectionQuorum() {
+		return &Actions{}
+	}
+
+	// XXX we need to verify that the configs actually match, but
+	// since we have not computed a digest, this is potentially expensive
+	// so deferring the implementation.
+
+	if e.state > echoing {
+		return &Actions{}
+	}
+
+	e.state = readying
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_NewEpochReady{
+					NewEpochReady: &pb.NewEpochReady{
+						Config: msg.Config,
+					},
+				},
+			},
+		},
+	}
+}
+
+func (e *epoch) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
+	if _, ok := e.readies[source]; ok {
+		// TODO, if different, byzantine, oddities
+		return &Actions{}
+	}
+
+	e.readies[source] = msg.Config
+
+	if e.state > readying {
+		// We've already accepted the epoch config, move along
+		return &Actions{}
+	}
+
+	// XXX we need to verify that the configs actually match, but
+	// since we have not computed a digest, this is potentially expensive
+	// so deferring the implementation.
+
+	if len(e.readies) < e.config.someCorrectQuorum() {
+		return &Actions{}
+	}
+
+	if e.state < readying {
+		e.state = readying
+
+		return &Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_NewEpochReady{
+						NewEpochReady: &pb.NewEpochReady{
+							Config: msg.Config,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	if len(e.readies) >= e.config.intersectionQuorum() {
+		e.state = active
+	}
+
+	return &Actions{}
 }
 
 func (e *epoch) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
@@ -366,8 +458,7 @@ func (e *epoch) tickPending() *Actions {
 }
 
 func (e *epoch) tickNotDone() *Actions {
-	// Wait for 2f+1 suspicions before initiating an epoch change,
-	if len(e.suspicions) < 2*e.config.f+1 {
+	if len(e.suspicions) < e.config.intersectionQuorum() {
 		return &Actions{}
 	}
 

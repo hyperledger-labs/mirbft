@@ -129,8 +129,8 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 		return &Actions{}
 	}
 
-	// We do require 2*F+1 prepares, a prepare is implicitly added for the leader
-	requiredPrepares := 2*s.epochConfig.f + 1
+	// We do require 2f+1 prepares (instead of 2f), a prepare is implicitly added for the leader
+	requiredPrepares := s.epochConfig.intersectionQuorum()
 
 	if len(agreements) < requiredPrepares {
 		return &Actions{}
@@ -172,7 +172,7 @@ func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
 		return &Actions{}
 	}
 
-	requiredCommits := 2*s.epochConfig.f + 1
+	requiredCommits := s.epochConfig.intersectionQuorum()
 
 	if len(agreements) < requiredCommits {
 		return &Actions{}

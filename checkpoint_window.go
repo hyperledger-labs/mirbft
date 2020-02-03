@@ -133,9 +133,9 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value []byte) *Act
 			panic("my checkpoint disagrees with the committed network view of this checkpoint")
 		}
 
-		// This checkpoint has 2f+1 agreements, including my own, it may now be garbage collectable
-		// Note, this must be >= because my agreement could come after 2f+1 from the network.
-		if agreements >= 2*cw.epochConfig.f+1 {
+		// This checkpoint has enough agreements, including my own, it may now be garbage collectable
+		// Note, this must be >= (not ==) because my agreement could come after 2f+1 from the network.
+		if agreements >= cw.epochConfig.intersectionQuorum() {
 			cw.garbageCollectible = true
 		}
 
