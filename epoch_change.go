@@ -115,7 +115,10 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 
 	checkpoints := map[checkpointKey][]NodeID{}
 
+	var newEpochNumber uint64 // TODO this is super-hacky
+
 	for nodeID, epochChange := range epochChanges {
+		newEpochNumber = epochChange.underlying.NewEpoch
 		for _, checkpoint := range epochChange.underlying.Checkpoints {
 
 			key := checkpointKey{
@@ -166,7 +169,7 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 	}
 
 	newEpochConfig := &pb.EpochConfig{
-		Number: 0, // XXX, this is wrong
+		Number: newEpochNumber,
 		StartingCheckpoint: &pb.Checkpoint{
 			SeqNo: maxCheckpoint.SeqNo,
 			Value: []byte(maxCheckpoint.Value),

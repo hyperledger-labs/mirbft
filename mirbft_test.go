@@ -55,7 +55,8 @@ var _ = Describe("MirBFT", func() {
 				BatchParameters: mirbft.BatchParameters{
 					CutSizeBytes: 1,
 				},
-				SuspectTicks: 4,
+				SuspectTicks:         4,
+				NewEpochTimeoutTicks: 8,
 			}
 
 			var err error
@@ -100,9 +101,11 @@ var _ = Describe("MirBFT", func() {
 		})
 
 		It("commits all messages", func() {
-			ctx := context.TODO()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
 			for i := uint64(1); i <= 1000; i++ {
-				node.Propose(ctx, []byte(fmt.Sprintf("msg %d", i)))
+				err := node.Propose(ctx, []byte(fmt.Sprintf("msg %d", i)))
+				Expect(err).NotTo(HaveOccurred())
 			}
 
 			lastObserved := uint64(0)
@@ -155,7 +158,8 @@ var _ = Describe("MirBFT", func() {
 					BatchParameters: mirbft.BatchParameters{
 						CutSizeBytes: 1,
 					},
-					SuspectTicks: 4,
+					SuspectTicks:         4,
+					NewEpochTimeoutTicks: 8,
 				}
 
 				node, err := mirbft.StartNewNode(config, doneC, replicas)
@@ -207,13 +211,14 @@ var _ = Describe("MirBFT", func() {
 		})
 
 		It("commits all messages", func() {
-
-			ctx := context.TODO()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
 			for i := uint64(0); i < 1000; i++ {
 				value := make([]byte, 8)
 				binary.LittleEndian.PutUint64(value, i)
 				// Propose to only the first 3 nodes round robin, ensuring some are forwarded and others not
-				nodes[i%3].Propose(ctx, value)
+				err := nodes[i%3].Propose(ctx, value)
+				Expect(err).NotTo(HaveOccurred())
 			}
 
 			observations := map[uint64]struct{}{}

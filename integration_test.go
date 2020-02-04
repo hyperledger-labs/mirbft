@@ -60,6 +60,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			stateMachineVal = newStateMachine(epochConfigVal)
+			stateMachineVal.activeEpoch.state = active
 
 			serializer = newSerializer(stateMachineVal, doneC)
 
@@ -186,6 +187,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			stateMachineVal = newStateMachine(epochConfigVal)
+			stateMachineVal.activeEpoch.state = active
 
 			serializer = newSerializer(stateMachineVal, doneC)
 

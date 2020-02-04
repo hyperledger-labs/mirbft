@@ -59,16 +59,23 @@ func (s *serializer) run() {
 
 	actions := &Actions{}
 	var actionsC chan<- Actions
+	var propC <-chan []byte
 	for {
 		if actions.IsEmpty() {
 			actionsC = nil
 		} else {
 			actionsC = s.actionsC
 		}
+
+		if s.stateMachine.activeEpoch.state != active {
+			propC = nil
+		} else {
+			propC = s.propC
+		}
 		// s.stateMachine.myConfig.Logger.Debug("serializer waiting for consumer", zap.Bool("actions", actionsC != nil))
 
 		select {
-		case data := <-s.propC:
+		case data := <-propC:
 			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "proposal"))
 			actions.Append(s.stateMachine.propose(data))
 		case step := <-s.stepC:

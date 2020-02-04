@@ -24,6 +24,11 @@ type Config struct {
 	// SuspectTicks is the number of ticks a bucket may not progress before
 	// the node suspects the epoch has gone bad.
 	SuspectTicks int
+
+	// NewEpochTimeoutTicks is the number of ticks a replica will wait until
+	// it suspects the epoch leader has failed.  This value must be greater
+	// than 1, as rebroadcast ticks are computed as half this value.
+	NewEpochTimeoutTicks int
 }
 
 type BatchParameters struct {

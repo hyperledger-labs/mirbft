@@ -36,13 +36,24 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		nodeMsgs[id] = newNodeMsgs(id, config, oddities)
 	}
 
-	activeEpoch := newEpoch(
-		&pb.Checkpoint{
-			SeqNo: 0,
-			Value: []byte("TODO, get from state")},
-		config,
-		nil,
+	fakeCheckpoint := &pb.Checkpoint{
+		SeqNo: 0,
+		Value: []byte("TODO, get from state"),
+	}
+
+	activeEpoch := newEpoch(fakeCheckpoint, config)
+
+	epochChange, err := newEpochChange(
+		&pb.EpochChange{
+			Checkpoints: []*pb.Checkpoint{fakeCheckpoint},
+		},
 	)
+
+	if err != nil {
+		panic(err)
+	}
+
+	activeEpoch.changes[NodeID(config.myConfig.ID)] = epochChange
 
 	return &stateMachine{
 		myConfig:          config.myConfig,
@@ -108,7 +119,11 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 		case *pb.Msg_EpochChange:
 			sm.epochChangeMsg(source, innerMsg.EpochChange)
 		case *pb.Msg_NewEpoch:
-			// TODO, handle this
+			return sm.activeEpoch.applyNewEpochMsg(innerMsg.NewEpoch)
+		case *pb.Msg_NewEpochEcho:
+			return sm.activeEpoch.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho)
+		case *pb.Msg_NewEpochReady:
+			return sm.activeEpoch.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady)
 		default:
 			// This should be unreachable, as the nodeMsgs filters based on type as well
 			panic("unexpected bad message type, should have been detected earlier")
@@ -131,6 +146,13 @@ func (sm *stateMachine) suspectMsg(source NodeID, msg *pb.Suspect) {
 
 func (sm *stateMachine) epochChangeMsg(source NodeID, msg *pb.EpochChange) {
 	sm.latestEpochChange[source] = msg
+
+	for _, ew := range sm.epochs {
+		if ew.config.number == msg.NewEpoch {
+			ew.applyEpochChangeMsg(source, msg)
+			return
+		}
+	}
 }
 
 func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value []byte) *Actions {
@@ -217,9 +239,17 @@ func (sm *stateMachine) tick() *Actions {
 func (sm *stateMachine) status() *Status {
 	epochConfig := sm.epochs[0].config
 
+	var suspicions, epochChanges []NodeID
+
 	nodes := make([]*NodeStatus, len(epochConfig.nodes))
 	for i, nodeID := range epochConfig.nodes {
 		nodes[i] = sm.nodeMsgs[nodeID].status()
+		if _, ok := sm.activeEpoch.suspicions[nodeID]; ok {
+			suspicions = append(suspicions, nodeID)
+		}
+		if _, ok := sm.activeEpoch.changes[nodeID]; ok {
+			epochChanges = append(epochChanges, nodeID)
+		}
 	}
 
 	var buckets []*BucketStatus
@@ -239,16 +269,24 @@ func (sm *stateMachine) status() *Status {
 		}
 	}
 
-	lowWatermark := sm.activeEpoch.checkpointWindows[0].start
-	highWatermark := sm.activeEpoch.checkpointWindows[len(sm.activeEpoch.checkpointWindows)-1].end
+	lowWatermark := SeqNo(sm.activeEpoch.baseCheckpoint.SeqNo)
+
+	var highWatermark SeqNo
+	if len(sm.activeEpoch.checkpointWindows) > 0 {
+		highWatermark = sm.activeEpoch.checkpointWindows[len(sm.activeEpoch.checkpointWindows)-1].end
+	} else {
+		highWatermark = lowWatermark
+	}
 
 	return &Status{
 		LowWatermark:  lowWatermark,
 		HighWatermark: highWatermark,
 		EpochNumber:   epochConfig.number,
-
-		Buckets:     buckets,
-		Checkpoints: checkpoints,
+		Suspicions:    suspicions,
+		EpochChanges:  epochChanges,
+		EpochState:    int(sm.activeEpoch.state),
+		Buckets:       buckets,
+		Checkpoints:   checkpoints,
 	}
 }
 
@@ -256,6 +294,9 @@ type Status struct {
 	LowWatermark  SeqNo
 	HighWatermark SeqNo
 	EpochNumber   uint64
+	Suspicions    []NodeID
+	EpochChanges  []NodeID
+	EpochState    int
 	Nodes         []*NodeStatus
 	Buckets       []*BucketStatus
 	Checkpoints   []*CheckpointStatus
@@ -263,7 +304,24 @@ type Status struct {
 
 func (s *Status) Pretty() string {
 	var buffer bytes.Buffer
-	buffer.WriteString(fmt.Sprintf("LowWatermark=%d, HighWatermark=%d, Epoch=%d\n\n", s.LowWatermark, s.HighWatermark, s.EpochNumber))
+	buffer.WriteString(fmt.Sprintf("===========================================\n"))
+	buffer.WriteString(fmt.Sprintf("LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.LowWatermark, s.HighWatermark, s.EpochNumber))
+	buffer.WriteString(fmt.Sprintf("===========================================\n\n"))
+
+	buffer.WriteString("=== Epoch Changes ===\n")
+	buffer.WriteString(fmt.Sprintf("In state: %d\n", s.EpochState))
+	buffer.WriteString("Suspicions:")
+	for _, nodeID := range s.Suspicions {
+		buffer.WriteString(fmt.Sprintf(" %d", nodeID))
+	}
+	buffer.WriteString("\n")
+	buffer.WriteString("EpochChanges:")
+	for _, nodeID := range s.EpochChanges {
+		buffer.WriteString(fmt.Sprintf(" %d", nodeID))
+	}
+	buffer.WriteString("\n")
+	buffer.WriteString("=====================\n")
+	buffer.WriteString("\n")
 
 	hRule := func() {
 		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
@@ -280,7 +338,7 @@ func (s *Status) Pretty() string {
 	}
 
 	if s.LowWatermark == s.HighWatermark {
-		buffer.WriteString("Empty Watermarks\n")
+		buffer.WriteString("=== Empty Watermarks ===\n")
 		return buffer.String()
 	}
 

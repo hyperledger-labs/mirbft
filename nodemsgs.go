@@ -89,6 +89,10 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		epoch = innerMsg.EpochChange.NewEpoch
 	case *pb.Msg_NewEpoch:
 		return current // TODO, decide if this is actually current
+	case *pb.Msg_NewEpochEcho:
+		return current // TODO, decide if this is actually current
+	case *pb.Msg_NewEpochReady:
+		return current // TODO, decide if this is actually current
 	default:
 		n.oddities.invalidMessage(n.id, outerMsg)
 		// TODO don't panic here, just return, left here for dev
@@ -175,8 +179,6 @@ func (n *epochMsgs) process(outerMsg *pb.Msg) applyable {
 		return n.processPrepare(innerMsg.Prepare)
 	case *pb.Msg_Commit:
 		return n.processCommit(innerMsg.Commit)
-	case *pb.Msg_Checkpoint:
-		panic("programming error, checkpoints should not go through this path")
 	case *pb.Msg_Forward:
 		return current
 	case *pb.Msg_Suspect:
@@ -185,8 +187,6 @@ func (n *epochMsgs) process(outerMsg *pb.Msg) applyable {
 	case *pb.Msg_EpochChange:
 		// TODO, filter
 		return current
-	case *pb.Msg_NewEpoch:
-		panic("programming error, new epochs should not go through this path")
 	}
 
 	panic("programming error, unreachable")
