@@ -14,9 +14,6 @@ import (
 // epochConfig is the information required by the various
 // state machines whose state is scoped to an epoch
 type epochConfig struct {
-	// myConfig is the configuration specific to this node
-	myConfig *Config
-
 	// number is the epoch number this config applies to
 	number uint64
 
@@ -61,6 +58,8 @@ const (
 )
 
 type epoch struct {
+	myConfig *Config
+
 	// config contains the static components of the epoch
 	config *epochConfig
 
@@ -95,8 +94,8 @@ type epoch struct {
 // newEpoch creates a new epoch.  It uses the supplied initial checkpointWindows until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig) *epoch {
-	proposer := newProposer(config)
+func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Config) *epoch {
+	proposer := newProposer(config, myConfig)
 	proposer.maxAssignable = SeqNo(baseCheckpoint.SeqNo)
 
 	var checkpointWindows []*checkpointWindow
@@ -104,16 +103,17 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig) *epoch {
 	firstEnd := SeqNo(baseCheckpoint.SeqNo) + config.checkpointInterval
 	if config.plannedExpiration >= firstEnd {
 		proposer.maxAssignable = firstEnd
-		checkpointWindows = append(checkpointWindows, newCheckpointWindow(SeqNo(baseCheckpoint.SeqNo)+1, firstEnd, config))
+		checkpointWindows = append(checkpointWindows, newCheckpointWindow(SeqNo(baseCheckpoint.SeqNo)+1, firstEnd, config, myConfig))
 	}
 
 	secondEnd := SeqNo(baseCheckpoint.SeqNo) + 2*config.checkpointInterval
 	if config.plannedExpiration >= secondEnd {
-		checkpointWindows = append(checkpointWindows, newCheckpointWindow(firstEnd+1, secondEnd, config))
+		checkpointWindows = append(checkpointWindows, newCheckpointWindow(firstEnd+1, secondEnd, config, myConfig))
 	}
 
 	return &epoch{
 		baseCheckpoint:    baseCheckpoint,
+		myConfig:          myConfig,
 		config:            config,
 		echos:             map[NodeID]*pb.EpochConfig{},
 		readies:           map[NodeID]*pb.EpochConfig{},
@@ -121,7 +121,7 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig) *epoch {
 		changes:           map[NodeID]*epochChange{},
 		checkpointWindows: checkpointWindows,
 		proposer:          proposer,
-		isLeader:          config.number%uint64(len(config.nodes)) == config.myConfig.ID,
+		isLeader:          config.number%uint64(len(config.nodes)) == myConfig.ID,
 	}
 }
 
@@ -336,6 +336,7 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo SeqNo, value []byte) *Ac
 				lastCW.end+1,
 				lastCW.end+e.config.checkpointInterval,
 				e.config,
+				e.myConfig,
 			),
 		)
 	}
@@ -359,11 +360,11 @@ func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Action
 
 	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.config.buckets)))
 	nodeID := e.config.buckets[bucketID]
-	if nodeID == NodeID(e.config.myConfig.ID) {
+	if nodeID == NodeID(e.myConfig.ID) {
 		return e.proposer.propose(preprocessResult.Proposal.Data)
 	}
 
-	if preprocessResult.Proposal.Source == e.config.myConfig.ID {
+	if preprocessResult.Proposal.Source == e.myConfig.ID {
 		// I originated this proposal, but someone else leads this bucket,
 		// forward the message to them
 		return &Actions{
@@ -463,7 +464,7 @@ func (e *epoch) tick() *Actions {
 }
 
 func (e *epoch) repeatEpochChangeBroadcast() *Actions {
-	myEpochChange, ok := e.changes[NodeID(e.config.myConfig.ID)]
+	myEpochChange, ok := e.changes[NodeID(e.myConfig.ID)]
 	if !ok {
 		panic("TODO, handle me? Are we guaranteed to have sent an epoch change, I hope so")
 	}
@@ -483,7 +484,7 @@ func (e *epoch) tickPrepending() *Actions {
 	newEpoch := e.constructNewEpoch() // TODO, recomputing over and over again isn't useful unless we've gotten new epoch change messages in the meantime, should we somehow store the last one we computed?
 
 	if newEpoch == nil {
-		if e.stateTicks%uint64(e.config.myConfig.NewEpochTimeoutTicks/2) == 0 {
+		if e.stateTicks%uint64(e.myConfig.NewEpochTimeoutTicks/2) == 0 {
 			return e.repeatEpochChangeBroadcast()
 		}
 
@@ -510,7 +511,7 @@ func (e *epoch) tickPrepending() *Actions {
 }
 
 func (e *epoch) tickPending() *Actions {
-	pendingTicks := e.stateTicks % uint64(e.config.myConfig.NewEpochTimeoutTicks)
+	pendingTicks := e.stateTicks % uint64(e.myConfig.NewEpochTimeoutTicks)
 	if e.isLeader {
 		// resend the new-view if others perhaps missed it
 		if pendingTicks%2 == 0 {
@@ -556,7 +557,7 @@ func (e *epoch) tickNotDone() *Actions {
 
 func (e *epoch) tickActive() *Actions {
 	actions := &Actions{}
-	if e.config.myConfig.HeartbeatTicks != 0 && e.ticks%uint64(e.config.myConfig.HeartbeatTicks) == 0 {
+	if e.myConfig.HeartbeatTicks != 0 && e.ticks%uint64(e.myConfig.HeartbeatTicks) == 0 {
 		actions.Append(e.proposer.noopAdvance())
 	}
 

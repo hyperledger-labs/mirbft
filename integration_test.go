@@ -50,7 +50,6 @@ var _ = Describe("Integration", func() {
 	Describe("F=0,N=1", func() {
 		BeforeEach(func() {
 			epochConfigVal = &epochConfig{
-				myConfig:           consumerConfig,
 				number:             3,
 				checkpointInterval: 2,
 				plannedExpiration:  1000000000000,
@@ -59,7 +58,7 @@ var _ = Describe("Integration", func() {
 				buckets:            map[BucketID]NodeID{0: 0},
 			}
 
-			stateMachineVal = newStateMachine(epochConfigVal)
+			stateMachineVal = newStateMachine(epochConfigVal, consumerConfig)
 			stateMachineVal.activeEpoch.state = active
 
 			serializer = newSerializer(stateMachineVal, doneC)
@@ -177,7 +176,6 @@ var _ = Describe("Integration", func() {
 	Describe("F=1,N=4", func() {
 		BeforeEach(func() {
 			epochConfigVal = &epochConfig{
-				myConfig:           consumerConfig,
 				number:             3,
 				checkpointInterval: 2,
 				f:                  1,
@@ -186,7 +184,7 @@ var _ = Describe("Integration", func() {
 				buckets:            map[BucketID]NodeID{0: 0, 1: 1, 2: 2, 3: 3},
 			}
 
-			stateMachineVal = newStateMachine(epochConfigVal)
+			stateMachineVal = newStateMachine(epochConfigVal, consumerConfig)
 			stateMachineVal.activeEpoch.state = active
 
 			serializer = newSerializer(stateMachineVal, doneC)

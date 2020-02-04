@@ -32,6 +32,7 @@ type nodeMsgs struct {
 }
 
 type epochMsgs struct {
+	myConfig    *Config
 	epochConfig *epochConfig
 
 	// next maintains the info about the next expected messages for
@@ -45,7 +46,7 @@ type nextMsg struct {
 	commit  SeqNo
 }
 
-func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, oddities *oddities) *nodeMsgs {
+func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config, oddities *oddities) *nodeMsgs {
 	em := newEpochMsgs(nodeID, epochConfig)
 	return &nodeMsgs{
 		id:        nodeID,
@@ -122,7 +123,7 @@ func (n *nodeMsgs) next() *pb.Msg {
 			delete(n.buffer, msg)
 			return msg
 		case future:
-			n.epochMsgs.epochConfig.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(n.id)))
+			n.epochMsgs.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(n.id)))
 		}
 	}
 

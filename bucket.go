@@ -9,6 +9,8 @@ package mirbft
 import pb "github.com/IBM/mirbft/mirbftpb"
 
 type bucket struct {
+	myConfig *Config
+
 	start SeqNo
 	end   SeqNo
 
@@ -24,12 +26,13 @@ type bucket struct {
 	sequences map[SeqNo]*sequence
 }
 
-func newBucket(start, end SeqNo, config *epochConfig, bucketID BucketID) *bucket {
+func newBucket(start, end SeqNo, config *epochConfig, myConfig *Config, bucketID BucketID) *bucket {
 	sequences := map[SeqNo]*sequence{}
 	for seqNo := start; seqNo <= end; seqNo++ {
-		sequences[seqNo] = newSequence(config, seqNo, bucketID)
+		sequences[seqNo] = newSequence(config, myConfig, seqNo, bucketID)
 	}
 	return &bucket{
+		myConfig:    myConfig,
 		start:       start,
 		end:         end,
 		sequences:   sequences,
@@ -40,7 +43,7 @@ func newBucket(start, end SeqNo, config *epochConfig, bucketID BucketID) *bucket
 }
 
 func (b *bucket) iAmLeader() bool {
-	return b.leader == NodeID(b.epochConfig.myConfig.ID)
+	return b.leader == NodeID(b.myConfig.ID)
 }
 
 func (b *bucket) applyPreprepareMsg(seqNo SeqNo, batch [][]byte) *Actions {
@@ -83,7 +86,7 @@ func (b *bucket) applyCommitMsg(source NodeID, seqNo SeqNo, digest []byte) *Acti
 
 func (b *bucket) tick() *Actions {
 	b.ticksSinceProgress++
-	if b.ticksSinceProgress > b.epochConfig.myConfig.SuspectTicks {
+	if b.ticksSinceProgress > b.myConfig.SuspectTicks {
 		return &Actions{
 			Broadcast: []*pb.Msg{
 				{

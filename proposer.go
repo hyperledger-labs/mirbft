@@ -11,6 +11,7 @@ import (
 )
 
 type proposer struct {
+	myConfig      *Config
 	epochConfig   *epochConfig
 	maxAssignable SeqNo
 
@@ -23,15 +24,16 @@ type proposer struct {
 	pending   [][][]byte
 }
 
-func newProposer(config *epochConfig) *proposer {
+func newProposer(config *epochConfig, myConfig *Config) *proposer {
 	ownedBuckets := []BucketID{}
 	for bucketID, nodeID := range config.buckets {
-		if nodeID == NodeID(config.myConfig.ID) {
+		if nodeID == NodeID(myConfig.ID) {
 			ownedBuckets = append(ownedBuckets, bucketID)
 		}
 	}
 
 	return &proposer{
+		myConfig:     myConfig,
 		epochConfig:  config,
 		ownedBuckets: ownedBuckets,
 		// nextAssigned: config.lowWatermark + 1,
@@ -43,7 +45,7 @@ func newProposer(config *epochConfig) *proposer {
 func (p *proposer) propose(data []byte) *Actions {
 	p.queue = append(p.queue, data)
 	p.sizeBytes += len(data)
-	if p.sizeBytes >= p.epochConfig.myConfig.BatchParameters.CutSizeBytes {
+	if p.sizeBytes >= p.myConfig.BatchParameters.CutSizeBytes {
 		p.pending = append(p.pending, p.queue)
 	}
 	p.queue = nil

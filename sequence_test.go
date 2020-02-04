@@ -20,10 +20,10 @@ var _ = Describe("sequence", func() {
 
 	BeforeEach(func() {
 		s = &sequence{
+			myConfig: &Config{
+				ID: 1,
+			},
 			epochConfig: &epochConfig{
-				myConfig: &Config{
-					ID: 1,
-				},
 				number: 4,
 				f:      1,
 			},

@@ -14,6 +14,7 @@ import (
 type checkpointWindow struct {
 	start       SeqNo
 	end         SeqNo
+	myConfig    *Config
 	epochConfig *epochConfig
 
 	buckets map[BucketID]*bucket
@@ -26,19 +27,20 @@ type checkpointWindow struct {
 	obsolete           bool
 }
 
-func newCheckpointWindow(start, end SeqNo, config *epochConfig) *checkpointWindow {
+func newCheckpointWindow(start, end SeqNo, config *epochConfig, myConfig *Config) *checkpointWindow {
 	outstandingBuckets := map[BucketID]struct{}{}
 
 	buckets := map[BucketID]*bucket{}
 	for bucketID := range config.buckets {
 		outstandingBuckets[bucketID] = struct{}{}
-		buckets[bucketID] = newBucket(start, end, config, bucketID)
+		buckets[bucketID] = newBucket(start, end, config, myConfig, bucketID)
 	}
 
 	return &checkpointWindow{
 		start:              start,
 		end:                end,
 		epochConfig:        config,
+		myConfig:           myConfig,
 		outstandingBuckets: outstandingBuckets,
 		buckets:            buckets,
 		values:             map[string][]NodeID{},
@@ -121,7 +123,7 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value []byte) *Act
 		cw.committedValue = value
 	}
 
-	if source == NodeID(cw.epochConfig.myConfig.ID) {
+	if source == NodeID(cw.myConfig.ID) {
 		cw.myValue = value
 	}
 

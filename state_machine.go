@@ -27,13 +27,13 @@ type stateMachine struct {
 	latestEpochChange map[NodeID]*pb.EpochChange
 }
 
-func newStateMachine(config *epochConfig) *stateMachine {
+func newStateMachine(config *epochConfig, myConfig *Config) *stateMachine {
 	oddities := &oddities{
-		logger: config.myConfig.Logger,
+		logger: myConfig.Logger,
 	}
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	for _, id := range config.nodes {
-		nodeMsgs[id] = newNodeMsgs(id, config, oddities)
+		nodeMsgs[id] = newNodeMsgs(id, config, myConfig, oddities)
 	}
 
 	fakeCheckpoint := &pb.Checkpoint{
@@ -41,7 +41,7 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		Value: []byte("TODO, get from state"),
 	}
 
-	activeEpoch := newEpoch(fakeCheckpoint, config)
+	activeEpoch := newEpoch(fakeCheckpoint, config, myConfig)
 
 	epochChange, err := newEpochChange(
 		&pb.EpochChange{
@@ -53,10 +53,10 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		panic(err)
 	}
 
-	activeEpoch.changes[NodeID(config.myConfig.ID)] = epochChange
+	activeEpoch.changes[NodeID(myConfig.ID)] = epochChange
 
 	return &stateMachine{
-		myConfig:          config.myConfig,
+		myConfig:          myConfig,
 		activeEpoch:       activeEpoch,
 		epochs:            []*epoch{activeEpoch},
 		nodeMsgs:          nodeMsgs,
