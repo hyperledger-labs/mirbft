@@ -25,7 +25,10 @@ var _ = Describe("sequence", func() {
 			},
 			epochConfig: &epochConfig{
 				number: 4,
-				f:      1,
+				networkConfig: &pb.NetworkConfig{
+					Nodes: []uint64{0, 1, 2, 3},
+					F:     1,
+				},
 			},
 			entry: &Entry{
 				Epoch:    4,

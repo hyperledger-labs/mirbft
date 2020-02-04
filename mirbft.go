@@ -66,10 +66,10 @@ type Node struct {
 // hard codes many of the parameters, but more will be exposed in the future.
 func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*Node, error) {
 	buckets := map[BucketID]NodeID{}
-	nodes := []NodeID{}
+	nodes := []uint64{}
 	for _, replica := range replicas {
 		buckets[BucketID(replica.ID)] = NodeID(replica.ID)
-		nodes = append(nodes, NodeID(replica.ID))
+		nodes = append(nodes, replica.ID)
 	}
 	if _, ok := buckets[BucketID(config.ID)]; !ok {
 		return nil, errors.Errorf("configured replica ID %d is not in the replica set", config.ID)
@@ -81,12 +81,14 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 		s: newSerializer(
 			newStateMachine(
 				&epochConfig{
-					number:             0,
-					checkpointInterval: 5,
-					plannedExpiration:  10000000000000,
-					f:                  f,
-					nodes:              nodes,
-					buckets:            buckets,
+					number: 0,
+					networkConfig: &pb.NetworkConfig{
+						Nodes:              nodes,
+						F:                  int32(f),
+						CheckpointInterval: 5,
+					},
+					plannedExpiration: 10000000000000,
+					buckets:           buckets,
 				},
 				config,
 			),

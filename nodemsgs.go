@@ -55,7 +55,7 @@ func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config, oddi
 
 		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 		// XXX we should initialize this properly, sort of like the above
-		nextCheckpoint: epochConfig.checkpointInterval,
+		nextCheckpoint: SeqNo(epochConfig.networkConfig.CheckpointInterval),
 		buffer:         map[*pb.Msg]struct{}{},
 	}
 }
@@ -141,7 +141,7 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 			}
 		}
 
-		n.nextCheckpoint = SeqNo(msg.SeqNo) + n.epochMsgs.epochConfig.checkpointInterval
+		n.nextCheckpoint = SeqNo(msg.SeqNo) + SeqNo(n.epochMsgs.epochConfig.networkConfig.CheckpointInterval)
 		return current
 	default:
 		return future
@@ -268,7 +268,7 @@ func (n *nodeMsgs) status() *NodeStatus {
 		bucketStatuses[bucketID] = NodeBucketStatus{
 			BucketID:       bucketID,
 			IsLeader:       nextMsg.leader,
-			LastCheckpoint: uint64(n.nextCheckpoint - n.epochMsgs.epochConfig.checkpointInterval),
+			LastCheckpoint: uint64(n.nextCheckpoint) - uint64(n.epochMsgs.epochConfig.networkConfig.CheckpointInterval),
 			LastPrepare:    uint64(nextMsg.prepare - 1), // No underflow is possible, we start at seq 1
 			LastCommit:     uint64(nextMsg.commit - 1),
 		}

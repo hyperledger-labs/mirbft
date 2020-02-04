@@ -50,12 +50,14 @@ var _ = Describe("Integration", func() {
 	Describe("F=0,N=1", func() {
 		BeforeEach(func() {
 			epochConfigVal = &epochConfig{
-				number:             3,
-				checkpointInterval: 2,
-				plannedExpiration:  1000000000000,
-				f:                  0,
-				nodes:              []NodeID{0},
-				buckets:            map[BucketID]NodeID{0: 0},
+				number:            3,
+				plannedExpiration: 1000000000000,
+				networkConfig: &pb.NetworkConfig{
+					CheckpointInterval: 2,
+					F:                  0,
+					Nodes:              []uint64{0},
+				},
+				buckets: map[BucketID]NodeID{0: 0},
 			}
 
 			stateMachineVal = newStateMachine(epochConfigVal, consumerConfig)
@@ -176,12 +178,14 @@ var _ = Describe("Integration", func() {
 	Describe("F=1,N=4", func() {
 		BeforeEach(func() {
 			epochConfigVal = &epochConfig{
-				number:             3,
-				checkpointInterval: 2,
-				f:                  1,
-				plannedExpiration:  1000000000000,
-				nodes:              []NodeID{0, 1, 2, 3},
-				buckets:            map[BucketID]NodeID{0: 0, 1: 1, 2: 2, 3: 3},
+				number:            3,
+				plannedExpiration: 1000000000000,
+				networkConfig: &pb.NetworkConfig{
+					CheckpointInterval: 2,
+					F:                  1,
+					Nodes:              []uint64{0, 1, 2, 3},
+				},
+				buckets: map[BucketID]NodeID{0: 0, 1: 1, 2: 2, 3: 3},
 			}
 
 			stateMachineVal = newStateMachine(epochConfigVal, consumerConfig)

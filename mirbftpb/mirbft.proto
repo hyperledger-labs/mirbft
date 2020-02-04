@@ -12,6 +12,28 @@ package mirbftpb;
 //   protoc --go_out=. mirbft.proto
 // or simply run go generate
 
+// NetworkConfig contains the parameters which must be agreed upon by
+// the entire network.  It must be serialized and reflected in the state
+// snapshots and their corresponding checkpoint values.
+message NetworkConfig {
+	// Nodes represent the active nodeIDs in the network.
+	// The number of nodeIDs corresponds to the size of the network.
+	repeated uint64 nodes = 1;
+
+	// F is the number of byzantine faults tolerated by the network.
+	// It must be less than len(nodes)/3 (truncated).  The 'F' parameter
+	// need not be maximal, ie, a network of 7 nodes with 'F' set to 1 may
+	// simultaneously tolerate 1 byzantine fault, and 2 crash faults.
+        int32 f = 2;
+
+	// CheckpointInterval is how often checkpoints are taken.  In terms of
+	// of sequence numbers, this is multiplied by the configured number of
+	// buckets, so that it scales naturally as the number of buckets increases
+	// or decreases.
+	int32 checkpoint_interval = 3;
+}
+
+
 message Msg {
     oneof type {
         Preprepare preprepare = 1;

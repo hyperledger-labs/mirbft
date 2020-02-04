@@ -119,7 +119,7 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value []byte) *Act
 
 	agreements := len(checkpointValueNodes)
 
-	if agreements == cw.epochConfig.f+1 {
+	if agreements == cw.epochConfig.someCorrectQuorum() {
 		cw.committedValue = value
 	}
 
@@ -146,7 +146,7 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value []byte) *Act
 	}
 
 	if cw.garbageCollectible {
-		if len(checkpointValueNodes) == len(cw.epochConfig.nodes) {
+		if len(checkpointValueNodes) == len(cw.epochConfig.networkConfig.Nodes) {
 			cw.obsolete = true
 		}
 	}

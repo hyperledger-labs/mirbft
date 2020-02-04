@@ -32,8 +32,8 @@ func newStateMachine(config *epochConfig, myConfig *Config) *stateMachine {
 		logger: myConfig.Logger,
 	}
 	nodeMsgs := map[NodeID]*nodeMsgs{}
-	for _, id := range config.nodes {
-		nodeMsgs[id] = newNodeMsgs(id, config, myConfig, oddities)
+	for _, id := range config.networkConfig.Nodes {
+		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), config, myConfig, oddities)
 	}
 
 	fakeCheckpoint := &pb.Checkpoint{
@@ -240,8 +240,9 @@ func (sm *stateMachine) status() *Status {
 
 	var suspicions, epochChanges []NodeID
 
-	nodes := make([]*NodeStatus, len(epochConfig.nodes))
-	for i, nodeID := range epochConfig.nodes {
+	nodes := make([]*NodeStatus, len(epochConfig.networkConfig.Nodes))
+	for i, nodeID := range epochConfig.networkConfig.Nodes {
+		nodeID := NodeID(nodeID)
 		nodes[i] = sm.nodeMsgs[nodeID].status()
 		if _, ok := sm.activeEpoch.suspicions[nodeID]; ok {
 			suspicions = append(suspicions, nodeID)

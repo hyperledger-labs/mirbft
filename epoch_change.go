@@ -183,7 +183,7 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 	}
 
 	for bucketID := range newEpochConfig.FinalPreprepares {
-		digests := make([][]byte, 2*config.checkpointInterval)
+		digests := make([][]byte, 2*config.networkConfig.CheckpointInterval)
 		newEpochConfig.FinalPreprepares[bucketID] = &pb.EpochConfig_Bucket{
 			Digests: digests,
 		}
@@ -191,7 +191,8 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 		for seqNoOffset := range digests {
 			seqNo := uint64(seqNoOffset) + maxCheckpoint.SeqNo + 1
 
-			for _, nodeID := range config.nodes {
+			for _, nodeID := range config.networkConfig.Nodes {
+				nodeID := NodeID(nodeID)
 				// Note, it looks like we're re-implementing `range epochChanges` here,
 				// and we are, but doing so in a deterministic order.
 

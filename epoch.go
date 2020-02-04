@@ -20,14 +20,7 @@ type epochConfig struct {
 	// plannedExpiration is when this epoch ends, if it ends gracefully
 	plannedExpiration SeqNo
 
-	// F is the total number of faults tolerated by the network
-	f int
-
-	// CheckpointInterval is the number of sequence numbers to commit before broadcasting a checkpoint
-	checkpointInterval SeqNo
-
-	// nodes is all the node ids in the network
-	nodes []NodeID
+	networkConfig *pb.NetworkConfig
 
 	// buckets is a map from bucket ID to leader ID
 	buckets map[BucketID]NodeID
@@ -38,12 +31,12 @@ type epochConfig struct {
 // correct node.  This is ceil((n+f+1)/2), which is equivalent to
 // (n+f+2)/2 under truncating integer math.
 func (ec *epochConfig) intersectionQuorum() int {
-	return (len(ec.nodes) + ec.f + 2) / 2
+	return (len(ec.networkConfig.Nodes) + int(ec.networkConfig.F) + 2) / 2
 }
 
 // weakQuorum is f+1
 func (ec *epochConfig) someCorrectQuorum() int {
-	return ec.f + 1
+	return int(ec.networkConfig.F) + 1
 }
 
 type epochState int
@@ -100,13 +93,13 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Conf
 
 	var checkpointWindows []*checkpointWindow
 
-	firstEnd := SeqNo(baseCheckpoint.SeqNo) + config.checkpointInterval
+	firstEnd := SeqNo(baseCheckpoint.SeqNo) + SeqNo(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= firstEnd {
 		proposer.maxAssignable = firstEnd
 		checkpointWindows = append(checkpointWindows, newCheckpointWindow(SeqNo(baseCheckpoint.SeqNo)+1, firstEnd, config, myConfig))
 	}
 
-	secondEnd := SeqNo(baseCheckpoint.SeqNo) + 2*config.checkpointInterval
+	secondEnd := SeqNo(baseCheckpoint.SeqNo) + 2*SeqNo(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= secondEnd {
 		checkpointWindows = append(checkpointWindows, newCheckpointWindow(firstEnd+1, secondEnd, config, myConfig))
 	}
@@ -121,7 +114,7 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Conf
 		changes:           map[NodeID]*epochChange{},
 		checkpointWindows: checkpointWindows,
 		proposer:          proposer,
-		isLeader:          config.number%uint64(len(config.nodes)) == myConfig.ID,
+		isLeader:          config.number%uint64(len(config.networkConfig.Nodes)) == myConfig.ID,
 	}
 }
 
@@ -279,7 +272,7 @@ func (e *epoch) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
 	}
 
 	offset := seqNo - SeqNo(e.checkpointWindows[0].start)
-	index := offset / SeqNo(e.config.checkpointInterval)
+	index := offset / SeqNo(e.config.networkConfig.CheckpointInterval)
 	if int(index) >= len(e.checkpointWindows) {
 		return nil
 	}
@@ -334,7 +327,7 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo SeqNo, value []byte) *Ac
 			e.checkpointWindows,
 			newCheckpointWindow(
 				lastCW.end+1,
-				lastCW.end+e.config.checkpointInterval,
+				lastCW.end+SeqNo(e.config.networkConfig.CheckpointInterval),
 				e.config,
 				e.myConfig,
 			),
