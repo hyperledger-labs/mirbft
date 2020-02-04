@@ -78,24 +78,24 @@ type epoch struct {
 
 	readies map[NodeID]*pb.EpochConfig
 
-	changes map[NodeID]*pb.EpochChange
+	changes map[NodeID]*epochChange
 
 	suspicions map[NodeID]struct{}
 
 	checkpointWindows []*checkpointWindow
 
-	baseCheckpointValue []byte
+	baseCheckpoint *pb.Checkpoint
 }
 
 // newEpoch creates a new epoch.  It uses the supplied initial checkpointWindows until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(lastSeqNo SeqNo, startingCheckpointValue []byte, config *epochConfig, initialCheckpointWindows []*checkpointWindow) *epoch {
+func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, initialCheckpointWindows []*checkpointWindow) *epoch {
 	proposer := newProposer(config)
 	proposer.maxAssignable = config.checkpointInterval
 
 	checkpointWindows := make([]*checkpointWindow, 2)
-	lastEnd := lastSeqNo
+	lastEnd := SeqNo(baseCheckpoint.SeqNo)
 	for i := 0; i < 2; i++ {
 		if len(initialCheckpointWindows) > i {
 			checkpointWindows[i] = initialCheckpointWindows[i].clone()
@@ -108,14 +108,14 @@ func newEpoch(lastSeqNo SeqNo, startingCheckpointValue []byte, config *epochConf
 	}
 
 	return &epoch{
-		baseCheckpointValue: startingCheckpointValue,
-		config:              config,
-		echos:               map[NodeID]*pb.EpochConfig{},
-		readies:             map[NodeID]*pb.EpochConfig{},
-		suspicions:          map[NodeID]struct{}{},
-		changes:             map[NodeID]*pb.EpochChange{},
-		checkpointWindows:   checkpointWindows,
-		proposer:            proposer,
+		baseCheckpoint:    baseCheckpoint,
+		config:            config,
+		echos:             map[NodeID]*pb.EpochConfig{},
+		readies:           map[NodeID]*pb.EpochConfig{},
+		suspicions:        map[NodeID]struct{}{},
+		changes:           map[NodeID]*epochChange{},
+		checkpointWindows: checkpointWindows,
+		proposer:          proposer,
 	}
 }
 
@@ -144,19 +144,25 @@ func (e *epoch) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 		return &Actions{}
 	}
 
-	epochChanges := map[NodeID]*pb.EpochChange{}
+	epochChanges := map[NodeID]*epochChange{}
 	for _, remoteEpochChange := range msg.EpochChanges {
 		if _, ok := epochChanges[NodeID(remoteEpochChange.NodeId)]; ok {
 			// TODO, malformed, log oddity
 			return &Actions{}
 		}
 
-		epochChanges[NodeID(remoteEpochChange.NodeId)] = remoteEpochChange.EpochChange
+		helper, err := newEpochChange(remoteEpochChange.EpochChange)
+		if err != nil {
+			// TODO, log
+			return &Actions{}
+		}
+
+		epochChanges[NodeID(remoteEpochChange.NodeId)] = helper
 	}
 
 	// XXX need to validate the signatures on the epoch changes
 
-	newEpochConfig := constructNewEpochConfig(epochChanges)
+	newEpochConfig := constructNewEpochConfig(e.config, epochChanges)
 
 	if !proto.Equal(newEpochConfig, msg.Config) {
 		// TODO byzantine, log oddity
@@ -330,7 +336,10 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo SeqNo, value []byte) *Ac
 
 	actions.Append(e.proposer.drainQueue())
 	for len(e.checkpointWindows) > 2 && (e.checkpointWindows[0].obsolete || e.checkpointWindows[1].garbageCollectible) {
-		e.baseCheckpointValue = e.checkpointWindows[0].myValue
+		e.baseCheckpoint = &pb.Checkpoint{
+			SeqNo: uint64(e.checkpointWindows[0].end),
+			Value: e.checkpointWindows[0].myValue,
+		}
 		e.checkpointWindows = e.checkpointWindows[1:]
 	}
 
@@ -490,10 +499,18 @@ func (e *epoch) tickActive() *Actions {
 }
 
 func (e *epoch) constructEpochChange() *pb.EpochChange {
-	epochChange := &pb.EpochChange{}
+	epochChange := &pb.EpochChange{
+		NewEpoch: e.config.number + 1,
+	}
 
-	if e.checkpointWindows[0].myValue == nil {
+	if len(e.checkpointWindows) == 0 ||
+		e.checkpointWindows[0].myValue == nil ||
+		!e.checkpointWindows[0].garbageCollectible {
 
+		// We have no stable checkpoint windows which have not been
+		// garbage collected, so use the most recently garbage collected one
+
+		epochChange.Checkpoints = []*pb.Checkpoint{e.baseCheckpoint}
 	}
 
 	for _, cw := range e.checkpointWindows {
@@ -505,15 +522,38 @@ func (e *epoch) constructEpochChange() *pb.EpochChange {
 			SeqNo: uint64(cw.end),
 			Value: cw.myValue,
 		})
+
+		for bucketID, bucket := range cw.buckets {
+			for seqNo, seq := range bucket.sequences {
+				if seq.state < Validated {
+					continue
+				}
+
+				entry := &pb.EpochChange_SetEntry{
+					Bucket: uint64(bucketID),
+					Epoch:  uint64(e.config.number),
+					SeqNo:  uint64(seqNo),
+					Digest: seq.digest,
+				}
+
+				epochChange.QSet = append(epochChange.QSet, entry)
+
+				if seq.state < Prepared {
+					continue
+				}
+
+				epochChange.PSet = append(epochChange.PSet, entry)
+			}
+		}
 	}
 
-	// XXX implement
+	// XXX include the Qset from previous view-changes if it has not been garbage collected
 
 	return epochChange
 }
 
 func (e *epoch) constructNewEpoch() *pb.NewEpoch {
-	config := constructNewEpochConfig(e.changes)
+	config := constructNewEpochConfig(e.config, e.changes)
 	if config == nil {
 		return nil
 	}
@@ -522,7 +562,7 @@ func (e *epoch) constructNewEpoch() *pb.NewEpoch {
 	for nodeID, change := range e.changes {
 		remoteChanges = append(remoteChanges, &pb.NewEpoch_RemoteEpochChange{
 			NodeId:      uint64(nodeID),
-			EpochChange: change,
+			EpochChange: change.underlying,
 		})
 	}
 
@@ -530,10 +570,4 @@ func (e *epoch) constructNewEpoch() *pb.NewEpoch {
 		Config:       config,
 		EpochChanges: remoteChanges,
 	}
-}
-
-func constructNewEpochConfig(epochChanges map[NodeID]*pb.EpochChange) *pb.EpochConfig {
-	// XXX implement
-
-	return &pb.EpochConfig{}
 }

@@ -36,7 +36,13 @@ func newStateMachine(config *epochConfig) *stateMachine {
 		nodeMsgs[id] = newNodeMsgs(id, config, oddities)
 	}
 
-	activeEpoch := newEpoch(0, []byte("TODO, get from state"), config, []*checkpointWindow{})
+	activeEpoch := newEpoch(
+		&pb.Checkpoint{
+			SeqNo: 0,
+			Value: []byte("TODO, get from state")},
+		config,
+		nil,
+	)
 
 	return &stateMachine{
 		myConfig:          config.myConfig,
