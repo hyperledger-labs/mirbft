@@ -431,6 +431,10 @@ func (e *epoch) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) {
 	e.changes[source] = epochChange
 }
 
+func (e *epoch) applySuspectMsg(source NodeID, msg *pb.Suspect) {
+	e.suspicions[source] = struct{}{}
+}
+
 func (e *epoch) tick() *Actions {
 	e.stateTicks++
 

@@ -138,8 +138,7 @@ func (sm *stateMachine) suspectMsg(source NodeID, msg *pb.Suspect) {
 
 	for _, ew := range sm.epochs {
 		if ew.config.number == msg.Epoch {
-			ew.suspicions[source] = struct{}{}
-			return
+			ew.applySuspectMsg(source, msg)
 		}
 	}
 }
