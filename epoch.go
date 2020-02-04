@@ -85,6 +85,8 @@ type epoch struct {
 
 	suspicions map[NodeID]struct{}
 
+	isLeader bool
+
 	checkpointWindows []*checkpointWindow
 
 	baseCheckpoint *pb.Checkpoint
@@ -119,6 +121,7 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig) *epoch {
 		changes:           map[NodeID]*epochChange{},
 		checkpointWindows: checkpointWindows,
 		proposer:          proposer,
+		isLeader:          config.number%uint64(len(config.nodes)) == config.myConfig.ID,
 	}
 }
 
@@ -142,7 +145,7 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig) *epoch {
 // r-deliver(m)
 
 func (e *epoch) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
-	if e.state != pending {
+	if e.state > pending {
 		// TODO log oddity? maybe ensure not possible via nodemsgs
 		return &Actions{}
 	}
@@ -459,25 +462,29 @@ func (e *epoch) tick() *Actions {
 	return actions
 }
 
+func (e *epoch) repeatEpochChangeBroadcast() *Actions {
+	myEpochChange, ok := e.changes[NodeID(e.config.myConfig.ID)]
+	if !ok {
+		panic("TODO, handle me? Are we guaranteed to have sent an epoch change, I hope so")
+	}
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_EpochChange{
+					EpochChange: myEpochChange.underlying,
+				},
+			},
+		},
+	}
+}
+
 func (e *epoch) tickPrepending() *Actions {
 	newEpoch := e.constructNewEpoch() // TODO, recomputing over and over again isn't useful unless we've gotten new epoch change messages in the meantime, should we somehow store the last one we computed?
 
 	if newEpoch == nil {
 		if e.stateTicks%uint64(e.config.myConfig.NewEpochTimeoutTicks/2) == 0 {
-			myEpochChange, ok := e.changes[NodeID(e.config.myConfig.ID)]
-			if !ok {
-				panic("TODO, handle me? Are we guaranteed to have sent an epoch change, I hope so")
-			}
-
-			return &Actions{
-				Broadcast: []*pb.Msg{
-					{
-						Type: &pb.Msg_EpochChange{
-							EpochChange: myEpochChange.underlying,
-						},
-					},
-				},
-			}
+			return e.repeatEpochChangeBroadcast()
 		}
 
 		return &Actions{}
@@ -487,12 +494,12 @@ func (e *epoch) tickPrepending() *Actions {
 	e.state = pending
 	e.myNewEpoch = newEpoch
 
-	if e.config.number%uint64(len(e.config.nodes)) == e.config.myConfig.ID {
+	if e.isLeader {
 		return &Actions{
 			Broadcast: []*pb.Msg{
 				{
 					Type: &pb.Msg_NewEpoch{
-						NewEpoch: newEpoch,
+						NewEpoch: e.myNewEpoch,
 					},
 				},
 			},
@@ -503,7 +510,28 @@ func (e *epoch) tickPrepending() *Actions {
 }
 
 func (e *epoch) tickPending() *Actions {
-	// TODO new view timeout
+	pendingTicks := e.stateTicks % uint64(e.config.myConfig.NewEpochTimeoutTicks)
+	if e.isLeader {
+		// resend the new-view if others perhaps missed it
+		if pendingTicks%2 == 0 {
+			return &Actions{
+				Broadcast: []*pb.Msg{
+					{
+						Type: &pb.Msg_NewEpoch{
+							NewEpoch: e.myNewEpoch,
+						},
+					},
+				},
+			}
+		}
+	} else {
+		if pendingTicks == 0 {
+			// TODO, new-view timeout
+		}
+		if pendingTicks%2 == 0 {
+			return e.repeatEpochChangeBroadcast()
+		}
+	}
 	return &Actions{}
 }
 
