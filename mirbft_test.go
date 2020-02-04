@@ -17,6 +17,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/IBM/mirbft"
+	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/sample"
 
 	"go.uber.org/zap"
@@ -27,7 +28,7 @@ var _ = Describe("MirBFT", func() {
 		doneC  chan struct{}
 		logger *zap.Logger
 
-		network *network
+		network *Network
 	)
 
 	BeforeEach(func() {
@@ -44,8 +45,14 @@ var _ = Describe("MirBFT", func() {
 		close(doneC)
 	})
 
-	DescribeTable("commits all messages", func(nodeCount int) {
-		network = createNetwork(nodeCount, logger, doneC)
+	DescribeTable("commits all messages", func(nodeCount int, networkCustomizers ...func(*Network)) {
+		network = CreateNetwork(nodeCount, logger, doneC)
+
+		for _, networkCustomizer := range networkCustomizers {
+			networkCustomizer(network)
+		}
+
+		network.GoRunNetwork(doneC)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -87,6 +94,10 @@ var _ = Describe("MirBFT", func() {
 		Entry("SingleNode", 1),
 		Entry("ThreeNodeCFT", 3),
 		Entry("FourNodeBFT", 4),
+		PEntry("FourNodeBFT with fault", 4, BrokenLinks(map[uint64]map[uint64]struct{}{
+			2: {0: struct{}{}, 1: struct{}{}, 3: struct{}{}},
+			// XXX, this one is weird 1: {0: struct{}{}, 2: struct{}{}, 3: struct{}{}},
+		})),
 	)
 
 	JustAfterEach(func() {
@@ -129,13 +140,46 @@ func (fl *FakeLog) Snap() []byte {
 	return value
 }
 
-type network struct {
+type BrokenLink struct {
+	FakeLink    *sample.FakeLink
+	Unreachable map[uint64]struct{}
+}
+
+func (bl *BrokenLink) Send(dest uint64, msg *pb.Msg) {
+	// Always send Forward messages, as they're needed for the test to work
+	if _, ok := msg.Type.(*pb.Msg_Forward); !ok {
+		if _, ok = bl.Unreachable[dest]; ok {
+			// drop the message
+			fmt.Println("Dropping message to", dest)
+			return
+		}
+	}
+	bl.FakeLink.Send(dest, msg)
+}
+
+func BrokenLinks(sourceDestsBroken map[uint64]map[uint64]struct{}) func(*Network) {
+	return func(network *Network) {
+		for source, dests := range sourceDestsBroken {
+			for i, node := range network.nodes {
+				if node.Config.ID != source {
+					continue
+				}
+
+				network.processors[i].Link = &BrokenLink{
+					Unreachable: dests,
+				}
+			}
+		}
+	}
+}
+
+type Network struct {
 	nodes      []*mirbft.Node
 	fakeLogs   []*FakeLog
 	processors []*sample.SerialProcessor
 }
 
-func createNetwork(nodeCount int, logger *zap.Logger, doneC <-chan struct{}) *network {
+func CreateNetwork(nodeCount int, logger *zap.Logger, doneC <-chan struct{}) *Network {
 	nodes := make([]*mirbft.Node, nodeCount)
 	replicas := make([]mirbft.Replica, nodeCount)
 
@@ -180,7 +224,19 @@ func createNetwork(nodeCount int, logger *zap.Logger, doneC <-chan struct{}) *ne
 			DoneC: doneC,
 		}
 
+	}
+
+	return &Network{
+		nodes:      nodes,
+		fakeLogs:   fakeLogs,
+		processors: processors,
+	}
+}
+
+func (n *Network) GoRunNetwork(doneC <-chan struct{}) {
+	for i := range n.nodes {
 		go func(i int, doneC <-chan struct{}) {
+			defer GinkgoRecover()
 			defer func() {
 				Expect(recover()).To(BeNil())
 			}()
@@ -190,20 +246,14 @@ func createNetwork(nodeCount int, logger *zap.Logger, doneC <-chan struct{}) *ne
 
 			for {
 				select {
-				case actions := <-node.Ready():
-					node.AddResults(*processors[i].Process(&actions))
+				case actions := <-n.nodes[i].Ready():
+					n.nodes[i].AddResults(*n.processors[i].Process(&actions))
 				case <-doneC:
 					return
 				case <-ticker.C:
-					nodes[i].Tick()
+					n.nodes[i].Tick()
 				}
 			}
 		}(i, doneC)
-	}
-
-	return &network{
-		nodes:      nodes,
-		fakeLogs:   fakeLogs,
-		processors: processors,
 	}
 }
