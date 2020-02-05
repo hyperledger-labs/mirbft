@@ -12,8 +12,8 @@ import (
 )
 
 type checkpointWindow struct {
-	start       SeqNo
-	end         SeqNo
+	start       uint64
+	end         uint64
 	myConfig    *Config
 	epochConfig *epochConfig
 
@@ -27,7 +27,7 @@ type checkpointWindow struct {
 	obsolete           bool
 }
 
-func newCheckpointWindow(start, end SeqNo, config *epochConfig, myConfig *Config) *checkpointWindow {
+func newCheckpointWindow(start, end uint64, config *epochConfig, myConfig *Config) *checkpointWindow {
 	outstandingBuckets := map[BucketID]struct{}{}
 
 	buckets := map[BucketID]*bucket{}
@@ -76,15 +76,15 @@ func (cw *checkpointWindow) clone() *checkpointWindow {
 	return ncw
 }
 
-func (cw *checkpointWindow) applyPreprepareMsg(source NodeID, seqNo SeqNo, bucket BucketID, batch [][]byte) *Actions {
+func (cw *checkpointWindow) applyPreprepareMsg(source NodeID, seqNo uint64, bucket BucketID, batch [][]byte) *Actions {
 	return cw.buckets[bucket].applyPreprepareMsg(seqNo, batch)
 }
 
-func (cw *checkpointWindow) applyPrepareMsg(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+func (cw *checkpointWindow) applyPrepareMsg(source NodeID, seqNo uint64, bucket BucketID, digest []byte) *Actions {
 	return cw.buckets[bucket].applyPrepareMsg(source, seqNo, digest)
 }
 
-func (cw *checkpointWindow) applyCommitMsg(source NodeID, seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+func (cw *checkpointWindow) applyCommitMsg(source NodeID, seqNo uint64, bucket BucketID, digest []byte) *Actions {
 	actions := cw.buckets[bucket].applyCommitMsg(source, seqNo, digest)
 	// XXX this is a moderately hacky way to determine if this commit msg triggered
 	// a commit, is there a better way?
@@ -95,11 +95,11 @@ func (cw *checkpointWindow) applyCommitMsg(source NodeID, seqNo SeqNo, bucket Bu
 
 }
 
-func (cw *checkpointWindow) applyDigestResult(seqNo SeqNo, bucket BucketID, digest []byte) *Actions {
+func (cw *checkpointWindow) applyDigestResult(seqNo uint64, bucket BucketID, digest []byte) *Actions {
 	return cw.buckets[bucket].applyDigestResult(seqNo, digest)
 }
 
-func (cw *checkpointWindow) applyValidateResult(seqNo SeqNo, bucket BucketID, valid bool) *Actions {
+func (cw *checkpointWindow) applyValidateResult(seqNo uint64, bucket BucketID, valid bool) *Actions {
 	return cw.buckets[bucket].applyValidateResult(seqNo, valid)
 }
 

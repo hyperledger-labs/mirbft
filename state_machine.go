@@ -101,7 +101,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 			actions.Append(sm.activeEpoch.applyCommitMsg(source, innerMsg.Commit))
 		case *pb.Msg_Checkpoint:
 			msg := innerMsg.Checkpoint
-			actions.Append(sm.checkpointMsg(source, SeqNo(msg.SeqNo), msg.Value))
+			actions.Append(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
 		case *pb.Msg_Forward:
 			msg := innerMsg.Forward
 			// TODO should we have a separate validate step here?  How do we prevent
@@ -154,7 +154,7 @@ func (sm *stateMachine) epochChangeMsg(source NodeID, msg *pb.EpochChange) {
 	}
 }
 
-func (sm *stateMachine) checkpointMsg(source NodeID, seqNo SeqNo, value []byte) *Actions {
+func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
 	actions := &Actions{}
 	for _, e := range sm.epochs {
 		actions.Append(e.applyCheckpointMsg(source, seqNo, value))
@@ -176,7 +176,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			}
 			// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
 			seqNo := digestResult.Entry.SeqNo
-			actions.Append(sm.activeEpoch.applyDigestResult(SeqNo(seqNo), BucketID(digestResult.Entry.BucketID), digestResult.Digest))
+			actions.Append(sm.activeEpoch.applyDigestResult(seqNo, BucketID(digestResult.Entry.BucketID), digestResult.Digest))
 			break
 		}
 	}
@@ -188,20 +188,20 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			}
 			// sm.myConfig.Logger.Debug("applying validate result", zap.Int("index", i))
 			seqNo := validateResult.Entry.SeqNo
-			actions.Append(sm.activeEpoch.applyValidateResult(SeqNo(seqNo), BucketID(validateResult.Entry.BucketID), validateResult.Valid))
+			actions.Append(sm.activeEpoch.applyValidateResult(seqNo, BucketID(validateResult.Entry.BucketID), validateResult.Valid))
 			break
 		}
 	}
 
 	for _, checkpointResult := range results.Checkpoints {
 		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
-		actions.Append(sm.applyCheckpointResult(SeqNo(checkpointResult.SeqNo), checkpointResult.Value))
+		actions.Append(sm.applyCheckpointResult(checkpointResult.SeqNo, checkpointResult.Value))
 	}
 
 	return actions
 }
 
-func (sm *stateMachine) applyCheckpointResult(seqNo SeqNo, value []byte) *Actions {
+func (sm *stateMachine) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
 	actions := &Actions{}
 	for _, e := range sm.epochs {
 		actions.Append(e.applyCheckpointResult(seqNo, value))
@@ -269,9 +269,9 @@ func (sm *stateMachine) status() *Status {
 		}
 	}
 
-	lowWatermark := SeqNo(sm.activeEpoch.baseCheckpoint.SeqNo)
+	lowWatermark := sm.activeEpoch.baseCheckpoint.SeqNo
 
-	var highWatermark SeqNo
+	var highWatermark uint64
 	if len(sm.activeEpoch.checkpointWindows) > 0 {
 		highWatermark = sm.activeEpoch.checkpointWindows[len(sm.activeEpoch.checkpointWindows)-1].end
 	} else {
@@ -291,8 +291,8 @@ func (sm *stateMachine) status() *Status {
 }
 
 type Status struct {
-	LowWatermark  SeqNo
-	HighWatermark SeqNo
+	LowWatermark  uint64
+	HighWatermark uint64
 	EpochNumber   uint64
 	Suspicions    []NodeID
 	EpochChanges  []NodeID
@@ -330,9 +330,9 @@ func (s *Status) Pretty() string {
 	}
 
 	for i := len(fmt.Sprintf("%d", s.HighWatermark)); i > 0; i-- {
-		magnitude := SeqNo(math.Pow10(i - 1))
+		magnitude := math.Pow10(i - 1)
 		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-			buffer.WriteString(fmt.Sprintf(" %d", seqNo/magnitude%10))
+			buffer.WriteString(fmt.Sprintf(" %d", seqNo/uint64(magnitude)%10))
 		}
 		buffer.WriteString("\n")
 	}
@@ -350,17 +350,17 @@ func (s *Status) Pretty() string {
 		buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeStatus.ID))
 		for bucket, bucketStatus := range nodeStatus.BucketStatuses {
 			for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-				if seqNo == SeqNo(bucketStatus.LastCheckpoint) {
+				if seqNo == bucketStatus.LastCheckpoint {
 					buffer.WriteString("|X")
 					continue
 				}
 
-				if seqNo == SeqNo(bucketStatus.LastCommit) {
+				if seqNo == bucketStatus.LastCommit {
 					buffer.WriteString("|C")
 					continue
 				}
 
-				if seqNo == SeqNo(bucketStatus.LastPrepare) {
+				if seqNo == bucketStatus.LastPrepare {
 					if bucketStatus.IsLeader {
 						buffer.WriteString("|Q")
 					} else {
@@ -414,7 +414,7 @@ func (s *Status) Pretty() string {
 	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
 		if len(s.Checkpoints) > i {
 			checkpoint := s.Checkpoints[i]
-			if seqNo == SeqNo(checkpoint.SeqNo) {
+			if seqNo == checkpoint.SeqNo {
 				buffer.WriteString(fmt.Sprintf("|%d", checkpoint.PendingCommits))
 				i++
 				continue
@@ -427,7 +427,7 @@ func (s *Status) Pretty() string {
 	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
 		if len(s.Checkpoints) > i {
 			checkpoint := s.Checkpoints[i]
-			if seqNo == SeqNo(s.Checkpoints[i].SeqNo) {
+			if seqNo == s.Checkpoints[i].SeqNo {
 				switch {
 				case checkpoint.NetQuorum && !checkpoint.LocalAgreement:
 					buffer.WriteString("|N")

@@ -29,11 +29,6 @@ var ErrStopped = fmt.Errorf("stopped at caller request")
 // values with different meanings.
 type BucketID uint64
 
-// SeqNo represents a sequence number.  It is a simple alias to a uint64, but
-// is used to help disambiguate function signatures which accept multiple uint64
-// values with different meanings.
-type SeqNo uint64
-
 // EpochNo represents an epoch number.  It is a simple alias to a uint64, but
 // is used to help disambiguate function signatures which accept multiple uint64
 // values with different meanings.

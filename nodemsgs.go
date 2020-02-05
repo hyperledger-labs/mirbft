@@ -28,7 +28,7 @@ type nodeMsgs struct {
 	oddities       *oddities
 	buffer         map[*pb.Msg]struct{} // TODO, this could be much better optimized via a ring buffer
 	epochMsgs      *epochMsgs
-	nextCheckpoint SeqNo
+	nextCheckpoint uint64
 }
 
 type epochMsgs struct {
@@ -42,8 +42,8 @@ type epochMsgs struct {
 
 type nextMsg struct {
 	leader  bool
-	prepare SeqNo // Note Prepare is Preprepare if Leader is true
-	commit  SeqNo
+	prepare uint64 // Note Prepare is Preprepare if Leader is true
+	commit  uint64
 }
 
 func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config, oddities *oddities) *nodeMsgs {
@@ -55,7 +55,7 @@ func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config, oddi
 
 		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 		// XXX we should initialize this properly, sort of like the above
-		nextCheckpoint: SeqNo(epochConfig.networkConfig.CheckpointInterval),
+		nextCheckpoint: uint64(epochConfig.networkConfig.CheckpointInterval),
 		buffer:         map[*pb.Msg]struct{}{},
 	}
 }
@@ -132,16 +132,16 @@ func (n *nodeMsgs) next() *pb.Msg {
 
 func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	switch {
-	case n.nextCheckpoint > SeqNo(msg.SeqNo):
+	case n.nextCheckpoint > msg.SeqNo:
 		return past
-	case n.nextCheckpoint == SeqNo(msg.SeqNo):
+	case n.nextCheckpoint == msg.SeqNo:
 		for _, next := range n.epochMsgs.next {
-			if next.commit < SeqNo(msg.SeqNo) {
+			if next.commit < msg.SeqNo {
 				return future
 			}
 		}
 
-		n.nextCheckpoint = SeqNo(msg.SeqNo) + SeqNo(n.epochMsgs.epochConfig.networkConfig.CheckpointInterval)
+		n.nextCheckpoint = msg.SeqNo + uint64(n.epochMsgs.epochConfig.networkConfig.CheckpointInterval)
 		return current
 	default:
 		return future
@@ -202,10 +202,10 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 	switch {
 	case !next.leader:
 		return invalid
-	case next.prepare > SeqNo(msg.SeqNo):
+	case next.prepare > msg.SeqNo:
 		return past
-	case next.prepare == SeqNo(msg.SeqNo):
-		next.prepare = SeqNo(msg.SeqNo) + 1
+	case next.prepare == msg.SeqNo:
+		next.prepare = msg.SeqNo + 1
 		return current
 	default:
 		return future
@@ -221,10 +221,10 @@ func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
 	switch {
 	case next.leader:
 		return invalid
-	case next.prepare > SeqNo(msg.SeqNo):
+	case next.prepare > msg.SeqNo:
 		return past
-	case next.prepare == SeqNo(msg.SeqNo):
-		next.prepare = SeqNo(msg.SeqNo) + 1
+	case next.prepare == msg.SeqNo:
+		next.prepare = msg.SeqNo + 1
 		return current
 	default:
 		return future
@@ -238,10 +238,10 @@ func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
 	}
 
 	switch {
-	case next.commit > SeqNo(msg.SeqNo):
+	case next.commit > msg.SeqNo:
 		return past
-	case next.commit == SeqNo(msg.SeqNo) && next.prepare > next.commit:
-		next.commit = SeqNo(msg.SeqNo) + 1
+	case next.commit == msg.SeqNo && next.prepare > next.commit:
+		next.commit = msg.SeqNo + 1
 		return current
 	default:
 		return future

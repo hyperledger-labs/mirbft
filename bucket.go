@@ -11,8 +11,8 @@ import pb "github.com/IBM/mirbft/mirbftpb"
 type bucket struct {
 	myConfig *Config
 
-	start SeqNo
-	end   SeqNo
+	start uint64
+	end   uint64
 
 	epochConfig *epochConfig
 
@@ -23,11 +23,11 @@ type bucket struct {
 	ticksSinceProgress int
 
 	// sequences are the current active sequence numbers in this bucket
-	sequences map[SeqNo]*sequence
+	sequences map[uint64]*sequence
 }
 
-func newBucket(start, end SeqNo, config *epochConfig, myConfig *Config, bucketID BucketID) *bucket {
-	sequences := map[SeqNo]*sequence{}
+func newBucket(start, end uint64, config *epochConfig, myConfig *Config, bucketID BucketID) *bucket {
+	sequences := map[uint64]*sequence{}
 	for seqNo := start; seqNo <= end; seqNo++ {
 		sequences[seqNo] = newSequence(config, myConfig, seqNo, bucketID)
 	}
@@ -46,12 +46,12 @@ func (b *bucket) iAmLeader() bool {
 	return b.leader == NodeID(b.myConfig.ID)
 }
 
-func (b *bucket) applyPreprepareMsg(seqNo SeqNo, batch [][]byte) *Actions {
+func (b *bucket) applyPreprepareMsg(seqNo uint64, batch [][]byte) *Actions {
 	b.ticksSinceProgress = 0
 	return b.sequences[seqNo].applyPreprepareMsg(batch)
 }
 
-func (b *bucket) applyDigestResult(seqNo SeqNo, digest []byte) *Actions {
+func (b *bucket) applyDigestResult(seqNo uint64, digest []byte) *Actions {
 	s := b.sequences[seqNo]
 	actions := s.applyDigestResult(digest)
 	if b.iAmLeader() {
@@ -63,7 +63,7 @@ func (b *bucket) applyDigestResult(seqNo SeqNo, digest []byte) *Actions {
 	return actions
 }
 
-func (b *bucket) applyValidateResult(seqNo SeqNo, valid bool) *Actions {
+func (b *bucket) applyValidateResult(seqNo uint64, valid bool) *Actions {
 	s := b.sequences[seqNo]
 	actions := s.applyValidateResult(valid)
 	if !b.iAmLeader() {
@@ -74,12 +74,12 @@ func (b *bucket) applyValidateResult(seqNo SeqNo, valid bool) *Actions {
 	return actions
 }
 
-func (b *bucket) applyPrepareMsg(source NodeID, seqNo SeqNo, digest []byte) *Actions {
+func (b *bucket) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
 	b.ticksSinceProgress = 0
 	return b.sequences[seqNo].applyPrepareMsg(source, digest)
 }
 
-func (b *bucket) applyCommitMsg(source NodeID, seqNo SeqNo, digest []byte) *Actions {
+func (b *bucket) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
 	b.ticksSinceProgress = 0
 	return b.sequences[seqNo].applyCommitMsg(source, digest)
 }
@@ -112,7 +112,7 @@ type BucketStatus struct {
 func (b *bucket) status() *BucketStatus {
 	sequences := make([]SequenceState, int(b.end-b.start+1))
 	for i := range sequences {
-		sequences[i] = b.sequences[SeqNo(i)+b.start].state
+		sequences[i] = b.sequences[uint64(i)+b.start].state
 	}
 	return &BucketStatus{
 		ID:        uint64(b.id),

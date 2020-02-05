@@ -13,9 +13,9 @@ import (
 type proposer struct {
 	myConfig      *Config
 	epochConfig   *epochConfig
-	maxAssignable SeqNo
+	maxAssignable uint64
 
-	nextAssigned    SeqNo
+	nextAssigned    uint64
 	ownedBuckets    []BucketID
 	nextBucketIndex int
 

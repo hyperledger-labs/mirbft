@@ -18,7 +18,7 @@ type epochConfig struct {
 	number uint64
 
 	// plannedExpiration is when this epoch ends, if it ends gracefully
-	plannedExpiration SeqNo
+	plannedExpiration uint64
 
 	networkConfig *pb.NetworkConfig
 
@@ -89,17 +89,17 @@ type epoch struct {
 // windows may be empty, of length 1, or length 2.
 func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Config) *epoch {
 	proposer := newProposer(config, myConfig)
-	proposer.maxAssignable = SeqNo(baseCheckpoint.SeqNo)
+	proposer.maxAssignable = baseCheckpoint.SeqNo
 
 	var checkpointWindows []*checkpointWindow
 
-	firstEnd := SeqNo(baseCheckpoint.SeqNo) + SeqNo(config.networkConfig.CheckpointInterval)
+	firstEnd := baseCheckpoint.SeqNo + uint64(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= firstEnd {
 		proposer.maxAssignable = firstEnd
-		checkpointWindows = append(checkpointWindows, newCheckpointWindow(SeqNo(baseCheckpoint.SeqNo)+1, firstEnd, config, myConfig))
+		checkpointWindows = append(checkpointWindows, newCheckpointWindow(baseCheckpoint.SeqNo+1, firstEnd, config, myConfig))
 	}
 
-	secondEnd := SeqNo(baseCheckpoint.SeqNo) + 2*SeqNo(config.networkConfig.CheckpointInterval)
+	secondEnd := baseCheckpoint.SeqNo + 2*uint64(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= secondEnd {
 		checkpointWindows = append(checkpointWindows, newCheckpointWindow(firstEnd+1, secondEnd, config, myConfig))
 	}
@@ -262,7 +262,7 @@ func (e *epoch) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Act
 	return &Actions{}
 }
 
-func (e *epoch) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
+func (e *epoch) checkpointWindowForSeqNo(seqNo uint64) *checkpointWindow {
 	if e.config.plannedExpiration < seqNo {
 		return nil
 	}
@@ -271,8 +271,8 @@ func (e *epoch) checkpointWindowForSeqNo(seqNo SeqNo) *checkpointWindow {
 		return nil
 	}
 
-	offset := seqNo - SeqNo(e.checkpointWindows[0].start)
-	index := offset / SeqNo(e.config.networkConfig.CheckpointInterval)
+	offset := seqNo - e.checkpointWindows[0].start
+	index := offset / uint64(e.config.networkConfig.CheckpointInterval)
 	if int(index) >= len(e.checkpointWindows) {
 		return nil
 	}
@@ -284,7 +284,7 @@ func (e *epoch) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
 		return &Actions{}
 	}
 
-	return e.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPreprepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Batch)
+	return e.checkpointWindowForSeqNo(msg.SeqNo).applyPreprepareMsg(source, msg.SeqNo, BucketID(msg.Bucket), msg.Batch)
 }
 
 func (e *epoch) applyPrepareMsg(source NodeID, msg *pb.Prepare) *Actions {
@@ -292,7 +292,7 @@ func (e *epoch) applyPrepareMsg(source NodeID, msg *pb.Prepare) *Actions {
 		return &Actions{}
 	}
 
-	return e.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyPrepareMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+	return e.checkpointWindowForSeqNo(msg.SeqNo).applyPrepareMsg(source, msg.SeqNo, BucketID(msg.Bucket), msg.Digest)
 }
 
 func (e *epoch) applyCommitMsg(source NodeID, msg *pb.Commit) *Actions {
@@ -300,10 +300,10 @@ func (e *epoch) applyCommitMsg(source NodeID, msg *pb.Commit) *Actions {
 		return &Actions{}
 	}
 
-	return e.checkpointWindowForSeqNo(SeqNo(msg.SeqNo)).applyCommitMsg(source, SeqNo(msg.SeqNo), BucketID(msg.Bucket), msg.Digest)
+	return e.checkpointWindowForSeqNo(msg.SeqNo).applyCommitMsg(source, msg.SeqNo, BucketID(msg.Bucket), msg.Digest)
 }
 
-func (e *epoch) applyCheckpointMsg(source NodeID, seqNo SeqNo, value []byte) *Actions {
+func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
 	if e.state == done {
 		return &Actions{}
 	}
@@ -327,7 +327,7 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo SeqNo, value []byte) *Ac
 			e.checkpointWindows,
 			newCheckpointWindow(
 				lastCW.end+1,
-				lastCW.end+SeqNo(e.config.networkConfig.CheckpointInterval),
+				lastCW.end+uint64(e.config.networkConfig.CheckpointInterval),
 				e.config,
 				e.myConfig,
 			),
@@ -383,7 +383,7 @@ func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Action
 	return &Actions{}
 }
 
-func (e *epoch) applyDigestResult(seqNo SeqNo, bucketID BucketID, digest []byte) *Actions {
+func (e *epoch) applyDigestResult(seqNo uint64, bucketID BucketID, digest []byte) *Actions {
 	if e.state == done {
 		return &Actions{}
 	}
@@ -391,7 +391,7 @@ func (e *epoch) applyDigestResult(seqNo SeqNo, bucketID BucketID, digest []byte)
 	return e.checkpointWindowForSeqNo(seqNo).applyDigestResult(seqNo, bucketID, digest)
 }
 
-func (e *epoch) applyValidateResult(seqNo SeqNo, bucketID BucketID, valid bool) *Actions {
+func (e *epoch) applyValidateResult(seqNo uint64, bucketID BucketID, valid bool) *Actions {
 	if e.state == done {
 		return &Actions{}
 	}
@@ -399,7 +399,7 @@ func (e *epoch) applyValidateResult(seqNo SeqNo, bucketID BucketID, valid bool) 
 	return e.checkpointWindowForSeqNo(seqNo).applyValidateResult(seqNo, bucketID, valid)
 }
 
-func (e *epoch) applyCheckpointResult(seqNo SeqNo, value []byte) *Actions {
+func (e *epoch) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
 	if e.state == done {
 		return &Actions{}
 	}
