@@ -95,19 +95,17 @@ func (p *proposer) advance(batch [][]byte) *Actions {
 			{
 				Type: &pb.Msg_Preprepare{
 					Preprepare: &pb.Preprepare{
-						Epoch:  p.epochConfig.number,
-						SeqNo:  uint64(p.nextAssigned),
-						Batch:  batch,
-						Bucket: uint64(p.ownedBuckets[p.nextBucketIndex]),
+						Epoch: p.epochConfig.number,
+						SeqNo: uint64(p.nextAssigned),
+						Batch: batch,
 					},
 				},
 			},
 		},
 	}
 
-	p.nextBucketIndex = (p.nextBucketIndex + 1) % len(p.ownedBuckets)
 	if p.nextBucketIndex == 0 {
-		p.nextAssigned++
+		p.nextAssigned = p.nextAssigned + 1
 	}
 
 	return actions

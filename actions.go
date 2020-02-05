@@ -158,8 +158,7 @@ type PreprocessResult struct {
 
 // Entry represents a log entry which may be
 type Entry struct {
-	Epoch    uint64
-	SeqNo    uint64
-	BucketID uint64
-	Batch    [][]byte
+	Epoch uint64
+	SeqNo uint64
+	Batch [][]byte
 }

@@ -51,6 +51,7 @@ var _ = Describe("Integration", func() {
 		BeforeEach(func() {
 			epochConfigVal = &epochConfig{
 				number:            3,
+				initialSequence:   1,
 				plannedExpiration: 1000000000000,
 				networkConfig: &pb.NetworkConfig{
 					CheckpointInterval: 2,
@@ -99,10 +100,9 @@ var _ = Describe("Integration", func() {
 					{
 						Type: &pb.Msg_Preprepare{
 							Preprepare: &pb.Preprepare{
-								Epoch:  3,
-								Bucket: 0,
-								SeqNo:  1,
-								Batch:  [][]byte{[]byte("data")},
+								Epoch: 3,
+								SeqNo: 1,
+								Batch: [][]byte{[]byte("data")},
 							},
 						},
 					},
@@ -118,10 +118,9 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Digest: []*Entry{
 					{
-						Epoch:    3,
-						BucketID: 0,
-						SeqNo:    1,
-						Batch:    [][]byte{[]byte("data")},
+						Epoch: 3,
+						SeqNo: 1,
+						Batch: [][]byte{[]byte("data")},
 					},
 				},
 			}))
@@ -131,10 +130,9 @@ var _ = Describe("Integration", func() {
 				Digests: []DigestResult{
 					{
 						Entry: &Entry{
-							Epoch:    3,
-							BucketID: 0,
-							SeqNo:    1,
-							Batch:    [][]byte{[]byte("data")},
+							Epoch: 3,
+							SeqNo: 1,
+							Batch: [][]byte{[]byte("data")},
 						},
 						Digest: []byte("fake-digest"),
 					},
@@ -147,7 +145,6 @@ var _ = Describe("Integration", func() {
 						Type: &pb.Msg_Commit{
 							Commit: &pb.Commit{
 								Epoch:  3,
-								Bucket: 0,
 								SeqNo:  1,
 								Digest: []byte(("fake-digest")),
 							},
@@ -165,10 +162,9 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Commit: []*Entry{
 					{
-						Epoch:    3,
-						BucketID: 0,
-						SeqNo:    1,
-						Batch:    [][]byte{[]byte("data")},
+						Epoch: 3,
+						SeqNo: 1,
+						Batch: [][]byte{[]byte("data")},
 					},
 				},
 			}))
@@ -179,9 +175,10 @@ var _ = Describe("Integration", func() {
 		BeforeEach(func() {
 			epochConfigVal = &epochConfig{
 				number:            3,
+				initialSequence:   1,
 				plannedExpiration: 1000000000000,
 				networkConfig: &pb.NetworkConfig{
-					CheckpointInterval: 2,
+					CheckpointInterval: 5,
 					F:                  1,
 					Nodes:              []uint64{0, 1, 2, 3},
 				},
@@ -245,10 +242,9 @@ var _ = Describe("Integration", func() {
 				Msg: &pb.Msg{
 					Type: &pb.Msg_Preprepare{
 						Preprepare: &pb.Preprepare{
-							Epoch:  3,
-							Bucket: 3,
-							SeqNo:  1,
-							Batch:  [][]byte{[]byte("data")},
+							Epoch: 3,
+							SeqNo: 4,
+							Batch: [][]byte{[]byte("data")},
 						},
 					},
 				},
@@ -257,10 +253,9 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Digest: []*Entry{
 					{
-						Epoch:    3,
-						BucketID: 3,
-						SeqNo:    1,
-						Batch:    [][]byte{[]byte("data")},
+						Epoch: 3,
+						SeqNo: 4,
+						Batch: [][]byte{[]byte("data")},
 					},
 				},
 			}))
@@ -270,10 +265,9 @@ var _ = Describe("Integration", func() {
 				Digests: []DigestResult{
 					{
 						Entry: &Entry{
-							Epoch:    3,
-							BucketID: 3,
-							SeqNo:    1,
-							Batch:    [][]byte{[]byte("data")},
+							Epoch: 3,
+							SeqNo: 4,
+							Batch: [][]byte{[]byte("data")},
 						},
 						Digest: []byte("fake-digest"),
 					},
@@ -283,10 +277,9 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Validate: []*Entry{
 					{
-						Epoch:    3,
-						BucketID: 3,
-						SeqNo:    1,
-						Batch:    [][]byte{[]byte("data")},
+						Epoch: 3,
+						SeqNo: 4,
+						Batch: [][]byte{[]byte("data")},
 					},
 				},
 			}))
@@ -296,10 +289,9 @@ var _ = Describe("Integration", func() {
 				Validations: []ValidateResult{
 					{
 						Entry: &Entry{
-							Epoch:    3,
-							BucketID: 3,
-							SeqNo:    1,
-							Batch:    [][]byte{[]byte("data")},
+							Epoch: 3,
+							SeqNo: 4,
+							Batch: [][]byte{[]byte("data")},
 						},
 						Valid: true,
 					},
@@ -312,8 +304,7 @@ var _ = Describe("Integration", func() {
 						Type: &pb.Msg_Prepare{
 							Prepare: &pb.Prepare{
 								Epoch:  3,
-								Bucket: 3,
-								SeqNo:  1,
+								SeqNo:  4,
 								Digest: []byte(("fake-digest")),
 							},
 						},
@@ -339,8 +330,7 @@ var _ = Describe("Integration", func() {
 						Type: &pb.Msg_Commit{
 							Commit: &pb.Commit{
 								Epoch:  3,
-								Bucket: 3,
-								SeqNo:  1,
+								SeqNo:  4,
 								Digest: []byte(("fake-digest")),
 							},
 						},
@@ -368,10 +358,9 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Commit: []*Entry{
 					{
-						Epoch:    3,
-						BucketID: 3,
-						SeqNo:    1,
-						Batch:    [][]byte{[]byte("data")},
+						Epoch: 3,
+						SeqNo: 4,
+						Batch: [][]byte{[]byte("data")},
 					},
 				},
 			}))

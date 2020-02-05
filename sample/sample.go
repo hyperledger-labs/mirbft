@@ -46,48 +46,41 @@ type Log interface {
 }
 
 type SerialCommitter struct {
-	Log                  Log
-	CurrentSeqNo         uint64
-	OutstandingSeqBucket map[uint64]map[uint64]*mirbft.Entry
+	Log                Log
+	LastCommittedSeqNo uint64
+	OutstandingSeqNos  map[uint64]*mirbft.Entry
 }
 
 func (sc *SerialCommitter) Commit(commits []*mirbft.Entry, checkpoints []uint64) []*mirbft.CheckpointResult {
 	for _, commit := range commits {
-		buckets, ok := sc.OutstandingSeqBucket[commit.SeqNo]
-		if !ok {
-			buckets = map[uint64]*mirbft.Entry{}
-			sc.OutstandingSeqBucket[commit.SeqNo] = buckets
-		}
-		buckets[commit.BucketID] = commit
+		// Note, this pattern is easy to understand, but memory inefficient.
+		// A ring buffer of size equal to the log size would produce far less
+		// garbage.
+		sc.OutstandingSeqNos[commit.SeqNo] = commit
 	}
 
 	results := []*mirbft.CheckpointResult{}
 
 	// If a checkpoint is present, then all commits prior to that seqno must be present
-	// TODO We could make commit more efficient here by passing in the number of buckets,
-	// as it stands, we are only committing at checkpoints
 	for _, checkpoint := range checkpoints {
 		for {
-			buckets := sc.OutstandingSeqBucket[sc.CurrentSeqNo]
-			for i := 0; i < len(buckets); i++ {
-				entry, ok := buckets[uint64(i)]
-				if !ok {
-					panic(fmt.Sprintf("all buckets should be populated if checkpoint requested, seqNo=%d, checkpoint=%d, bucket=%d", sc.CurrentSeqNo, checkpoint, i))
-				}
-				sc.Log.Apply(entry) // Apply the entry
+			currentSeqNo := sc.LastCommittedSeqNo + 1
+			entry, ok := sc.OutstandingSeqNos[currentSeqNo]
+			if !ok {
+				panic(fmt.Sprintf("all previous commits should be available if checkpoint requested, seqNo=%d, checkpoint=%d", currentSeqNo, checkpoint))
 			}
-			delete(sc.OutstandingSeqBucket, sc.CurrentSeqNo)
+			sc.Log.Apply(entry) // Apply the entry
+			sc.LastCommittedSeqNo = currentSeqNo
+			delete(sc.OutstandingSeqNos, currentSeqNo)
 
-			if checkpoint == sc.CurrentSeqNo {
+			if checkpoint == currentSeqNo {
 				break
 			}
-
-			sc.CurrentSeqNo++
 		}
 
 		value := sc.Log.Snap()
 		results = append(results, &mirbft.CheckpointResult{
-			SeqNo: sc.CurrentSeqNo,
+			SeqNo: sc.LastCommittedSeqNo,
 			Value: value,
 		})
 	}

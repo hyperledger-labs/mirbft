@@ -31,9 +31,8 @@ var _ = Describe("sequence", func() {
 				},
 			},
 			entry: &Entry{
-				Epoch:    4,
-				SeqNo:    5,
-				BucketID: 3,
+				Epoch: 4,
+				SeqNo: 5,
 			},
 			prepares: map[string]map[NodeID]struct{}{},
 			commits:  map[string]map[NodeID]struct{}{},
@@ -52,9 +51,8 @@ var _ = Describe("sequence", func() {
 			Expect(actions).To(Equal(&Actions{
 				Digest: []*Entry{
 					{
-						SeqNo:    5,
-						Epoch:    4,
-						BucketID: 3,
+						SeqNo: 5,
+						Epoch: 4,
 						Batch: [][]byte{
 							[]byte("msg1"),
 							[]byte("msg2"),
@@ -107,7 +105,6 @@ var _ = Describe("sequence", func() {
 							Prepare: &pb.Prepare{
 								SeqNo:  5,
 								Epoch:  4,
-								Bucket: 3,
 								Digest: []byte("digest"),
 							},
 						},
@@ -160,7 +157,6 @@ var _ = Describe("sequence", func() {
 							Commit: &pb.Commit{
 								SeqNo:  5,
 								Epoch:  4,
-								Bucket: 3,
 								Digest: []byte("digest"),
 							},
 						},

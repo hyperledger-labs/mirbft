@@ -94,11 +94,14 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 
 		switch innerMsg := msg.Type.(type) {
 		case *pb.Msg_Preprepare:
-			actions.Append(sm.activeEpoch.applyPreprepareMsg(source, innerMsg.Preprepare))
+			msg := innerMsg.Preprepare
+			actions.Append(sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
 		case *pb.Msg_Prepare:
-			actions.Append(sm.activeEpoch.applyPrepareMsg(source, innerMsg.Prepare))
+			msg := innerMsg.Prepare
+			actions.Append(sm.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
 		case *pb.Msg_Commit:
-			actions.Append(sm.activeEpoch.applyCommitMsg(source, innerMsg.Commit))
+			msg := innerMsg.Commit
+			actions.Append(sm.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
 		case *pb.Msg_Checkpoint:
 			msg := innerMsg.Checkpoint
 			actions.Append(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
@@ -176,7 +179,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			}
 			// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
 			seqNo := digestResult.Entry.SeqNo
-			actions.Append(sm.activeEpoch.applyDigestResult(seqNo, BucketID(digestResult.Entry.BucketID), digestResult.Digest))
+			actions.Append(sm.activeEpoch.applyDigestResult(seqNo, digestResult.Digest))
 			break
 		}
 	}
@@ -188,7 +191,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			}
 			// sm.myConfig.Logger.Debug("applying validate result", zap.Int("index", i))
 			seqNo := validateResult.Entry.SeqNo
-			actions.Append(sm.activeEpoch.applyValidateResult(seqNo, BucketID(validateResult.Entry.BucketID), validateResult.Valid))
+			actions.Append(sm.activeEpoch.applyValidateResult(seqNo, validateResult.Valid))
 			break
 		}
 	}
@@ -343,9 +346,6 @@ func (s *Status) Pretty() string {
 	}
 
 	for _, nodeStatus := range s.Nodes {
-
-		fmt.Printf("%+v\n\n\n", nodeStatus)
-
 		hRule()
 		buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeStatus.ID))
 		for bucket, bucketStatus := range nodeStatus.BucketStatuses {

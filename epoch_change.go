@@ -20,13 +20,8 @@ import (
 type epochChange struct {
 	underlying   *pb.EpochChange
 	lowWatermark uint64
-	pSet         map[bucketSeqNo]*pb.EpochChange_SetEntry
-	qSet         map[bucketSeqNo]map[uint64]*pb.EpochChange_SetEntry
-}
-
-type bucketSeqNo struct {
-	bucket uint64
-	seqNo  uint64
+	pSet         map[uint64]*pb.EpochChange_SetEntry
+	qSet         map[uint64]map[uint64][]byte
 }
 
 func newEpochChange(underlying *pb.EpochChange) (*epochChange, error) {
@@ -51,36 +46,27 @@ func newEpochChange(underlying *pb.EpochChange) (*epochChange, error) {
 
 	// TODO, check pSet and qSet for entries within log window relative to low watermark
 
-	pSet := map[bucketSeqNo]*pb.EpochChange_SetEntry{}
+	pSet := map[uint64]*pb.EpochChange_SetEntry{}
 	for _, entry := range underlying.PSet {
-		bsn := bucketSeqNo{
-			bucket: entry.Bucket,
-			seqNo:  entry.SeqNo,
-		}
-		if _, ok := pSet[bsn]; ok {
-			return nil, errors.Errorf("epoch change pSet contained duplicate seqnos %d for bucket %d", entry.SeqNo, entry.Bucket)
+		if _, ok := pSet[entry.SeqNo]; ok {
+			return nil, errors.Errorf("epoch change pSet contained duplicate entries for seqno=%d", entry.SeqNo)
 		}
 
-		pSet[bsn] = entry
+		pSet[entry.SeqNo] = entry
 	}
 
-	qSet := map[bucketSeqNo]map[uint64]*pb.EpochChange_SetEntry{}
+	qSet := map[uint64]map[uint64][]byte{}
 	for _, entry := range underlying.QSet {
-		bsn := bucketSeqNo{
-			bucket: entry.Bucket,
-			seqNo:  entry.SeqNo,
-		}
-
-		views, ok := qSet[bsn]
+		views, ok := qSet[entry.SeqNo]
 		if !ok {
-			views = map[uint64]*pb.EpochChange_SetEntry{}
+			views = map[uint64][]byte{}
 		}
 
 		if _, ok := views[entry.Epoch]; ok {
-			return nil, errors.Errorf("epoch change qSet contained duplicate entries for seqnos=%d bucket=%d epoch=%d", entry.SeqNo, entry.Bucket, entry.Epoch)
+			return nil, errors.Errorf("epoch change qSet contained duplicate entries for seqno=%d epoch=%d", entry.SeqNo, entry.Epoch)
 		}
 
-		views[entry.Epoch] = entry
+		views[entry.Epoch] = entry.Digest
 	}
 
 	return &epochChange{
@@ -89,22 +75,6 @@ func newEpochChange(underlying *pb.EpochChange) (*epochChange, error) {
 		pSet:         pSet,
 		qSet:         qSet,
 	}, nil
-}
-
-func (ech *epochChange) pSetByBucketSeq(bucket, seqNo uint64) (*pb.EpochChange_SetEntry, bool) {
-	entry, ok := ech.pSet[bucketSeqNo{
-		bucket: bucket,
-		seqNo:  seqNo,
-	}]
-	return entry, ok
-}
-
-func (ech *epochChange) qSetByBucketSeq(bucket, seqNo uint64) (map[uint64]*pb.EpochChange_SetEntry, bool) {
-	entry, ok := ech.qSet[bucketSeqNo{
-		bucket: bucket,
-		seqNo:  seqNo,
-	}]
-	return entry, ok
 }
 
 func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epochChange) *pb.EpochConfig {
@@ -174,7 +144,7 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 			SeqNo: maxCheckpoint.SeqNo,
 			Value: []byte(maxCheckpoint.Value),
 		},
-		FinalPreprepares: make([]*pb.EpochConfig_Bucket, len(config.buckets)),
+		FinalPreprepares: make([][]byte, config.logWidth()),
 	}
 
 	type entryKey struct {
@@ -182,106 +152,99 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 		bucket uint64
 	}
 
-	for bucketID := range newEpochConfig.FinalPreprepares {
-		digests := make([][]byte, 2*config.networkConfig.CheckpointInterval)
-		newEpochConfig.FinalPreprepares[bucketID] = &pb.EpochConfig_Bucket{
-			Digests: digests,
-		}
+	for seqNoOffset := range newEpochConfig.FinalPreprepares {
+		seqNo := uint64(seqNoOffset) + maxCheckpoint.SeqNo + 1
 
-		for seqNoOffset := range digests {
-			seqNo := uint64(seqNoOffset) + maxCheckpoint.SeqNo + 1
+		for _, nodeID := range config.networkConfig.Nodes {
+			nodeID := NodeID(nodeID)
+			// Note, it looks like we're re-implementing `range epochChanges` here,
+			// and we are, but doing so in a deterministic order.
 
-			for _, nodeID := range config.networkConfig.Nodes {
-				nodeID := NodeID(nodeID)
-				// Note, it looks like we're re-implementing `range epochChanges` here,
-				// and we are, but doing so in a deterministic order.
-
-				epochChange, ok := epochChanges[nodeID]
-				if !ok {
-					continue
-				}
-
-				entry, ok := epochChange.pSetByBucketSeq(uint64(bucketID), seqNo)
-				if !ok {
-					continue
-				}
-
-				a1Count := 0
-				for _, iEpochChange := range epochChanges {
-					if iEpochChange.lowWatermark >= seqNo {
-						continue
-					}
-
-					iEntry, ok := iEpochChange.pSetByBucketSeq(uint64(bucketID), seqNo)
-					if !ok || iEntry.Epoch < entry.Epoch {
-						a1Count++
-						continue
-					}
-
-					if iEntry.Epoch > entry.Epoch {
-						continue
-					}
-
-					// Thus, iEntry.Epoch == entry.Epoch
-
-					if bytes.Equal(entry.Digest, iEntry.Digest) {
-						a1Count++
-					}
-				}
-
-				if a1Count < config.intersectionQuorum() {
-					continue
-				}
-
-				a2Count := 0
-				for _, iEpochChange := range epochChanges {
-					viewEntries, ok := iEpochChange.qSetByBucketSeq(uint64(bucketID), seqNo)
-					if !ok {
-						continue
-					}
-
-					for view, iEntry := range viewEntries {
-						if view < entry.Epoch {
-							continue
-						}
-
-						if !bytes.Equal(entry.Digest, iEntry.Digest) {
-							continue
-						}
-
-						a2Count++
-						break
-					}
-				}
-
-				if a2Count < config.someCorrectQuorum() {
-					continue
-				}
-
-				digests[seqNoOffset] = entry.Digest
-				break
-			}
-
-			if digests[seqNoOffset] != nil {
-				// Some entry from the pSet was selected for this bucketSeq
+			epochChange, ok := epochChanges[nodeID]
+			if !ok {
 				continue
 			}
 
-			bCount := 0
-			for _, epochChange := range epochChanges {
-				if epochChange.lowWatermark >= seqNo {
+			entry, ok := epochChange.pSet[seqNo]
+			if !ok {
+				continue
+			}
+
+			a1Count := 0
+			for _, iEpochChange := range epochChanges {
+				if iEpochChange.lowWatermark >= seqNo {
 					continue
 				}
 
-				if _, ok := epochChange.pSetByBucketSeq(uint64(bucketID), seqNo); !ok {
-					bCount++
+				iEntry, ok := iEpochChange.pSet[seqNo]
+				if !ok || iEntry.Epoch < entry.Epoch {
+					a1Count++
+					continue
+				}
+
+				if iEntry.Epoch > entry.Epoch {
+					continue
+				}
+
+				// Thus, iEntry.Epoch == entry.Epoch
+
+				if bytes.Equal(entry.Digest, iEntry.Digest) {
+					a1Count++
 				}
 			}
 
-			if bCount < config.intersectionQuorum() {
-				// We could not satisfy condition A, or B, we need to wait
-				return nil
+			if a1Count < config.intersectionQuorum() {
+				continue
 			}
+
+			a2Count := 0
+			for _, iEpochChange := range epochChanges {
+				epochEntries, ok := iEpochChange.qSet[seqNo]
+				if !ok {
+					continue
+				}
+
+				for epoch, digest := range epochEntries {
+					if epoch < entry.Epoch {
+						continue
+					}
+
+					if !bytes.Equal(entry.Digest, digest) {
+						continue
+					}
+
+					a2Count++
+					break
+				}
+			}
+
+			if a2Count < config.someCorrectQuorum() {
+				continue
+			}
+
+			newEpochConfig.FinalPreprepares[seqNoOffset] = entry.Digest
+			break
+		}
+
+		if newEpochConfig.FinalPreprepares[seqNoOffset] != nil {
+			// Some entry from the pSet was selected for this bucketSeq
+			continue
+		}
+
+		bCount := 0
+		for _, epochChange := range epochChanges {
+			if epochChange.lowWatermark >= seqNo {
+				continue
+			}
+
+			if _, ok := epochChange.pSet[seqNo]; !ok {
+				bCount++
+			}
+		}
+
+		if bCount < config.intersectionQuorum() {
+			// We could not satisfy condition A, or B, we need to wait
+			return nil
 		}
 	}
 

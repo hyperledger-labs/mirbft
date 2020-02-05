@@ -27,6 +27,7 @@ type nodeMsgs struct {
 	id             NodeID
 	oddities       *oddities
 	buffer         map[*pb.Msg]struct{} // TODO, this could be much better optimized via a ring buffer
+	epochConfig    *epochConfig
 	epochMsgs      *epochMsgs
 	nextCheckpoint uint64
 }
@@ -47,21 +48,19 @@ type nextMsg struct {
 }
 
 func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config, oddities *oddities) *nodeMsgs {
-	em := newEpochMsgs(nodeID, epochConfig)
+	em := newEpochMsgs(nodeID, epochConfig, myConfig)
 	return &nodeMsgs{
 		id:        nodeID,
 		oddities:  oddities,
 		epochMsgs: em,
 
+		epochConfig: epochConfig,
+
 		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 		// XXX we should initialize this properly, sort of like the above
-		nextCheckpoint: uint64(epochConfig.networkConfig.CheckpointInterval),
+		nextCheckpoint: uint64(epochConfig.networkConfig.CheckpointInterval) / uint64(len(epochConfig.buckets)),
 		buffer:         map[*pb.Msg]struct{}{},
 	}
-}
-
-func (n *nodeMsgs) newEpoch(epochConfig *epochConfig) {
-	n.epochMsgs = newEpochMsgs(n.id, epochConfig)
 }
 
 // ingest the message for management by the nodeMsgs.  This message
@@ -132,16 +131,16 @@ func (n *nodeMsgs) next() *pb.Msg {
 
 func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	switch {
-	case n.nextCheckpoint > msg.SeqNo:
+	case n.nextCheckpoint > n.epochConfig.seqToColumn(msg.SeqNo):
 		return past
-	case n.nextCheckpoint == msg.SeqNo:
+	case n.nextCheckpoint == n.epochConfig.seqToColumn(msg.SeqNo):
 		for _, next := range n.epochMsgs.next {
-			if next.commit < msg.SeqNo {
+			if next.commit < n.epochConfig.seqToColumn(msg.SeqNo) {
 				return future
 			}
 		}
 
-		n.nextCheckpoint = msg.SeqNo + uint64(n.epochMsgs.epochConfig.networkConfig.CheckpointInterval)
+		n.nextCheckpoint = n.epochConfig.seqToColumn(msg.SeqNo) + uint64(n.epochConfig.networkConfig.CheckpointInterval)/uint64(len(n.epochConfig.buckets))
 		return current
 	default:
 		return future
@@ -154,7 +153,7 @@ func (n *nodeMsgs) moveWatermarks() {
 	// but deleted to refactor
 }
 
-func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig) *epochMsgs {
+func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
 	for bucketID, leaderID := range epochConfig.buckets {
 		next[bucketID] = &nextMsg{
@@ -167,6 +166,7 @@ func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig) *epochMsgs {
 		}
 	}
 	return &epochMsgs{
+		myConfig:    myConfig,
 		epochConfig: epochConfig,
 		next:        next,
 	}
@@ -194,7 +194,7 @@ func (n *epochMsgs) process(outerMsg *pb.Msg) applyable {
 }
 
 func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
-	next, ok := n.next[BucketID(msg.Bucket)]
+	next, ok := n.next[n.epochConfig.seqToBucket(msg.SeqNo)]
 	if !ok {
 		return invalid
 	}
@@ -202,10 +202,10 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 	switch {
 	case !next.leader:
 		return invalid
-	case next.prepare > msg.SeqNo:
+	case next.prepare > n.epochConfig.seqToColumn(msg.SeqNo):
 		return past
-	case next.prepare == msg.SeqNo:
-		next.prepare = msg.SeqNo + 1
+	case next.prepare == n.epochConfig.seqToColumn(msg.SeqNo):
+		next.prepare++
 		return current
 	default:
 		return future
@@ -213,7 +213,7 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 }
 
 func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
-	next, ok := n.next[BucketID(msg.Bucket)]
+	next, ok := n.next[n.epochConfig.seqToBucket(msg.SeqNo)]
 	if !ok {
 		return invalid
 	}
@@ -221,10 +221,10 @@ func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
 	switch {
 	case next.leader:
 		return invalid
-	case next.prepare > msg.SeqNo:
+	case next.prepare > n.epochConfig.seqToColumn(msg.SeqNo):
 		return past
-	case next.prepare == msg.SeqNo:
-		next.prepare = msg.SeqNo + 1
+	case next.prepare == n.epochConfig.seqToColumn(msg.SeqNo):
+		next.prepare++
 		return current
 	default:
 		return future
@@ -232,16 +232,16 @@ func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
 }
 
 func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
-	next, ok := n.next[BucketID(msg.Bucket)]
+	next, ok := n.next[n.epochConfig.seqToBucket(msg.SeqNo)]
 	if !ok {
 		return invalid
 	}
 
 	switch {
-	case next.commit > msg.SeqNo:
+	case next.commit > n.epochConfig.seqToColumn(msg.SeqNo):
 		return past
-	case next.commit == msg.SeqNo && next.prepare > next.commit:
-		next.commit = msg.SeqNo + 1
+	case next.commit == n.epochConfig.seqToColumn(msg.SeqNo) && next.prepare > next.commit:
+		next.commit++
 		return current
 	default:
 		return future

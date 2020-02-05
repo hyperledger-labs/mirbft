@@ -52,22 +52,19 @@ message Msg {
 message Preprepare {
     uint64 seq_no = 1;
     uint64 epoch = 2;
-    uint64 bucket = 3;
-    repeated bytes batch = 4;
+    repeated bytes batch = 3;
 }
 
 message Prepare {
     uint64 seq_no = 1;
     uint64 epoch = 2;
-    uint64 bucket = 3;
-    bytes digest = 4;
+    bytes digest = 3;
 }
 
 message Commit {
     uint64 seq_no = 1;
     uint64 epoch = 2;
-    uint64 bucket = 3;
-    bytes digest = 4;
+    bytes digest = 3;
 }
 
 message Checkpoint {
@@ -103,10 +100,9 @@ message EpochChange {
     repeated Checkpoint checkpoints = 3;
 
     message SetEntry {
-        uint64 bucket = 1;
-        uint64 epoch = 2;
-        uint64 seq_no = 3;
-        bytes digest = 4;
+        uint64 epoch = 1;
+        uint64 seq_no = 2;
+        bytes digest = 3;
     }
 
     // p_set contains the entries for the P-set as defined by the classical
@@ -127,18 +123,14 @@ message EpochConfig {
     repeated uint64 leaders = 3;
 
     message Bucket {
-         // digests is indexed by sequence number offset by the
-         // starting_checkpoint seq_no. An empty digest corresponds
-         // to a null request.
          repeated bytes digests = 1;
     }
 
     // final_preprepares finalizes the last checkpoint window or windows
-    // which some correct replica preprepared a sequence in.  Notably
-    // the bucket configuration is derived from the last active epoch.
-    // By active epoch, we mean any epoch for which some correct replica
-    // prepared a request.
-    repeated Bucket final_preprepares = 4;
+    // which some correct replica preprepared a sequence in. The entries are
+    // digests indexed by sequence number offset by the starting_checkpoint
+    // seq_no. An empty digest corresponds to a null request.
+    repeated bytes final_preprepares = 4;
 }
 
 // NewEpoch is akin to the NewView message in classical PBFT and follows the same

@@ -76,11 +76,12 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 		s: newSerializer(
 			newStateMachine(
 				&epochConfig{
-					number: 0,
+					number:          0,
+					initialSequence: 1,
 					networkConfig: &pb.NetworkConfig{
 						Nodes:              nodes,
 						F:                  int32(f),
-						CheckpointInterval: 5,
+						CheckpointInterval: int32(5 * len(nodes)),
 					},
 					plannedExpiration: 10000000000000,
 					buckets:           buckets,

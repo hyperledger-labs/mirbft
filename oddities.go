@@ -7,16 +7,17 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"fmt"
+
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"go.uber.org/zap"
 )
 
 const (
-	SeqNoLog    = "SeqNo"
-	EpochLog    = "Epoch"
-	NodeIDLog   = "NodeID"
-	BucketIDLog = "BucketID"
-	MsgTypeLog  = "MsgType"
+	SeqNoLog   = "SeqNo"
+	EpochLog   = "Epoch"
+	NodeIDLog  = "NodeID"
+	MsgTypeLog = "MsgType"
 )
 
 func logBasics(source NodeID, msg *pb.Msg) []zap.Field {
@@ -25,12 +26,17 @@ func logBasics(source NodeID, msg *pb.Msg) []zap.Field {
 	}
 
 	switch innerMsg := msg.Type.(type) {
+	case *pb.Msg_EpochChange:
+		msg := innerMsg.EpochChange
+		fields = append(fields,
+			zap.String(MsgTypeLog, "epochchange"),
+			zap.Uint64(EpochLog, msg.NewEpoch),
+		)
 	case *pb.Msg_Preprepare:
 		msg := innerMsg.Preprepare
 		fields = append(fields,
 			zap.String(MsgTypeLog, "preprepare"),
 			zap.Uint64(SeqNoLog, msg.SeqNo),
-			zap.Uint64(BucketIDLog, msg.Bucket),
 			zap.Uint64(EpochLog, msg.Epoch),
 		)
 	case *pb.Msg_Prepare:
@@ -38,7 +44,6 @@ func logBasics(source NodeID, msg *pb.Msg) []zap.Field {
 		fields = append(fields,
 			zap.String(MsgTypeLog, "prepare"),
 			zap.Uint64(SeqNoLog, msg.SeqNo),
-			zap.Uint64(BucketIDLog, msg.Bucket),
 			zap.Uint64(EpochLog, msg.Epoch),
 		)
 	case *pb.Msg_Commit:
@@ -46,7 +51,6 @@ func logBasics(source NodeID, msg *pb.Msg) []zap.Field {
 		fields = append(fields,
 			zap.String(MsgTypeLog, "commit"),
 			zap.Uint64(SeqNoLog, msg.SeqNo),
-			zap.Uint64(BucketIDLog, msg.Bucket),
 			zap.Uint64(EpochLog, msg.Epoch),
 		)
 	case *pb.Msg_Checkpoint:
@@ -59,12 +63,11 @@ func logBasics(source NodeID, msg *pb.Msg) []zap.Field {
 		msg := innerMsg.Forward
 		fields = append(fields,
 			zap.String(MsgTypeLog, "checkpoint"),
-			zap.Uint64(BucketIDLog, msg.Bucket),
 			zap.Uint64(EpochLog, msg.Epoch),
 		)
 	default:
 		fields = append(fields,
-			zap.String(MsgTypeLog, "unknown"),
+			zap.String(MsgTypeLog, fmt.Sprintf("%T", msg.Type)),
 		)
 	}
 
@@ -85,7 +88,6 @@ type oddity struct {
 	// aboveWatermarks uint64
 	// belowWatermarks uint64
 	// wrongEpoch      uint64
-	// badBucket       uint64
 }
 
 func (o *oddities) getNode(nodeID NodeID) *oddity {
@@ -102,7 +104,7 @@ func (o *oddities) getNode(nodeID NodeID) *oddity {
 }
 
 func (o *oddities) alreadyProcessed(source NodeID, msg *pb.Msg) {
-	o.logger.Warn("already processed message", logBasics(source, msg)...)
+	o.logger.Debug("already processed message", logBasics(source, msg)...)
 	o.getNode(source).alreadyProcessed++
 }
 
@@ -117,10 +119,6 @@ func (o *oddities) belowWatermarks(source NodeID, msg *pb.Msg) {
 	o.getNode(source).belowWatermarks++
 }
 
-func (o *oddities) badBucket(source NodeID, msg *pb.Msg) {
-	o.logger.Warn("received message for bad bucket", logBasics(source, msg)...)
-	o.getNode(source).badBucket++
-}
 */
 
 func (o *oddities) invalidMessage(source NodeID, msg *pb.Msg) {

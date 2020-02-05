@@ -23,6 +23,8 @@ type bucket struct {
 	ticksSinceProgress int
 
 	// sequences are the current active sequence numbers in this bucket
+	// it is indexed by column, where column is derived from sequence
+	// and bucketID
 	sequences map[uint64]*sequence
 }
 
@@ -46,13 +48,13 @@ func (b *bucket) iAmLeader() bool {
 	return b.leader == NodeID(b.myConfig.ID)
 }
 
-func (b *bucket) applyPreprepareMsg(seqNo uint64, batch [][]byte) *Actions {
+func (b *bucket) applyPreprepareMsg(column uint64, batch [][]byte) *Actions {
 	b.ticksSinceProgress = 0
-	return b.sequences[seqNo].applyPreprepareMsg(batch)
+	return b.sequences[column].applyPreprepareMsg(batch)
 }
 
-func (b *bucket) applyDigestResult(seqNo uint64, digest []byte) *Actions {
-	s := b.sequences[seqNo]
+func (b *bucket) applyDigestResult(column uint64, digest []byte) *Actions {
+	s := b.sequences[column]
 	actions := s.applyDigestResult(digest)
 	if b.iAmLeader() {
 		// We are the leader, no need to check ourselves for byzantine behavior
@@ -63,8 +65,8 @@ func (b *bucket) applyDigestResult(seqNo uint64, digest []byte) *Actions {
 	return actions
 }
 
-func (b *bucket) applyValidateResult(seqNo uint64, valid bool) *Actions {
-	s := b.sequences[seqNo]
+func (b *bucket) applyValidateResult(column uint64, valid bool) *Actions {
+	s := b.sequences[column]
 	actions := s.applyValidateResult(valid)
 	if !b.iAmLeader() {
 		// We are not the leader, so let's apply a virtual prepare from
@@ -74,14 +76,14 @@ func (b *bucket) applyValidateResult(seqNo uint64, valid bool) *Actions {
 	return actions
 }
 
-func (b *bucket) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
+func (b *bucket) applyPrepareMsg(source NodeID, column uint64, digest []byte) *Actions {
 	b.ticksSinceProgress = 0
-	return b.sequences[seqNo].applyPrepareMsg(source, digest)
+	return b.sequences[column].applyPrepareMsg(source, digest)
 }
 
-func (b *bucket) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
+func (b *bucket) applyCommitMsg(source NodeID, column uint64, digest []byte) *Actions {
 	b.ticksSinceProgress = 0
-	return b.sequences[seqNo].applyCommitMsg(source, digest)
+	return b.sequences[column].applyCommitMsg(source, digest)
 }
 
 func (b *bucket) tick() *Actions {

@@ -46,9 +46,8 @@ func newSequence(epochConfig *epochConfig, myConfig *Config, number uint64, buck
 		myConfig:    myConfig,
 		epochConfig: epochConfig,
 		entry: &Entry{
-			Epoch:    epochConfig.number,
-			SeqNo:    uint64(number),
-			BucketID: uint64(bucket),
+			Epoch: epochConfig.number,
+			SeqNo: uint64(number),
 		},
 		state:    Uninitialized,
 		prepares: map[string]map[NodeID]struct{}{},
@@ -61,7 +60,7 @@ func newSequence(epochConfig *epochConfig, myConfig *Config, number uint64, buck
 // It transitions to Preprepared and returns a ValidationRequest message.
 func (s *sequence) applyPreprepareMsg(batch [][]byte) *Actions {
 	if s.state != Uninitialized {
-		s.myConfig.Logger.Panic("illegal state for preprepare", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(BucketIDLog, s.entry.BucketID), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Uninitialized)))
+		s.myConfig.Logger.Panic("illegal state for preprepare", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Uninitialized)))
 	}
 
 	s.state = Preprepared
@@ -74,7 +73,7 @@ func (s *sequence) applyPreprepareMsg(batch [][]byte) *Actions {
 
 func (s *sequence) applyDigestResult(digest []byte) *Actions {
 	if s.state != Preprepared {
-		s.myConfig.Logger.Panic("illegal state for digest result", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(BucketIDLog, s.entry.BucketID), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Preprepared)))
+		s.myConfig.Logger.Panic("illegal state for digest result", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Preprepared)))
 	}
 
 	s.state = Digested
@@ -87,7 +86,7 @@ func (s *sequence) applyDigestResult(digest []byte) *Actions {
 
 func (s *sequence) applyValidateResult(valid bool) *Actions {
 	if s.state != Digested {
-		s.myConfig.Logger.Panic("illegal state for validate result", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(BucketIDLog, s.entry.BucketID), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Digested)))
+		s.myConfig.Logger.Panic("illegal state for validate result", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Digested)))
 	}
 
 	if !valid {
@@ -105,7 +104,6 @@ func (s *sequence) applyValidateResult(valid bool) *Actions {
 					Prepare: &pb.Prepare{
 						SeqNo:  s.entry.SeqNo,
 						Epoch:  s.entry.Epoch,
-						Bucket: s.entry.BucketID,
 						Digest: s.digest,
 					},
 				},
@@ -148,7 +146,6 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 					Commit: &pb.Commit{
 						SeqNo:  s.entry.SeqNo,
 						Epoch:  s.entry.Epoch,
-						Bucket: s.entry.BucketID,
 						Digest: s.digest,
 					},
 				},

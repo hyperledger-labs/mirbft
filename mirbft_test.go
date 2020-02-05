@@ -83,7 +83,7 @@ var _ = Describe("MirBFT", func() {
 				}
 
 				msgNo := binary.LittleEndian.Uint64(entry.Batch[0])
-				Expect(msgNo % uint64(nodeCount)).To(Equal(entry.BucketID))
+				Expect(msgNo).To(Equal(entry.SeqNo - 1))
 
 				_, ok := observations[msgNo]
 				Expect(ok).To(BeFalse())
@@ -92,7 +92,7 @@ var _ = Describe("MirBFT", func() {
 		}
 	},
 		Entry("SingleNode", 1),
-		Entry("ThreeNodeCFT", 3),
+		PEntry("ThreeNodeCFT", 3),
 		Entry("FourNodeBFT", 4),
 		PEntry("FourNodeBFT with fault", 4, BrokenLinks(map[uint64]map[uint64]struct{}{
 			2: {0: struct{}{}, 1: struct{}{}, 3: struct{}{}},
@@ -218,8 +218,8 @@ func CreateNetwork(nodeCount int, logger *zap.Logger, doneC <-chan struct{}) *Ne
 			Validator: sample.ValidatorFunc(func([]byte) error { return nil }),
 			Hasher:    sample.HasherFunc(func(data []byte) []byte { return data }),
 			Committer: &sample.SerialCommitter{
-				Log:                  fakeLog,
-				OutstandingSeqBucket: map[uint64]map[uint64]*mirbft.Entry{},
+				Log:               fakeLog,
+				OutstandingSeqNos: map[uint64]*mirbft.Entry{},
 			},
 			DoneC: doneC,
 		}

@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"bytes"
+
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
@@ -47,60 +48,31 @@ func newCheckpointWindow(start, end uint64, config *epochConfig, myConfig *Confi
 	}
 }
 
-func (cw *checkpointWindow) clone() *checkpointWindow {
-	ncw := &checkpointWindow{
-		start:              cw.start,
-		end:                cw.end,
-		epochConfig:        cw.epochConfig,
-		buckets:            map[BucketID]*bucket{},
-		outstandingBuckets: map[BucketID]struct{}{},
-		values:             map[string][]NodeID{},
-		committedValue:     append([]byte{}, cw.committedValue...),
-		myValue:            append([]byte{}, cw.myValue...),
-		garbageCollectible: cw.garbageCollectible,
-		obsolete:           cw.obsolete,
-	}
-
-	for bucketID, bucket := range cw.buckets {
-		ncw.buckets[bucketID] = bucket // XXX, this should be .Clone()
-	}
-
-	for bucketID := range cw.outstandingBuckets {
-		ncw.outstandingBuckets[bucketID] = struct{}{}
-	}
-
-	for value, nodes := range cw.values {
-		ncw.values[value] = append([]NodeID{}, nodes...)
-	}
-
-	return ncw
+func (cw *checkpointWindow) applyPreprepareMsg(source NodeID, column uint64, bucket BucketID, batch [][]byte) *Actions {
+	return cw.buckets[bucket].applyPreprepareMsg(column, batch)
 }
 
-func (cw *checkpointWindow) applyPreprepareMsg(source NodeID, seqNo uint64, bucket BucketID, batch [][]byte) *Actions {
-	return cw.buckets[bucket].applyPreprepareMsg(seqNo, batch)
+func (cw *checkpointWindow) applyPrepareMsg(source NodeID, column uint64, bucket BucketID, digest []byte) *Actions {
+	return cw.buckets[bucket].applyPrepareMsg(source, column, digest)
 }
 
-func (cw *checkpointWindow) applyPrepareMsg(source NodeID, seqNo uint64, bucket BucketID, digest []byte) *Actions {
-	return cw.buckets[bucket].applyPrepareMsg(source, seqNo, digest)
-}
-
-func (cw *checkpointWindow) applyCommitMsg(source NodeID, seqNo uint64, bucket BucketID, digest []byte) *Actions {
-	actions := cw.buckets[bucket].applyCommitMsg(source, seqNo, digest)
+func (cw *checkpointWindow) applyCommitMsg(source NodeID, column uint64, bucket BucketID, digest []byte) *Actions {
+	actions := cw.buckets[bucket].applyCommitMsg(source, column, digest)
 	// XXX this is a moderately hacky way to determine if this commit msg triggered
 	// a commit, is there a better way?
-	if len(actions.Commit) > 0 && seqNo == cw.end {
+	if len(actions.Commit) > 0 && column == cw.end {
 		actions.Append(cw.committed(bucket))
 	}
 	return actions
 
 }
 
-func (cw *checkpointWindow) applyDigestResult(seqNo uint64, bucket BucketID, digest []byte) *Actions {
-	return cw.buckets[bucket].applyDigestResult(seqNo, digest)
+func (cw *checkpointWindow) applyDigestResult(column uint64, bucket BucketID, digest []byte) *Actions {
+	return cw.buckets[bucket].applyDigestResult(column, digest)
 }
 
-func (cw *checkpointWindow) applyValidateResult(seqNo uint64, bucket BucketID, valid bool) *Actions {
-	return cw.buckets[bucket].applyValidateResult(seqNo, valid)
+func (cw *checkpointWindow) applyValidateResult(column uint64, bucket BucketID, valid bool) *Actions {
+	return cw.buckets[bucket].applyValidateResult(column, valid)
 }
 
 func (cw *checkpointWindow) committed(bucket BucketID) *Actions {
@@ -186,7 +158,7 @@ type CheckpointStatus struct {
 
 func (cw *checkpointWindow) status() *CheckpointStatus {
 	return &CheckpointStatus{
-		SeqNo:          uint64(cw.end),
+		SeqNo:          cw.end,
 		PendingCommits: len(cw.outstandingBuckets),
 		NetQuorum:      cw.committedValue != nil,
 		LocalAgreement: cw.committedValue != nil && bytes.Equal(cw.committedValue, cw.myValue),
