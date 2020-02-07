@@ -101,12 +101,14 @@ type epoch struct {
 	changes map[NodeID]*epochChange
 
 	suspicions map[NodeID]struct{}
-
-	isLeader bool
+	isLeader   bool
 
 	sequences []*sequence
 
 	lowestUncommitted int
+
+	lastCommittedAtTick uint64
+	ticksSinceProgress  int
 
 	checkpointWindows []*checkpointWindow
 
@@ -661,8 +663,24 @@ func (e *epoch) tickActive() *Actions {
 		actions.Append(e.proposer.noopAdvance())
 	}
 
-	for _, cw := range e.checkpointWindows {
-		actions.Append(cw.tick())
+	if e.sequences[e.lowestUncommitted].entry.SeqNo == e.lastCommittedAtTick+1 {
+		e.ticksSinceProgress++
+		if e.ticksSinceProgress > e.myConfig.SuspectTicks {
+			return &Actions{
+				Broadcast: []*pb.Msg{
+					{
+						Type: &pb.Msg_Suspect{
+							Suspect: &pb.Suspect{
+								Epoch: e.config.number,
+							},
+						},
+					},
+				},
+			}
+		}
+		return &Actions{}
+	} else {
+		e.ticksSinceProgress = 0
 	}
 
 	return actions
@@ -693,26 +711,24 @@ func (e *epoch) constructEpochChange() *pb.EpochChange {
 			Value: cw.myValue,
 		})
 
-		for _, bucket := range cw.buckets {
-			for seqNo, seq := range bucket.sequences {
-				if seq.state < Validated {
-					continue
-				}
-
-				entry := &pb.EpochChange_SetEntry{
-					Epoch:  e.config.number,
-					SeqNo:  seqNo,
-					Digest: seq.digest,
-				}
-
-				epochChange.QSet = append(epochChange.QSet, entry)
-
-				if seq.state < Prepared {
-					continue
-				}
-
-				epochChange.PSet = append(epochChange.PSet, entry)
+		for _, seq := range e.sequences {
+			if seq.state < Validated {
+				continue
 			}
+
+			entry := &pb.EpochChange_SetEntry{
+				Epoch:  e.config.number,
+				SeqNo:  seq.entry.SeqNo,
+				Digest: seq.digest,
+			}
+
+			epochChange.QSet = append(epochChange.QSet, entry)
+
+			if seq.state < Prepared {
+				continue
+			}
+
+			epochChange.PSet = append(epochChange.PSet, entry)
 		}
 	}
 

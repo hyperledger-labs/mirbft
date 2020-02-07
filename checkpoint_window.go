@@ -18,9 +18,6 @@ type checkpointWindow struct {
 	myConfig    *Config
 	epochConfig *epochConfig
 
-	buckets map[BucketID]*bucket
-
-	outstandingBuckets map[BucketID]struct{}
 	values             map[string][]NodeID
 	committedValue     []byte
 	myValue            []byte
@@ -29,59 +26,12 @@ type checkpointWindow struct {
 }
 
 func newCheckpointWindow(start, end uint64, config *epochConfig, myConfig *Config) *checkpointWindow {
-	outstandingBuckets := map[BucketID]struct{}{}
-
-	buckets := map[BucketID]*bucket{}
-	for bucketID := range config.buckets {
-		outstandingBuckets[bucketID] = struct{}{}
-		buckets[bucketID] = newBucket(start, end, config, myConfig, bucketID)
-	}
-
 	return &checkpointWindow{
-		start:              start,
-		end:                end,
-		epochConfig:        config,
-		myConfig:           myConfig,
-		outstandingBuckets: outstandingBuckets,
-		buckets:            buckets,
-		values:             map[string][]NodeID{},
-	}
-}
-
-func (cw *checkpointWindow) applyPreprepareMsg(source NodeID, column uint64, bucket BucketID, batch [][]byte) *Actions {
-	return cw.buckets[bucket].applyPreprepareMsg(column, batch)
-}
-
-func (cw *checkpointWindow) applyPrepareMsg(source NodeID, column uint64, bucket BucketID, digest []byte) *Actions {
-	return cw.buckets[bucket].applyPrepareMsg(source, column, digest)
-}
-
-func (cw *checkpointWindow) applyCommitMsg(source NodeID, column uint64, bucket BucketID, digest []byte) *Actions {
-	actions := cw.buckets[bucket].applyCommitMsg(source, column, digest)
-	// XXX this is a moderately hacky way to determine if this commit msg triggered
-	// a commit, is there a better way?
-	if len(actions.Commit) > 0 && column == cw.end {
-		actions.Append(cw.committed(bucket))
-	}
-	return actions
-
-}
-
-func (cw *checkpointWindow) applyDigestResult(column uint64, bucket BucketID, digest []byte) *Actions {
-	return cw.buckets[bucket].applyDigestResult(column, digest)
-}
-
-func (cw *checkpointWindow) applyValidateResult(column uint64, bucket BucketID, valid bool) *Actions {
-	return cw.buckets[bucket].applyValidateResult(column, valid)
-}
-
-func (cw *checkpointWindow) committed(bucket BucketID) *Actions {
-	delete(cw.outstandingBuckets, bucket)
-	if len(cw.outstandingBuckets) > 0 {
-		return &Actions{}
-	}
-	return &Actions{
-		Checkpoint: []uint64{uint64(cw.end)},
+		start:       start,
+		end:         end,
+		epochConfig: config,
+		myConfig:    myConfig,
+		values:      map[string][]NodeID{},
 	}
 }
 
@@ -141,14 +91,6 @@ func (cw *checkpointWindow) applyCheckpointResult(value []byte) *Actions {
 	}
 }
 
-func (cw *checkpointWindow) tick() *Actions {
-	actions := &Actions{}
-	for _, bucket := range cw.buckets {
-		actions.Append(bucket.tick())
-	}
-	return actions
-}
-
 type CheckpointStatus struct {
 	SeqNo          uint64
 	PendingCommits int
@@ -158,8 +100,8 @@ type CheckpointStatus struct {
 
 func (cw *checkpointWindow) status() *CheckpointStatus {
 	return &CheckpointStatus{
-		SeqNo:          cw.end,
-		PendingCommits: len(cw.outstandingBuckets),
+		SeqNo: cw.end,
+		// XXX, populate pending commits
 		NetQuorum:      cw.committedValue != nil,
 		LocalAgreement: cw.committedValue != nil && bytes.Equal(cw.committedValue, cw.myValue),
 	}
