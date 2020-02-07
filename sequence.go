@@ -41,17 +41,14 @@ type sequence struct {
 	commits  map[string]map[NodeID]struct{}
 }
 
-func newSequence(epochConfig *epochConfig, myConfig *Config, number uint64, bucket BucketID) *sequence {
+func newSequence(epochConfig *epochConfig, myConfig *Config, entry *Entry) *sequence {
 	return &sequence{
 		myConfig:    myConfig,
 		epochConfig: epochConfig,
-		entry: &Entry{
-			Epoch: epochConfig.number,
-			SeqNo: uint64(number),
-		},
-		state:    Uninitialized,
-		prepares: map[string]map[NodeID]struct{}{},
-		commits:  map[string]map[NodeID]struct{}{},
+		entry:       entry,
+		state:       Uninitialized,
+		prepares:    map[string]map[NodeID]struct{}{},
+		commits:     map[string]map[NodeID]struct{}{},
 	}
 }
 

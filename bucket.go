@@ -31,7 +31,10 @@ type bucket struct {
 func newBucket(start, end uint64, config *epochConfig, myConfig *Config, bucketID BucketID) *bucket {
 	sequences := map[uint64]*sequence{}
 	for seqNo := start; seqNo <= end; seqNo++ {
-		sequences[seqNo] = newSequence(config, myConfig, seqNo, bucketID)
+		sequences[seqNo] = newSequence(config, myConfig, &Entry{
+			SeqNo: seqNo,
+			Epoch: config.number,
+		})
 	}
 	return &bucket{
 		myConfig:    myConfig,

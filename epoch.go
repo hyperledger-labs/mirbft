@@ -37,7 +37,7 @@ func (ec *epochConfig) intersectionQuorum() int {
 	return (len(ec.networkConfig.Nodes) + int(ec.networkConfig.F) + 2) / 2
 }
 
-// weakQuorum is f+1
+// someCorrectQuorum is the number of nodes such that at least one of them is correct
 func (ec *epochConfig) someCorrectQuorum() int {
 	return int(ec.networkConfig.F) + 1
 }
@@ -48,6 +48,10 @@ func (ec *epochConfig) seqToBucket(seqNo uint64) BucketID {
 
 func (ec *epochConfig) seqToColumn(seqNo uint64) uint64 {
 	return (seqNo-uint64(ec.initialSequence))/uint64(len(ec.buckets)) + 1
+}
+
+func (ec *epochConfig) seqToBucketColumn(seqNo uint64) (BucketID, uint64) {
+	return ec.seqToBucket(seqNo), ec.seqToColumn(seqNo)
 }
 
 func (ec *epochConfig) colBucketToSeq(column uint64, bucket BucketID) uint64 {
@@ -98,6 +102,8 @@ type epoch struct {
 
 	isLeader bool
 
+	sequences []*sequence
+
 	checkpointWindows []*checkpointWindow
 
 	baseCheckpoint *pb.Checkpoint
@@ -107,6 +113,7 @@ type epoch struct {
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
 func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Config) *epoch {
+
 	proposer := newProposer(config, myConfig)
 	proposer.maxAssignable = baseCheckpoint.SeqNo
 
@@ -123,6 +130,14 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Conf
 		checkpointWindows = append(checkpointWindows, newCheckpointWindow(firstEnd+1, secondEnd, config, myConfig))
 	}
 
+	sequences := make([]*sequence, config.logWidth())
+	for i := range sequences {
+		sequences[i] = newSequence(config, myConfig, &Entry{
+			Epoch: config.number,
+			SeqNo: baseCheckpoint.SeqNo + 1 + uint64(i),
+		})
+	}
+
 	return &epoch{
 		baseCheckpoint:    baseCheckpoint,
 		myConfig:          myConfig,
@@ -134,6 +149,7 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Conf
 		checkpointWindows: checkpointWindows,
 		proposer:          proposer,
 		isLeader:          config.number%uint64(len(config.networkConfig.Nodes)) == myConfig.ID,
+		sequences:         sequences,
 	}
 }
 
@@ -314,20 +330,16 @@ func (e *epoch) hackyMangle(bucket BucketID, actions *Actions) *Actions {
 		}
 	}
 
-	for i, entry := range actions.Digest {
-		nEntry := *entry
-		nEntry.SeqNo = e.config.colBucketToSeq(entry.SeqNo, bucket)
-		actions.Digest[i] = &nEntry
-	}
-
 	for i, entry := range actions.Validate {
 		nEntry := *entry
 		nEntry.SeqNo = e.config.colBucketToSeq(entry.SeqNo, bucket)
 		actions.Validate[i] = &nEntry
 	}
 
-	for _, entry := range actions.Commit {
-		entry.SeqNo = e.config.colBucketToSeq(entry.SeqNo, bucket)
+	for i, entry := range actions.Commit {
+		nEntry := *entry
+		nEntry.SeqNo = e.config.colBucketToSeq(entry.SeqNo, bucket)
+		actions.Commit[i] = &nEntry
 	}
 
 	for i, number := range actions.Checkpoint {
@@ -342,13 +354,17 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch [][]byte) 
 		return &Actions{}
 	}
 
-	return e.hackyMangle(e.config.seqToBucket(seqNo),
-		e.checkpointWindowForSeqNo(seqNo).applyPreprepareMsg(
-			source,
-			e.config.seqToColumn(seqNo),
-			e.config.seqToBucket(seqNo),
-			batch,
-		))
+	bucket, col := e.config.seqToBucketColumn(seqNo)
+
+	_ = e.checkpointWindowForSeqNo(seqNo).applyPreprepareMsg(
+		source,
+		col,
+		bucket,
+		batch,
+	)
+
+	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	return e.sequences[offset].applyPreprepareMsg(batch)
 }
 
 func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
@@ -396,9 +412,17 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 	}
 
 	secondToLastCW := e.checkpointWindows[len(e.checkpointWindows)-2]
+	ci := int(e.config.networkConfig.CheckpointInterval)
 
 	if secondToLastCW.garbageCollectible {
 		e.proposer.maxAssignable = lastCW.end
+		for i := 0; i < ci; i++ {
+			entry := &Entry{
+				SeqNo: lastCW.end*uint64(len(e.config.buckets)) + uint64(i) + 1,
+				Epoch: e.config.number,
+			}
+			e.sequences = append(e.sequences, newSequence(e.config, e.myConfig, entry))
+		}
 		e.checkpointWindows = append(
 			e.checkpointWindows,
 			newCheckpointWindow(
@@ -417,6 +441,7 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 			Value: e.checkpointWindows[0].myValue,
 		}
 		e.checkpointWindows = e.checkpointWindows[1:]
+		e.sequences = e.sequences[ci:]
 	}
 
 	// XXX super-hacky, fix
@@ -465,10 +490,12 @@ func (e *epoch) applyDigestResult(seqNo uint64, digest []byte) *Actions {
 		return &Actions{}
 	}
 
+	bucket, col := e.config.seqToBucketColumn(seqNo)
+
 	return e.hackyMangle(e.config.seqToBucket(seqNo),
 		e.checkpointWindowForSeqNo(seqNo).applyDigestResult(
-			e.config.seqToColumn(seqNo),
-			e.config.seqToBucket(seqNo),
+			col,
+			bucket,
 			digest,
 		))
 }
