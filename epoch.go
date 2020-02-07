@@ -321,29 +321,9 @@ func (e *epoch) hackyMangle(bucket BucketID, actions *Actions) *Actions {
 		switch innerMsg := msg.Type.(type) {
 		case *pb.Msg_Preprepare:
 			innerMsg.Preprepare.SeqNo = e.config.colBucketToSeq(innerMsg.Preprepare.SeqNo, bucket)
-		case *pb.Msg_Prepare:
-			innerMsg.Prepare.SeqNo = e.config.colBucketToSeq(innerMsg.Prepare.SeqNo, bucket)
-		case *pb.Msg_Commit:
-			innerMsg.Commit.SeqNo = e.config.colBucketToSeq(innerMsg.Commit.SeqNo, bucket)
 		case *pb.Msg_Checkpoint:
 			innerMsg.Checkpoint.SeqNo = e.config.colBucketToSeq(innerMsg.Checkpoint.SeqNo, BucketID(len(e.config.buckets)-1))
 		}
-	}
-
-	for i, entry := range actions.Validate {
-		nEntry := *entry
-		nEntry.SeqNo = e.config.colBucketToSeq(entry.SeqNo, bucket)
-		actions.Validate[i] = &nEntry
-	}
-
-	for i, entry := range actions.Commit {
-		nEntry := *entry
-		nEntry.SeqNo = e.config.colBucketToSeq(entry.SeqNo, bucket)
-		actions.Commit[i] = &nEntry
-	}
-
-	for i, number := range actions.Checkpoint {
-		actions.Checkpoint[i] = e.config.colBucketToSeq(number, BucketID(len(e.config.buckets)-1))
 	}
 
 	return actions
@@ -356,12 +336,7 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch [][]byte) 
 
 	bucket, col := e.config.seqToBucketColumn(seqNo)
 
-	_ = e.checkpointWindowForSeqNo(seqNo).applyPreprepareMsg(
-		source,
-		col,
-		bucket,
-		batch,
-	)
+	_ = e.checkpointWindowForSeqNo(seqNo).applyPreprepareMsg(source, col, bucket, batch)
 
 	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
 	return e.sequences[offset].applyPreprepareMsg(batch)
@@ -372,13 +347,12 @@ func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Act
 		return &Actions{}
 	}
 
-	return e.hackyMangle(e.config.seqToBucket(seqNo),
-		e.checkpointWindowForSeqNo(seqNo).applyPrepareMsg(
-			source,
-			e.config.seqToColumn(seqNo),
-			e.config.seqToBucket(seqNo),
-			digest,
-		))
+	bucket, col := e.config.seqToBucketColumn(seqNo)
+
+	_ = e.checkpointWindowForSeqNo(seqNo).applyPrepareMsg(source, col, bucket, digest)
+
+	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	return e.sequences[offset].applyPrepareMsg(source, digest)
 }
 
 func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
@@ -386,13 +360,17 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 		return &Actions{}
 	}
 
-	return e.hackyMangle(e.config.seqToBucket(seqNo),
-		e.checkpointWindowForSeqNo(seqNo).applyCommitMsg(
-			source,
-			e.config.seqToColumn(seqNo),
-			e.config.seqToBucket(seqNo),
-			digest,
-		))
+	bucket, col := e.config.seqToBucketColumn(seqNo)
+
+	oldActions := e.checkpointWindowForSeqNo(seqNo).applyCommitMsg(source, col, bucket, digest)
+	for i, cp := range oldActions.Checkpoint {
+		oldActions.Checkpoint[i] = e.config.colBucketToSeq(cp, BucketID(len(e.config.buckets)-1))
+	}
+
+	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	actions := e.sequences[offset].applyCommitMsg(source, digest)
+	actions.Checkpoint = oldActions.Checkpoint
+	return actions
 }
 
 func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
@@ -492,12 +470,18 @@ func (e *epoch) applyDigestResult(seqNo uint64, digest []byte) *Actions {
 
 	bucket, col := e.config.seqToBucketColumn(seqNo)
 
-	return e.hackyMangle(e.config.seqToBucket(seqNo),
-		e.checkpointWindowForSeqNo(seqNo).applyDigestResult(
-			col,
-			bucket,
-			digest,
-		))
+	_ = e.checkpointWindowForSeqNo(seqNo).applyDigestResult(col, bucket, digest)
+
+	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	actions := e.sequences[offset].applyDigestResult(digest)
+
+	if e.config.buckets[bucket] == NodeID(e.myConfig.ID) {
+		// If we are the leader, no need to validate
+		_ = e.sequences[offset].applyValidateResult(true)
+		return e.sequences[offset].applyPrepareMsg(NodeID(e.myConfig.ID), digest)
+	}
+
+	return actions
 }
 
 func (e *epoch) applyValidateResult(seqNo uint64, valid bool) *Actions {
@@ -505,12 +489,16 @@ func (e *epoch) applyValidateResult(seqNo uint64, valid bool) *Actions {
 		return &Actions{}
 	}
 
-	return e.hackyMangle(e.config.seqToBucket(seqNo),
-		e.checkpointWindowForSeqNo(seqNo).applyValidateResult(
-			e.config.seqToColumn(seqNo),
-			e.config.seqToBucket(seqNo),
-			valid,
-		))
+	bucket, col := e.config.seqToBucketColumn(seqNo)
+
+	_ = e.checkpointWindowForSeqNo(seqNo).applyValidateResult(col, bucket, valid)
+
+	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	actions := e.sequences[offset].applyValidateResult(valid)
+	if e.config.buckets[bucket] != NodeID(e.myConfig.ID) {
+		actions.Append(e.sequences[offset].applyPrepareMsg(e.config.buckets[bucket], e.sequences[offset].digest))
+	}
+	return actions
 }
 
 func (e *epoch) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
