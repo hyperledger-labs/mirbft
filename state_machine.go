@@ -273,8 +273,8 @@ func (sm *stateMachine) status() *Status {
 	}
 
 	return &Status{
-		LowWatermark:  lowWatermark,
-		HighWatermark: highWatermark,
+		LowWatermark:  lowWatermark / uint64(len(buckets)),
+		HighWatermark: highWatermark / uint64(len(buckets)),
 		EpochNumber:   epochConfig.number,
 		Suspicions:    suspicions,
 		EpochChanges:  epochChanges,
@@ -374,6 +374,7 @@ func (s *Status) Pretty() string {
 	buffer.WriteString("- === Buckets ===\n")
 
 	for _, bucketStatus := range s.Buckets {
+		buffer.WriteString("| ")
 		for _, state := range bucketStatus.Sequences {
 			switch state {
 			case Uninitialized:
@@ -405,7 +406,7 @@ func (s *Status) Pretty() string {
 	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
 		if len(s.Checkpoints) > i {
 			checkpoint := s.Checkpoints[i]
-			if seqNo == checkpoint.SeqNo {
+			if seqNo == checkpoint.SeqNo/uint64(len(s.Buckets)) {
 				buffer.WriteString(fmt.Sprintf("|%d", checkpoint.PendingCommits))
 				i++
 				continue
@@ -418,7 +419,7 @@ func (s *Status) Pretty() string {
 	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
 		if len(s.Checkpoints) > i {
 			checkpoint := s.Checkpoints[i]
-			if seqNo == s.Checkpoints[i].SeqNo {
+			if seqNo == s.Checkpoints[i].SeqNo/uint64(len(s.Buckets)) {
 				switch {
 				case checkpoint.NetQuorum && !checkpoint.LocalAgreement:
 					buffer.WriteString("|N")

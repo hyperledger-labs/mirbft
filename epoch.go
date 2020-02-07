@@ -7,8 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	"fmt"
-
 	pb "github.com/IBM/mirbft/mirbftpb"
 
 	"github.com/golang/protobuf/proto"
@@ -121,17 +119,17 @@ type epoch struct {
 func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Config) *epoch {
 
 	proposer := newProposer(config, myConfig)
-	proposer.maxAssignable = baseCheckpoint.SeqNo * uint64(len(config.buckets))
+	proposer.maxAssignable = baseCheckpoint.SeqNo
 
 	var checkpointWindows []*checkpointWindow
 
-	firstEnd := baseCheckpoint.SeqNo + uint64(config.networkConfig.CheckpointInterval)/uint64(len(config.buckets))
+	firstEnd := baseCheckpoint.SeqNo + uint64(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= firstEnd {
-		proposer.maxAssignable = firstEnd * uint64(len(config.buckets))
+		proposer.maxAssignable = firstEnd
 		checkpointWindows = append(checkpointWindows, newCheckpointWindow(baseCheckpoint.SeqNo+1, firstEnd, config, myConfig))
 	}
 
-	secondEnd := baseCheckpoint.SeqNo + 2*uint64(config.networkConfig.CheckpointInterval)/uint64(len(config.buckets))
+	secondEnd := firstEnd + uint64(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= secondEnd {
 		checkpointWindows = append(checkpointWindows, newCheckpointWindow(firstEnd+1, secondEnd, config, myConfig))
 	}
@@ -303,31 +301,12 @@ func (e *epoch) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Act
 	return &Actions{}
 }
 
-func (e *epoch) checkpointWindowForSeqNo(seqNo uint64) *checkpointWindow {
-	seqNo = e.config.seqToColumn(seqNo)
-	if e.config.plannedExpiration < seqNo {
-		return nil
-	}
-
-	if e.checkpointWindows[0].start > seqNo {
-		return nil
-	}
-
-	offset := seqNo - e.checkpointWindows[0].start
-	index := offset / (uint64(e.config.networkConfig.CheckpointInterval) / uint64(len(e.config.buckets)))
-
-	if int(index) >= len(e.checkpointWindows) {
-		return nil
-	}
-	return e.checkpointWindows[index]
-}
-
 func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch [][]byte) *Actions {
 	if e.state == done {
 		return &Actions{}
 	}
 
-	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
 	return e.sequences[offset].applyPreprepareMsg(batch)
 }
 
@@ -336,7 +315,7 @@ func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Act
 		return &Actions{}
 	}
 
-	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
 	return e.sequences[offset].applyPrepareMsg(source, digest)
 }
 
@@ -345,7 +324,7 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 		return &Actions{}
 	}
 
-	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
 	actions := e.sequences[offset].applyCommitMsg(source, digest)
 
 	if len(actions.Commit) > 0 && offset == e.lowestUncommitted {
@@ -378,7 +357,9 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 		return &Actions{}
 	}
 
-	cw := e.checkpointWindowForSeqNo(seqNo)
+	offset := (seqNo-e.baseCheckpoint.SeqNo)/uint64(e.config.networkConfig.CheckpointInterval) - 1
+	cw := e.checkpointWindows[offset]
+
 	actions := cw.applyCheckpointMsg(source, value)
 
 	lastCW := e.checkpointWindows[len(e.checkpointWindows)-1]
@@ -393,10 +374,10 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 	ci := int(e.config.networkConfig.CheckpointInterval)
 
 	if secondToLastCW.garbageCollectible {
-		e.proposer.maxAssignable = lastCW.end * uint64(len(e.config.buckets))
+		e.proposer.maxAssignable = lastCW.end
 		for i := 0; i < ci; i++ {
 			entry := &Entry{
-				SeqNo: lastCW.end*uint64(len(e.config.buckets)) + uint64(i) + 1,
+				SeqNo: lastCW.end + uint64(i) + 1,
 				Epoch: e.config.number,
 			}
 			e.sequences = append(e.sequences, newSequence(e.config, e.myConfig, entry))
@@ -405,7 +386,7 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 			e.checkpointWindows,
 			newCheckpointWindow(
 				lastCW.end+1,
-				lastCW.end+uint64(e.config.networkConfig.CheckpointInterval)/uint64(len(e.config.buckets)),
+				lastCW.end+uint64(e.config.networkConfig.CheckpointInterval),
 				e.config,
 				e.myConfig,
 			),
@@ -423,7 +404,6 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 		e.lowestUncommitted -= ci
 	}
 
-	// XXX super-hacky, fix
 	return actions
 }
 
@@ -469,7 +449,7 @@ func (e *epoch) applyDigestResult(seqNo uint64, digest []byte) *Actions {
 		return &Actions{}
 	}
 
-	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
 	actions := e.sequences[offset].applyDigestResult(digest)
 
 	bucket := e.config.seqToBucket(seqNo)
@@ -487,7 +467,7 @@ func (e *epoch) applyValidateResult(seqNo uint64, valid bool) *Actions {
 		return &Actions{}
 	}
 
-	offset := int(seqNo-e.baseCheckpoint.SeqNo*uint64(len(e.config.buckets))) - 1
+	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
 	actions := e.sequences[offset].applyValidateResult(valid)
 	bucket := e.config.seqToBucket(seqNo)
 	if e.config.buckets[bucket] != NodeID(e.myConfig.ID) {
@@ -501,23 +481,8 @@ func (e *epoch) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
 		return &Actions{}
 	}
 
-	cw := e.checkpointWindowForSeqNo(seqNo)
-	if cw == nil {
-		panic(fmt.Sprintf("received an unexpected checkpoint result for seqno=%d", seqNo))
-	}
-
-	return e.hackyMangle(0, cw.applyCheckpointResult(value))
-}
-
-func (e *epoch) hackyMangle(bucket BucketID, actions *Actions) *Actions {
-	for _, msg := range actions.Broadcast {
-		switch innerMsg := msg.Type.(type) {
-		case *pb.Msg_Checkpoint:
-			innerMsg.Checkpoint.SeqNo = e.config.colBucketToSeq(innerMsg.Checkpoint.SeqNo, BucketID(len(e.config.buckets)-1))
-		}
-	}
-
-	return actions
+	offset := (seqNo-e.baseCheckpoint.SeqNo)/uint64(e.config.networkConfig.CheckpointInterval) - 1
+	return e.checkpointWindows[offset].applyCheckpointResult(value)
 }
 
 func (e *epoch) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) {
@@ -763,11 +728,11 @@ func (e *epoch) status() []*BucketStatus {
 		bucket := &BucketStatus{
 			ID:        uint64(i),
 			Leader:    e.config.buckets[BucketID(i)] == NodeID(e.myConfig.ID),
-			Sequences: make([]SequenceState, len(e.sequences)),
+			Sequences: make([]SequenceState, 0, len(e.sequences)/len(buckets)),
 		}
 
-		for j, seq := range e.sequences {
-			bucket.Sequences[j] = seq.state
+		for j := i; j < len(e.sequences); j = j + len(buckets) {
+			bucket.Sequences = append(bucket.Sequences, e.sequences[j].state)
 		}
 
 		buckets[i] = bucket
