@@ -255,22 +255,13 @@ func (sm *stateMachine) status() *Status {
 		}
 	}
 
-	var buckets []*BucketStatus
 	checkpoints := []*CheckpointStatus{}
 
 	for _, cw := range sm.activeEpoch.checkpointWindows {
 		checkpoints = append(checkpoints, cw.status())
-		if buckets == nil {
-			buckets = make([]*BucketStatus, len(cw.buckets))
-			for i := BucketID(0); i < BucketID(len(sm.activeEpoch.checkpointWindows[0].buckets)); i++ {
-				buckets[int(i)] = cw.buckets[i].status()
-			}
-		} else {
-			for i := BucketID(0); i < BucketID(len(sm.activeEpoch.checkpointWindows[0].buckets)); i++ {
-				buckets[int(i)].Sequences = append(buckets[int(i)].Sequences, cw.buckets[i].status().Sequences...)
-			}
-		}
 	}
+
+	buckets := sm.activeEpoch.status()
 
 	lowWatermark := sm.activeEpoch.baseCheckpoint.SeqNo
 
