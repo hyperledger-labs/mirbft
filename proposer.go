@@ -32,13 +32,15 @@ func newProposer(config *epochConfig, myConfig *Config) *proposer {
 		}
 	}
 
+	// XXX we don't handle owning more than one bucket
+
 	return &proposer{
 		myConfig:     myConfig,
 		epochConfig:  config,
 		ownedBuckets: ownedBuckets,
 		// nextAssigned: config.lowWatermark + 1,
 		// XXX initialize this properly, sort of like the above
-		nextAssigned: 1,
+		nextAssigned: 1 + uint64(ownedBuckets[0]),
 	}
 }
 
@@ -96,7 +98,7 @@ func (p *proposer) advance(batch [][]byte) *Actions {
 				Type: &pb.Msg_Preprepare{
 					Preprepare: &pb.Preprepare{
 						Epoch: p.epochConfig.number,
-						SeqNo: uint64(p.nextAssigned),
+						SeqNo: p.nextAssigned,
 						Batch: batch,
 					},
 				},
@@ -105,7 +107,7 @@ func (p *proposer) advance(batch [][]byte) *Actions {
 	}
 
 	if p.nextBucketIndex == 0 {
-		p.nextAssigned = p.nextAssigned + 1
+		p.nextAssigned = p.nextAssigned + uint64(len(p.epochConfig.buckets))
 	}
 
 	return actions

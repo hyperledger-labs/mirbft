@@ -115,13 +115,13 @@ type epoch struct {
 func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Config) *epoch {
 
 	proposer := newProposer(config, myConfig)
-	proposer.maxAssignable = baseCheckpoint.SeqNo
+	proposer.maxAssignable = baseCheckpoint.SeqNo * uint64(len(config.buckets))
 
 	var checkpointWindows []*checkpointWindow
 
 	firstEnd := baseCheckpoint.SeqNo + uint64(config.networkConfig.CheckpointInterval)/uint64(len(config.buckets))
 	if config.plannedExpiration >= firstEnd {
-		proposer.maxAssignable = firstEnd
+		proposer.maxAssignable = firstEnd * uint64(len(config.buckets))
 		checkpointWindows = append(checkpointWindows, newCheckpointWindow(baseCheckpoint.SeqNo+1, firstEnd, config, myConfig))
 	}
 
@@ -319,8 +319,6 @@ func (e *epoch) checkpointWindowForSeqNo(seqNo uint64) *checkpointWindow {
 func (e *epoch) hackyMangle(bucket BucketID, actions *Actions) *Actions {
 	for _, msg := range actions.Broadcast {
 		switch innerMsg := msg.Type.(type) {
-		case *pb.Msg_Preprepare:
-			innerMsg.Preprepare.SeqNo = e.config.colBucketToSeq(innerMsg.Preprepare.SeqNo, bucket)
 		case *pb.Msg_Checkpoint:
 			innerMsg.Checkpoint.SeqNo = e.config.colBucketToSeq(innerMsg.Checkpoint.SeqNo, BucketID(len(e.config.buckets)-1))
 		}
@@ -393,7 +391,7 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 	ci := int(e.config.networkConfig.CheckpointInterval)
 
 	if secondToLastCW.garbageCollectible {
-		e.proposer.maxAssignable = lastCW.end
+		e.proposer.maxAssignable = lastCW.end * uint64(len(e.config.buckets))
 		for i := 0; i < ci; i++ {
 			entry := &Entry{
 				SeqNo: lastCW.end*uint64(len(e.config.buckets)) + uint64(i) + 1,
@@ -423,7 +421,7 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 	}
 
 	// XXX super-hacky, fix
-	return e.hackyMangle(e.proposer.ownedBuckets[0], actions)
+	return actions
 }
 
 func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
@@ -434,7 +432,7 @@ func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Action
 	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.config.buckets)))
 	nodeID := e.config.buckets[bucketID]
 	if nodeID == NodeID(e.myConfig.ID) {
-		return e.hackyMangle(bucketID, e.proposer.propose(preprocessResult.Proposal.Data))
+		return e.proposer.propose(preprocessResult.Proposal.Data)
 	}
 
 	if preprocessResult.Proposal.Source == e.myConfig.ID {
@@ -660,8 +658,7 @@ func (e *epoch) tickActive() *Actions {
 		actions.Append(cw.tick())
 	}
 
-	// XXX super hacky, temporary
-	return e.hackyMangle(e.proposer.ownedBuckets[0], actions)
+	return actions
 }
 
 func (e *epoch) constructEpochChange() *pb.EpochChange {
