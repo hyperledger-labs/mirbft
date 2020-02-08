@@ -147,11 +147,6 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 		FinalPreprepares: make([][]byte, config.logWidth()),
 	}
 
-	type entryKey struct {
-		seqNo  uint64
-		bucket uint64
-	}
-
 	for seqNoOffset := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(seqNoOffset) + maxCheckpoint.SeqNo + 1
 

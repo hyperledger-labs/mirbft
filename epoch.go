@@ -50,6 +50,7 @@ func (ec *epochConfig) seqToColumn(seqNo uint64) uint64 {
 	return (seqNo-uint64(ec.initialSequence))/uint64(len(ec.buckets)) + 1
 }
 
+/*
 func (ec *epochConfig) seqToBucketColumn(seqNo uint64) (BucketID, uint64) {
 	return ec.seqToBucket(seqNo), ec.seqToColumn(seqNo)
 }
@@ -57,6 +58,7 @@ func (ec *epochConfig) seqToBucketColumn(seqNo uint64) (BucketID, uint64) {
 func (ec *epochConfig) colBucketToSeq(column uint64, bucket BucketID) uint64 {
 	return ec.initialSequence + (column-1)*uint64(len(ec.buckets)) + uint64(bucket)
 }
+*/
 
 func (ec *epochConfig) logWidth() int {
 	return 2 * int(ec.networkConfig.CheckpointInterval)
@@ -486,10 +488,10 @@ func (e *epoch) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
 }
 
 func (e *epoch) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) {
-	if ec, ok := e.changes[source]; ok {
-		if !proto.Equal(ec.underlying, msg) {
-			// TODO log oddity
-		}
+	if _, ok := e.changes[source]; ok {
+		// if !proto.Equal(ec.underlying, msg) {
+		// TODO log oddity
+		// }
 		return
 	}
 
@@ -593,9 +595,9 @@ func (e *epoch) tickPending() *Actions {
 			}
 		}
 	} else {
-		if pendingTicks == 0 {
-			// TODO, new-view timeout
-		}
+		//if pendingTicks == 0 {
+		// TODO, new-view timeout
+		// }
 		if pendingTicks%2 == 0 {
 			return e.repeatEpochChangeBroadcast()
 		}

@@ -147,12 +147,6 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	}
 }
 
-func (n *nodeMsgs) moveWatermarks() {
-	// XXX this should handle state transfer cases
-	// where nodes skip seqnos, it sort of used to
-	// but deleted to refactor
-}
-
 func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
 	for bucketID, leaderID := range epochConfig.buckets {
