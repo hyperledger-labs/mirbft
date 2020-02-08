@@ -46,9 +46,10 @@ type Log interface {
 }
 
 type SerialCommitter struct {
-	Log                Log
-	LastCommittedSeqNo uint64
-	OutstandingSeqNos  map[uint64]*mirbft.Entry
+	Log                    Log
+	LastCommittedSeqNo     uint64
+	OutstandingSeqNos      map[uint64]*mirbft.Entry
+	OutstandingCheckpoints map[uint64]struct{}
 }
 
 func (sc *SerialCommitter) Commit(commits []*mirbft.Entry, checkpoints []uint64) []*mirbft.CheckpointResult {
@@ -59,30 +60,29 @@ func (sc *SerialCommitter) Commit(commits []*mirbft.Entry, checkpoints []uint64)
 		sc.OutstandingSeqNos[commit.SeqNo] = commit
 	}
 
+	for _, checkpoint := range checkpoints {
+		sc.OutstandingCheckpoints[checkpoint] = struct{}{}
+	}
+
 	results := []*mirbft.CheckpointResult{}
 
-	// If a checkpoint is present, then all commits prior to that seqno must be present
-	for _, checkpoint := range checkpoints {
-		for {
-			currentSeqNo := sc.LastCommittedSeqNo + 1
-			entry, ok := sc.OutstandingSeqNos[currentSeqNo]
-			if !ok {
-				panic(fmt.Sprintf("all previous commits should be available if checkpoint requested, seqNo=%d, checkpoint=%d", currentSeqNo, checkpoint))
-			}
-			sc.Log.Apply(entry) // Apply the entry
-			sc.LastCommittedSeqNo = currentSeqNo
-			delete(sc.OutstandingSeqNos, currentSeqNo)
-
-			if checkpoint == currentSeqNo {
-				break
-			}
+	for currentSeqNo := sc.LastCommittedSeqNo + 1; len(sc.OutstandingSeqNos) > 0; currentSeqNo++ {
+		entry, ok := sc.OutstandingSeqNos[currentSeqNo]
+		if !ok {
+			break
 		}
+		sc.Log.Apply(entry) // Apply the entry
+		sc.LastCommittedSeqNo = currentSeqNo
+		delete(sc.OutstandingSeqNos, currentSeqNo)
 
-		value := sc.Log.Snap()
-		results = append(results, &mirbft.CheckpointResult{
-			SeqNo: sc.LastCommittedSeqNo,
-			Value: value,
-		})
+		if _, ok := sc.OutstandingCheckpoints[currentSeqNo]; ok {
+			value := sc.Log.Snap()
+			results = append(results, &mirbft.CheckpointResult{
+				SeqNo: sc.LastCommittedSeqNo,
+				Value: value,
+			})
+			delete(sc.OutstandingCheckpoints, currentSeqNo)
+		}
 	}
 
 	return results

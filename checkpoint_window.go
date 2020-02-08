@@ -62,15 +62,10 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value []byte) *Act
 		if agreements >= cw.epochConfig.intersectionQuorum() {
 			cw.garbageCollectible = true
 		}
-
-		// TODO, eventually, we should return the checkpoint value and set of attestations
-		// to the caller, as they may want to do something with the set of attestations to preserve them.
 	}
 
-	if cw.garbageCollectible {
-		if len(checkpointValueNodes) == len(cw.epochConfig.networkConfig.Nodes) {
-			cw.obsolete = true
-		}
+	if len(checkpointValueNodes) == len(cw.epochConfig.networkConfig.Nodes) {
+		cw.obsolete = true
 	}
 
 	return &Actions{}
