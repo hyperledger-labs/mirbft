@@ -12,36 +12,36 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-type checkpointWindow struct {
-	start       uint64
-	end         uint64
-	myConfig    *Config
-	epochConfig *epochConfig
+type checkpoint struct {
+	start         uint64
+	end           uint64
+	myConfig      *Config
+	networkConfig *pb.NetworkConfig
 
-	values             map[string][]NodeID
-	committedValue     []byte
-	myValue            []byte
-	garbageCollectible bool // TODO, probably rename this to 'stable'
-	obsolete           bool
+	values         map[string][]NodeID
+	committedValue []byte
+	myValue        []byte
+	stable         bool
+	obsolete       bool
 }
 
-func newCheckpointWindow(start, end uint64, config *epochConfig, myConfig *Config) *checkpointWindow {
-	return &checkpointWindow{
-		start:       start,
-		end:         end,
-		epochConfig: config,
-		myConfig:    myConfig,
-		values:      map[string][]NodeID{},
+func newCheckpoint(start, end uint64, config *pb.NetworkConfig, myConfig *Config) *checkpoint {
+	return &checkpoint{
+		start:         start,
+		end:           end,
+		networkConfig: config,
+		myConfig:      myConfig,
+		values:        map[string][]NodeID{},
 	}
 }
 
-func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value []byte) *Actions {
+func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) *Actions {
 	checkpointValueNodes := append(cw.values[string(value)], source)
 	cw.values[string(value)] = checkpointValueNodes
 
 	agreements := len(checkpointValueNodes)
 
-	if agreements == cw.epochConfig.someCorrectQuorum() {
+	if agreements == someCorrectQuorum(cw.networkConfig) {
 		cw.committedValue = value
 	}
 
@@ -50,7 +50,7 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value []byte) *Act
 	}
 
 	// If I have completed this checkpoint, along with a quorum of the network, and I've not already run this path
-	if cw.myValue != nil && cw.committedValue != nil && !cw.garbageCollectible {
+	if cw.myValue != nil && cw.committedValue != nil && !cw.stable {
 		if !bytes.Equal(value, cw.committedValue) {
 			// TODO optionally handle this more gracefully, with state transfer (though this
 			// indicates a violation of the byzantine assumptions)
@@ -59,19 +59,19 @@ func (cw *checkpointWindow) applyCheckpointMsg(source NodeID, value []byte) *Act
 
 		// This checkpoint has enough agreements, including my own, it may now be garbage collectable
 		// Note, this must be >= (not ==) because my agreement could come after 2f+1 from the network.
-		if agreements >= cw.epochConfig.intersectionQuorum() {
-			cw.garbageCollectible = true
+		if agreements >= intersectionQuorum(cw.networkConfig) {
+			cw.stable = true
 		}
 	}
 
-	if len(checkpointValueNodes) == len(cw.epochConfig.networkConfig.Nodes) {
+	if len(checkpointValueNodes) == len(cw.networkConfig.Nodes) {
 		cw.obsolete = true
 	}
 
 	return &Actions{}
 }
 
-func (cw *checkpointWindow) applyCheckpointResult(value []byte) *Actions {
+func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {
 	return &Actions{
 		Broadcast: []*pb.Msg{
 			{
@@ -93,7 +93,7 @@ type CheckpointStatus struct {
 	LocalAgreement bool
 }
 
-func (cw *checkpointWindow) status() *CheckpointStatus {
+func (cw *checkpoint) status() *CheckpointStatus {
 	return &CheckpointStatus{
 		SeqNo: cw.end,
 		// XXX, populate pending commits

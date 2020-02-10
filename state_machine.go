@@ -257,7 +257,7 @@ func (sm *stateMachine) status() *Status {
 
 	checkpoints := []*CheckpointStatus{}
 
-	for _, cw := range sm.activeEpoch.checkpointWindows {
+	for _, cw := range sm.activeEpoch.checkpoints {
 		checkpoints = append(checkpoints, cw.status())
 	}
 
@@ -266,8 +266,8 @@ func (sm *stateMachine) status() *Status {
 	lowWatermark := sm.activeEpoch.baseCheckpoint.SeqNo
 
 	var highWatermark uint64
-	if len(sm.activeEpoch.checkpointWindows) > 0 {
-		highWatermark = sm.activeEpoch.checkpointWindows[len(sm.activeEpoch.checkpointWindows)-1].end
+	if len(sm.activeEpoch.checkpoints) > 0 {
+		highWatermark = sm.activeEpoch.checkpoints[len(sm.activeEpoch.checkpoints)-1].end
 	} else {
 		highWatermark = lowWatermark
 	}

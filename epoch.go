@@ -33,13 +33,21 @@ type epochConfig struct {
 // such that any two sets intersected will each contain some same
 // correct node.  This is ceil((n+f+1)/2), which is equivalent to
 // (n+f+2)/2 under truncating integer math.
-func (ec *epochConfig) intersectionQuorum() int {
-	return (len(ec.networkConfig.Nodes) + int(ec.networkConfig.F) + 2) / 2
+func intersectionQuorum(nc *pb.NetworkConfig) int {
+	return (len(nc.Nodes) + int(nc.F) + 2) / 2
 }
 
 // someCorrectQuorum is the number of nodes such that at least one of them is correct
+func someCorrectQuorum(nc *pb.NetworkConfig) int {
+	return int(nc.F) + 1
+}
+
+func (ec *epochConfig) intersectionQuorum() int {
+	return intersectionQuorum(ec.networkConfig)
+}
+
 func (ec *epochConfig) someCorrectQuorum() int {
-	return int(ec.networkConfig.F) + 1
+	return someCorrectQuorum(ec.networkConfig)
 }
 
 func (ec *epochConfig) seqToBucket(seqNo uint64) BucketID {
@@ -67,12 +75,12 @@ func (ec *epochConfig) logWidth() int {
 type epochState int
 
 const (
-	prepending epochState = iota
-	pending
-	echoing
-	readying
-	active
-	done
+	prepending epochState = iota // Have sent an epoch-change, but waiting for a quorum
+	pending                      // Have a quorum of epoch-change messages, waiting for new-epoch
+	echoing                      // Have received new-epoch, waiting for a quorum of echos
+	readying                     // Have received a quorum of echos, waiting for qourum of readies
+	active                       // Ready to process new requests
+	done                         // The epoch has ended, and may not change further
 )
 
 type epoch struct {
@@ -110,12 +118,12 @@ type epoch struct {
 	lastCommittedAtTick uint64
 	ticksSinceProgress  int
 
-	checkpointWindows []*checkpointWindow
+	checkpoints []*checkpoint
 
 	baseCheckpoint *pb.Checkpoint
 }
 
-// newEpoch creates a new epoch.  It uses the supplied initial checkpointWindows until
+// newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
 func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Config) *epoch {
@@ -123,17 +131,17 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Conf
 	proposer := newProposer(config, myConfig)
 	proposer.maxAssignable = baseCheckpoint.SeqNo
 
-	var checkpointWindows []*checkpointWindow
+	var checkpoints []*checkpoint
 
 	firstEnd := baseCheckpoint.SeqNo + uint64(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= firstEnd {
 		proposer.maxAssignable = firstEnd
-		checkpointWindows = append(checkpointWindows, newCheckpointWindow(baseCheckpoint.SeqNo+1, firstEnd, config, myConfig))
+		checkpoints = append(checkpoints, newCheckpoint(baseCheckpoint.SeqNo+1, firstEnd, config.networkConfig, myConfig))
 	}
 
 	secondEnd := firstEnd + uint64(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= secondEnd {
-		checkpointWindows = append(checkpointWindows, newCheckpointWindow(firstEnd+1, secondEnd, config, myConfig))
+		checkpoints = append(checkpoints, newCheckpoint(firstEnd+1, secondEnd, config.networkConfig, myConfig))
 	}
 
 	sequences := make([]*sequence, config.logWidth())
@@ -145,17 +153,17 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Conf
 	}
 
 	return &epoch{
-		baseCheckpoint:    baseCheckpoint,
-		myConfig:          myConfig,
-		config:            config,
-		echos:             map[NodeID]*pb.EpochConfig{},
-		readies:           map[NodeID]*pb.EpochConfig{},
-		suspicions:        map[NodeID]struct{}{},
-		changes:           map[NodeID]*epochChange{},
-		checkpointWindows: checkpointWindows,
-		proposer:          proposer,
-		isLeader:          config.number%uint64(len(config.networkConfig.Nodes)) == myConfig.ID,
-		sequences:         sequences,
+		baseCheckpoint: baseCheckpoint,
+		myConfig:       myConfig,
+		config:         config,
+		echos:          map[NodeID]*pb.EpochConfig{},
+		readies:        map[NodeID]*pb.EpochConfig{},
+		suspicions:     map[NodeID]struct{}{},
+		changes:        map[NodeID]*epochChange{},
+		checkpoints:    checkpoints,
+		proposer:       proposer,
+		isLeader:       config.number%uint64(len(config.networkConfig.Nodes)) == myConfig.ID,
+		sequences:      sequences,
 	}
 }
 
@@ -360,22 +368,22 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 	}
 
 	offset := (seqNo-e.baseCheckpoint.SeqNo)/uint64(e.config.networkConfig.CheckpointInterval) - 1
-	cw := e.checkpointWindows[offset]
+	cw := e.checkpoints[offset]
 
 	actions := cw.applyCheckpointMsg(source, value)
 
-	lastCW := e.checkpointWindows[len(e.checkpointWindows)-1]
+	lastCW := e.checkpoints[len(e.checkpoints)-1]
 
-	if lastCW.epochConfig.plannedExpiration == lastCW.end {
+	if e.config.plannedExpiration == lastCW.end {
 		// This epoch is about to end gracefully, don't allocate new windows
 		// so no need to go into allocation or garbage collection logic.
 		return &Actions{}
 	}
 
-	secondToLastCW := e.checkpointWindows[len(e.checkpointWindows)-2]
+	secondToLastCW := e.checkpoints[len(e.checkpoints)-2]
 	ci := int(e.config.networkConfig.CheckpointInterval)
 
-	if secondToLastCW.garbageCollectible {
+	if secondToLastCW.stable {
 		e.proposer.maxAssignable = lastCW.end
 		for i := 0; i < ci; i++ {
 			entry := &Entry{
@@ -384,24 +392,24 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 			}
 			e.sequences = append(e.sequences, newSequence(e.config, e.myConfig, entry))
 		}
-		e.checkpointWindows = append(
-			e.checkpointWindows,
-			newCheckpointWindow(
+		e.checkpoints = append(
+			e.checkpoints,
+			newCheckpoint(
 				lastCW.end+1,
 				lastCW.end+uint64(e.config.networkConfig.CheckpointInterval),
-				e.config,
+				e.config.networkConfig,
 				e.myConfig,
 			),
 		)
 	}
 
 	actions.Append(e.proposer.drainQueue())
-	for len(e.checkpointWindows) > 2 && (e.checkpointWindows[0].obsolete || e.checkpointWindows[1].garbageCollectible) {
+	for len(e.checkpoints) > 2 && (e.checkpoints[0].obsolete || e.checkpoints[1].stable) {
 		e.baseCheckpoint = &pb.Checkpoint{
-			SeqNo: uint64(e.checkpointWindows[0].end),
-			Value: e.checkpointWindows[0].myValue,
+			SeqNo: uint64(e.checkpoints[0].end),
+			Value: e.checkpoints[0].myValue,
 		}
-		e.checkpointWindows = e.checkpointWindows[1:]
+		e.checkpoints = e.checkpoints[1:]
 		e.sequences = e.sequences[ci:]
 		e.lowestUncommitted -= ci
 	}
@@ -484,7 +492,7 @@ func (e *epoch) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
 	}
 
 	offset := (seqNo-e.baseCheckpoint.SeqNo)/uint64(e.config.networkConfig.CheckpointInterval) - 1
-	return e.checkpointWindows[offset].applyCheckpointResult(value)
+	return e.checkpoints[offset].applyCheckpointResult(value)
 }
 
 func (e *epoch) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) {
@@ -658,9 +666,9 @@ func (e *epoch) constructEpochChange() *pb.EpochChange {
 		NewEpoch: e.config.number + 1,
 	}
 
-	if len(e.checkpointWindows) == 0 ||
-		e.checkpointWindows[0].myValue == nil ||
-		!e.checkpointWindows[0].garbageCollectible {
+	if len(e.checkpoints) == 0 ||
+		e.checkpoints[0].myValue == nil ||
+		!e.checkpoints[0].stable {
 
 		// We have no stable checkpoint windows which have not been
 		// garbage collected, so use the most recently garbage collected one
@@ -668,7 +676,7 @@ func (e *epoch) constructEpochChange() *pb.EpochChange {
 		epochChange.Checkpoints = []*pb.Checkpoint{e.baseCheckpoint}
 	}
 
-	for _, cw := range e.checkpointWindows {
+	for _, cw := range e.checkpoints {
 		if cw.myValue == nil {
 			// Checkpoints necessarily generated in order, no further checkpoints are ready
 			break
