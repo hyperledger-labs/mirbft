@@ -20,8 +20,9 @@ type stateMachine struct {
 	myConfig *Config
 	nodeMsgs map[NodeID]*nodeMsgs
 
-	activeEpoch *epoch
-	epochs      []*epoch
+	activeEpoch       *epoch
+	epochs            []*epoch
+	checkpointTracker *checkpointTracker
 
 	latestSuspicion   map[NodeID]*pb.Suspect
 	latestEpochChange map[NodeID]*pb.EpochChange
@@ -41,7 +42,9 @@ func newStateMachine(config *epochConfig, myConfig *Config) *stateMachine {
 		Value: []byte("TODO, get from state"),
 	}
 
-	activeEpoch := newEpoch(fakeCheckpoint, config, myConfig)
+	checkpointTracker := newCheckpointTracker(config.networkConfig, myConfig)
+
+	activeEpoch := newEpoch(fakeCheckpoint, checkpointTracker, config, myConfig)
 
 	epochChange, err := newEpochChange(
 		&pb.EpochChange{
@@ -59,6 +62,7 @@ func newStateMachine(config *epochConfig, myConfig *Config) *stateMachine {
 		myConfig:          myConfig,
 		activeEpoch:       activeEpoch,
 		epochs:            []*epoch{activeEpoch},
+		checkpointTracker: checkpointTracker,
 		nodeMsgs:          nodeMsgs,
 		latestSuspicion:   map[NodeID]*pb.Suspect{},
 		latestEpochChange: map[NodeID]*pb.EpochChange{},
@@ -158,11 +162,11 @@ func (sm *stateMachine) epochChangeMsg(source NodeID, msg *pb.EpochChange) {
 }
 
 func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
-	actions := &Actions{}
-	for _, e := range sm.epochs {
-		actions.Append(e.applyCheckpointMsg(source, seqNo, value))
+	if !sm.checkpointTracker.applyCheckpointMsg(source, seqNo, value) {
+		return &Actions{}
 	}
-	return actions
+
+	return sm.activeEpoch.moveWatermarks()
 }
 
 func (sm *stateMachine) processResults(results ActionResults) *Actions {

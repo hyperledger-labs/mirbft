@@ -12,6 +12,47 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
+type checkpointTracker struct {
+	highestCheckpoint map[NodeID]*checkpoint
+
+	// checkpoints is a map of bounded size.  The map maintains a checkpoint
+	// so long as it is the highest checkpoint for some node, or, is currently
+	// within the watermarks.
+	checkpoints map[uint64]*checkpoint
+
+	networkConfig *pb.NetworkConfig
+	myConfig      *Config
+}
+
+func newCheckpointTracker(networkConfig *pb.NetworkConfig, myConfig *Config) *checkpointTracker {
+	return &checkpointTracker{
+		highestCheckpoint: map[NodeID]*checkpoint{}, // TODO, implement
+		checkpoints:       map[uint64]*checkpoint{},
+		networkConfig:     networkConfig,
+		myConfig:          myConfig,
+	}
+}
+
+func (ct *checkpointTracker) checkpoint(seqNo uint64) *checkpoint {
+	cp, ok := ct.checkpoints[seqNo]
+	if !ok {
+		cp = newCheckpoint(seqNo-uint64(ct.networkConfig.CheckpointInterval), seqNo, ct.networkConfig, ct.myConfig)
+		ct.checkpoints[seqNo] = cp
+	}
+
+	return cp
+}
+
+func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) bool {
+	cp := ct.checkpoint(seqNo)
+
+	return cp.applyCheckpointMsg(source, value)
+}
+
+func (ct *checkpointTracker) release(cp *checkpoint) {
+	delete(ct.checkpoints, cp.end)
+}
+
 type checkpoint struct {
 	start         uint64
 	end           uint64
@@ -35,7 +76,9 @@ func newCheckpoint(start, end uint64, config *pb.NetworkConfig, myConfig *Config
 	}
 }
 
-func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) *Actions {
+func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
+	stateChange := false
+
 	checkpointValueNodes := append(cw.values[string(value)], source)
 	cw.values[string(value)] = checkpointValueNodes
 
@@ -61,14 +104,16 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) *Actions {
 		// Note, this must be >= (not ==) because my agreement could come after 2f+1 from the network.
 		if agreements >= intersectionQuorum(cw.networkConfig) {
 			cw.stable = true
+			stateChange = true
 		}
 	}
 
 	if len(checkpointValueNodes) == len(cw.networkConfig.Nodes) {
 		cw.obsolete = true
+		stateChange = true
 	}
 
-	return &Actions{}
+	return stateChange
 }
 
 func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {

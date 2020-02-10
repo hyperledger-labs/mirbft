@@ -118,7 +118,8 @@ type epoch struct {
 	lastCommittedAtTick uint64
 	ticksSinceProgress  int
 
-	checkpoints []*checkpoint
+	checkpoints       []*checkpoint
+	checkpointTracker *checkpointTracker
 
 	baseCheckpoint *pb.Checkpoint
 }
@@ -126,7 +127,7 @@ type epoch struct {
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Config) *epoch {
+func newEpoch(baseCheckpoint *pb.Checkpoint, checkpointTracker *checkpointTracker, config *epochConfig, myConfig *Config) *epoch {
 
 	proposer := newProposer(config, myConfig)
 	proposer.maxAssignable = baseCheckpoint.SeqNo
@@ -136,12 +137,12 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Conf
 	firstEnd := baseCheckpoint.SeqNo + uint64(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= firstEnd {
 		proposer.maxAssignable = firstEnd
-		checkpoints = append(checkpoints, newCheckpoint(baseCheckpoint.SeqNo+1, firstEnd, config.networkConfig, myConfig))
+		checkpoints = append(checkpoints, checkpointTracker.checkpoint(firstEnd))
 	}
 
 	secondEnd := firstEnd + uint64(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= secondEnd {
-		checkpoints = append(checkpoints, newCheckpoint(firstEnd+1, secondEnd, config.networkConfig, myConfig))
+		checkpoints = append(checkpoints, checkpointTracker.checkpoint(secondEnd))
 	}
 
 	sequences := make([]*sequence, config.logWidth())
@@ -153,17 +154,18 @@ func newEpoch(baseCheckpoint *pb.Checkpoint, config *epochConfig, myConfig *Conf
 	}
 
 	return &epoch{
-		baseCheckpoint: baseCheckpoint,
-		myConfig:       myConfig,
-		config:         config,
-		echos:          map[NodeID]*pb.EpochConfig{},
-		readies:        map[NodeID]*pb.EpochConfig{},
-		suspicions:     map[NodeID]struct{}{},
-		changes:        map[NodeID]*epochChange{},
-		checkpoints:    checkpoints,
-		proposer:       proposer,
-		isLeader:       config.number%uint64(len(config.networkConfig.Nodes)) == myConfig.ID,
-		sequences:      sequences,
+		baseCheckpoint:    baseCheckpoint,
+		myConfig:          myConfig,
+		config:            config,
+		checkpointTracker: checkpointTracker,
+		echos:             map[NodeID]*pb.EpochConfig{},
+		readies:           map[NodeID]*pb.EpochConfig{},
+		suspicions:        map[NodeID]struct{}{},
+		changes:           map[NodeID]*epochChange{},
+		checkpoints:       checkpoints,
+		proposer:          proposer,
+		isLeader:          config.number%uint64(len(config.networkConfig.Nodes)) == myConfig.ID,
+		sequences:         sequences,
 	}
 }
 
@@ -362,15 +364,10 @@ func (e *epoch) advanceUncommitted() *Actions {
 	return actions
 }
 
-func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
+func (e *epoch) moveWatermarks() *Actions {
 	if e.state == done {
 		return &Actions{}
 	}
-
-	offset := (seqNo-e.baseCheckpoint.SeqNo)/uint64(e.config.networkConfig.CheckpointInterval) - 1
-	cw := e.checkpoints[offset]
-
-	actions := cw.applyCheckpointMsg(source, value)
 
 	lastCW := e.checkpoints[len(e.checkpoints)-1]
 
@@ -392,29 +389,21 @@ func (e *epoch) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) *A
 			}
 			e.sequences = append(e.sequences, newSequence(e.config, e.myConfig, entry))
 		}
-		e.checkpoints = append(
-			e.checkpoints,
-			newCheckpoint(
-				lastCW.end+1,
-				lastCW.end+uint64(e.config.networkConfig.CheckpointInterval),
-				e.config.networkConfig,
-				e.myConfig,
-			),
-		)
+		e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.end+uint64(ci)))
 	}
 
-	actions.Append(e.proposer.drainQueue())
 	for len(e.checkpoints) > 2 && (e.checkpoints[0].obsolete || e.checkpoints[1].stable) {
 		e.baseCheckpoint = &pb.Checkpoint{
 			SeqNo: uint64(e.checkpoints[0].end),
 			Value: e.checkpoints[0].myValue,
 		}
+		e.checkpointTracker.release(e.checkpoints[0])
 		e.checkpoints = e.checkpoints[1:]
 		e.sequences = e.sequences[ci:]
 		e.lowestUncommitted -= ci
 	}
 
-	return actions
+	return e.proposer.drainQueue()
 }
 
 func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
