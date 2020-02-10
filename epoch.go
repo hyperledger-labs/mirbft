@@ -475,15 +475,6 @@ func (e *epoch) applyValidateResult(seqNo uint64, valid bool) *Actions {
 	return actions
 }
 
-func (e *epoch) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
-	if e.state == done {
-		return &Actions{}
-	}
-
-	offset := (seqNo-e.baseCheckpoint.SeqNo)/uint64(e.config.networkConfig.CheckpointInterval) - 1
-	return e.checkpoints[offset].applyCheckpointResult(value)
-}
-
 func (e *epoch) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) {
 	if _, ok := e.changes[source]; ok {
 		// if !proto.Equal(ec.underlying, msg) {

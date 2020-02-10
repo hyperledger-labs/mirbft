@@ -202,17 +202,9 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 
 	for _, checkpointResult := range results.Checkpoints {
 		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
-		actions.Append(sm.applyCheckpointResult(checkpointResult.SeqNo, checkpointResult.Value))
+		actions.Append(sm.checkpointTracker.applyCheckpointResult(checkpointResult.SeqNo, checkpointResult.Value))
 	}
 
-	return actions
-}
-
-func (sm *stateMachine) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
-	actions := &Actions{}
-	for _, e := range sm.epochs {
-		actions.Append(e.applyCheckpointResult(seqNo, value))
-	}
 	return actions
 }
 

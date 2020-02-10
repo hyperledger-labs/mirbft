@@ -49,6 +49,10 @@ func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, val
 	return cp.applyCheckpointMsg(source, value)
 }
 
+func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
+	return ct.checkpoints[seqNo].applyCheckpointResult(value)
+}
+
 func (ct *checkpointTracker) release(cp *checkpoint) {
 	delete(ct.checkpoints, cp.end)
 }
