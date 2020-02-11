@@ -17,24 +17,22 @@ import (
 )
 
 type stateMachine struct {
-	myConfig *Config
-	nodeMsgs map[NodeID]*nodeMsgs
+	myConfig      *Config
+	networkConfig *pb.NetworkConfig
+	nodeMsgs      map[NodeID]*nodeMsgs
 
 	activeEpoch       *epoch
-	epochs            []*epoch
 	checkpointTracker *checkpointTracker
-
-	latestSuspicion   map[NodeID]*pb.Suspect
-	latestEpochChange map[NodeID]*pb.EpochChange
+	epochChanger      *epochChanger
 }
 
-func newStateMachine(config *epochConfig, myConfig *Config) *stateMachine {
+func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMachine {
 	oddities := &oddities{
 		logger: myConfig.Logger,
 	}
 	nodeMsgs := map[NodeID]*nodeMsgs{}
-	for _, id := range config.networkConfig.Nodes {
-		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), config, myConfig, oddities)
+	for _, id := range networkConfig.Nodes {
+		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, oddities)
 	}
 
 	fakeCheckpoint := &pb.Checkpoint{
@@ -42,9 +40,7 @@ func newStateMachine(config *epochConfig, myConfig *Config) *stateMachine {
 		Value: []byte("TODO, get from state"),
 	}
 
-	checkpointTracker := newCheckpointTracker(config.networkConfig, myConfig)
-
-	activeEpoch := newEpoch(fakeCheckpoint, checkpointTracker, config, myConfig)
+	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
 
 	epochChange, err := newEpochChange(
 		&pb.EpochChange{
@@ -56,16 +52,23 @@ func newStateMachine(config *epochConfig, myConfig *Config) *stateMachine {
 		panic(err)
 	}
 
-	activeEpoch.changes[NodeID(myConfig.ID)] = epochChange
+	epochChanger := &epochChanger{
+		myConfig:      myConfig,
+		networkConfig: networkConfig,
+		targets:       map[uint64]*epochTarget{},
+	}
+
+	target := epochChanger.target(0)
+	target.changes[NodeID(myConfig.ID)] = epochChange
+	target.myEpochChange = epochChange.underlying
+	epochChanger.pendingEpochTarget = target
 
 	return &stateMachine{
 		myConfig:          myConfig,
-		activeEpoch:       activeEpoch,
-		epochs:            []*epoch{activeEpoch},
+		networkConfig:     networkConfig,
+		epochChanger:      epochChanger,
 		checkpointTracker: checkpointTracker,
 		nodeMsgs:          nodeMsgs,
-		latestSuspicion:   map[NodeID]*pb.Suspect{},
-		latestEpochChange: map[NodeID]*pb.EpochChange{},
 	}
 }
 
@@ -122,15 +125,15 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 				},
 			})
 		case *pb.Msg_Suspect:
-			sm.suspectMsg(source, innerMsg.Suspect)
+			sm.epochChanger.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 		case *pb.Msg_EpochChange:
-			sm.epochChangeMsg(source, innerMsg.EpochChange)
+			sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange)
 		case *pb.Msg_NewEpoch:
-			return sm.activeEpoch.applyNewEpochMsg(innerMsg.NewEpoch)
+			return sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch)
 		case *pb.Msg_NewEpochEcho:
-			return sm.activeEpoch.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho)
+			return sm.epochChanger.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho)
 		case *pb.Msg_NewEpochReady:
-			return sm.activeEpoch.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady)
+			return sm.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady)
 		default:
 			// This should be unreachable, as the nodeMsgs filters based on type as well
 			panic("unexpected bad message type, should have been detected earlier")
@@ -140,25 +143,19 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) suspectMsg(source NodeID, msg *pb.Suspect) {
-	sm.latestSuspicion[source] = msg
+func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
+	actions := sm.epochChanger.applyNewEpochReadyMsg(source, msg)
 
-	for _, ew := range sm.epochs {
-		if ew.config.number == msg.Epoch {
-			ew.applySuspectMsg(source, msg)
+	if sm.epochChanger.state == ready {
+		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.networkConfig, sm.myConfig)
+		sm.epochChanger.state = idle
+		sm.epochChanger.pendingEpochTarget = nil
+		for _, nodeMsgs := range sm.nodeMsgs {
+			nodeMsgs.setActiveEpoch(sm.activeEpoch)
 		}
 	}
-}
 
-func (sm *stateMachine) epochChangeMsg(source NodeID, msg *pb.EpochChange) {
-	sm.latestEpochChange[source] = msg
-
-	for _, ew := range sm.epochs {
-		if ew.config.number == msg.NewEpoch {
-			ew.applyEpochChangeMsg(source, msg)
-			return
-		}
-	}
+	return actions
 }
 
 func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
@@ -171,33 +168,28 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 
 func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	actions := &Actions{}
+
+	if sm.activeEpoch == nil {
+		// TODO, this is a little heavy handed, we should probably
+		// work with the persistence so we don't redo the effort.
+		return actions
+	}
+
 	for _, preprocessResult := range results.Preprocesses {
 		// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
 		actions.Append(sm.applyPreprocessResult(preprocessResult))
 	}
 
 	for _, digestResult := range results.Digests {
-		for _, e := range sm.epochs {
-			if e.config.number != digestResult.Entry.Epoch {
-				continue
-			}
-			// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
-			seqNo := digestResult.Entry.SeqNo
-			actions.Append(sm.activeEpoch.applyDigestResult(seqNo, digestResult.Digest))
-			break
-		}
+		// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
+		seqNo := digestResult.Entry.SeqNo
+		actions.Append(sm.activeEpoch.applyDigestResult(seqNo, digestResult.Digest))
 	}
 
 	for _, validateResult := range results.Validations {
-		for _, e := range sm.epochs {
-			if e.config.number != validateResult.Entry.Epoch {
-				continue
-			}
-			// sm.myConfig.Logger.Debug("applying validate result", zap.Int("index", i))
-			seqNo := validateResult.Entry.SeqNo
-			actions.Append(sm.activeEpoch.applyValidateResult(seqNo, validateResult.Valid))
-			break
-		}
+		// sm.myConfig.Logger.Debug("applying validate result", zap.Int("index", i))
+		seqNo := validateResult.Entry.SeqNo
+		actions.Append(sm.activeEpoch.applyValidateResult(seqNo, validateResult.Valid))
 	}
 
 	for _, checkpointResult := range results.Checkpoints {
@@ -209,72 +201,67 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 }
 
 func (sm *stateMachine) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
-	for _, e := range sm.epochs {
-		if e.state == done {
-			continue
-		}
-
-		// TODO we should probably have some sophisticated logic here for graceful epoch
-		// rotations.  We should prefer finalizing the old epoch and populating the new.
-		// We should also handle the case that we are out of space in the current active
-		// epoch.
-		return e.applyPreprocessResult(preprocessResult)
-	}
-
-	panic("we should always have at least one epoch that's active or pending")
+	// TODO we should probably have some sophisticated logic here for graceful epoch
+	// rotations.  We should prefer finalizing the old epoch and populating the new.
+	// We should also handle the case that we are out of space in the current active
+	// epoch.
+	return sm.activeEpoch.applyPreprocessResult(preprocessResult)
 }
 
 func (sm *stateMachine) tick() *Actions {
 	actions := &Actions{}
 
-	for _, e := range sm.epochs {
-		actions.Append(e.tick())
+	if sm.activeEpoch != nil {
+		actions.Append(sm.activeEpoch.tick())
 	}
+
+	actions.Append(sm.epochChanger.tick())
 
 	return actions
 }
 
 func (sm *stateMachine) status() *Status {
-	epochConfig := sm.epochs[0].config
-
 	var suspicions, epochChanges []NodeID
 
-	nodes := make([]*NodeStatus, len(epochConfig.networkConfig.Nodes))
-	for i, nodeID := range epochConfig.networkConfig.Nodes {
+	nodes := make([]*NodeStatus, len(sm.networkConfig.Nodes))
+	for i, nodeID := range sm.networkConfig.Nodes {
 		nodeID := NodeID(nodeID)
 		nodes[i] = sm.nodeMsgs[nodeID].status()
-		if _, ok := sm.activeEpoch.suspicions[nodeID]; ok {
+		if _, ok := sm.epochChanger.pendingEpochTarget.suspicions[nodeID]; ok {
 			suspicions = append(suspicions, nodeID)
 		}
-		if _, ok := sm.activeEpoch.changes[nodeID]; ok {
+		if _, ok := sm.epochChanger.pendingEpochTarget.changes[nodeID]; ok {
 			epochChanges = append(epochChanges, nodeID)
 		}
 	}
 
 	checkpoints := []*CheckpointStatus{}
+	var buckets []*BucketStatus
+	var lowWatermark, highWatermark uint64
 
-	for _, cw := range sm.activeEpoch.checkpoints {
-		checkpoints = append(checkpoints, cw.status())
-	}
+	if sm.activeEpoch != nil {
+		for _, cw := range sm.activeEpoch.checkpoints {
+			checkpoints = append(checkpoints, cw.status())
+		}
 
-	buckets := sm.activeEpoch.status()
+		buckets = sm.activeEpoch.status()
 
-	lowWatermark := sm.activeEpoch.baseCheckpoint.SeqNo
+		lowWatermark = sm.activeEpoch.baseCheckpoint.SeqNo / uint64(len(buckets))
 
-	var highWatermark uint64
-	if len(sm.activeEpoch.checkpoints) > 0 {
-		highWatermark = sm.activeEpoch.checkpoints[len(sm.activeEpoch.checkpoints)-1].end
-	} else {
-		highWatermark = lowWatermark
+		if sm.activeEpoch != nil && len(sm.activeEpoch.checkpoints) > 0 {
+			highWatermark = sm.activeEpoch.checkpoints[len(sm.activeEpoch.checkpoints)-1].end / uint64(len(buckets))
+		} else {
+			highWatermark = lowWatermark
+		}
 	}
 
 	return &Status{
-		LowWatermark:  lowWatermark / uint64(len(buckets)),
-		HighWatermark: highWatermark / uint64(len(buckets)),
-		EpochNumber:   epochConfig.number,
+		LowWatermark:  lowWatermark,
+		HighWatermark: highWatermark,
+		EpochNumber:   sm.epochChanger.highestObservedCorrectEpoch,
 		Suspicions:    suspicions,
 		EpochChanges:  epochChanges,
-		EpochState:    int(sm.activeEpoch.state),
+		EpochState:    int(sm.epochChanger.state),
 		Buckets:       buckets,
 		Checkpoints:   checkpoints,
 	}

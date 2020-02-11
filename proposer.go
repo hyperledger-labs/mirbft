@@ -32,7 +32,7 @@ func newProposer(config *epochConfig, myConfig *Config) *proposer {
 		}
 	}
 
-	// XXX we don't handle owning more than one bucket
+	// XXX we don't handle owning more than one bucket (or zero)
 
 	return &proposer{
 		myConfig:     myConfig,

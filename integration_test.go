@@ -19,7 +19,8 @@ var _ = Describe("Integration", func() {
 	var (
 		serializer      *serializer
 		stateMachineVal *stateMachine
-		epochConfigVal  *epochConfig
+		epochConfig     *pb.EpochConfig
+		networkConfig   *pb.NetworkConfig
 		consumerConfig  *Config
 		logger          *zap.Logger
 
@@ -49,23 +50,23 @@ var _ = Describe("Integration", func() {
 
 	Describe("F=0,N=1", func() {
 		BeforeEach(func() {
-			epochConfigVal = &epochConfig{
-				number:            3,
-				initialSequence:   1,
-				plannedExpiration: 1000000000000,
-				networkConfig: &pb.NetworkConfig{
-					CheckpointInterval: 2,
-					F:                  0,
-					Nodes:              []uint64{0},
-				},
-				buckets: map[BucketID]NodeID{0: 0},
+			epochConfig = &pb.EpochConfig{
+				Number:             3,
+				Leaders:            []uint64{0},
+				StartingCheckpoint: &pb.Checkpoint{},
 			}
 
-			stateMachineVal = newStateMachine(epochConfigVal, consumerConfig)
-			stateMachineVal.activeEpoch.state = active
+			networkConfig = &pb.NetworkConfig{
+				CheckpointInterval: 2,
+				F:                  0,
+				Nodes:              []uint64{0},
+			}
+
+			stateMachineVal = newStateMachine(networkConfig, consumerConfig)
+			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, networkConfig, consumerConfig)
+			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
 
 			serializer = newSerializer(stateMachineVal, doneC)
-
 		})
 
 		It("works from proposal through commit", func() {
@@ -173,20 +174,24 @@ var _ = Describe("Integration", func() {
 
 	Describe("F=1,N=4", func() {
 		BeforeEach(func() {
-			epochConfigVal = &epochConfig{
-				number:            3,
-				initialSequence:   1,
-				plannedExpiration: 1000000000000,
-				networkConfig: &pb.NetworkConfig{
-					CheckpointInterval: 5,
-					F:                  1,
-					Nodes:              []uint64{0, 1, 2, 3},
-				},
-				buckets: map[BucketID]NodeID{0: 0, 1: 1, 2: 2, 3: 3},
+			epochConfig = &pb.EpochConfig{
+				Number:             3,
+				Leaders:            []uint64{0, 1, 2, 3},
+				StartingCheckpoint: &pb.Checkpoint{},
 			}
 
-			stateMachineVal = newStateMachine(epochConfigVal, consumerConfig)
-			stateMachineVal.activeEpoch.state = active
+			networkConfig = &pb.NetworkConfig{
+				CheckpointInterval: 5,
+				F:                  1,
+				Nodes:              []uint64{0, 1, 2, 3},
+			}
+
+			stateMachineVal = newStateMachine(networkConfig, consumerConfig)
+			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, networkConfig, consumerConfig)
+			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
+			stateMachineVal.nodeMsgs[1].setActiveEpoch(stateMachineVal.activeEpoch)
+			stateMachineVal.nodeMsgs[2].setActiveEpoch(stateMachineVal.activeEpoch)
+			stateMachineVal.nodeMsgs[3].setActiveEpoch(stateMachineVal.activeEpoch)
 
 			serializer = newSerializer(stateMachineVal, doneC)
 

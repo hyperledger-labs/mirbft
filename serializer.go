@@ -67,7 +67,7 @@ func (s *serializer) run() {
 			actionsC = s.actionsC
 		}
 
-		if s.stateMachine.activeEpoch.state != active {
+		if s.stateMachine.activeEpoch == nil {
 			propC = nil
 		} else {
 			propC = s.propC

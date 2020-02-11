@@ -10,10 +10,403 @@ import (
 	"bytes"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-	// "github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 
 	"github.com/pkg/errors"
 )
+
+// epochTarget is like an epoch, but this node need not have agreed
+// to transition to this target, and may not have information like the
+// epoch configuration
+type epochTarget struct {
+	changes    map[NodeID]*epochChange
+	echos      map[NodeID]*pb.EpochConfig
+	readies    map[NodeID]*pb.EpochConfig
+	suspicions map[NodeID]struct{}
+
+	myNewEpoch     *pb.NewEpoch
+	myEpochChange  *pb.EpochChange
+	leaderNewEpoch *pb.EpochConfig
+	isLeader       bool
+}
+
+func (et *epochTarget) constructNewEpoch(nc *pb.NetworkConfig) *pb.NewEpoch {
+	config := constructNewEpochConfig(nc, et.changes)
+	if config == nil {
+		return nil
+	}
+
+	remoteChanges := make([]*pb.NewEpoch_RemoteEpochChange, 0, len(et.changes))
+	for nodeID, change := range et.changes {
+		remoteChanges = append(remoteChanges, &pb.NewEpoch_RemoteEpochChange{
+			NodeId:      uint64(nodeID),
+			EpochChange: change.underlying,
+		})
+	}
+
+	return &pb.NewEpoch{
+		Config:       config,
+		EpochChanges: remoteChanges,
+	}
+}
+
+type epochChangeState int
+
+const (
+	prepending epochChangeState = iota // Have sent an epoch-change, but waiting for a quorum
+	pending                            // Have a quorum of epoch-change messages, waits on new-epoch
+	echoing                            // Have received new-epoch, waits for a quorum of echos
+	readying                           // Have received a quorum of echos, waits on qourum of ready
+	ready                              // New epoch is ready to begin
+	idle                               // No pending change
+)
+
+type epochChanger struct {
+	state                       epochChangeState
+	stateTicks                  uint64
+	lastActiveEpoch             *epoch
+	pendingEpochTarget          *epochTarget
+	highestObservedCorrectEpoch uint64
+	networkConfig               *pb.NetworkConfig
+	myConfig                    *Config
+	targets                     map[uint64]*epochTarget
+}
+
+func (ec *epochChanger) tick() *Actions {
+	ec.stateTicks++
+
+	switch ec.state {
+	case prepending:
+		return ec.tickPrepending()
+	case pending:
+		return ec.tickPending()
+	default: // case done:
+	}
+
+	return &Actions{}
+}
+
+func (ec *epochChanger) repeatEpochChangeBroadcast() *Actions {
+	if ec.pendingEpochTarget == nil {
+		panic("TODO, handle me? Are we guaranteed to have sent an epoch change, I hope so")
+	}
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_EpochChange{
+					EpochChange: ec.pendingEpochTarget.myEpochChange,
+				},
+			},
+		},
+	}
+}
+
+func (ec *epochChanger) tickPrepending() *Actions {
+	if ec.pendingEpochTarget == nil {
+		panic("we should never be prepending with a nil pending target")
+	}
+	newEpoch := ec.pendingEpochTarget.constructNewEpoch(ec.networkConfig) // TODO, recomputing over and over again isn't useful unless we've gotten new epoch change messages in the meantime, should we somehow store the last one we computed?
+
+	if newEpoch == nil {
+		if ec.stateTicks%uint64(ec.myConfig.NewEpochTimeoutTicks/2) == 0 {
+			return ec.repeatEpochChangeBroadcast()
+		}
+
+		return &Actions{}
+	}
+
+	ec.stateTicks = 0
+	ec.state = pending
+	ec.pendingEpochTarget.myNewEpoch = newEpoch
+
+	if ec.pendingEpochTarget.isLeader {
+		return &Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_NewEpoch{
+						NewEpoch: newEpoch,
+					},
+				},
+			},
+		}
+	}
+
+	return &Actions{}
+}
+
+func (ec *epochChanger) tickPending() *Actions {
+	pendingTicks := ec.stateTicks % uint64(ec.myConfig.NewEpochTimeoutTicks)
+	if ec.pendingEpochTarget.isLeader {
+		// resend the new-view if others perhaps missed it
+		if pendingTicks%2 == 0 {
+			return &Actions{
+				Broadcast: []*pb.Msg{
+					{
+						Type: &pb.Msg_NewEpoch{
+							NewEpoch: ec.pendingEpochTarget.myNewEpoch,
+						},
+					},
+				},
+			}
+		}
+	} else {
+		//if pendingTicks == 0 {
+		// TODO, new-view timeout
+		// }
+		if pendingTicks%2 == 0 {
+			return ec.repeatEpochChangeBroadcast()
+		}
+	}
+	return &Actions{}
+}
+
+func (ec *epochChanger) target(epoch uint64) *epochTarget {
+	// TODO, we need to garbage collect in responst to
+	// spammy suspicions and epoch changes.  Basically
+	// if every suspect/epoch change has a corresponding
+	// higher epoch sibling for that node in a later epoch
+	// then we should clean up.
+
+	target, ok := ec.targets[epoch]
+	if !ok {
+		target = &epochTarget{
+			suspicions: map[NodeID]struct{}{},
+			changes:    map[NodeID]*epochChange{},
+			echos:      map[NodeID]*pb.EpochConfig{},
+			readies:    map[NodeID]*pb.EpochConfig{},
+			isLeader:   epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.ID,
+		}
+		ec.targets[epoch] = target
+	}
+	return target
+}
+
+func (ec *epochChanger) updateHighestObservedCorrectEpoch(epoch uint64) {
+	for number := range ec.targets {
+		if number < epoch {
+			delete(ec.targets, number)
+		}
+	}
+
+	// TODO, handle if the active epoch is behind
+}
+
+func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
+	target := ec.target(epoch)
+	target.suspicions[source] = struct{}{}
+
+	if len(target.suspicions) >= intersectionQuorum(ec.networkConfig) {
+		ec.state = prepending
+		ec.pendingEpochTarget.myEpochChange = ec.lastActiveEpoch.constructEpochChange(epoch + 1)
+		ec.updateHighestObservedCorrectEpoch(epoch + 1)
+		return ec.pendingEpochTarget.myEpochChange
+	}
+
+	if len(target.suspicions) >= someCorrectQuorum(ec.networkConfig) &&
+		ec.highestObservedCorrectEpoch < epoch {
+		ec.highestObservedCorrectEpoch = epoch
+		// TODO, end current epoch
+	}
+
+	return nil
+
+}
+
+func (ec *epochChanger) applyEpochChangeMsg(source NodeID, epochChange *pb.EpochChange) *Actions {
+	change, err := newEpochChange(epochChange)
+	if err != nil {
+		// TODO, log
+		return &Actions{}
+	}
+
+	target := ec.target(epochChange.NewEpoch)
+	target.changes[source] = change
+
+	if len(target.changes) > someCorrectQuorum(ec.networkConfig) &&
+		ec.highestObservedCorrectEpoch < epochChange.NewEpoch {
+		ec.updateHighestObservedCorrectEpoch(epochChange.NewEpoch)
+	}
+
+	if len(target.changes) < intersectionQuorum(ec.networkConfig) {
+		return &Actions{}
+	}
+
+	if ec.state == prepending && target.myNewEpoch == nil {
+		target.myNewEpoch = target.constructNewEpoch(ec.networkConfig)
+	}
+
+	if target.myNewEpoch == nil {
+		return &Actions{}
+	}
+
+	if target.isLeader {
+		return &Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_NewEpoch{
+						NewEpoch: target.myNewEpoch,
+					},
+				},
+			},
+		}
+	}
+
+	return &Actions{}
+}
+
+func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
+	if ec.state > pending {
+		// TODO log oddity? maybe ensure not possible via nodemsgs
+		return &Actions{}
+	}
+
+	epochChanges := map[NodeID]*epochChange{}
+	for _, remoteEpochChange := range msg.EpochChanges {
+		if _, ok := epochChanges[NodeID(remoteEpochChange.NodeId)]; ok {
+			// TODO, malformed, log oddity
+			return &Actions{}
+		}
+
+		helper, err := newEpochChange(remoteEpochChange.EpochChange)
+		if err != nil {
+			// TODO, log
+			return &Actions{}
+		}
+
+		epochChanges[NodeID(remoteEpochChange.NodeId)] = helper
+	}
+
+	// XXX need to validate the signatures on the epoch changes
+
+	newEpochConfig := constructNewEpochConfig(ec.networkConfig, epochChanges)
+
+	if !proto.Equal(newEpochConfig, msg.Config) {
+		// TODO byzantine, log oddity
+		return &Actions{}
+	}
+
+	ec.state = echoing
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_NewEpochEcho{
+					NewEpochEcho: &pb.NewEpochEcho{
+						Config: msg.Config,
+					},
+				},
+			},
+		},
+	}
+}
+
+// Summary of Bracha reliable broadcast from:
+//   https://dcl.epfl.ch/site/_media/education/sdc_byzconsensus.pdf
+//
+// upon r-broadcast(m): // only Ps
+// send message (SEND, m) to all
+//
+// upon receiving a message (SEND, m) from Ps:
+// send message (ECHO, m) to all
+//
+// upon receiving ceil((n+t+1)/2)
+// e messages(ECHO, m) and not having sent a READY message:
+// send message (READY, m) to all
+//
+// upon receiving t+1 messages(READY, m) and not having sent a READY message:
+// send message (READY, m) to all
+// upon receiving 2t + 1 messages (READY, m):
+//
+// r-deliver(m)
+
+func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
+	target := ec.target(msg.Config.Number) // TODO, handle nil config
+
+	if _, ok := target.echos[source]; ok {
+		// TODO, if different, byzantine, oddities
+		return &Actions{}
+	}
+
+	target.echos[source] = msg.Config
+
+	if target != ec.pendingEpochTarget && len(target.echos) >= someCorrectQuorum(ec.networkConfig) {
+		ec.updateHighestObservedCorrectEpoch(msg.Config.Number)
+	}
+
+	if len(target.echos) < intersectionQuorum(ec.networkConfig) {
+		return &Actions{}
+	}
+
+	// XXX we need to verify that the configs actually match, but
+	// since we have not computed a digest, this is potentially expensive
+	// so deferring the implementation.
+
+	if ec.state > echoing {
+		return &Actions{}
+	}
+
+	ec.state = readying
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_NewEpochReady{
+					NewEpochReady: &pb.NewEpochReady{
+						Config: msg.Config,
+					},
+				},
+			},
+		},
+	}
+}
+
+func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
+	target := ec.target(msg.Config.Number) // TODO, handle nil config
+
+	if _, ok := target.readies[source]; ok {
+		// TODO, if different, byzantine, oddities
+		return &Actions{}
+	}
+
+	target.readies[source] = msg.Config
+
+	if ec.state > readying {
+		// We've already accepted the epoch config, move along
+		return &Actions{}
+	}
+
+	// XXX we need to verify that the configs actually match, but
+	// since we have not computed a digest, this is potentially expensive
+	// so deferring the implementation.
+
+	if len(target.readies) < someCorrectQuorum(ec.networkConfig) {
+		return &Actions{}
+	}
+
+	if ec.state < readying {
+		ec.state = readying
+
+		return &Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_NewEpochReady{
+						NewEpochReady: &pb.NewEpochReady{
+							Config: msg.Config,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	if len(target.readies) >= intersectionQuorum(ec.networkConfig) {
+		ec.state = ready
+		target.leaderNewEpoch = msg.Config
+	}
+
+	return &Actions{}
+}
 
 // TODO, these nested maps are a little tricky to read, might be better to make proper types
 
@@ -77,7 +470,7 @@ func newEpochChange(underlying *pb.EpochChange) (*epochChange, error) {
 	}, nil
 }
 
-func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epochChange) *pb.EpochConfig {
+func constructNewEpochConfig(config *pb.NetworkConfig, epochChanges map[NodeID]*epochChange) *pb.EpochConfig {
 	type checkpointKey struct {
 		SeqNo uint64
 		Value string
@@ -103,7 +496,7 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 	var maxCheckpoint *checkpointKey
 
 	for key, supporters := range checkpoints {
-		if len(supporters) < config.someCorrectQuorum() {
+		if len(supporters) < someCorrectQuorum(config) {
 			continue
 		}
 
@@ -114,7 +507,7 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 			}
 		}
 
-		if nodesWithLowerWatermark < config.intersectionQuorum() {
+		if nodesWithLowerWatermark < intersectionQuorum(config) {
 			continue
 		}
 
@@ -139,18 +532,21 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 	}
 
 	newEpochConfig := &pb.EpochConfig{
-		Number: newEpochNumber,
+		Number:  newEpochNumber,
+		Leaders: config.Nodes, // XXX, this is wrong.
 		StartingCheckpoint: &pb.Checkpoint{
 			SeqNo: maxCheckpoint.SeqNo,
 			Value: []byte(maxCheckpoint.Value),
 		},
-		FinalPreprepares: make([][]byte, config.logWidth()),
+		FinalPreprepares: make([][]byte, 2*config.CheckpointInterval),
 	}
+
+	anyNonNil := false
 
 	for seqNoOffset := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(seqNoOffset) + maxCheckpoint.SeqNo + 1
 
-		for _, nodeID := range config.networkConfig.Nodes {
+		for _, nodeID := range config.Nodes {
 			nodeID := NodeID(nodeID)
 			// Note, it looks like we're re-implementing `range epochChanges` here,
 			// and we are, but doing so in a deterministic order.
@@ -188,7 +584,7 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 				}
 			}
 
-			if a1Count < config.intersectionQuorum() {
+			if a1Count < intersectionQuorum(config) {
 				continue
 			}
 
@@ -213,7 +609,7 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 				}
 			}
 
-			if a2Count < config.someCorrectQuorum() {
+			if a2Count < someCorrectQuorum(config) {
 				continue
 			}
 
@@ -223,6 +619,7 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 
 		if newEpochConfig.FinalPreprepares[seqNoOffset] != nil {
 			// Some entry from the pSet was selected for this bucketSeq
+			anyNonNil = true
 			continue
 		}
 
@@ -237,10 +634,14 @@ func constructNewEpochConfig(config *epochConfig, epochChanges map[NodeID]*epoch
 			}
 		}
 
-		if bCount < config.intersectionQuorum() {
+		if bCount < intersectionQuorum(config) {
 			// We could not satisfy condition A, or B, we need to wait
 			return nil
 		}
+	}
+
+	if !anyNonNil {
+		newEpochConfig.FinalPreprepares = nil
 	}
 
 	return newEpochConfig

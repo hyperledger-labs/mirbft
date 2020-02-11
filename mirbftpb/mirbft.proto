@@ -122,10 +122,6 @@ message EpochConfig {
 
     repeated uint64 leaders = 3;
 
-    message Bucket {
-         repeated bytes digests = 1;
-    }
-
     // final_preprepares finalizes the last checkpoint window or windows
     // which some correct replica preprepared a sequence in. The entries are
     // digests indexed by sequence number offset by the starting_checkpoint

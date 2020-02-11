@@ -18,8 +18,6 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-
-	"github.com/pkg/errors"
 )
 
 var ErrStopped = fmt.Errorf("stopped at caller request")
@@ -60,31 +58,21 @@ type Node struct {
 // be deprecated, or augmented with a RestartNode or similar.  For now, this method
 // hard codes many of the parameters, but more will be exposed in the future.
 func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*Node, error) {
-	buckets := map[BucketID]NodeID{}
 	nodes := []uint64{}
 	for _, replica := range replicas {
-		buckets[BucketID(replica.ID)] = NodeID(replica.ID)
 		nodes = append(nodes, replica.ID)
 	}
-	if _, ok := buckets[BucketID(config.ID)]; !ok {
-		return nil, errors.Errorf("configured replica ID %d is not in the replica set", config.ID)
-	}
+
 	f := (len(replicas) - 1) / 3
 	return &Node{
 		Config:   config,
 		Replicas: replicas,
 		s: newSerializer(
 			newStateMachine(
-				&epochConfig{
-					number:          0,
-					initialSequence: 1,
-					networkConfig: &pb.NetworkConfig{
-						Nodes:              nodes,
-						F:                  int32(f),
-						CheckpointInterval: int32(5 * len(nodes)),
-					},
-					plannedExpiration: 10000000000000,
-					buckets:           buckets,
+				&pb.NetworkConfig{
+					Nodes:              nodes,
+					F:                  int32(f),
+					CheckpointInterval: int32(5 * len(nodes)),
 				},
 				config,
 			),

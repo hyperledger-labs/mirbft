@@ -8,8 +8,6 @@ package mirbft
 
 import (
 	pb "github.com/IBM/mirbft/mirbftpb"
-
-	"go.uber.org/zap"
 )
 
 type applyable int
@@ -27,8 +25,9 @@ type nodeMsgs struct {
 	id             NodeID
 	oddities       *oddities
 	buffer         map[*pb.Msg]struct{} // TODO, this could be much better optimized via a ring buffer
-	epochConfig    *epochConfig
 	epochMsgs      *epochMsgs
+	myConfig       *Config
+	networkConfig  *pb.NetworkConfig
 	nextCheckpoint uint64
 }
 
@@ -47,20 +46,23 @@ type nextMsg struct {
 	commit  uint64
 }
 
-func newNodeMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config, oddities *oddities) *nodeMsgs {
-	em := newEpochMsgs(nodeID, epochConfig, myConfig)
-	return &nodeMsgs{
-		id:        nodeID,
-		oddities:  oddities,
-		epochMsgs: em,
+func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Config, oddities *oddities) *nodeMsgs {
 
-		epochConfig: epochConfig,
+	return &nodeMsgs{
+		id:       nodeID,
+		oddities: oddities,
 
 		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 		// XXX we should initialize this properly, sort of like the above
-		nextCheckpoint: uint64(epochConfig.networkConfig.CheckpointInterval) / uint64(len(epochConfig.buckets)),
+		nextCheckpoint: uint64(networkConfig.CheckpointInterval),
 		buffer:         map[*pb.Msg]struct{}{},
+		myConfig:       myConfig,
+		networkConfig:  networkConfig,
 	}
+}
+
+func (n *nodeMsgs) setActiveEpoch(activeEpoch *epoch) {
+	n.epochMsgs = newEpochMsgs(n.id, activeEpoch.config, n.myConfig)
 }
 
 // ingest the message for management by the nodeMsgs.  This message
@@ -86,7 +88,7 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	case *pb.Msg_Forward:
 		epoch = innerMsg.Forward.Epoch
 	case *pb.Msg_EpochChange:
-		epoch = innerMsg.EpochChange.NewEpoch
+		return current // TODO, decide if this is actually current
 	case *pb.Msg_NewEpoch:
 		return current // TODO, decide if this is actually current
 	case *pb.Msg_NewEpochEcho:
@@ -98,6 +100,10 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		// TODO don't panic here, just return, left here for dev
 		// as only a byzantine node with custom protos gets us here.
 		panic("unknown message type")
+	}
+
+	if n.epochMsgs == nil {
+		return future
 	}
 
 	switch {
@@ -122,7 +128,7 @@ func (n *nodeMsgs) next() *pb.Msg {
 			delete(n.buffer, msg)
 			return msg
 		case future:
-			n.epochMsgs.myConfig.Logger.Debug("deferring apply as it's from the future", zap.Uint64("NodeID", uint64(n.id)))
+			n.myConfig.Logger.Debug("deferring apply as it's from the future", logBasics(n.id, msg)...)
 		}
 	}
 
@@ -131,16 +137,16 @@ func (n *nodeMsgs) next() *pb.Msg {
 
 func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	switch {
-	case n.nextCheckpoint > n.epochConfig.seqToColumn(msg.SeqNo):
+	case n.nextCheckpoint > msg.SeqNo:
 		return past
-	case n.nextCheckpoint == n.epochConfig.seqToColumn(msg.SeqNo):
+	case n.nextCheckpoint == msg.SeqNo:
 		for _, next := range n.epochMsgs.next {
-			if next.commit < n.epochConfig.seqToColumn(msg.SeqNo) {
+			if next.commit < n.epochMsgs.epochConfig.seqToColumn(msg.SeqNo) {
 				return future
 			}
 		}
 
-		n.nextCheckpoint = n.epochConfig.seqToColumn(msg.SeqNo) + uint64(n.epochConfig.networkConfig.CheckpointInterval)/uint64(len(n.epochConfig.buckets))
+		n.nextCheckpoint = msg.SeqNo + uint64(n.networkConfig.CheckpointInterval)
 		return current
 	default:
 		return future
@@ -256,6 +262,12 @@ type NodeBucketStatus struct {
 }
 
 func (n *nodeMsgs) status() *NodeStatus {
+	if n.epochMsgs == nil {
+		return &NodeStatus{
+			ID: uint64(n.id),
+		}
+	}
+
 	bucketStatuses := make([]NodeBucketStatus, len(n.epochMsgs.next))
 	for bucketID := range bucketStatuses {
 		nextMsg := n.epochMsgs.next[BucketID(bucketID)]
