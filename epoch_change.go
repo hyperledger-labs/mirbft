@@ -189,6 +189,7 @@ func (ec *epochChanger) updateHighestObservedCorrectEpoch(epoch uint64) {
 		}
 	}
 
+	ec.highestObservedCorrectEpoch = epoch
 	// TODO, handle if the active epoch is behind
 }
 
@@ -198,9 +199,11 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 
 	if len(target.suspicions) >= intersectionQuorum(ec.networkConfig) {
 		ec.state = prepending
-		ec.pendingEpochTarget.myEpochChange = ec.lastActiveEpoch.constructEpochChange(epoch + 1)
+		newTarget := ec.target(epoch + 1)
+		ec.pendingEpochTarget = newTarget
+		newTarget.myEpochChange = ec.lastActiveEpoch.constructEpochChange(epoch + 1)
 		ec.updateHighestObservedCorrectEpoch(epoch + 1)
-		return ec.pendingEpochTarget.myEpochChange
+		return target.myEpochChange
 	}
 
 	if len(target.suspicions) >= someCorrectQuorum(ec.networkConfig) &&
@@ -321,6 +324,10 @@ func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 // r-deliver(m)
 
 func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
+	if ec.state > echoing {
+		return &Actions{}
+	}
+
 	target := ec.target(msg.Config.Number) // TODO, handle nil config
 
 	if _, ok := target.echos[source]; ok {
@@ -362,6 +369,10 @@ func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho
 }
 
 func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
+	if ec.state > ready {
+		return &Actions{}
+	}
+
 	target := ec.target(msg.Config.Number) // TODO, handle nil config
 
 	if _, ok := target.readies[source]; ok {
@@ -453,6 +464,7 @@ func newEpochChange(underlying *pb.EpochChange) (*epochChange, error) {
 		views, ok := qSet[entry.SeqNo]
 		if !ok {
 			views = map[uint64][]byte{}
+			qSet[entry.SeqNo] = views
 		}
 
 		if _, ok := views[entry.Epoch]; ok {

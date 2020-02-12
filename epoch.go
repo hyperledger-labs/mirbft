@@ -314,6 +314,7 @@ func (e *epoch) tick() *Actions {
 		return &Actions{}
 	} else {
 		e.ticksSinceProgress = 0
+		e.lastCommittedAtTick = e.sequences[e.lowestUncommitted].entry.SeqNo - 1
 	}
 
 	return actions
@@ -327,7 +328,6 @@ func (e *epoch) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 	if len(e.checkpoints) == 0 ||
 		e.checkpoints[0].myValue == nil ||
 		!e.checkpoints[0].stable {
-
 		// We have no stable checkpoint windows which have not been
 		// garbage collected, so use the most recently garbage collected one
 
@@ -343,26 +343,27 @@ func (e *epoch) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 			SeqNo: uint64(cw.end),
 			Value: cw.myValue,
 		})
+	}
 
-		for _, seq := range e.sequences {
-			if seq.state < Validated {
-				continue
-			}
-
-			entry := &pb.EpochChange_SetEntry{
-				Epoch:  e.config.number,
-				SeqNo:  seq.entry.SeqNo,
-				Digest: seq.digest,
-			}
-
-			epochChange.QSet = append(epochChange.QSet, entry)
-
-			if seq.state < Prepared {
-				continue
-			}
-
-			epochChange.PSet = append(epochChange.PSet, entry)
+	for _, seq := range e.sequences {
+		if seq.state < Validated {
+			continue
 		}
+
+		entry := &pb.EpochChange_SetEntry{
+			Epoch:  e.config.number,
+			SeqNo:  seq.entry.SeqNo,
+			Digest: seq.digest,
+		}
+
+		epochChange.QSet = append(epochChange.QSet, entry)
+
+		if seq.state < Prepared {
+			continue
+		}
+
+		epochChange.PSet = append(epochChange.PSet, entry)
+
 	}
 
 	// XXX include the Qset from previous view-changes if it has not been garbage collected

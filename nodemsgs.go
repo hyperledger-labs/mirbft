@@ -61,8 +61,12 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Confi
 	}
 }
 
-func (n *nodeMsgs) setActiveEpoch(activeEpoch *epoch) {
-	n.epochMsgs = newEpochMsgs(n.id, activeEpoch.config, n.myConfig)
+func (n *nodeMsgs) setActiveEpoch(epochConfig *epochConfig) {
+	if epochConfig == nil {
+		n.epochMsgs = nil
+		return
+	}
+	n.epochMsgs = newEpochMsgs(n.id, epochConfig, n.myConfig)
 }
 
 // ingest the message for management by the nodeMsgs.  This message
@@ -157,12 +161,9 @@ func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config) *ep
 	next := map[BucketID]*nextMsg{}
 	for bucketID, leaderID := range epochConfig.buckets {
 		next[bucketID] = &nextMsg{
-			leader: nodeID == leaderID,
-			// prepare: epochConfig.lowWatermark + 1,
-			// commit:  epochConfig.lowWatermark + 1,
-			// XXX initialize these properly, sort of like the above
-			prepare: 1,
-			commit:  1,
+			leader:  nodeID == leaderID,
+			prepare: epochConfig.initialSequence,
+			commit:  epochConfig.initialSequence,
 		}
 	}
 	return &epochMsgs{

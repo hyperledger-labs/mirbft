@@ -125,9 +125,9 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 				},
 			})
 		case *pb.Msg_Suspect:
-			sm.epochChanger.applySuspectMsg(source, innerMsg.Suspect.Epoch)
+			sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 		case *pb.Msg_EpochChange:
-			sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange)
+			actions.Append(sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange))
 		case *pb.Msg_NewEpoch:
 			return sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch)
 		case *pb.Msg_NewEpochEcho:
@@ -143,15 +143,37 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	return actions
 }
 
+func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
+	epochChange := sm.epochChanger.applySuspectMsg(source, epoch)
+	if epochChange == nil {
+		return &Actions{}
+	}
+
+	for _, nodeMsgs := range sm.nodeMsgs {
+		nodeMsgs.setActiveEpoch(nil)
+	}
+	sm.activeEpoch = nil
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_EpochChange{
+					EpochChange: epochChange,
+				},
+			},
+		},
+	}
+}
+
 func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
 	actions := sm.epochChanger.applyNewEpochReadyMsg(source, msg)
 
 	if sm.epochChanger.state == ready {
 		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.networkConfig, sm.myConfig)
 		sm.epochChanger.state = idle
-		sm.epochChanger.pendingEpochTarget = nil
+		sm.epochChanger.lastActiveEpoch = sm.activeEpoch
 		for _, nodeMsgs := range sm.nodeMsgs {
-			nodeMsgs.setActiveEpoch(sm.activeEpoch)
+			nodeMsgs.setActiveEpoch(sm.activeEpoch.config)
 		}
 	}
 

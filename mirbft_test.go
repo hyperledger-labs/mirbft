@@ -150,7 +150,7 @@ func (bl *BrokenLink) Send(dest uint64, msg *pb.Msg) {
 	if _, ok := msg.Type.(*pb.Msg_Forward); !ok {
 		if _, ok = bl.Unreachable[dest]; ok {
 			// drop the message
-			fmt.Println("Dropping message to", dest)
+			// fmt.Println("Dropping message to", dest)
 			return
 		}
 	}
