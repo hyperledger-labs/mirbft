@@ -64,11 +64,11 @@ func (ec *epochConfig) seqToColumn(seqNo uint64) uint64 {
 func (ec *epochConfig) seqToBucketColumn(seqNo uint64) (BucketID, uint64) {
 	return ec.seqToBucket(seqNo), ec.seqToColumn(seqNo)
 }
-*/
 
 func (ec *epochConfig) colBucketToSeq(column uint64, bucket BucketID) uint64 {
 	return ec.initialSequence + (column-1)*uint64(len(ec.buckets)) + uint64(bucket)
 }
+*/
 
 func (ec *epochConfig) logWidth() int {
 	return 2 * int(ec.networkConfig.CheckpointInterval)
