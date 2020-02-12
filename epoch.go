@@ -351,7 +351,7 @@ func (e *epoch) tick() *Actions {
 
 func (e *epoch) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 	epochChange := &pb.EpochChange{
-		NewEpoch: e.config.number + 1,
+		NewEpoch: newEpoch,
 	}
 
 	if len(e.checkpoints) == 0 ||

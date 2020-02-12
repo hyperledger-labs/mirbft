@@ -257,19 +257,10 @@ func (sm *stateMachine) tick() *Actions {
 }
 
 func (sm *stateMachine) status() *Status {
-	var suspicions, epochChanges []NodeID
-
 	nodes := make([]*NodeStatus, len(sm.networkConfig.Nodes))
 	for i, nodeID := range sm.networkConfig.Nodes {
 		nodeID := NodeID(nodeID)
 		nodes[i] = sm.nodeMsgs[nodeID].status()
-
-		if _, ok := sm.epochChanger.pendingEpochTarget.suspicions[nodeID]; ok {
-			suspicions = append(suspicions, nodeID)
-		}
-		if _, ok := sm.epochChanger.pendingEpochTarget.changes[nodeID]; ok {
-			epochChanges = append(epochChanges, nodeID)
-		}
 	}
 
 	checkpoints := []*CheckpointStatus{}
@@ -296,10 +287,7 @@ func (sm *stateMachine) status() *Status {
 	return &Status{
 		LowWatermark:  lowWatermark,
 		HighWatermark: highWatermark,
-		EpochNumber:   sm.epochChanger.highestObservedCorrectEpoch,
-		Suspicions:    suspicions,
-		EpochChanges:  epochChanges,
-		EpochState:    int(sm.epochChanger.state),
+		EpochChanger:  sm.epochChanger.status(),
 		Buckets:       buckets,
 		Checkpoints:   checkpoints,
 		Nodes:         nodes,
@@ -309,10 +297,7 @@ func (sm *stateMachine) status() *Status {
 type Status struct {
 	LowWatermark  uint64
 	HighWatermark uint64
-	EpochNumber   uint64
-	Suspicions    []NodeID
-	EpochChanges  []NodeID
-	EpochState    int
+	EpochChanger  *EpochChangerStatus
 	Nodes         []*NodeStatus
 	Buckets       []*BucketStatus
 	Checkpoints   []*CheckpointStatus
@@ -321,19 +306,17 @@ type Status struct {
 func (s *Status) Pretty() string {
 	var buffer bytes.Buffer
 	buffer.WriteString(fmt.Sprintf("===========================================\n"))
-	buffer.WriteString(fmt.Sprintf("LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.LowWatermark, s.HighWatermark, s.EpochNumber))
+	buffer.WriteString(fmt.Sprintf("LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.LowWatermark, s.HighWatermark, s.EpochChanger.LastActiveEpoch))
 	buffer.WriteString(fmt.Sprintf("===========================================\n\n"))
 
-	buffer.WriteString("=== Epoch Changes ===\n")
-	buffer.WriteString(fmt.Sprintf("In state: %d\n", s.EpochState))
-	buffer.WriteString("Suspicions:")
-	for _, nodeID := range s.Suspicions {
-		buffer.WriteString(fmt.Sprintf(" %d", nodeID))
-	}
-	buffer.WriteString("\n")
-	buffer.WriteString("EpochChanges:")
-	for _, nodeID := range s.EpochChanges {
-		buffer.WriteString(fmt.Sprintf(" %d", nodeID))
+	buffer.WriteString("=== Epoch Changer ===\n")
+	buffer.WriteString(fmt.Sprintf("Change is in state: %d, last active epoch %d\n", s.EpochChanger.State, s.EpochChanger.LastActiveEpoch))
+	for _, et := range s.EpochChanger.EpochTargets {
+		buffer.WriteString(fmt.Sprintf("Target Epoch %d:\n", et.Number))
+		buffer.WriteString(fmt.Sprintf("  EpochChanges: %v\n", et.EpochChanges))
+		buffer.WriteString(fmt.Sprintf("  Echos: %v\n", et.Echos))
+		buffer.WriteString(fmt.Sprintf("  Readies: %v\n", et.Readies))
+		buffer.WriteString(fmt.Sprintf("  Suspicions: %v\n", et.Suspicions))
 	}
 	buffer.WriteString("\n")
 	buffer.WriteString("=====================\n")

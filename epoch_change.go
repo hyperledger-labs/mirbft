@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"bytes"
+	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/golang/protobuf/proto"
@@ -106,9 +107,8 @@ func (ec *epochChanger) tickPrepending() *Actions {
 	if ec.pendingEpochTarget == nil {
 		panic("we should never be prepending with a nil pending target")
 	}
-	newEpoch := ec.pendingEpochTarget.constructNewEpoch(ec.networkConfig) // TODO, recomputing over and over again isn't useful unless we've gotten new epoch change messages in the meantime, should we somehow store the last one we computed?
 
-	if newEpoch == nil {
+	if ec.pendingEpochTarget.myNewEpoch == nil {
 		if ec.stateTicks%uint64(ec.myConfig.NewEpochTimeoutTicks/2) == 0 {
 			return ec.repeatEpochChangeBroadcast()
 		}
@@ -118,14 +118,13 @@ func (ec *epochChanger) tickPrepending() *Actions {
 
 	ec.stateTicks = 0
 	ec.state = pending
-	ec.pendingEpochTarget.myNewEpoch = newEpoch
 
 	if ec.pendingEpochTarget.isLeader {
 		return &Actions{
 			Broadcast: []*pb.Msg{
 				{
 					Type: &pb.Msg_NewEpoch{
-						NewEpoch: newEpoch,
+						NewEpoch: ec.pendingEpochTarget.myNewEpoch,
 					},
 				},
 			},
@@ -151,9 +150,19 @@ func (ec *epochChanger) tickPending() *Actions {
 			}
 		}
 	} else {
-		//if pendingTicks == 0 {
-		// TODO, new-view timeout
-		// }
+		if pendingTicks == 0 {
+			return &Actions{
+				Broadcast: []*pb.Msg{
+					{
+						Type: &pb.Msg_Suspect{
+							Suspect: &pb.Suspect{
+								Epoch: ec.pendingEpochTarget.myNewEpoch.Config.Number,
+							},
+						},
+					},
+				},
+			}
+		}
 		if pendingTicks%2 == 0 {
 			return ec.repeatEpochChangeBroadcast()
 		}
@@ -217,6 +226,7 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 }
 
 func (ec *epochChanger) applyEpochChangeMsg(source NodeID, epochChange *pb.EpochChange) *Actions {
+
 	change, err := newEpochChange(epochChange)
 	if err != nil {
 		// TODO, log
@@ -240,6 +250,7 @@ func (ec *epochChanger) applyEpochChangeMsg(source NodeID, epochChange *pb.Epoch
 	}
 
 	if target.myNewEpoch == nil {
+
 		return &Actions{}
 	}
 
@@ -657,4 +668,81 @@ func constructNewEpochConfig(config *pb.NetworkConfig, epochChanges map[NodeID]*
 	}
 
 	return newEpochConfig
+}
+
+type EpochTargetStatus struct {
+	Number       uint64
+	EpochChanges []uint64
+	Echos        []uint64
+	Readies      []uint64
+	Suspicions   []uint64
+}
+
+func (et *epochTarget) status() *EpochTargetStatus {
+	status := &EpochTargetStatus{
+		EpochChanges: make([]uint64, 0, len(et.changes)),
+		Echos:        make([]uint64, 0, len(et.echos)),
+		Readies:      make([]uint64, 0, len(et.readies)),
+		Suspicions:   make([]uint64, 0, len(et.suspicions)),
+	}
+
+	for node := range et.changes {
+		status.EpochChanges = append(status.EpochChanges, uint64(node))
+	}
+	sort.Slice(status.EpochChanges, func(i, j int) bool {
+		return status.EpochChanges[i] < status.EpochChanges[j]
+	})
+
+	for node := range et.echos {
+		status.Echos = append(status.Echos, uint64(node))
+	}
+	sort.Slice(status.Echos, func(i, j int) bool {
+		return status.Echos[i] < status.Echos[j]
+	})
+
+	for node := range et.readies {
+		status.Readies = append(status.Readies, uint64(node))
+	}
+	sort.Slice(status.Readies, func(i, j int) bool {
+		return status.Readies[i] < status.Readies[j]
+	})
+
+	for node := range et.suspicions {
+		status.Suspicions = append(status.Suspicions, uint64(node))
+	}
+	sort.Slice(status.Suspicions, func(i, j int) bool {
+		return status.Suspicions[i] < status.Suspicions[j]
+	})
+
+	return status
+}
+
+type EpochChangerStatus struct {
+	State           epochChangeState
+	LastActiveEpoch uint64
+	EpochTargets    []*EpochTargetStatus
+}
+
+func (ec *epochChanger) status() *EpochChangerStatus {
+
+	lastActiveEpoch := uint64(0)
+	if ec.lastActiveEpoch != nil {
+		lastActiveEpoch = ec.lastActiveEpoch.config.number
+	}
+
+	targets := make([]*EpochTargetStatus, 0, len(ec.targets))
+	for number, target := range ec.targets {
+		ts := target.status()
+		ts.Number = number
+		targets = append(targets, ts)
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		return targets[i].Number < targets[j].Number
+	})
+
+	return &EpochChangerStatus{
+		State:           ec.state,
+		LastActiveEpoch: lastActiveEpoch,
+		EpochTargets:    targets,
+	}
 }
