@@ -61,12 +61,12 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Confi
 	}
 }
 
-func (n *nodeMsgs) setActiveEpoch(epochConfig *epochConfig) {
-	if epochConfig == nil {
+func (n *nodeMsgs) setActiveEpoch(epoch *epoch) {
+	if epoch == nil {
 		n.epochMsgs = nil
 		return
 	}
-	n.epochMsgs = newEpochMsgs(n.id, epochConfig, n.myConfig)
+	n.epochMsgs = newEpochMsgs(n.id, epoch, n.myConfig)
 }
 
 // ingest the message for management by the nodeMsgs.  This message
@@ -86,7 +86,7 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	case *pb.Msg_Commit:
 		epoch = innerMsg.Commit.Epoch
 	case *pb.Msg_Suspect:
-		epoch = innerMsg.Suspect.Epoch
+		return current // TODO, at least detect past
 	case *pb.Msg_Checkpoint:
 		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_Forward:
@@ -132,7 +132,8 @@ func (n *nodeMsgs) next() *pb.Msg {
 			delete(n.buffer, msg)
 			return msg
 		case future:
-			n.myConfig.Logger.Debug("deferring apply as it's from the future", logBasics(n.id, msg)...)
+			// TODO, this is too aggressive, but useful for debugging
+			n.myConfig.Logger.Warn("deferring apply as it's from the future", logBasics(n.id, msg)...)
 		}
 	}
 
@@ -157,18 +158,29 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	}
 }
 
-func newEpochMsgs(nodeID NodeID, epochConfig *epochConfig, myConfig *Config) *epochMsgs {
+func newEpochMsgs(nodeID NodeID, epoch *epoch, myConfig *Config) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
-	for bucketID, leaderID := range epochConfig.buckets {
-		next[bucketID] = &nextMsg{
+	for bucketID, leaderID := range epoch.config.buckets {
+		nm := &nextMsg{
 			leader:  nodeID == leaderID,
-			prepare: epochConfig.initialSequence,
-			commit:  epochConfig.initialSequence,
+			prepare: 1,
+			commit:  1,
 		}
+
+		ec := epoch.config
+
+		for i := int(bucketID); i < len(epoch.sequences); i += len(ec.buckets) {
+			if epoch.sequences[i].state >= Prepared {
+				nm.prepare++
+			}
+		}
+
+		next[bucketID] = nm
 	}
+
 	return &epochMsgs{
 		myConfig:    myConfig,
-		epochConfig: epochConfig,
+		epochConfig: epoch.config,
 		next:        next,
 	}
 }
@@ -252,20 +264,21 @@ func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
 type NodeStatus struct {
 	ID             uint64
 	BucketStatuses []NodeBucketStatus
+	LastCheckpoint uint64
 }
 
 type NodeBucketStatus struct {
-	BucketID       int
-	IsLeader       bool
-	LastPrepare    uint64
-	LastCommit     uint64
-	LastCheckpoint uint64
+	BucketID    int
+	IsLeader    bool
+	LastPrepare uint64
+	LastCommit  uint64
 }
 
 func (n *nodeMsgs) status() *NodeStatus {
 	if n.epochMsgs == nil {
 		return &NodeStatus{
-			ID: uint64(n.id),
+			ID:             uint64(n.id),
+			LastCheckpoint: uint64(n.nextCheckpoint) - uint64(n.networkConfig.CheckpointInterval),
 		}
 	}
 
@@ -273,11 +286,10 @@ func (n *nodeMsgs) status() *NodeStatus {
 	for bucketID := range bucketStatuses {
 		nextMsg := n.epochMsgs.next[BucketID(bucketID)]
 		bucketStatuses[bucketID] = NodeBucketStatus{
-			BucketID:       bucketID,
-			IsLeader:       nextMsg.leader,
-			LastCheckpoint: uint64(n.nextCheckpoint) - uint64(n.epochMsgs.epochConfig.networkConfig.CheckpointInterval),
-			LastPrepare:    uint64(nextMsg.prepare - 1), // No underflow is possible, we start at seq 1
-			LastCommit:     uint64(nextMsg.commit - 1),
+			BucketID:    bucketID,
+			IsLeader:    nextMsg.leader,
+			LastPrepare: uint64(nextMsg.prepare - 1), // No underflow is possible, we start at seq 1
+			LastCommit:  uint64(nextMsg.commit - 1),
 		}
 	}
 

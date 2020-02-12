@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"bytes"
+
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
@@ -62,11 +64,11 @@ func (ec *epochConfig) seqToColumn(seqNo uint64) uint64 {
 func (ec *epochConfig) seqToBucketColumn(seqNo uint64) (BucketID, uint64) {
 	return ec.seqToBucket(seqNo), ec.seqToColumn(seqNo)
 }
+*/
 
 func (ec *epochConfig) colBucketToSeq(column uint64, bucket BucketID) uint64 {
 	return ec.initialSequence + (column-1)*uint64(len(ec.buckets)) + uint64(bucket)
 }
-*/
 
 func (ec *epochConfig) logWidth() int {
 	return 2 * int(ec.networkConfig.CheckpointInterval)
@@ -97,7 +99,7 @@ type epoch struct {
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
+func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
 
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
@@ -115,6 +117,11 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 
 	proposer := newProposer(config, myConfig)
 	proposer.maxAssignable = newEpochConfig.StartingCheckpoint.SeqNo
+
+	if lastEpoch != nil {
+		proposer = lastEpoch.proposer
+		proposer.epochConfig = config
+	}
 
 	checkpoints := make([]*checkpoint, 0, 3)
 
@@ -138,10 +145,32 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 	}
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
-		sequences[i].state = Validated
+		sequences[i].state = Prepared
 		sequences[i].digest = digest
-		// XXX we need to get the old entry if it exists
-		panic("we need persistence and or state transfer to handle this path")
+
+		if lastEpoch != nil {
+			offset := newEpochConfig.StartingCheckpoint.SeqNo - lastEpoch.baseCheckpoint.SeqNo
+
+			// TODO, handle unlikely underflow
+			if j := i + int(offset); j < len(lastEpoch.sequences) {
+				oldSequence := lastEpoch.sequences[j]
+				if oldSequence.entry.SeqNo != sequences[i].entry.SeqNo {
+					panic("unexpected")
+				}
+
+				if bytes.Equal(oldSequence.digest, sequences[i].digest) {
+					sequences[i].entry.Batch = oldSequence.entry.Batch
+					if oldSequence.state == Committed {
+						sequences[i].state = Committed
+					}
+				}
+			}
+		}
+
+		if sequences[i].digest != nil && sequences[i].entry.Batch == nil {
+			// XXX we need to get the old entry if it exists
+			panic("we need persistence and or state transfer to handle this path")
+		}
 	}
 
 	return &epoch{

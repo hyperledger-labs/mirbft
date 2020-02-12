@@ -76,7 +76,9 @@ var _ = Describe("MirBFT", func() {
 			for len(observations) < msgs {
 				entry := &mirbft.Entry{}
 				Eventually(fakeLog.CommitC).Should(Receive(&entry))
-				Expect(entry.Epoch).To(Equal(uint64(0)))
+				if len(networkCustomizers) == 0 {
+					Expect(entry.Epoch).To(Equal(uint64(0)))
+				}
 
 				if entry.Batch == nil {
 					continue
@@ -95,7 +97,8 @@ var _ = Describe("MirBFT", func() {
 		Entry("ThreeNodeCFT", 3),
 		Entry("FourNodeBFT", 4),
 		PEntry("FourNodeBFT with fault", 4, BrokenLinks(map[uint64]map[uint64]struct{}{
-			2: {0: struct{}{}, 1: struct{}{}, 3: struct{}{}},
+			// 2: {0: struct{}{}, 1: struct{}{}, 3: struct{}{}},
+			3: {0: struct{}{}, 1: struct{}{}, 2: struct{}{}},
 			// XXX, this one is weird 1: {0: struct{}{}, 2: struct{}{}, 3: struct{}{}},
 		})),
 	)

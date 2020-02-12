@@ -129,11 +129,11 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 		case *pb.Msg_EpochChange:
 			actions.Append(sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange))
 		case *pb.Msg_NewEpoch:
-			return sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch)
+			actions.Append(sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch))
 		case *pb.Msg_NewEpochEcho:
-			return sm.epochChanger.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho)
+			actions.Append(sm.epochChanger.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho))
 		case *pb.Msg_NewEpochReady:
-			return sm.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady)
+			actions.Append(sm.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
 		default:
 			// This should be unreachable, as the nodeMsgs filters based on type as well
 			panic("unexpected bad message type, should have been detected earlier")
@@ -169,11 +169,25 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 	actions := sm.epochChanger.applyNewEpochReadyMsg(source, msg)
 
 	if sm.epochChanger.state == ready {
-		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.networkConfig, sm.myConfig)
+		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
+		for _, sequence := range sm.activeEpoch.sequences {
+			if sequence.state >= Prepared {
+				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+					Type: &pb.Msg_Commit{
+						Commit: &pb.Commit{
+							SeqNo:  sequence.entry.SeqNo,
+							Epoch:  sequence.entry.Epoch,
+							Digest: sequence.digest,
+						},
+					},
+				})
+			}
+		}
+		actions.Append(sm.activeEpoch.advanceUncommitted())
 		sm.epochChanger.state = idle
 		sm.epochChanger.lastActiveEpoch = sm.activeEpoch
 		for _, nodeMsgs := range sm.nodeMsgs {
-			nodeMsgs.setActiveEpoch(sm.activeEpoch.config)
+			nodeMsgs.setActiveEpoch(sm.activeEpoch)
 		}
 	}
 
@@ -249,6 +263,7 @@ func (sm *stateMachine) status() *Status {
 	for i, nodeID := range sm.networkConfig.Nodes {
 		nodeID := NodeID(nodeID)
 		nodes[i] = sm.nodeMsgs[nodeID].status()
+
 		if _, ok := sm.epochChanger.pendingEpochTarget.suspicions[nodeID]; ok {
 			suspicions = append(suspicions, nodeID)
 		}
@@ -261,17 +276,18 @@ func (sm *stateMachine) status() *Status {
 	var buckets []*BucketStatus
 	var lowWatermark, highWatermark uint64
 
-	if sm.activeEpoch != nil {
-		for _, cw := range sm.activeEpoch.checkpoints {
+	if sm.epochChanger.lastActiveEpoch != nil {
+		epoch := sm.epochChanger.lastActiveEpoch
+		for _, cw := range epoch.checkpoints {
 			checkpoints = append(checkpoints, cw.status())
 		}
 
-		buckets = sm.activeEpoch.status()
+		buckets = epoch.status()
 
-		lowWatermark = sm.activeEpoch.baseCheckpoint.SeqNo / uint64(len(buckets))
+		lowWatermark = epoch.baseCheckpoint.SeqNo / uint64(len(buckets))
 
-		if sm.activeEpoch != nil && len(sm.activeEpoch.checkpoints) > 0 {
-			highWatermark = sm.activeEpoch.checkpoints[len(sm.activeEpoch.checkpoints)-1].end / uint64(len(buckets))
+		if epoch != nil && len(epoch.checkpoints) > 0 {
+			highWatermark = epoch.checkpoints[len(epoch.checkpoints)-1].end / uint64(len(buckets))
 		} else {
 			highWatermark = lowWatermark
 		}
@@ -286,6 +302,7 @@ func (sm *stateMachine) status() *Status {
 		EpochState:    int(sm.epochChanger.state),
 		Buckets:       buckets,
 		Checkpoints:   checkpoints,
+		Nodes:         nodes,
 	}
 }
 
@@ -346,7 +363,7 @@ func (s *Status) Pretty() string {
 		buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeStatus.ID))
 		for bucket, bucketStatus := range nodeStatus.BucketStatuses {
 			for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
-				if seqNo == bucketStatus.LastCheckpoint {
+				if seqNo == nodeStatus.LastCheckpoint {
 					buffer.WriteString("|X")
 					continue
 				}
@@ -357,11 +374,7 @@ func (s *Status) Pretty() string {
 				}
 
 				if seqNo == bucketStatus.LastPrepare {
-					if bucketStatus.IsLeader {
-						buffer.WriteString("|Q")
-					} else {
-						buffer.WriteString("|P")
-					}
+					buffer.WriteString("|P")
 					continue
 				}
 				buffer.WriteString("| ")
@@ -412,14 +425,14 @@ func (s *Status) Pretty() string {
 		if len(s.Checkpoints) > i {
 			checkpoint := s.Checkpoints[i]
 			if seqNo == checkpoint.SeqNo/uint64(len(s.Buckets)) {
-				buffer.WriteString(fmt.Sprintf("|%d", checkpoint.PendingCommits))
+				buffer.WriteString(fmt.Sprintf("|%d", checkpoint.MaxAgreements))
 				i++
 				continue
 			}
 		}
 		buffer.WriteString("| ")
 	}
-	buffer.WriteString("| Pending Commits\n")
+	buffer.WriteString("| Max Agreements\n")
 	i = 0
 	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
 		if len(s.Checkpoints) > i {
