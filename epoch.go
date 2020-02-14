@@ -42,11 +42,11 @@ func someCorrectQuorum(nc *pb.NetworkConfig) int {
 	return int(nc.F) + 1
 }
 
+/*
 func (ec *epochConfig) intersectionQuorum() int {
 	return intersectionQuorum(ec.networkConfig)
 }
 
-/*
 func (ec *epochConfig) someCorrectQuorum() int {
 	return someCorrectQuorum(ec.networkConfig)
 }
