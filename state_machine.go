@@ -91,56 +91,65 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 
 	nodeMsgs.ingest(outerMsg)
 
-	actions := &Actions{}
+	return sm.drainNodeMsgs()
+}
 
+func (sm *stateMachine) drainNodeMsgs() *Actions {
+	actions := &Actions{}
 	for {
-		msg := nodeMsgs.next()
-		if msg == nil {
-			break
+		moreActions := false
+		for source, nodeMsgs := range sm.nodeMsgs {
+			msg := nodeMsgs.next()
+			if msg == nil {
+				continue
+			}
+			moreActions = true
+
+			switch innerMsg := msg.Type.(type) {
+			case *pb.Msg_Preprepare:
+				msg := innerMsg.Preprepare
+				actions.Append(sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
+			case *pb.Msg_Prepare:
+				msg := innerMsg.Prepare
+				actions.Append(sm.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
+			case *pb.Msg_Commit:
+				msg := innerMsg.Commit
+				actions.Append(sm.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
+			case *pb.Msg_Checkpoint:
+				msg := innerMsg.Checkpoint
+				actions.Append(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
+			case *pb.Msg_Forward:
+				msg := innerMsg.Forward
+				// TODO should we have a separate validate step here?  How do we prevent
+				// forwarded messages with bad data from poisoning our batch?
+				actions.Append(&Actions{
+					Preprocess: []Proposal{
+						{
+							Source: uint64(source),
+							Data:   msg.Data,
+						},
+					},
+				})
+			case *pb.Msg_Suspect:
+				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
+			case *pb.Msg_EpochChange:
+				actions.Append(sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange))
+			case *pb.Msg_NewEpoch:
+				actions.Append(sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch))
+			case *pb.Msg_NewEpochEcho:
+				actions.Append(sm.epochChanger.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho))
+			case *pb.Msg_NewEpochReady:
+				actions.Append(sm.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
+			default:
+				// This should be unreachable, as the nodeMsgs filters based on type as well
+				panic("unexpected bad message type, should have been detected earlier")
+			}
 		}
 
-		switch innerMsg := msg.Type.(type) {
-		case *pb.Msg_Preprepare:
-			msg := innerMsg.Preprepare
-			actions.Append(sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
-		case *pb.Msg_Prepare:
-			msg := innerMsg.Prepare
-			actions.Append(sm.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
-		case *pb.Msg_Commit:
-			msg := innerMsg.Commit
-			actions.Append(sm.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
-		case *pb.Msg_Checkpoint:
-			msg := innerMsg.Checkpoint
-			actions.Append(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
-		case *pb.Msg_Forward:
-			msg := innerMsg.Forward
-			// TODO should we have a separate validate step here?  How do we prevent
-			// forwarded messages with bad data from poisoning our batch?
-			actions.Append(&Actions{
-				Preprocess: []Proposal{
-					{
-						Source: uint64(source),
-						Data:   msg.Data,
-					},
-				},
-			})
-		case *pb.Msg_Suspect:
-			sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
-		case *pb.Msg_EpochChange:
-			actions.Append(sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange))
-		case *pb.Msg_NewEpoch:
-			actions.Append(sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch))
-		case *pb.Msg_NewEpochEcho:
-			actions.Append(sm.epochChanger.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho))
-		case *pb.Msg_NewEpochReady:
-			actions.Append(sm.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
-		default:
-			// This should be unreachable, as the nodeMsgs filters based on type as well
-			panic("unexpected bad message type, should have been detected earlier")
+		if !moreActions {
+			return actions
 		}
 	}
-
-	return actions
 }
 
 func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
@@ -199,7 +208,9 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 		return &Actions{}
 	}
 
-	return sm.activeEpoch.moveWatermarks()
+	actions := sm.activeEpoch.moveWatermarks()
+	actions.Append(sm.drainNodeMsgs())
+	return actions
 }
 
 func (sm *stateMachine) processResults(results ActionResults) *Actions {
@@ -279,6 +290,7 @@ func (sm *stateMachine) status() *Status {
 	}
 
 	return &Status{
+		NodeID:        sm.myConfig.ID,
 		LowWatermark:  lowWatermark,
 		HighWatermark: highWatermark,
 		EpochChanger:  sm.epochChanger.status(),
@@ -289,6 +301,7 @@ func (sm *stateMachine) status() *Status {
 }
 
 type Status struct {
+	NodeID        uint64
 	LowWatermark  uint64
 	HighWatermark uint64
 	EpochChanger  *EpochChangerStatus
@@ -300,7 +313,7 @@ type Status struct {
 func (s *Status) Pretty() string {
 	var buffer bytes.Buffer
 	buffer.WriteString(fmt.Sprintf("===========================================\n"))
-	buffer.WriteString(fmt.Sprintf("LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.LowWatermark, s.HighWatermark, s.EpochChanger.LastActiveEpoch))
+	buffer.WriteString(fmt.Sprintf("NodeID=%d, LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.NodeID, s.LowWatermark, s.HighWatermark, s.EpochChanger.LastActiveEpoch))
 	buffer.WriteString(fmt.Sprintf("===========================================\n\n"))
 
 	buffer.WriteString("=== Epoch Changer ===\n")

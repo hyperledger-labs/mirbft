@@ -34,6 +34,7 @@ type nodeMsgs struct {
 type epochMsgs struct {
 	myConfig    *Config
 	epochConfig *epochConfig
+	epoch       *epoch
 
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
@@ -181,6 +182,7 @@ func newEpochMsgs(nodeID NodeID, epoch *epoch, myConfig *Config) *epochMsgs {
 	return &epochMsgs{
 		myConfig:    myConfig,
 		epochConfig: epoch.config,
+		epoch:       epoch,
 		next:        next,
 	}
 }
@@ -212,6 +214,10 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 		return invalid
 	}
 
+	if msg.SeqNo > n.epoch.highWatermark() {
+		return future
+	}
+
 	switch {
 	case !next.leader:
 		return invalid
@@ -231,6 +237,10 @@ func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
 		return invalid
 	}
 
+	if msg.SeqNo > n.epoch.highWatermark() {
+		return future
+	}
+
 	switch {
 	case next.leader:
 		return invalid
@@ -248,6 +258,10 @@ func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
 	next, ok := n.next[n.epochConfig.seqToBucket(msg.SeqNo)]
 	if !ok {
 		return invalid
+	}
+
+	if msg.SeqNo > n.epoch.highWatermark() {
+		return future
 	}
 
 	switch {

@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/IBM/mirbft"
@@ -101,7 +102,8 @@ type SerialProcessor struct {
 func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("Printing state machine status")
+			fmt.Printf("\n\n!!! Recovered from crash: %v \nPrinting state machine status\n", r)
+			debug.PrintStack()
 			ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
 			defer cancel()
 			status, err := c.Node.Status(ctx)

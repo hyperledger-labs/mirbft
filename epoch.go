@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"bytes"
+	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
@@ -146,8 +147,10 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 	}
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
-		sequences[i].state = Prepared
-		sequences[i].digest = digest
+
+		newSequence := sequences[i]
+		newSequence.state = Prepared
+		newSequence.digest = digest
 
 		if lastEpoch != nil {
 			offset := newEpochConfig.StartingCheckpoint.SeqNo - lastEpoch.baseCheckpoint.SeqNo
@@ -159,18 +162,29 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 					panic("unexpected")
 				}
 
-				if bytes.Equal(oldSequence.digest, sequences[i].digest) {
-					sequences[i].qEntry.Proposals = oldSequence.qEntry.Proposals
+				if newSequence.digest == nil {
+					newSequence.qEntry = &pb.QEntry{
+						Epoch: newSequence.epoch,
+						SeqNo: newSequence.seqNo,
+					}
+				} else if bytes.Equal(oldSequence.digest, newSequence.digest) {
+					newSequence.qEntry = &pb.QEntry{
+						Epoch:     newSequence.epoch,
+						SeqNo:     newSequence.seqNo,
+						Digest:    newSequence.digest,
+						Proposals: oldSequence.qEntry.Proposals,
+					}
+
 					if oldSequence.state == Committed {
-						sequences[i].state = Committed
+						newSequence.state = Committed
 					}
 				}
 			}
 		}
 
-		if sequences[i].digest != nil && sequences[i].qEntry == nil {
+		if newSequence.digest != nil && newSequence.qEntry == nil {
 			// XXX we need to get the old entry if it exists
-			panic("we need persistence and or state transfer to handle this path")
+			panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x", newSequence.epoch, newSequence.seqNo, newSequence.digest))
 		}
 	}
 
@@ -378,6 +392,14 @@ func (e *epoch) tick() *Actions {
 	}
 
 	return actions
+}
+
+func (e *epoch) lowWatermark() uint64 {
+	return e.sequences[0].seqNo
+}
+
+func (e *epoch) highWatermark() uint64 {
+	return e.sequences[len(e.sequences)-1].seqNo
 }
 
 func (e *epoch) constructEpochChange(newEpoch uint64) *pb.EpochChange {
