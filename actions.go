@@ -29,22 +29,23 @@ type Actions struct {
 	// itself.
 	Preprocess []Proposal
 
-	// Digest is a set of batches which have been proposed by a node in the network.
-	// For each item in the Digest list, the caller must AddResult with a DigestResult.
-	// The resulting digest is used as an alias for the underlying data, and it should
-	// exhibit the properties of a strong hash function.
-	Digest []*Entry
+	// Process should validate each batch, and return a digest and a validation status
+	// for that batch.  Usually, if the batch originated at this node, validation may
+	// be skipped.  For each item in the Process list the caller must Addresult with a
+	// ProcessResult.
+	Process []*Batch
 
-	// Validate is a set of batches which have been proposed by a node in the network.
-	// For each item in the Validate list, the caller must AddResult with a ValidateResult.
-	// The validation should check that every message in the batch is valid according to
-	// the application logic.  Note, it is expected that all batches are valid, except
-	// under byzantine behavior from a node.  An invalid batch will result in an epoch
-	// change and or state transfer.
-	Validate []*Entry
+	// QEntries should be persisted to persistent storage.  Multiple QEntries may be
+	// persisted for the same SeqNo, but for different epochs and all must be retained.
+	QEntries []*pb.QEntry
+
+	// PEntries should be persisted to persistant storage.  Any PEntry already in storage
+	// but with an older epoch may be discarded.
+	PEntries []*pb.PEntry
 
 	// Commit is a set of batches which have achieved final order and are ready to commit.
-	Commit []*Entry
+	// They will have previously committed via QEntries.
+	Commit []*pb.QEntry
 
 	// Checkpoint is a set of sequence numbers for which all previous sequence numbers in
 	// all buckets have been sent to Commit.  It is the responsibility of the user to
@@ -59,8 +60,9 @@ func (a *Actions) Clear() {
 	a.Broadcast = nil
 	a.Unicast = nil
 	a.Preprocess = nil
-	a.Digest = nil
-	a.Validate = nil
+	a.Process = nil
+	a.QEntries = nil
+	a.PEntries = nil
 	a.Commit = nil
 	a.Checkpoint = nil
 }
@@ -70,9 +72,10 @@ func (a *Actions) IsEmpty() bool {
 	return len(a.Broadcast) == 0 &&
 		len(a.Unicast) == 0 &&
 		len(a.Preprocess) == 0 &&
-		len(a.Digest) == 0 &&
-		len(a.Validate) == 0 &&
+		len(a.Process) == 0 &&
 		len(a.Commit) == 0 &&
+		len(a.QEntries) == 0 &&
+		len(a.PEntries) == 0 &&
 		len(a.Checkpoint) == 0
 }
 
@@ -82,9 +85,10 @@ func (a *Actions) Append(o *Actions) {
 	a.Broadcast = append(a.Broadcast, o.Broadcast...)
 	a.Unicast = append(a.Unicast, o.Unicast...)
 	a.Preprocess = append(a.Preprocess, o.Preprocess...)
-	a.Digest = append(a.Digest, o.Digest...)
-	a.Validate = append(a.Validate, o.Validate...)
+	a.Process = append(a.Process, o.Process...)
 	a.Commit = append(a.Commit, o.Commit...)
+	a.QEntries = append(a.QEntries, o.QEntries...)
+	a.PEntries = append(a.PEntries, o.PEntries...)
 	a.Checkpoint = append(a.Checkpoint, o.Checkpoint...)
 }
 
@@ -97,8 +101,7 @@ type Unicast struct {
 // ActionResults should be populated by the caller as a result of
 // executing the actions, then returned to the state machine.
 type ActionResults struct {
-	Digests      []DigestResult
-	Validations  []ValidateResult
+	Processed    []ProcessResult
 	Preprocesses []PreprocessResult
 	Checkpoints  []*CheckpointResult
 }
@@ -126,21 +129,12 @@ type Proposal struct {
 	Data []byte
 }
 
-// DigestResult gives the state machine a digest by which to refer to a particular entry.
-// The digest will be sent in place of the entry's batch, during the Prepare and Commit
-// phases and should generally be computed using a strong hashing function.
-type DigestResult struct {
-	Entry  *Entry
-	Digest []byte
-}
-
-// ValidateResult gives the state machine information about whether a
-// particular entry should be considered valid.  Note, that indicating an entry
-// is not valid implies that the leader who proposed it is behaving in a
-// byzantine way.
-type ValidateResult struct {
-	Entry *Entry
-	Valid bool
+// Batch is a collection of proposals which has been allocated a sequence in a given epoch.
+type Batch struct {
+	Source    uint64
+	SeqNo     uint64
+	Epoch     uint64
+	Proposals [][]byte
 }
 
 // PreprocessResult gives the state machine a location which may be used
@@ -156,9 +150,12 @@ type PreprocessResult struct {
 	Proposal Proposal
 }
 
-// Entry represents a log entry which may be
-type Entry struct {
-	Epoch uint64
-	SeqNo uint64
-	Batch [][]byte
+// ProcessResult gives the state machine a digest by which to refer to a particular entry.
+// as well as an indication of whether the batch is valid.  If the batch is invalid, then
+// depending on the configuration of the state machine (TODO), this node may still commit
+// the entry, or may wait for state-transfer to kick off.
+type ProcessResult struct {
+	Batch   *Batch
+	Digest  []byte
+	Invalid bool
 }

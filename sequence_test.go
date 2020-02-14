@@ -23,25 +23,20 @@ var _ = Describe("sequence", func() {
 			myConfig: &Config{
 				ID: 1,
 			},
-			epochConfig: &epochConfig{
-				number: 4,
-				networkConfig: &pb.NetworkConfig{
-					Nodes: []uint64{0, 1, 2, 3},
-					F:     1,
-				},
+			networkConfig: &pb.NetworkConfig{
+				Nodes: []uint64{0, 1, 2, 3},
+				F:     1,
 			},
-			entry: &Entry{
-				Epoch: 4,
-				SeqNo: 5,
-			},
+			epoch:    4,
+			seqNo:    5,
 			prepares: map[string]map[NodeID]struct{}{},
 			commits:  map[string]map[NodeID]struct{}{},
 		}
 	})
 
-	Describe("applyPreprepareMsg", func() {
-		It("transitions from Unknown to Preprepared", func() {
-			actions := s.applyPreprepareMsg(
+	Describe("allocate", func() {
+		It("transitions from Unknown to Allocated", func() {
+			actions := s.allocate(
 				[][]byte{
 					[]byte("msg1"),
 					[]byte("msg2"),
@@ -49,11 +44,11 @@ var _ = Describe("sequence", func() {
 			)
 
 			Expect(actions).To(Equal(&Actions{
-				Digest: []*Entry{
+				Process: []*Batch{
 					{
 						SeqNo: 5,
 						Epoch: 4,
-						Batch: [][]byte{
+						Proposals: [][]byte{
 							[]byte("msg1"),
 							[]byte("msg2"),
 						},
@@ -61,8 +56,8 @@ var _ = Describe("sequence", func() {
 				},
 			}))
 
-			Expect(s.state).To(Equal(Preprepared))
-			Expect(s.entry.Batch).To(Equal(
+			Expect(s.state).To(Equal(Allocated))
+			Expect(s.batch).To(Equal(
 				[][]byte{
 					[]byte("msg1"),
 					[]byte("msg2"),
@@ -70,14 +65,14 @@ var _ = Describe("sequence", func() {
 			))
 		})
 
-		Context("when the current state is not Unknown", func() {
+		When("the current state is not Unknown", func() {
 			BeforeEach(func() {
-				s.state = Validated
+				s.state = Prepared
 			})
 
 			It("does not transition and instead panics", func() {
 				badTransition := func() {
-					s.applyPreprepareMsg(
+					s.allocate(
 						[][]byte{
 							[]byte("msg1"),
 							[]byte("msg2"),
@@ -85,19 +80,22 @@ var _ = Describe("sequence", func() {
 					)
 				}
 				Expect(badTransition).To(Panic())
-				Expect(s.state).To(Equal(Validated))
+				Expect(s.state).To(Equal(Prepared))
 			})
 		})
 	})
 
-	Describe("applyValidateResult", func() {
+	Describe("applyProcessResult", func() {
 		BeforeEach(func() {
-			s.state = Digested
-			s.digest = []byte("digest")
+			s.state = Allocated
+			s.batch = [][]byte{
+				[]byte("msg1"),
+				[]byte("msg2"),
+			}
 		})
 
-		It("transitions from Preprepared to Validated", func() {
-			actions := s.applyValidateResult(true)
+		It("transitions from Allocated to Preprepared", func() {
+			actions := s.applyProcessResult([]byte("digest"), true)
 			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{
@@ -110,37 +108,68 @@ var _ = Describe("sequence", func() {
 						},
 					},
 				},
+				QEntries: []*pb.QEntry{
+					{
+						SeqNo:  5,
+						Epoch:  4,
+						Digest: []byte("digest"),
+						Proposals: [][]byte{
+							[]byte("msg1"),
+							[]byte("msg2"),
+						},
+					},
+				},
 			}))
 			Expect(s.digest).To(Equal([]byte("digest")))
-			Expect(s.state).To(Equal(Validated))
+			Expect(s.state).To(Equal(Preprepared))
+			Expect(s.qEntry).To(Equal(&pb.QEntry{
+				SeqNo:  5,
+				Epoch:  4,
+				Digest: []byte("digest"),
+				Proposals: [][]byte{
+					[]byte("msg1"),
+					[]byte("msg2"),
+				},
+			}))
+
 		})
 
-		Context("when the state is not Preprepared", func() {
+		When("the state is not Allocated", func() {
 			BeforeEach(func() {
 				s.state = Prepared
 			})
 
 			It("does not transition the state and panics", func() {
 				badTransition := func() {
-					s.applyValidateResult(true)
+					s.applyProcessResult([]byte("digest"), true)
 				}
 				Expect(badTransition).To(Panic())
 				Expect(s.state).To(Equal(Prepared))
 			})
 		})
 
-		Context("when the validation is not successful", func() {
+		When("when the validation is not successful", func() {
 			It("transitions the state to InvalidBatch", func() {
-				actions := s.applyValidateResult(false)
+				actions := s.applyProcessResult([]byte("digest"), false)
 				Expect(actions).To(Equal(&Actions{}))
-				Expect(s.state).To(Equal(InvalidBatch))
+				Expect(s.state).To(Equal(Invalid))
+				Expect(s.digest).To(Equal([]byte("digest")))
+				Expect(s.qEntry).To(Equal(&pb.QEntry{
+					SeqNo:  5,
+					Epoch:  4,
+					Digest: []byte("digest"),
+					Proposals: [][]byte{
+						[]byte("msg1"),
+						[]byte("msg2"),
+					},
+				}))
 			})
 		})
 	})
 
 	Describe("applyPrepareMsg", func() {
 		BeforeEach(func() {
-			s.state = Validated
+			s.state = Preprepared
 			s.digest = []byte("digest")
 			s.prepares["digest"] = map[NodeID]struct{}{
 				1: {},
@@ -148,7 +177,7 @@ var _ = Describe("sequence", func() {
 			}
 		})
 
-		It("transitions from Validated to Prepared", func() {
+		It("transitions from Preprepared to Prepared", func() {
 			actions := s.applyPrepareMsg(0, []byte("digest"))
 			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
@@ -160,6 +189,13 @@ var _ = Describe("sequence", func() {
 								Digest: []byte("digest"),
 							},
 						},
+					},
+				},
+				PEntries: []*pb.PEntry{
+					{
+						SeqNo:  5,
+						Epoch:  4,
+						Digest: []byte("digest"),
 					},
 				},
 			}))

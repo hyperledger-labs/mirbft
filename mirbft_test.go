@@ -74,17 +74,17 @@ var _ = Describe("MirBFT", func() {
 		for j, fakeLog := range network.fakeLogs {
 			By(fmt.Sprintf("checking for node %d that each message only commits once", j))
 			for len(observations) < msgs {
-				entry := &mirbft.Entry{}
+				entry := &pb.QEntry{}
 				Eventually(fakeLog.CommitC).Should(Receive(&entry))
 				if len(networkCustomizers) == 0 {
 					Expect(entry.Epoch).To(Equal(uint64(0)))
 				}
 
-				if entry.Batch == nil {
+				if entry.Proposals == nil {
 					continue
 				}
 
-				msgNo := binary.LittleEndian.Uint64(entry.Batch[0])
+				msgNo := binary.LittleEndian.Uint64(entry.Proposals[0])
 				Expect(msgNo % uint64(nodeCount)).To(Equal((entry.SeqNo - 1) % uint64(nodeCount)))
 
 				_, ok := observations[msgNo]
@@ -124,12 +124,12 @@ var _ = Describe("MirBFT", func() {
 })
 
 type FakeLog struct {
-	Entries []*mirbft.Entry
-	CommitC chan *mirbft.Entry
+	Entries []*pb.QEntry
+	CommitC chan *pb.QEntry
 }
 
-func (fl *FakeLog) Apply(entry *mirbft.Entry) {
-	if entry.Batch == nil {
+func (fl *FakeLog) Apply(entry *pb.QEntry) {
+	if entry.Proposals == nil {
 		// this is a no-op batch from a tick, or catchup, ignore it
 		return
 	}
@@ -211,7 +211,7 @@ func CreateNetwork(nodeCount int, logger *zap.Logger, doneC <-chan struct{}) *Ne
 	for i, node := range nodes {
 		node := node
 		fakeLog := &FakeLog{
-			CommitC: make(chan *mirbft.Entry, 1000),
+			CommitC: make(chan *pb.QEntry, 1000),
 		}
 		fakeLogs[i] = fakeLog
 
@@ -222,7 +222,7 @@ func CreateNetwork(nodeCount int, logger *zap.Logger, doneC <-chan struct{}) *Ne
 			Hasher:    sample.HasherFunc(func(data []byte) []byte { return data }),
 			Committer: &sample.SerialCommitter{
 				Log:                    fakeLog,
-				OutstandingSeqNos:      map[uint64]*mirbft.Entry{},
+				OutstandingSeqNos:      map[uint64]*pb.QEntry{},
 				OutstandingCheckpoints: map[uint64]struct{}{},
 			},
 			DoneC: doneC,

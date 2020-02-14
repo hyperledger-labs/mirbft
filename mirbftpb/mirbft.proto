@@ -33,6 +33,22 @@ message NetworkConfig {
 	int32 checkpoint_interval = 3;
 }
 
+// QEntry is an entry which must be persisted before a batch is Preprepared (ie,
+// before a Preprepare or Prepare message is sent).
+message QEntry {
+	uint64 epoch = 1;
+	uint64 seq_no = 2;
+	bytes digest = 3;
+	repeated bytes proposals = 4;
+}
+
+// PEntry is an entry which must be persisted before a batch is Prepared (ie,
+// before a Commit message is sent).
+message PEntry {
+	uint64 epoch = 1;
+	uint64 seq_no = 2;
+	bytes digest = 3;
+}
 
 message Msg {
     oneof type {

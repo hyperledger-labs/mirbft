@@ -175,8 +175,8 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
 					Type: &pb.Msg_Commit{
 						Commit: &pb.Commit{
-							SeqNo:  sequence.entry.SeqNo,
-							Epoch:  sequence.entry.Epoch,
+							SeqNo:  sequence.seqNo,
+							Epoch:  sequence.epoch,
 							Digest: sequence.digest,
 						},
 					},
@@ -216,16 +216,10 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		actions.Append(sm.applyPreprocessResult(preprocessResult))
 	}
 
-	for _, digestResult := range results.Digests {
+	for _, processResult := range results.Processed {
 		// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
-		seqNo := digestResult.Entry.SeqNo
-		actions.Append(sm.activeEpoch.applyDigestResult(seqNo, digestResult.Digest))
-	}
-
-	for _, validateResult := range results.Validations {
-		// sm.myConfig.Logger.Debug("applying validate result", zap.Int("index", i))
-		seqNo := validateResult.Entry.SeqNo
-		actions.Append(sm.activeEpoch.applyValidateResult(seqNo, validateResult.Valid))
+		seqNo := processResult.Batch.SeqNo
+		actions.Append(sm.activeEpoch.applyProcessResult(seqNo, processResult.Digest, !processResult.Invalid))
 	}
 
 	for _, checkpointResult := range results.Checkpoints {
@@ -380,14 +374,12 @@ func (s *Status) Pretty() string {
 			switch state {
 			case Uninitialized:
 				buffer.WriteString("| ")
+			case Allocated:
+				buffer.WriteString("|A")
+			case Invalid:
+				buffer.WriteString("|I")
 			case Preprepared:
 				buffer.WriteString("|Q")
-			case Digested:
-				buffer.WriteString("|D")
-			case InvalidBatch:
-				buffer.WriteString("|I")
-			case Validated:
-				buffer.WriteString("|V")
 			case Prepared:
 				buffer.WriteString("|P")
 			case Committed:

@@ -41,18 +41,18 @@ type Hasher interface {
 }
 
 type Log interface {
-	Apply(*mirbft.Entry)
+	Apply(*pb.QEntry)
 	Snap() (id []byte)
 }
 
 type SerialCommitter struct {
 	Log                    Log
 	LastCommittedSeqNo     uint64
-	OutstandingSeqNos      map[uint64]*mirbft.Entry
+	OutstandingSeqNos      map[uint64]*pb.QEntry
 	OutstandingCheckpoints map[uint64]struct{}
 }
 
-func (sc *SerialCommitter) Commit(commits []*mirbft.Entry, checkpoints []uint64) []*mirbft.CheckpointResult {
+func (sc *SerialCommitter) Commit(commits []*pb.QEntry, checkpoints []uint64) []*mirbft.CheckpointResult {
 	for _, commit := range commits {
 		// Note, this pattern is easy to understand, but memory inefficient.
 		// A ring buffer of size equal to the log size would produce far less
@@ -116,8 +116,7 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 
 	actionResults := &mirbft.ActionResults{
 		Preprocesses: make([]mirbft.PreprocessResult, len(actions.Preprocess)),
-		Digests:      make([]mirbft.DigestResult, len(actions.Digest)),
-		Validations:  make([]mirbft.ValidateResult, len(actions.Validate)),
+		Processed:    make([]mirbft.ProcessResult, len(actions.Process)),
 	}
 
 	for _, broadcast := range actions.Broadcast {
@@ -143,9 +142,9 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 		}
 	}
 
-	for i, entry := range actions.Digest {
+	for i, batch := range actions.Process {
 		hashes := []byte{}
-		for _, data := range entry.Batch {
+		for _, data := range batch.Proposals {
 			// TODO this could be much more efficient
 			// The assumption is that the hasher has already likely
 			// computed the hashes of the data, so, if using a cached version
@@ -153,24 +152,18 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 			hashes = append(hashes, c.Hasher.Hash(data)...)
 		}
 
-		actionResults.Digests[i] = mirbft.DigestResult{
-			Entry:  entry,
-			Digest: c.Hasher.Hash(hashes),
-		}
-	}
-
-	for i, entry := range actions.Validate {
 		valid := true
-		for _, data := range entry.Batch {
+		for _, data := range batch.Proposals {
 			if err := c.Validator.Validate(data); err != nil {
 				valid = false
 				break
 			}
 		}
 
-		actionResults.Validations[i] = mirbft.ValidateResult{
-			Entry: entry,
-			Valid: valid,
+		actionResults.Processed[i] = mirbft.ProcessResult{
+			Batch:   batch,
+			Digest:  c.Hasher.Hash(hashes),
+			Invalid: !valid,
 		}
 	}
 

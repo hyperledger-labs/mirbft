@@ -7,105 +7,129 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"fmt"
 
-	"go.uber.org/zap"
+	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
 type SequenceState int
 
 const (
 	Uninitialized SequenceState = iota
+	Allocated
+	Ready
+	Invalid
 	Preprepared
-	Digested
-	InvalidBatch
-	Validated
 	Prepared
 	Committed
 )
 
 type sequence struct {
-	myConfig *Config
+	owner NodeID
+	seqNo uint64
+	epoch uint64
 
-	epochConfig *epochConfig
+	myConfig      *Config
+	networkConfig *pb.NetworkConfig
 
 	state SequenceState
 
-	// Entry's Batch field is unset until after state >= Preprepared
-	entry *Entry
+	// qEntry is unset until after state >= Preprepared
+	qEntry *pb.QEntry
 
-	// Digest is not set until after state >= Digested
+	// batch is not set until after state >= Allocated
+	batch [][]byte
+
+	// digest is not set until after state >= Digested
 	digest []byte
 
 	prepares map[string]map[NodeID]struct{}
 	commits  map[string]map[NodeID]struct{}
 }
 
-func newSequence(epochConfig *epochConfig, myConfig *Config, entry *Entry) *sequence {
+func newSequence(owner NodeID, epoch, seqNo uint64, networkConfig *pb.NetworkConfig, myConfig *Config) *sequence {
 	return &sequence{
-		myConfig:    myConfig,
-		epochConfig: epochConfig,
-		entry:       entry,
-		state:       Uninitialized,
-		prepares:    map[string]map[NodeID]struct{}{},
-		commits:     map[string]map[NodeID]struct{}{},
+		owner:         owner,
+		seqNo:         seqNo,
+		epoch:         epoch,
+		myConfig:      myConfig,
+		networkConfig: networkConfig,
+		state:         Uninitialized,
+		prepares:      map[string]map[NodeID]struct{}{},
+		commits:       map[string]map[NodeID]struct{}{},
 	}
 }
 
 // applyPreprepare attempts to apply a batch from a preprepare message to the state machine.
 // If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
 // It transitions to Preprepared and returns a ValidationRequest message.
-func (s *sequence) applyPreprepareMsg(batch [][]byte) *Actions {
+func (s *sequence) allocate(batch [][]byte) *Actions {
 	if s.state != Uninitialized {
-		s.myConfig.Logger.Panic("illegal state for preprepare", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Uninitialized)))
+		s.myConfig.Logger.Panic(fmt.Sprintf("illegal state for allocate %v", s.state))
 	}
 
-	s.state = Preprepared
-	s.entry.Batch = batch
+	s.state = Allocated
+	s.batch = batch
 
 	return &Actions{
-		Digest: []*Entry{s.entry},
+		Process: []*Batch{
+			{
+				Source:    uint64(s.owner),
+				SeqNo:     s.seqNo,
+				Epoch:     s.epoch,
+				Proposals: batch,
+			},
+		},
 	}
 }
 
-func (s *sequence) applyDigestResult(digest []byte) *Actions {
-	if s.state != Preprepared {
-		s.myConfig.Logger.Panic("illegal state for digest result", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Preprepared)))
+func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
+	if s.state != Allocated {
+		s.myConfig.Logger.Panic("illegal state for digest result")
 	}
 
-	s.state = Digested
 	s.digest = digest
 
-	return &Actions{
-		Validate: []*Entry{s.entry},
-	}
-}
-
-func (s *sequence) applyValidateResult(valid bool) *Actions {
-	if s.state != Digested {
-		s.myConfig.Logger.Panic("illegal state for validate result", zap.Uint64(SeqNoLog, s.entry.SeqNo), zap.Uint64(EpochLog, s.epochConfig.number), zap.Int("CurrentState", int(s.state)), zap.Int("Expected", int(Digested)))
+	s.qEntry = &pb.QEntry{
+		SeqNo:     s.seqNo,
+		Epoch:     s.epoch,
+		Digest:    digest,
+		Proposals: s.batch,
 	}
 
 	if !valid {
-		s.state = InvalidBatch
-		// TODO return a view change / suspect message
+		s.state = Invalid
 		return &Actions{}
 	}
 
-	s.state = Validated
+	s.state = Preprepared
 
-	return &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_Prepare{
-					Prepare: &pb.Prepare{
-						SeqNo:  s.entry.SeqNo,
-						Epoch:  s.entry.Epoch,
-						Digest: s.digest,
-					},
+	var msg *pb.Msg
+	if uint64(s.owner) == s.myConfig.ID {
+		msg = &pb.Msg{
+			Type: &pb.Msg_Preprepare{
+				Preprepare: &pb.Preprepare{
+					SeqNo: s.seqNo,
+					Epoch: s.epoch,
+					Batch: s.batch,
 				},
 			},
-		},
+		}
+	} else {
+		msg = &pb.Msg{
+			Type: &pb.Msg_Prepare{
+				Prepare: &pb.Prepare{
+					SeqNo:  s.seqNo,
+					Epoch:  s.epoch,
+					Digest: s.digest,
+				},
+			},
+		}
+	}
+
+	return &Actions{
+		Broadcast: []*pb.Msg{msg},
+		QEntries:  []*pb.QEntry{s.qEntry},
 	}
 }
 
@@ -118,7 +142,7 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 	}
 	agreements[source] = struct{}{}
 
-	if s.state != Validated {
+	if s.state != Preprepared {
 		return &Actions{}
 	}
 
@@ -127,8 +151,9 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 		return &Actions{}
 	}
 
-	// We do require 2f+1 prepares (instead of 2f), a prepare is implicitly added for the leader
-	requiredPrepares := s.epochConfig.intersectionQuorum()
+	// We do require 2f+1 prepares (instead of 2f), as the preprepare
+	// for the leader will be applied as a prepare here
+	requiredPrepares := intersectionQuorum(s.networkConfig)
 
 	if len(agreements) < requiredPrepares {
 		return &Actions{}
@@ -141,11 +166,18 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 			{
 				Type: &pb.Msg_Commit{
 					Commit: &pb.Commit{
-						SeqNo:  s.entry.SeqNo,
-						Epoch:  s.entry.Epoch,
+						SeqNo:  s.seqNo,
+						Epoch:  s.epoch,
 						Digest: s.digest,
 					},
 				},
+			},
+		},
+		PEntries: []*pb.PEntry{
+			{
+				Epoch:  s.epoch,
+				SeqNo:  s.seqNo,
+				Digest: s.digest,
 			},
 		},
 	}
@@ -169,7 +201,7 @@ func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
 		return &Actions{}
 	}
 
-	requiredCommits := s.epochConfig.intersectionQuorum()
+	requiredCommits := intersectionQuorum(s.networkConfig)
 
 	if len(agreements) < requiredCommits {
 		return &Actions{}
@@ -178,6 +210,6 @@ func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
 	s.state = Committed
 
 	return &Actions{
-		Commit: []*Entry{s.entry},
+		Commit: []*pb.QEntry{s.qEntry},
 	}
 }

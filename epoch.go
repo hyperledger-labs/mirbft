@@ -85,7 +85,8 @@ type epoch struct {
 
 	sequences []*sequence
 
-	lowestUncommitted int
+	lowestUncommitted   int
+	myLowestUnallocated int
 
 	lastCommittedAtTick uint64
 	ticksSinceProgress  int
@@ -115,19 +116,18 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		i++
 	}
 
-	proposer := newProposer(config, myConfig)
-	proposer.maxAssignable = newEpochConfig.StartingCheckpoint.SeqNo
+	var proposer *proposer
 
 	if lastEpoch != nil {
 		proposer = lastEpoch.proposer
-		proposer.epochConfig = config
+	} else {
+		proposer = newProposer(myConfig)
 	}
 
 	checkpoints := make([]*checkpoint, 0, 3)
 
 	firstEnd := newEpochConfig.StartingCheckpoint.SeqNo + uint64(config.networkConfig.CheckpointInterval)
 	if config.plannedExpiration >= firstEnd {
-		proposer.maxAssignable = firstEnd
 		checkpoints = append(checkpoints, checkpointTracker.checkpoint(firstEnd))
 	}
 
@@ -138,10 +138,11 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 
 	sequences := make([]*sequence, config.logWidth())
 	for i := range sequences {
-		sequences[i] = newSequence(config, myConfig, &Entry{
-			Epoch: config.number,
-			SeqNo: newEpochConfig.StartingCheckpoint.SeqNo + 1 + uint64(i),
-		})
+		seqNo := newEpochConfig.StartingCheckpoint.SeqNo + 1 + uint64(i)
+		bucket := config.seqToBucket(seqNo)
+		owner := config.buckets[bucket]
+
+		sequences[i] = newSequence(owner, config.number, seqNo, networkConfig, myConfig)
 	}
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
@@ -154,12 +155,12 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 			// TODO, handle unlikely underflow
 			if j := i + int(offset); j < len(lastEpoch.sequences) {
 				oldSequence := lastEpoch.sequences[j]
-				if oldSequence.entry.SeqNo != sequences[i].entry.SeqNo {
+				if oldSequence.seqNo != sequences[i].seqNo {
 					panic("unexpected")
 				}
 
 				if bytes.Equal(oldSequence.digest, sequences[i].digest) {
-					sequences[i].entry.Batch = oldSequence.entry.Batch
+					sequences[i].qEntry.Proposals = oldSequence.qEntry.Proposals
 					if oldSequence.state == Committed {
 						sequences[i].state = Committed
 					}
@@ -167,7 +168,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 			}
 		}
 
-		if sequences[i].digest != nil && sequences[i].entry.Batch == nil {
+		if sequences[i].digest != nil && sequences[i].qEntry == nil {
 			// XXX we need to get the old entry if it exists
 			panic("we need persistence and or state transfer to handle this path")
 		}
@@ -187,7 +188,13 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch [][]byte) *Actions {
 	baseCheckpoint := e.baseCheckpoint
 	offset := int(seqNo-baseCheckpoint.SeqNo) - 1
-	return e.sequences[offset].applyPreprepareMsg(batch)
+	seq := e.sequences[offset]
+	if source == NodeID(e.myConfig.ID) {
+		// Apply our own preprepares as a prepare
+		return seq.applyPrepareMsg(source, seq.digest)
+	}
+
+	return seq.allocate(batch)
 }
 
 func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
@@ -215,7 +222,7 @@ func (e *epoch) advanceUncommitted() *Actions {
 		}
 
 		if (e.lowestUncommitted+1)%int(e.config.networkConfig.CheckpointInterval) == 0 {
-			actions.Checkpoint = append(actions.Checkpoint, e.sequences[e.lowestUncommitted].entry.SeqNo)
+			actions.Checkpoint = append(actions.Checkpoint, e.sequences[e.lowestUncommitted].seqNo)
 		}
 
 		e.lowestUncommitted++
@@ -237,13 +244,11 @@ func (e *epoch) moveWatermarks() *Actions {
 	ci := int(e.config.networkConfig.CheckpointInterval)
 
 	if secondToLastCW.stable {
-		e.proposer.maxAssignable = lastCW.end
 		for i := 0; i < ci; i++ {
-			entry := &Entry{
-				SeqNo: lastCW.end + uint64(i) + 1,
-				Epoch: e.config.number,
-			}
-			e.sequences = append(e.sequences, newSequence(e.config, e.myConfig, entry))
+			seqNo := lastCW.end + uint64(i) + 1
+			epoch := e.config.number
+			owner := e.config.buckets[e.config.seqToBucket(seqNo)]
+			e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.config.networkConfig, e.myConfig))
 		}
 		e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.end+uint64(ci)))
 	}
@@ -257,16 +262,49 @@ func (e *epoch) moveWatermarks() *Actions {
 		e.checkpoints = e.checkpoints[1:]
 		e.sequences = e.sequences[ci:]
 		e.lowestUncommitted -= ci
+		e.myLowestUnallocated -= ci
 	}
 
-	return e.proposer.drainQueue()
+	return e.drainProposer()
+}
+
+func (e *epoch) advanceMyLowestUnallocated() (*sequence, int) {
+	if e.myLowestUnallocated < 0 {
+		// If we haven't advanced since the watermarks moved, we might
+		// not have skipped the sequences we didn't own and now be negative.
+		e.myLowestUnallocated = 0
+	}
+	for i := e.myLowestUnallocated; i < len(e.sequences); i++ {
+		seq := e.sequences[i]
+		if seq.state != Uninitialized || e.myConfig.ID != uint64(seq.owner) {
+			e.myLowestUnallocated = i
+			continue
+		}
+		return seq, i
+	}
+	return nil, 0
+}
+
+func (e *epoch) drainProposer() *Actions {
+	actions := &Actions{}
+
+	for e.proposer.hasPending() {
+		seq, i := e.advanceMyLowestUnallocated()
+		if seq == nil || len(e.sequences)-i <= int(e.config.networkConfig.CheckpointInterval) {
+			break
+		}
+		actions.Append(seq.allocate(e.proposer.next()))
+	}
+
+	return actions
 }
 
 func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
 	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.config.buckets)))
 	nodeID := e.config.buckets[bucketID]
 	if nodeID == NodeID(e.myConfig.ID) {
-		return e.proposer.propose(preprocessResult.Proposal.Data)
+		e.proposer.propose(preprocessResult.Proposal.Data)
+		return e.drainProposer()
 	}
 
 	if preprocessResult.Proposal.Source == e.myConfig.ID {
@@ -295,26 +333,12 @@ func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Action
 	return &Actions{}
 }
 
-func (e *epoch) applyDigestResult(seqNo uint64, digest []byte) *Actions {
+func (e *epoch) applyProcessResult(seqNo uint64, digest []byte, valid bool) *Actions {
 	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
-	actions := e.sequences[offset].applyDigestResult(digest)
-
-	bucket := e.config.seqToBucket(seqNo)
-	if e.config.buckets[bucket] == NodeID(e.myConfig.ID) {
-		// If we are the leader, no need to validate
-		_ = e.sequences[offset].applyValidateResult(true)
-		return e.sequences[offset].applyPrepareMsg(NodeID(e.myConfig.ID), digest)
-	}
-
-	return actions
-}
-
-func (e *epoch) applyValidateResult(seqNo uint64, valid bool) *Actions {
-	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
-	actions := e.sequences[offset].applyValidateResult(valid)
-	bucket := e.config.seqToBucket(seqNo)
-	if e.config.buckets[bucket] != NodeID(e.myConfig.ID) {
-		actions.Append(e.sequences[offset].applyPrepareMsg(e.config.buckets[bucket], e.sequences[offset].digest))
+	seq := e.sequences[offset]
+	actions := seq.applyProcessResult(digest, valid)
+	if seq.owner != NodeID(e.myConfig.ID) {
+		actions.Append(seq.applyPrepareMsg(seq.owner, digest))
 	}
 	return actions
 }
@@ -322,10 +346,17 @@ func (e *epoch) applyValidateResult(seqNo uint64, valid bool) *Actions {
 func (e *epoch) tick() *Actions {
 	actions := &Actions{} // TODO, only heartbeat if no progress
 	if e.myConfig.HeartbeatTicks != 0 && e.ticks%uint64(e.myConfig.HeartbeatTicks) == 0 {
-		actions.Append(e.proposer.noopAdvance())
+		seq, i := e.advanceMyLowestUnallocated()
+		if seq != nil && len(e.sequences)-i > int(e.config.networkConfig.CheckpointInterval) {
+			if e.proposer.hasOutstanding() {
+				actions.Append(seq.allocate(e.proposer.next()))
+			} else {
+				actions.Append(seq.allocate(e.proposer.next()))
+			}
+		}
 	}
 
-	if e.sequences[e.lowestUncommitted].entry.SeqNo == e.lastCommittedAtTick+1 {
+	if e.lowestUncommitted >= len(e.sequences) || e.sequences[e.lowestUncommitted].seqNo == e.lastCommittedAtTick+1 {
 		e.ticksSinceProgress++
 		if e.ticksSinceProgress > e.myConfig.SuspectTicks {
 			return &Actions{
@@ -343,7 +374,7 @@ func (e *epoch) tick() *Actions {
 		return &Actions{}
 	} else {
 		e.ticksSinceProgress = 0
-		e.lastCommittedAtTick = e.sequences[e.lowestUncommitted].entry.SeqNo - 1
+		e.lastCommittedAtTick = e.sequences[e.lowestUncommitted].seqNo - 1
 	}
 
 	return actions
@@ -375,19 +406,19 @@ func (e *epoch) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 	}
 
 	for _, seq := range e.sequences {
-		if seq.state < Validated {
+		if seq.state < Prepared {
 			continue
 		}
 
 		entry := &pb.EpochChange_SetEntry{
-			Epoch:  e.config.number,
-			SeqNo:  seq.entry.SeqNo,
+			Epoch:  seq.epoch,
+			SeqNo:  seq.seqNo,
 			Digest: seq.digest,
 		}
 
 		epochChange.QSet = append(epochChange.QSet, entry)
 
-		if seq.state < Prepared {
+		if seq.state < Preprepared {
 			continue
 		}
 
