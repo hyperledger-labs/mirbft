@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sort"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -23,10 +24,177 @@ import (
 	"go.uber.org/zap"
 )
 
+type Proposer interface {
+	Proposal(nodes, i int) (uint64, []byte)
+}
+
+type LinearProposer struct{}
+
+func (LinearProposer) Proposal(nodes, i int) (uint64, []byte) {
+	return uint64(i), Uint64ToBytes(uint64(i))
+}
+
+type SkippingProposer struct {
+	NodesToSkip []int
+}
+
+func (sp SkippingProposer) Proposal(nodes, i int) (uint64, []byte) {
+	nonSkipped := nodes - len(sp.NodesToSkip)
+	alreadySkipped := i / nonSkipped * len(sp.NodesToSkip)
+	for j := 0; j <= i%nonSkipped; j++ {
+		for _, n := range sp.NodesToSkip {
+			if n == j {
+				alreadySkipped++
+			}
+		}
+	}
+
+	next := uint64(i + alreadySkipped)
+	return next, Uint64ToBytes(next)
+}
+
+var _ = Describe("SkippingPropser", func() {
+	It("skips what I expect", func() {
+		sp := SkippingProposer{
+			NodesToSkip: []int{0, 3},
+		}
+
+		// Expect 1, 2, 5, 6, 9, 10, 13, 14, ...
+
+		i0, b0 := sp.Proposal(4, 0)
+		Expect(i0).To(Equal(uint64(1)))
+		Expect(b0).To(Equal(Uint64ToBytes(1)))
+
+		i1, _ := sp.Proposal(4, 1)
+		Expect(i1).To(Equal(uint64(2)))
+
+		i2, _ := sp.Proposal(4, 2)
+		Expect(i2).To(Equal(uint64(5)))
+
+		i3, _ := sp.Proposal(4, 3)
+		Expect(i3).To(Equal(uint64(6)))
+
+		i4, _ := sp.Proposal(4, 4)
+		Expect(i4).To(Equal(uint64(9)))
+
+		i5, _ := sp.Proposal(4, 5)
+		Expect(i5).To(Equal(uint64(10)))
+
+		i6, _ := sp.Proposal(4, 6)
+		Expect(i6).To(Equal(uint64(13)))
+
+		i7, _ := sp.Proposal(4, 7)
+		Expect(i7).To(Equal(uint64(14)))
+	})
+})
+
+type Transport interface {
+	Send(source, dest uint64, msg *pb.Msg)
+	Link(source uint64) sample.Link
+}
+
+type FakeLink struct {
+	FakeTransport Transport
+	Source        uint64
+}
+
+func (fl *FakeLink) Send(dest uint64, msg *pb.Msg) {
+	fl.FakeTransport.Send(fl.Source, dest, msg)
+}
+
+type FakeTransport struct {
+	Destinations []*mirbft.Node
+}
+
+func (ft *FakeTransport) Send(source, dest uint64, msg *pb.Msg) {
+	ft.Destinations[int(dest)].Step(context.Background(), source, msg)
+}
+
+func (ft *FakeTransport) Link(source uint64) sample.Link {
+	return &FakeLink{
+		Source:        source,
+		FakeTransport: ft,
+	}
+}
+
+type SilencingTransport struct {
+	Underlying Transport
+	Silenced   uint64
+}
+
+func (it *SilencingTransport) Send(source, dest uint64, msg *pb.Msg) {
+	if source == it.Silenced {
+		return
+	}
+
+	it.Underlying.Send(source, dest, msg)
+}
+
+func (it *SilencingTransport) Link(source uint64) sample.Link {
+	return &FakeLink{
+		FakeTransport: it,
+		Source:        source,
+	}
+}
+
+func Silence(source uint64) func(Transport) Transport {
+	return func(t Transport) Transport {
+		return &SilencingTransport{
+			Underlying: t,
+			Silenced:   source,
+		}
+	}
+}
+
+type FakeLog struct {
+	Entries []*pb.QEntry
+	CommitC chan *pb.QEntry
+}
+
+func (fl *FakeLog) Apply(entry *pb.QEntry) {
+	if entry.Proposals == nil {
+		// this is a no-op batch from a tick, or catchup, ignore it
+		return
+	}
+	fl.Entries = append(fl.Entries, entry)
+	fl.CommitC <- entry
+}
+
+func (fl *FakeLog) Snap() []byte {
+	return Uint64ToBytes(uint64(len(fl.Entries)))
+}
+
+type TestConfig struct {
+	NodeCount        int
+	MsgCount         int
+	Proposer         Proposer
+	TransportFilters []func(Transport) Transport
+	Expectations     TestExpectations
+}
+
+type TestExpectations struct {
+	Epoch *uint64
+}
+
+func Uint64ToPtr(value uint64) *uint64 {
+	return &value
+}
+
+func Uint64ToBytes(value uint64) []byte {
+	byteValue := make([]byte, 8)
+	binary.LittleEndian.PutUint64(byteValue, value)
+	return byteValue
+}
+
+func BytesToUint64(value []byte) uint64 {
+	return binary.LittleEndian.Uint64(value)
+}
+
 var _ = Describe("MirBFT", func() {
 	var (
-		doneC  chan struct{}
-		logger *zap.Logger
+		doneC     chan struct{}
+		logger    *zap.Logger
+		proposals map[string]uint64
 
 		network *Network
 	)
@@ -37,6 +205,8 @@ var _ = Describe("MirBFT", func() {
 		logger, err = zap.NewProduction()
 		Expect(err).NotTo(HaveOccurred())
 
+		proposals = map[string]uint64{}
+
 		doneC = make(chan struct{})
 	})
 
@@ -45,62 +215,85 @@ var _ = Describe("MirBFT", func() {
 		close(doneC)
 	})
 
-	DescribeTable("commits all messages", func(nodeCount int, networkCustomizers ...func(*Network)) {
-		network = CreateNetwork(nodeCount, logger, doneC)
-
-		for _, networkCustomizer := range networkCustomizers {
-			networkCustomizer(network)
-		}
+	DescribeTable("commits all messages", func(testConfig *TestConfig) {
+		network = CreateNetwork(testConfig, logger, doneC)
 
 		network.GoRunNetwork(doneC)
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// msgs must be < 1000 (hardcoded in the createNetwork call.
-		// this math is to ensure that the messages end on a multiple
-		// of the checkpoint interval, when spread across the buckets.
-		msgs := ((1000 / nodeCount) / 5) * 5 * nodeCount
-
-		for i := 0; i < msgs; i++ {
-			value := make([]byte, 8)
-			binary.LittleEndian.PutUint64(value, uint64(i))
+		Expect(testConfig.MsgCount).NotTo(Equal(0))
+		for i := 0; i < testConfig.MsgCount; i++ {
 			// Unevenly propose across the nodes
-			err := network.nodes[i%2%nodeCount].Propose(ctx, value)
+			node := network.nodes[i%2%testConfig.NodeCount]
+			proposalUint, proposalBytes := testConfig.Proposer.Proposal(testConfig.NodeCount, i)
+			err := node.Propose(ctx, proposalBytes)
 			Expect(err).NotTo(HaveOccurred())
+
+			proposalKey := string(proposalBytes)
+			Expect(proposals).NotTo(ContainElement(proposalKey))
+			proposals[proposalKey] = proposalUint
 		}
 
 		observations := map[uint64]struct{}{}
 		for j, fakeLog := range network.fakeLogs {
 			By(fmt.Sprintf("checking for node %d that each message only commits once", j))
-			for len(observations) < msgs {
+			for len(observations) < testConfig.MsgCount {
 				entry := &pb.QEntry{}
 				Eventually(fakeLog.CommitC).Should(Receive(&entry))
-				if len(networkCustomizers) == 0 {
-					Expect(entry.Epoch).To(Equal(uint64(0)))
+
+				if testConfig.Expectations.Epoch != nil {
+					Expect(entry.Epoch).To(Equal(*testConfig.Expectations.Epoch))
 				}
 
-				if entry.Proposals == nil {
-					continue
-				}
+				proposalUint, ok := proposals[string(entry.Proposals[0])]
+				Expect(ok).To(BeTrue())
+				Expect(proposalUint % uint64(testConfig.NodeCount)).To(Equal((entry.SeqNo - 1) % uint64(testConfig.NodeCount)))
 
-				msgNo := binary.LittleEndian.Uint64(entry.Proposals[0])
-				Expect(msgNo % uint64(nodeCount)).To(Equal((entry.SeqNo - 1) % uint64(nodeCount)))
-
-				_, ok := observations[msgNo]
+				_, ok = observations[proposalUint]
 				Expect(ok).To(BeFalse())
-				observations[msgNo] = struct{}{}
+				observations[proposalUint] = struct{}{}
 			}
 		}
 	},
-		Entry("SingleNode", 1),
-		Entry("ThreeNodeCFT", 3),
-		Entry("FourNodeBFT", 4),
-		PEntry("FourNodeBFT with fault", 4, BrokenLinks(map[uint64]map[uint64]struct{}{
-			// 2: {0: struct{}{}, 1: struct{}{}, 3: struct{}{}},
-			3: {0: struct{}{}, 1: struct{}{}, 2: struct{}{}},
-			// XXX, this one is weird 1: {0: struct{}{}, 2: struct{}{}, 3: struct{}{}},
-		})),
+		Entry("SingleNode greenpath", &TestConfig{
+			NodeCount: 1,
+			MsgCount:  1000,
+			Proposer:  LinearProposer{},
+			Expectations: TestExpectations{
+				Epoch: Uint64ToPtr(0),
+			},
+		}),
+
+		Entry("ThreeNodeCFT greenpath", &TestConfig{
+			NodeCount: 3,
+			MsgCount:  1000,
+			Proposer:  LinearProposer{},
+			Expectations: TestExpectations{
+				Epoch: Uint64ToPtr(0),
+			},
+		}),
+
+		Entry("FourNodeBFT greenpath", &TestConfig{
+			NodeCount: 4,
+			MsgCount:  1000,
+			Proposer:  LinearProposer{},
+			Expectations: TestExpectations{
+				Epoch: Uint64ToPtr(0),
+			},
+		}),
+
+		PEntry("FourNodeBFT with silenced node3", &TestConfig{
+			NodeCount: 4,
+			MsgCount:  1000,
+			TransportFilters: []func(Transport) Transport{
+				Silence(3),
+			},
+			Proposer: SkippingProposer{
+				NodesToSkip: []int{3},
+			},
+		}),
 	)
 
 	JustAfterEach(func() {
@@ -118,63 +311,31 @@ var _ = Describe("MirBFT", func() {
 				} else {
 					fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
 				}
+				fmt.Printf("\nFakeLog has %d messages\n", len(network.fakeLogs[nodeIndex].Entries))
+
+				if len(proposals) > len(network.fakeLogs[nodeIndex].Entries)+10 {
+					fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(network.fakeLogs[nodeIndex].Entries))
+				} else if len(proposals) > len(network.fakeLogs[nodeIndex].Entries) {
+					entries := map[string]struct{}{}
+					for _, entry := range network.fakeLogs[0].Entries {
+						entries[string(entry.Proposals[0])] = struct{}{}
+					}
+
+					var missing []uint64
+					for proposalKey, proposalUint := range proposals {
+						if _, ok := entries[proposalKey]; !ok {
+							missing = append(missing, proposalUint)
+						}
+					}
+					sort.Slice(missing, func(i, j int) bool {
+						return missing[i] < missing[j]
+					})
+					fmt.Printf("Missing entries for %v\n", missing)
+				}
 			}
 		}
 	})
 })
-
-type FakeLog struct {
-	Entries []*pb.QEntry
-	CommitC chan *pb.QEntry
-}
-
-func (fl *FakeLog) Apply(entry *pb.QEntry) {
-	if entry.Proposals == nil {
-		// this is a no-op batch from a tick, or catchup, ignore it
-		return
-	}
-	fl.Entries = append(fl.Entries, entry)
-	fl.CommitC <- entry
-}
-
-func (fl *FakeLog) Snap() []byte {
-	value := make([]byte, 8)
-	binary.LittleEndian.PutUint64(value, uint64(len(fl.Entries)))
-	return value
-}
-
-type BrokenLink struct {
-	FakeLink    *sample.FakeLink
-	Unreachable map[uint64]struct{}
-}
-
-func (bl *BrokenLink) Send(dest uint64, msg *pb.Msg) {
-	// Always send Forward messages, as they're needed for the test to work
-	if _, ok := msg.Type.(*pb.Msg_Forward); !ok {
-		if _, ok = bl.Unreachable[dest]; ok {
-			// drop the message
-			// fmt.Println("Dropping message to", dest)
-			return
-		}
-	}
-	bl.FakeLink.Send(dest, msg)
-}
-
-func BrokenLinks(sourceDestsBroken map[uint64]map[uint64]struct{}) func(*Network) {
-	return func(network *Network) {
-		for source, dests := range sourceDestsBroken {
-			for i, node := range network.nodes {
-				if node.Config.ID != source {
-					continue
-				}
-
-				network.processors[i].Link = &BrokenLink{
-					Unreachable: dests,
-				}
-			}
-		}
-	}
-}
 
 type Network struct {
 	nodes      []*mirbft.Node
@@ -182,9 +343,9 @@ type Network struct {
 	processors []*sample.SerialProcessor
 }
 
-func CreateNetwork(nodeCount int, logger *zap.Logger, doneC <-chan struct{}) *Network {
-	nodes := make([]*mirbft.Node, nodeCount)
-	replicas := make([]mirbft.Replica, nodeCount)
+func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
+	nodes := make([]*mirbft.Node, testConfig.NodeCount)
+	replicas := make([]mirbft.Replica, testConfig.NodeCount)
 
 	for i := range replicas {
 		replicas[i] = mirbft.Replica{ID: uint64(i)}
@@ -206,18 +367,27 @@ func CreateNetwork(nodeCount int, logger *zap.Logger, doneC <-chan struct{}) *Ne
 		nodes[i] = node
 	}
 
-	fakeLogs := make([]*FakeLog, nodeCount)
-	processors := make([]*sample.SerialProcessor, nodeCount)
+	var transport Transport = &FakeTransport{
+		Destinations: nodes,
+	}
+
+	for _, transportFilter := range testConfig.TransportFilters {
+		transport = transportFilter(transport)
+	}
+
+	fakeLogs := make([]*FakeLog, testConfig.NodeCount)
+	processors := make([]*sample.SerialProcessor, testConfig.NodeCount)
 	for i, node := range nodes {
 		node := node
 		fakeLog := &FakeLog{
-			CommitC: make(chan *pb.QEntry, 1000),
+			CommitC: make(chan *pb.QEntry, testConfig.MsgCount),
 		}
+
 		fakeLogs[i] = fakeLog
 
 		processors[i] = &sample.SerialProcessor{
 			Node:      node,
-			Link:      sample.NewFakeLink(node.Config.ID, nodes, doneC),
+			Link:      transport.Link(node.Config.ID),
 			Validator: sample.ValidatorFunc(func([]byte) error { return nil }),
 			Hasher:    sample.HasherFunc(func(data []byte) []byte { return data }),
 			Committer: &sample.SerialCommitter{
@@ -241,9 +411,6 @@ func (n *Network) GoRunNetwork(doneC <-chan struct{}) {
 	for i := range n.nodes {
 		go func(i int, doneC <-chan struct{}) {
 			defer GinkgoRecover()
-			defer func() {
-				Expect(recover()).To(BeNil())
-			}()
 
 			ticker := time.NewTicker(10 * time.Millisecond)
 			defer ticker.Stop()

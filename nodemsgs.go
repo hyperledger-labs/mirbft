@@ -91,7 +91,9 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	case *pb.Msg_Checkpoint:
 		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_Forward:
-		epoch = innerMsg.Forward.Epoch
+		// epoch = innerMsg.Forward.Epoch
+		// TODO, should forwarding be associated with an epoch
+		return current
 	case *pb.Msg_EpochChange:
 		return current // TODO, decide if this is actually current
 	case *pb.Msg_NewEpoch:
@@ -134,7 +136,7 @@ func (n *nodeMsgs) next() *pb.Msg {
 			return msg
 		case future:
 			// TODO, this is too aggressive, but useful for debugging
-			n.myConfig.Logger.Warn("deferring apply as it's from the future", logBasics(n.id, msg)...)
+			n.myConfig.Logger.Debug("deferring apply as it's from the future", logBasics(n.id, msg)...)
 		}
 	}
 

@@ -193,6 +193,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 			}
 		}
 		actions.Append(sm.activeEpoch.advanceUncommitted())
+		actions.Append(sm.activeEpoch.drainProposer())
 		sm.epochChanger.state = idle
 		sm.epochChanger.lastActiveEpoch = sm.activeEpoch
 		for _, nodeMsgs := range sm.nodeMsgs {
@@ -246,6 +247,7 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult PreprocessResult)
 	// rotations.  We should prefer finalizing the old epoch and populating the new.
 	// We should also handle the case that we are out of space in the current active
 	// epoch.
+
 	return sm.activeEpoch.applyPreprocessResult(preprocessResult)
 }
 

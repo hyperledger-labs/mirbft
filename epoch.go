@@ -146,45 +146,70 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		sequences[i] = newSequence(owner, config.number, seqNo, networkConfig, myConfig)
 	}
 
-	for i, digest := range newEpochConfig.FinalPreprepares {
+	if lastEpoch != nil {
+		j := 0
+	outer:
+		for _, oldSeq := range lastEpoch.sequences {
+			for ; j < len(newEpochConfig.FinalPreprepares); j++ {
+				newSeq := sequences[j]
+				if newSeq.seqNo < oldSeq.seqNo {
+					continue
+				}
 
-		newSequence := sequences[i]
-		newSequence.state = Prepared
-		newSequence.digest = digest
-
-		if lastEpoch != nil {
-			offset := newEpochConfig.StartingCheckpoint.SeqNo - lastEpoch.baseCheckpoint.SeqNo
-
-			// TODO, handle unlikely underflow
-			if j := i + int(offset); j < len(lastEpoch.sequences) {
-				oldSequence := lastEpoch.sequences[j]
-				if oldSequence.seqNo != sequences[i].seqNo {
+				if newSeq.seqNo > oldSeq.seqNo {
 					panic("unexpected")
 				}
 
-				if newSequence.digest == nil {
-					newSequence.qEntry = &pb.QEntry{
-						Epoch: newSequence.epoch,
-						SeqNo: newSequence.seqNo,
+				newSeq.state = Prepared
+				newSeq.digest = newEpochConfig.FinalPreprepares[j]
+
+				if newSeq.digest == nil {
+					newSeq.qEntry = &pb.QEntry{
+						Epoch: newSeq.epoch,
+						SeqNo: newSeq.seqNo,
 					}
-				} else if bytes.Equal(oldSequence.digest, newSequence.digest) {
-					newSequence.qEntry = &pb.QEntry{
-						Epoch:     newSequence.epoch,
-						SeqNo:     newSequence.seqNo,
-						Digest:    newSequence.digest,
-						Proposals: oldSequence.qEntry.Proposals,
+				} else if bytes.Equal(oldSeq.digest, newSeq.digest) {
+					newSeq.qEntry = &pb.QEntry{
+						Epoch:     newSeq.epoch,
+						SeqNo:     newSeq.seqNo,
+						Digest:    newSeq.digest,
+						Proposals: oldSeq.batch,
+					}
+					newSeq.batch = oldSeq.batch
+
+					if oldSeq.state == Committed {
+						newSeq.state = Committed
 					}
 
-					if oldSequence.state == Committed {
-						newSequence.state = Committed
+					if myConfig.ID == 0 {
 					}
+					continue outer
+				} else {
+					panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x", newSeq.epoch, newSeq.seqNo, newSeq.digest))
+				}
+				break
+			}
+
+			// Don't lose data that we once allocated, but got dropped
+			if oldSeq.batch != nil && oldSeq.owner == NodeID(myConfig.ID) {
+				for _, proposal := range oldSeq.batch {
+					proposer.propose(proposal)
 				}
 			}
 		}
 
-		if newSequence.digest != nil && newSequence.qEntry == nil {
-			// XXX we need to get the old entry if it exists
-			panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x", newSequence.epoch, newSequence.seqNo, newSequence.digest))
+		for ; j < len(newEpochConfig.FinalPreprepares); j++ {
+			newSeq := sequences[j]
+			newSeq.state = Prepared
+			newSeq.digest = newEpochConfig.FinalPreprepares[j]
+			if newSeq.digest == nil {
+				newSeq.qEntry = &pb.QEntry{
+					Epoch: newSeq.epoch,
+					SeqNo: newSeq.seqNo,
+				}
+			} else {
+				panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x", newSeq.epoch, newSeq.seqNo, newSeq.digest))
+			}
 		}
 	}
 
@@ -344,7 +369,7 @@ func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Action
 
 	// Someone forwarded me this proposal, but I'm not responsible for it's bucket
 	// TODO, log oddity? Assign it to the wrong bucket? Forward it again?
-	return &Actions{}
+	panic("TODO, handle me")
 }
 
 func (e *epoch) applyProcessResult(seqNo uint64, digest []byte, valid bool) *Actions {
