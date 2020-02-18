@@ -31,8 +31,8 @@ type epochTarget struct {
 	isLeader       bool
 }
 
-func (et *epochTarget) constructNewEpoch(nc *pb.NetworkConfig) *pb.NewEpoch {
-	config := constructNewEpochConfig(nc, et.changes)
+func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConfig) *pb.NewEpoch {
+	config := constructNewEpochConfig(nc, newLeaders, et.changes)
 	if config == nil {
 		return nil
 	}
@@ -245,8 +245,16 @@ func (ec *epochChanger) applyEpochChangeMsg(source NodeID, epochChange *pb.Epoch
 		return &Actions{}
 	}
 
+	var newLeaders []uint64
+	if ec.lastActiveEpoch == nil {
+		newLeaders = ec.networkConfig.Nodes
+	} else {
+		// XXX actually reduce the leader set
+		newLeaders = ec.networkConfig.Nodes
+	}
+
 	if ec.state == prepending && target.myNewEpoch == nil {
-		target.myNewEpoch = target.constructNewEpoch(ec.networkConfig)
+		target.myNewEpoch = target.constructNewEpoch(newLeaders, ec.networkConfig)
 	}
 
 	if target.myNewEpoch == nil {
@@ -293,7 +301,9 @@ func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 
 	// XXX need to validate the signatures on the epoch changes
 
-	newEpochConfig := constructNewEpochConfig(ec.networkConfig, epochChanges)
+	// TODO, do we need to try to validate the leader set?
+
+	newEpochConfig := constructNewEpochConfig(ec.networkConfig, msg.Config.Leaders, epochChanges)
 
 	if !proto.Equal(newEpochConfig, msg.Config) {
 		// TODO byzantine, log oddity
@@ -493,7 +503,7 @@ func newEpochChange(underlying *pb.EpochChange) (*epochChange, error) {
 	}, nil
 }
 
-func constructNewEpochConfig(config *pb.NetworkConfig, epochChanges map[NodeID]*epochChange) *pb.EpochConfig {
+func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epochChanges map[NodeID]*epochChange) *pb.EpochConfig {
 	type checkpointKey struct {
 		SeqNo uint64
 		Value string
@@ -556,7 +566,7 @@ func constructNewEpochConfig(config *pb.NetworkConfig, epochChanges map[NodeID]*
 
 	newEpochConfig := &pb.EpochConfig{
 		Number:  newEpochNumber,
-		Leaders: config.Nodes, // XXX, this is wrong.
+		Leaders: newLeaders,
 		StartingCheckpoint: &pb.Checkpoint{
 			SeqNo: maxCheckpoint.SeqNo,
 			Value: []byte(maxCheckpoint.Value),

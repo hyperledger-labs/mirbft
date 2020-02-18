@@ -111,10 +111,8 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		buckets:           map[BucketID]NodeID{},
 	}
 
-	i := BucketID(0)
-	for _, nodeID := range newEpochConfig.Leaders {
-		config.buckets[i] = NodeID(nodeID)
-		i++
+	for bucketID := range networkConfig.Nodes {
+		config.buckets[BucketID(bucketID)] = NodeID(newEpochConfig.Leaders[bucketID%len(newEpochConfig.Leaders)])
 	}
 
 	checkpoints := make([]*checkpoint, 0, 3)
@@ -175,16 +173,15 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 
 					continue outer
 				} else {
-					panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x", newSeq.epoch, newSeq.seqNo, newSeq.digest))
+					panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x bucket=%d", newSeq.epoch, newSeq.seqNo, newSeq.digest, config.seqToBucket(newSeq.seqNo)))
 				}
 				break
 			}
 
 			if oldSeq.batch != nil && oldSeq.owner == NodeID(myConfig.ID) {
 				for _, proposal := range oldSeq.batch {
-					_ = proposal
 					// TODO don't lose data that we once allocated, but got dropped
-					panic("about to abandon a proposal")
+					panic(fmt.Sprintf("about to abandon a proposal %x", proposal))
 				}
 			}
 		}
@@ -199,7 +196,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 					SeqNo: newSeq.seqNo,
 				}
 			} else {
-				panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x", newSeq.epoch, newSeq.seqNo, newSeq.digest))
+				panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x bucket=%d", newSeq.epoch, newSeq.seqNo, newSeq.digest, config.seqToBucket(newSeq.seqNo)))
 			}
 		}
 	}

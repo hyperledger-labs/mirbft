@@ -20,10 +20,35 @@ message NetworkConfig {
 	// The number of nodeIDs corresponds to the size of the network.
 	repeated uint64 nodes = 1;
 
-	// F is the number of byzantine faults tolerated by the network.
-	// It must be less than len(nodes)/3 (truncated).  The 'F' parameter
-	// need not be maximal, ie, a network of 7 nodes with 'F' set to 1 may
-	// simultaneously tolerate 1 byzantine fault, and 2 crash faults.
+        // F is the number of byzantine faults tolerated by the network.
+        // It must be less than len(nodes)/3 (truncated).  The 'F' parameter
+        // need not be maximal, ie, a network of 9 nodes with 'F' set to 1 may
+        // simultaneously tolerate 1 byzantine fault, and 2 crash faults.  Whereas
+        // when F=2, that 9 node network may only tolerate 2 crash faults.  Note
+        // usually, a maximal value makes sense.  For instance in a network of 7
+        // nodes F=1, and F=2 both provide crash tolerance of only 2 nodes.  The
+        // following table summarizes the number of crash faults tolerated for
+        // a given network of size N and number of byzantine faults tolerated F.
+        //    |           F           |
+        //    | 0 | 1 | 2 | 3 | 4 | 5 |
+        // N --------------------------
+        // 1  | 0 |   |   |   |   |   |
+        // 2  | 0 |   |   |   |   |   |
+        // 3  | 1 |   |   |   |   |   |
+        // 4  | 1 | 1 |   |   |   |   |
+        // 5  | 2 | 1 |   |   |   |   |
+        // 6  | 2 | 1 |   |   |   |   |
+        // 7  | 3 | 2 | 2 |   |   |   |
+        // 8  | 3 | 3 | 2 |   |   |   |
+        // 9  | 4 | 3 | 2 |   |   |   |
+        // 10 | 4 | 4 | 3 | 3 |   |   |
+        // 11 | 5 | 4 | 4 | 3 |   |   |
+        // 12 | 5 | 5 | 4 | 4 |   |   |
+        // 13 | 6 | 5 | 5 | 4 | 4 |   |
+        // 14 | 6 | 6 | 5 | 5 | 4 |   |
+        // 15 | 7 | 6 | 6 | 5 | 5 |   |
+        // 16 | 7 | 7 | 6 | 6 | 5 | 5 |
+        // 17 | 8 | 7 | 7 | 6 | 6 | 5 |
         int32 f = 2;
 
 	// CheckpointInterval is how often checkpoints are taken.  In terms of
