@@ -412,7 +412,7 @@ func (n *Network) GoRunNetwork(doneC <-chan struct{}) {
 		go func(i int, doneC <-chan struct{}) {
 			defer GinkgoRecover()
 
-			ticker := time.NewTicker(10 * time.Millisecond)
+			ticker := time.NewTicker(1 * time.Millisecond)
 			defer ticker.Stop()
 
 			for {
