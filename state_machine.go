@@ -21,6 +21,7 @@ type stateMachine struct {
 	networkConfig *pb.NetworkConfig
 	nodeMsgs      map[NodeID]*nodeMsgs
 
+	proposer          *proposer
 	activeEpoch       *epoch
 	checkpointTracker *checkpointTracker
 	epochChanger      *epochChanger
@@ -39,6 +40,8 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		SeqNo: 0,
 		Value: []byte("TODO, get from state"),
 	}
+
+	proposer := newProposer(myConfig, len(networkConfig.Nodes))
 
 	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
 
@@ -68,6 +71,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		networkConfig:     networkConfig,
 		epochChanger:      epochChanger,
 		checkpointTracker: checkpointTracker,
+		proposer:          proposer,
 		nodeMsgs:          nodeMsgs,
 	}
 }
@@ -178,7 +182,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 	actions := sm.epochChanger.applyNewEpochReadyMsg(source, msg)
 
 	if sm.epochChanger.state == ready {
-		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
+		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.proposer, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
 		for _, sequence := range sm.activeEpoch.sequences {
 			if sequence.state >= Prepared {
 				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
@@ -217,15 +221,20 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	actions := &Actions{}
 
+	for _, preprocessResult := range results.Preprocesses {
+		// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
+		actions.Append(sm.applyPreprocessResult(preprocessResult))
+	}
+
+	for _, checkpointResult := range results.Checkpoints {
+		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
+		actions.Append(sm.checkpointTracker.applyCheckpointResult(checkpointResult.SeqNo, checkpointResult.Value))
+	}
+
 	if sm.activeEpoch == nil {
 		// TODO, this is a little heavy handed, we should probably
 		// work with the persistence so we don't redo the effort.
 		return actions
-	}
-
-	for _, preprocessResult := range results.Preprocesses {
-		// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
-		actions.Append(sm.applyPreprocessResult(preprocessResult))
 	}
 
 	for _, processResult := range results.Processed {
@@ -234,21 +243,17 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		actions.Append(sm.activeEpoch.applyProcessResult(seqNo, processResult.Digest, !processResult.Invalid))
 	}
 
-	for _, checkpointResult := range results.Checkpoints {
-		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
-		actions.Append(sm.checkpointTracker.applyCheckpointResult(checkpointResult.SeqNo, checkpointResult.Value))
-	}
-
 	return actions
 }
 
 func (sm *stateMachine) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
-	// TODO we should probably have some sophisticated logic here for graceful epoch
-	// rotations.  We should prefer finalizing the old epoch and populating the new.
-	// We should also handle the case that we are out of space in the current active
-	// epoch.
+	sm.proposer.applyPreprocessResult(preprocessResult)
 
-	return sm.activeEpoch.applyPreprocessResult(preprocessResult)
+	if sm.activeEpoch != nil {
+		return sm.activeEpoch.drainProposer()
+	} else {
+		return &Actions{}
+	}
 }
 
 func (sm *stateMachine) tick() *Actions {

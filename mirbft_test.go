@@ -284,7 +284,7 @@ var _ = Describe("MirBFT", func() {
 			},
 		}),
 
-		PEntry("FourNodeBFT with silenced node3", &TestConfig{
+		Entry("FourNodeBFT with silenced node3", &TestConfig{
 			NodeCount: 4,
 			MsgCount:  1000,
 			TransportFilters: []func(Transport) Transport{

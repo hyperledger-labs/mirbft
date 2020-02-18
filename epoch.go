@@ -86,8 +86,8 @@ type epoch struct {
 
 	sequences []*sequence
 
-	lowestUncommitted   int
-	myLowestUnallocated int
+	lowestUncommitted int
+	lowestUnallocated []int // index by bucket
 
 	lastCommittedAtTick uint64
 	ticksSinceProgress  int
@@ -101,7 +101,7 @@ type epoch struct {
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
+func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, proposer *proposer, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
 
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
@@ -115,14 +115,6 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 	for _, nodeID := range newEpochConfig.Leaders {
 		config.buckets[i] = NodeID(nodeID)
 		i++
-	}
-
-	var proposer *proposer
-
-	if lastEpoch != nil {
-		proposer = lastEpoch.proposer
-	} else {
-		proposer = newProposer(myConfig)
 	}
 
 	checkpoints := make([]*checkpoint, 0, 3)
@@ -157,7 +149,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 				}
 
 				if newSeq.seqNo > oldSeq.seqNo {
-					panic("unexpected")
+					break
 				}
 
 				newSeq.state = Prepared
@@ -181,8 +173,6 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 						newSeq.state = Committed
 					}
 
-					if myConfig.ID == 0 {
-					}
 					continue outer
 				} else {
 					panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x", newSeq.epoch, newSeq.seqNo, newSeq.digest))
@@ -190,10 +180,11 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 				break
 			}
 
-			// Don't lose data that we once allocated, but got dropped
 			if oldSeq.batch != nil && oldSeq.owner == NodeID(myConfig.ID) {
 				for _, proposal := range oldSeq.batch {
-					proposer.propose(proposal)
+					_ = proposal
+					// TODO don't lose data that we once allocated, but got dropped
+					panic("about to abandon a proposal")
 				}
 			}
 		}
@@ -221,6 +212,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		checkpoints:       checkpoints,
 		proposer:          proposer,
 		sequences:         sequences,
+		lowestUnallocated: make([]int, len(config.buckets)),
 	}
 }
 
@@ -301,75 +293,92 @@ func (e *epoch) moveWatermarks() *Actions {
 		e.checkpoints = e.checkpoints[1:]
 		e.sequences = e.sequences[ci:]
 		e.lowestUncommitted -= ci
-		e.myLowestUnallocated -= ci
+		for i := range e.lowestUnallocated {
+			e.lowestUnallocated[i] -= ci
+		}
 	}
 
 	return e.drainProposer()
 }
 
-func (e *epoch) advanceMyLowestUnallocated() (*sequence, int) {
-	if e.myLowestUnallocated < 0 {
-		// If we haven't advanced since the watermarks moved, we might
-		// not have skipped the sequences we didn't own and now be negative.
-		e.myLowestUnallocated = 0
-	}
-	for i := e.myLowestUnallocated; i < len(e.sequences); i++ {
-		seq := e.sequences[i]
-		if seq.state != Uninitialized || e.myConfig.ID != uint64(seq.owner) {
-			e.myLowestUnallocated = i
-			continue
+func (e *epoch) advanceLowestUnallocated() {
+	// TODO, this could definitely be made more efficient
+
+	for bucketID, index := range e.lowestUnallocated {
+		if index < 0 {
+			// If we haven't advanced since the watermarks moved, we might
+			// not have skipped the sequences we didn't own and now be negative.
+			e.lowestUnallocated[bucketID] = 0
 		}
-		return seq, i
+		for i := e.lowestUnallocated[bucketID]; i < len(e.sequences); i++ {
+			seq := e.sequences[i]
+			e.lowestUnallocated[bucketID] = i
+			if seq.state != Uninitialized || e.config.seqToBucket(seq.seqNo) != BucketID(bucketID) {
+				continue
+			}
+			break
+		}
 	}
-	return nil, 0
 }
 
 func (e *epoch) drainProposer() *Actions {
 	actions := &Actions{}
 
-	for e.proposer.hasPending() {
-		seq, i := e.advanceMyLowestUnallocated()
-		if seq == nil || len(e.sequences)-i <= int(e.config.networkConfig.CheckpointInterval) {
-			break
+	for bucketID, ownerID := range e.config.buckets {
+		for e.proposer.hasPending(bucketID) {
+			e.advanceLowestUnallocated()
+
+			i := e.lowestUnallocated[int(bucketID)]
+			if i > len(e.sequences) {
+				break
+			}
+			seq := e.sequences[i]
+
+			if len(e.sequences)-i <= int(e.config.networkConfig.CheckpointInterval) {
+				// let the network move watermarks before filling up the last checkpoint
+				// interval
+				break
+			}
+
+			if ownerID == NodeID(e.myConfig.ID) && e.proposer.hasPending(bucketID) {
+				proposals := e.proposer.next(bucketID)
+				batch := make([][]byte, len(proposals))
+				for i, proposal := range proposals {
+					batch[i] = proposal.Data
+				}
+				actions.Append(seq.allocate(batch))
+			} else {
+				for e.proposer.hasOutstanding(bucketID) {
+					for _, proposal := range e.proposer.next(bucketID) {
+						if proposal.Source != e.myConfig.ID {
+							continue
+						}
+
+						// I originated this proposal, but someone else leads this
+						// bucket, forward the message to them
+						actions.Append(&Actions{
+							Unicast: []Unicast{
+								{
+									Target: uint64(ownerID),
+									Msg: &pb.Msg{
+										Type: &pb.Msg_Forward{
+											Forward: &pb.Forward{
+												Epoch:  e.config.number,
+												Bucket: uint64(bucketID),
+												Data:   proposal.Data,
+											},
+										},
+									},
+								},
+							},
+						})
+					}
+				}
+			}
 		}
-		actions.Append(seq.allocate(e.proposer.next()))
 	}
 
 	return actions
-}
-
-func (e *epoch) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
-	bucketID := BucketID(preprocessResult.Cup % uint64(len(e.config.buckets)))
-	nodeID := e.config.buckets[bucketID]
-	if nodeID == NodeID(e.myConfig.ID) {
-		e.proposer.propose(preprocessResult.Proposal.Data)
-		return e.drainProposer()
-	}
-
-	if preprocessResult.Proposal.Source == e.myConfig.ID {
-		// I originated this proposal, but someone else leads this bucket,
-		// forward the message to them
-		return &Actions{
-			Unicast: []Unicast{
-				{
-					Target: uint64(nodeID),
-					Msg: &pb.Msg{
-						Type: &pb.Msg_Forward{
-							Forward: &pb.Forward{
-								Epoch:  e.config.number,
-								Bucket: uint64(bucketID),
-								Data:   preprocessResult.Proposal.Data,
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
-	// Someone forwarded me this proposal, but I'm not responsible for it's bucket
-	// TODO, log oddity? Assign it to the wrong bucket? Forward it again?
-	panic("TODO, handle me")
 }
 
 func (e *epoch) applyProcessResult(seqNo uint64, digest []byte, valid bool) *Actions {
@@ -385,12 +394,25 @@ func (e *epoch) applyProcessResult(seqNo uint64, digest []byte, valid bool) *Act
 func (e *epoch) tick() *Actions {
 	actions := &Actions{} // TODO, only heartbeat if no progress
 	if e.myConfig.HeartbeatTicks != 0 && e.ticks%uint64(e.myConfig.HeartbeatTicks) == 0 {
-		seq, i := e.advanceMyLowestUnallocated()
-		if seq != nil && len(e.sequences)-i > int(e.config.networkConfig.CheckpointInterval) {
-			if e.proposer.hasOutstanding() {
-				actions.Append(seq.allocate(e.proposer.next()))
+		e.advanceLowestUnallocated()
+		for bucketID, index := range e.lowestUnallocated {
+			if e.config.buckets[BucketID(bucketID)] != NodeID(e.myConfig.ID) {
+				continue
+			}
+
+			if len(e.sequences)-index <= int(e.config.networkConfig.CheckpointInterval) {
+				continue
+			}
+
+			if e.proposer.hasOutstanding(BucketID(bucketID)) {
+				proposals := e.proposer.next(BucketID(bucketID))
+				batch := make([][]byte, len(proposals))
+				for i, proposal := range proposals {
+					batch[i] = proposal.Data
+				}
+				actions.Append(e.sequences[index].allocate(batch))
 			} else {
-				actions.Append(seq.allocate(e.proposer.next()))
+				actions.Append(e.sequences[index].allocate(nil))
 			}
 		}
 	}
@@ -419,9 +441,11 @@ func (e *epoch) tick() *Actions {
 	return actions
 }
 
+/*
 func (e *epoch) lowWatermark() uint64 {
 	return e.sequences[0].seqNo
 }
+*/
 
 func (e *epoch) highWatermark() uint64 {
 	return e.sequences[len(e.sequences)-1].seqNo

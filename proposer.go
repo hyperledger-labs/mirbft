@@ -9,44 +9,62 @@ package mirbft
 type proposer struct {
 	myConfig *Config
 
-	queue     [][]byte
+	proposalBuckets []*proposalBucket // indexed by bucket
+}
+
+type proposalBucket struct {
+	queue     []Proposal
 	sizeBytes int
-	pending   [][][]byte
+	pending   [][]Proposal
 }
 
-func newProposer(myConfig *Config) *proposer {
+func newProposer(myConfig *Config, buckets int) *proposer {
+	proposalBuckets := make([]*proposalBucket, buckets)
+	for i := range proposalBuckets {
+		proposalBuckets[i] = &proposalBucket{}
+	}
 	return &proposer{
-		myConfig: myConfig,
+		myConfig:        myConfig,
+		proposalBuckets: proposalBuckets,
 	}
 }
 
-func (p *proposer) propose(data []byte) {
-	p.queue = append(p.queue, data)
-	p.sizeBytes += len(data)
-	if p.sizeBytes >= p.myConfig.BatchParameters.CutSizeBytes {
-		p.pending = append(p.pending, p.queue)
-		p.queue = nil
+func (p *proposer) applyPreprocessResult(result PreprocessResult) {
+	bucket := int(result.Cup % uint64(len(p.proposalBuckets)))
+	proposalBucket := p.proposalBuckets[bucket]
+	proposalBucket.queue = append(proposalBucket.queue, result.Proposal)
+	proposalBucket.sizeBytes += len(result.Proposal.Data)
+	if proposalBucket.sizeBytes >= p.myConfig.BatchParameters.CutSizeBytes {
+		proposalBucket.pending = append(proposalBucket.pending, proposalBucket.queue)
+		proposalBucket.queue = nil
+		proposalBucket.sizeBytes = 0
 	}
 }
 
-func (p *proposer) hasOutstanding() bool {
-	return len(p.queue) > 0 || p.hasPending()
+func (p *proposer) hasOutstanding(bucket BucketID) bool {
+	index := int(bucket)
+	return len(p.proposalBuckets[index].queue) > 0 || len(p.proposalBuckets[index].pending) > 0
 }
 
-func (p *proposer) hasPending() bool {
-	return len(p.pending) > 0
+func (p *proposer) hasPending(bucket BucketID) bool {
+	index := int(bucket)
+	return len(p.proposalBuckets[index].pending) > 0
 }
 
-func (p *proposer) next() [][]byte {
-	if len(p.pending) > 0 {
-		n := p.pending[0]
-		p.pending = p.pending[1:]
+func (p *proposer) next(bucket BucketID) []Proposal {
+	index := int(bucket)
+	proposalBucket := p.proposalBuckets[index]
+
+	if len(proposalBucket.pending) > 0 {
+		n := proposalBucket.pending[0]
+		proposalBucket.pending = proposalBucket.pending[1:]
 		return n
 	}
 
-	if len(p.queue) > 0 {
-		n := p.queue
-		p.queue = nil
+	if len(proposalBucket.queue) > 0 {
+		n := proposalBucket.queue
+		proposalBucket.queue = nil
+		proposalBucket.sizeBytes = 0
 		return n
 	}
 
