@@ -8,7 +8,6 @@ package sample
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"runtime/debug"
 	"time"
@@ -17,10 +16,10 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-type ValidatorFunc func([]byte) error
+type ValidatorFunc func(*mirbft.PreprocessResult) error
 
-func (vf ValidatorFunc) Validate(data []byte) error {
-	return vf(data)
+func (vf ValidatorFunc) Validate(preprocessResult *mirbft.PreprocessResult) error {
+	return vf(preprocessResult)
 }
 
 type HasherFunc func([]byte) []byte
@@ -30,7 +29,7 @@ func (hf HasherFunc) Hash(data []byte) []byte {
 }
 
 type Validator interface {
-	Validate(data []byte) error
+	Validate(*mirbft.PreprocessResult) error
 }
 
 type Link interface {
@@ -136,27 +135,23 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 	}
 
 	for i, proposal := range actions.Preprocess {
-		hash := c.Hasher.Hash(proposal.Data)
-
 		actionResults.Preprocesses[i] = mirbft.PreprocessResult{
 			Proposal: proposal,
-			Cup:      binary.LittleEndian.Uint64(hash[0:8]),
+			Digest:   c.Hasher.Hash(proposal.Data),
 		}
 	}
 
 	for i, batch := range actions.Process {
 		hashes := []byte{}
-		for _, data := range batch.Proposals {
-			// TODO this could be much more efficient
-			// The assumption is that the hasher has already likely
-			// computed the hashes of the data, so, if using a cached version
-			// concatenating the hashes would be cheap
-			hashes = append(hashes, c.Hasher.Hash(data)...)
+		for _, preprocessResult := range batch.Proposals {
+			// TODO this could be much more efficient using
+			// the normal hash interface
+			hashes = append(hashes, preprocessResult.Digest...)
 		}
 
 		valid := true
-		for _, data := range batch.Proposals {
-			if err := c.Validator.Validate(data); err != nil {
+		for _, preprocessResult := range batch.Proposals {
+			if err := c.Validator.Validate(preprocessResult); err != nil {
 				valid = false
 				break
 			}

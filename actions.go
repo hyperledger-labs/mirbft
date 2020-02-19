@@ -125,6 +125,9 @@ type Proposal struct {
 	// Source is the node which originated the proposal.
 	Source uint64
 
+	// ReqNo is the request number for source.
+	ReqNo uint64
+
 	// Data is the message of the proposal
 	Data []byte
 }
@@ -134,17 +137,16 @@ type Batch struct {
 	Source    uint64
 	SeqNo     uint64
 	Epoch     uint64
-	Proposals [][]byte
+	Proposals []*PreprocessResult
 }
 
 // PreprocessResult gives the state machine a location which may be used
 // to assign a proposal to a bucket for ordering.
 type PreprocessResult struct {
-	// Cup is a 'smaller bucket', and should ideally be uniformly
-	// distributed across the uint64 space.  The Cup is used to assign
-	// proposals to a particular bucket (which will service all requests
-	// assigned to this Cup as well as many others).
-	Cup uint64
+	// Digest is the result of hashing this request.  The first 8 bytes
+	// of this hash will be used to compute the bucket to assign the
+	// request to.
+	Digest []byte
 
 	// Proposal is the proposal which was processed into this Preprocess result.
 	Proposal Proposal

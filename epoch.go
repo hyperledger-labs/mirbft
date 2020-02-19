@@ -101,7 +101,7 @@ type epoch struct {
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, proposer *proposer, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
+func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, requestWindows map[NodeID]*requestWindow, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
 
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
@@ -163,7 +163,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 						Epoch:     newSeq.epoch,
 						SeqNo:     newSeq.seqNo,
 						Digest:    newSeq.digest,
-						Proposals: oldSeq.batch,
+						Proposals: oldSeq.qEntry.Proposals,
 					}
 					newSeq.batch = oldSeq.batch
 
@@ -181,7 +181,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 			if oldSeq.batch != nil && oldSeq.owner == NodeID(myConfig.ID) {
 				for _, proposal := range oldSeq.batch {
 					// TODO don't lose data that we once allocated, but got dropped
-					panic(fmt.Sprintf("about to abandon a proposal %x", proposal))
+					panic(fmt.Sprintf("about to abandon a proposal %d %x", proposal.preprocessResult.Proposal.ReqNo, proposal.preprocessResult.Digest))
 				}
 			}
 		}
@@ -201,6 +201,8 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		}
 	}
 
+	proposer := newProposer(myConfig, requestWindows, config.buckets)
+
 	return &epoch{
 		baseCheckpoint:    newEpochConfig.StartingCheckpoint,
 		myConfig:          myConfig,
@@ -213,7 +215,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 	}
 }
 
-func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch [][]byte) *Actions {
+func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*request) *Actions {
 	baseCheckpoint := e.baseCheckpoint
 	offset := int(seqNo-baseCheckpoint.SeqNo) - 1
 	seq := e.sequences[offset]
@@ -339,38 +341,7 @@ func (e *epoch) drainProposer() *Actions {
 
 			if ownerID == NodeID(e.myConfig.ID) && e.proposer.hasPending(bucketID) {
 				proposals := e.proposer.next(bucketID)
-				batch := make([][]byte, len(proposals))
-				for i, proposal := range proposals {
-					batch[i] = proposal.Data
-				}
-				actions.Append(seq.allocate(batch))
-			} else {
-				for e.proposer.hasOutstanding(bucketID) {
-					for _, proposal := range e.proposer.next(bucketID) {
-						if proposal.Source != e.myConfig.ID {
-							continue
-						}
-
-						// I originated this proposal, but someone else leads this
-						// bucket, forward the message to them
-						actions.Append(&Actions{
-							Unicast: []Unicast{
-								{
-									Target: uint64(ownerID),
-									Msg: &pb.Msg{
-										Type: &pb.Msg_Forward{
-											Forward: &pb.Forward{
-												Epoch:  e.config.number,
-												Bucket: uint64(bucketID),
-												Data:   proposal.Data,
-											},
-										},
-									},
-								},
-							},
-						})
-					}
-				}
+				actions.Append(seq.allocate(proposals))
 			}
 		}
 	}
@@ -403,11 +374,7 @@ func (e *epoch) tick() *Actions {
 
 			if e.proposer.hasOutstanding(BucketID(bucketID)) {
 				proposals := e.proposer.next(BucketID(bucketID))
-				batch := make([][]byte, len(proposals))
-				for i, proposal := range proposals {
-					batch[i] = proposal.Data
-				}
-				actions.Append(e.sequences[index].allocate(batch))
+				actions.Append(e.sequences[index].allocate(proposals))
 			} else {
 				actions.Append(e.sequences[index].allocate(nil))
 			}

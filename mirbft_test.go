@@ -247,7 +247,7 @@ var _ = Describe("MirBFT", func() {
 					Expect(entry.Epoch).To(Equal(*testConfig.Expectations.Epoch))
 				}
 
-				proposalUint, ok := proposals[string(entry.Proposals[0])]
+				proposalUint, ok := proposals[string(entry.Proposals[0].Digest)]
 				Expect(ok).To(BeTrue())
 				Expect(proposalUint % uint64(testConfig.NodeCount)).To(Equal((entry.SeqNo - 1) % uint64(testConfig.NodeCount)))
 
@@ -257,7 +257,7 @@ var _ = Describe("MirBFT", func() {
 			}
 		}
 	},
-		Entry("SingleNode greenpath", &TestConfig{
+		FEntry("SingleNode greenpath", &TestConfig{
 			NodeCount: 1,
 			MsgCount:  1000,
 			Proposer:  LinearProposer{},
@@ -318,7 +318,7 @@ var _ = Describe("MirBFT", func() {
 				} else if len(proposals) > len(network.fakeLogs[nodeIndex].Entries) {
 					entries := map[string]struct{}{}
 					for _, entry := range network.fakeLogs[0].Entries {
-						entries[string(entry.Proposals[0])] = struct{}{}
+						entries[string(entry.Proposals[0].Digest)] = struct{}{}
 					}
 
 					var missing []uint64
@@ -388,7 +388,7 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 		processors[i] = &sample.SerialProcessor{
 			Node:      node,
 			Link:      transport.Link(node.Config.ID),
-			Validator: sample.ValidatorFunc(func([]byte) error { return nil }),
+			Validator: sample.ValidatorFunc(func(*mirbft.PreprocessResult) error { return nil }),
 			Hasher:    sample.HasherFunc(func(data []byte) []byte { return data }),
 			Committer: &sample.SerialCommitter{
 				Log:                    fakeLog,

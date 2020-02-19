@@ -17,11 +17,11 @@ import (
 )
 
 type stateMachine struct {
-	myConfig      *Config
-	networkConfig *pb.NetworkConfig
-	nodeMsgs      map[NodeID]*nodeMsgs
+	myConfig       *Config
+	networkConfig  *pb.NetworkConfig
+	nodeMsgs       map[NodeID]*nodeMsgs
+	requestWindows map[NodeID]*requestWindow
 
-	proposer          *proposer
 	activeEpoch       *epoch
 	checkpointTracker *checkpointTracker
 	epochChanger      *epochChanger
@@ -31,17 +31,18 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	oddities := &oddities{
 		logger: myConfig.Logger,
 	}
-	nodeMsgs := map[NodeID]*nodeMsgs{}
-	for _, id := range networkConfig.Nodes {
-		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, oddities)
-	}
 
 	fakeCheckpoint := &pb.Checkpoint{
 		SeqNo: 0,
 		Value: []byte("TODO, get from state"),
 	}
 
-	proposer := newProposer(myConfig, len(networkConfig.Nodes))
+	nodeMsgs := map[NodeID]*nodeMsgs{}
+	requestWindows := map[NodeID]*requestWindow{}
+	for _, id := range networkConfig.Nodes {
+		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, oddities)
+		requestWindows[NodeID(id)] = newRequestWindow(fakeCheckpoint.SeqNo+1, fakeCheckpoint.SeqNo+2*uint64(networkConfig.CheckpointInterval))
+	}
 
 	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
 
@@ -71,16 +72,18 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		networkConfig:     networkConfig,
 		epochChanger:      epochChanger,
 		checkpointTracker: checkpointTracker,
-		proposer:          proposer,
 		nodeMsgs:          nodeMsgs,
+		requestWindows:    requestWindows,
 	}
 }
 
 func (sm *stateMachine) propose(data []byte) *Actions {
+	reqNo := sm.requestWindows[NodeID(sm.myConfig.ID)].allocateNext()
 	return &Actions{
 		Preprocess: []Proposal{
 			{
 				Source: sm.myConfig.ID,
+				ReqNo:  reqNo,
 				Data:   data,
 			},
 		},
@@ -112,7 +115,7 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 			switch innerMsg := msg.Type.(type) {
 			case *pb.Msg_Preprepare:
 				msg := innerMsg.Preprepare
-				actions.Append(sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
+				actions.Append(sm.applyPreprepareMsg(source, msg))
 			case *pb.Msg_Prepare:
 				msg := innerMsg.Prepare
 				actions.Append(sm.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
@@ -156,6 +159,25 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 	}
 }
 
+func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
+	requestWindow, ok := sm.requestWindows[source]
+	if !ok {
+		panic("unexpected")
+	}
+
+	requests := make([]*request, len(msg.Batch))
+
+	for i, batchEntry := range msg.Batch {
+		request := requestWindow.request(batchEntry.ReqNo)
+		if request == nil {
+			panic("this is normal, if the request dissemination is slow, we will need to handle this")
+		}
+		requests[i] = request
+	}
+
+	return sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, requests)
+}
+
 func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 	epochChange := sm.epochChanger.applySuspectMsg(source, epoch)
 	if epochChange == nil {
@@ -182,7 +204,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 	actions := sm.epochChanger.applyNewEpochReadyMsg(source, msg)
 
 	if sm.epochChanger.state == ready {
-		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.proposer, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
+		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.requestWindows, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
 		for _, sequence := range sm.activeEpoch.sequences {
 			if sequence.state >= Prepared {
 				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
@@ -223,7 +245,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 
 	for _, preprocessResult := range results.Preprocesses {
 		// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
-		actions.Append(sm.applyPreprocessResult(preprocessResult))
+		actions.Append(sm.applyPreprocessResult(&preprocessResult))
 	}
 
 	for _, checkpointResult := range results.Checkpoints {
@@ -246,14 +268,36 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) applyPreprocessResult(preprocessResult PreprocessResult) *Actions {
-	sm.proposer.applyPreprocessResult(preprocessResult)
+func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult) *Actions {
+	requestWindow, ok := sm.requestWindows[NodeID(preprocessResult.Proposal.Source)]
+	if !ok {
+		panic("unexpected")
+	}
+
+	requestWindow.allocate(preprocessResult)
+
+	actions := &Actions{}
+
+	if preprocessResult.Proposal.Source == sm.myConfig.ID {
+		actions.Append(&Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_Forward{
+						Forward: &pb.Forward{
+							ReqNo: preprocessResult.Proposal.ReqNo,
+							Data:  preprocessResult.Proposal.Data,
+						},
+					},
+				},
+			},
+		})
+	}
 
 	if sm.activeEpoch != nil {
-		return sm.activeEpoch.drainProposer()
-	} else {
-		return &Actions{}
+		actions.Append(sm.activeEpoch.drainProposer())
 	}
+
+	return actions
 }
 
 func (sm *stateMachine) tick() *Actions {

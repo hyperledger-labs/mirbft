@@ -64,7 +64,7 @@ message QEntry {
 	uint64 epoch = 1;
 	uint64 seq_no = 2;
 	bytes digest = 3;
-	repeated bytes proposals = 4;
+	repeated Request proposals = 4;
 }
 
 // PEntry is an entry which must be persisted before a batch is Prepared (ie,
@@ -90,10 +90,15 @@ message Msg {
     }
 }
 
+message Request {
+    uint64 req_no = 1;
+    bytes digest = 2;
+}
+
 message Preprepare {
     uint64 seq_no = 1;
     uint64 epoch = 2;
-    repeated bytes batch = 3;
+    repeated Request batch = 3;
 }
 
 message Prepare {
@@ -114,9 +119,8 @@ message Checkpoint {
 }
 
 message Forward {
-    uint64 epoch = 1;
-    uint64 bucket = 2;
-    bytes data = 3;
+    uint64 req_no = 1;
+    bytes data = 2;
 }
 
 message Suspect {

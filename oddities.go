@@ -15,6 +15,7 @@ import (
 
 const (
 	SeqNoLog   = "SeqNo"
+	ReqNoLog   = "ReqNo"
 	EpochLog   = "Epoch"
 	NodeIDLog  = "NodeID"
 	MsgTypeLog = "MsgType"
@@ -62,8 +63,8 @@ func logBasics(source NodeID, msg *pb.Msg) []zap.Field {
 	case *pb.Msg_Forward:
 		msg := innerMsg.Forward
 		fields = append(fields,
-			zap.String(MsgTypeLog, "checkpoint"),
-			zap.Uint64(EpochLog, msg.Epoch),
+			zap.String(MsgTypeLog, "forward"),
+			zap.Uint64(ReqNoLog, msg.ReqNo),
 		)
 	default:
 		fields = append(fields,

@@ -63,7 +63,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig)
-			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.proposer, nil, networkConfig, consumerConfig)
+			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.requestWindows, nil, networkConfig, consumerConfig)
 			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
 
 			serializer = newSerializer(stateMachineVal, doneC)
@@ -87,7 +87,7 @@ var _ = Describe("Integration", func() {
 			serializer.resultsC <- ActionResults{
 				Preprocesses: []PreprocessResult{
 					{
-						Cup: 7,
+						Digest: uint64ToBytes(7),
 						Proposal: Proposal{
 							Source: 0,
 							Data:   []byte("data"),
@@ -100,9 +100,16 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Process: []*Batch{
 					{
-						Epoch:     3,
-						SeqNo:     1,
-						Proposals: [][]byte{[]byte("data")},
+						Epoch: 3,
+						SeqNo: 1,
+						Proposals: []*PreprocessResult{
+							{
+								Proposal: Proposal{
+									Source: 0,
+									Data:   []byte("data"),
+								},
+							},
+						},
 					},
 				},
 			}))
@@ -112,9 +119,16 @@ var _ = Describe("Integration", func() {
 				Processed: []ProcessResult{
 					{
 						Batch: &Batch{
-							Epoch:     3,
-							SeqNo:     1,
-							Proposals: [][]byte{[]byte("data")},
+							Epoch: 3,
+							SeqNo: 1,
+							Proposals: []*PreprocessResult{
+								{
+									Proposal: Proposal{
+										Source: 0,
+										Data:   []byte("data"),
+									},
+								},
+							},
 						},
 						Digest:  []byte("fake-digest"),
 						Invalid: false,
@@ -129,17 +143,26 @@ var _ = Describe("Integration", func() {
 							Preprepare: &pb.Preprepare{
 								Epoch: 3,
 								SeqNo: 1,
-								Batch: [][]byte{[]byte("data")},
+								Batch: []*pb.Request{
+									{
+										ReqNo:  0,
+										Digest: uint64ToBytes(7),
+									},
+								},
 							},
 						},
 					},
 				},
 				QEntries: []*pb.QEntry{
 					{
-						Epoch:     3,
-						SeqNo:     1,
-						Digest:    []byte("fake-digest"),
-						Proposals: [][]byte{[]byte("data")},
+						Epoch:  3,
+						SeqNo:  1,
+						Digest: []byte("fake-digest"),
+						Proposals: []*pb.Request{
+							{
+								Digest: uint64ToBytes(7),
+							},
+						},
 					},
 				},
 			}))
@@ -180,10 +203,14 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Commit: []*pb.QEntry{
 					{
-						Epoch:     3,
-						SeqNo:     1,
-						Digest:    []byte("fake-digest"),
-						Proposals: [][]byte{[]byte("data")},
+						Epoch:  3,
+						SeqNo:  1,
+						Digest: []byte("fake-digest"),
+						Proposals: []*pb.Request{
+							{
+								Digest: uint64ToBytes(7),
+							},
+						},
 					},
 				},
 			}))
@@ -205,7 +232,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig)
-			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.proposer, nil, networkConfig, consumerConfig)
+			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.requestWindows, nil, networkConfig, consumerConfig)
 			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
 			stateMachineVal.nodeMsgs[1].setActiveEpoch(stateMachineVal.activeEpoch)
 			stateMachineVal.nodeMsgs[2].setActiveEpoch(stateMachineVal.activeEpoch)
@@ -233,7 +260,7 @@ var _ = Describe("Integration", func() {
 			serializer.resultsC <- ActionResults{
 				Preprocesses: []PreprocessResult{
 					{
-						Cup: 7,
+						Digest: uint64ToBytes(7),
 						Proposal: Proposal{
 							Source: 0,
 							Data:   []byte("data"),
@@ -249,9 +276,8 @@ var _ = Describe("Integration", func() {
 						Msg: &pb.Msg{
 							Type: &pb.Msg_Forward{
 								Forward: &pb.Forward{
-									Epoch:  3,
-									Bucket: 3,
-									Data:   []byte("data"),
+									ReqNo: 3,
+									Data:  []byte("data"),
 								},
 							},
 						},
@@ -267,7 +293,7 @@ var _ = Describe("Integration", func() {
 						Preprepare: &pb.Preprepare{
 							Epoch: 3,
 							SeqNo: 4,
-							Batch: [][]byte{[]byte("data")},
+							// TODO, broken
 						},
 					},
 				},
@@ -276,10 +302,10 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Process: []*Batch{
 					{
-						Source:    3,
-						Epoch:     3,
-						SeqNo:     4,
-						Proposals: [][]byte{[]byte("data")},
+						Source: 3,
+						Epoch:  3,
+						SeqNo:  4,
+						// TODO, broken
 					},
 				},
 			}))
@@ -289,9 +315,9 @@ var _ = Describe("Integration", func() {
 				Processed: []ProcessResult{
 					{
 						Batch: &Batch{
-							Epoch:     3,
-							SeqNo:     4,
-							Proposals: [][]byte{[]byte("data")},
+							Epoch: 3,
+							SeqNo: 4,
+							// TODO, broken
 						},
 						Digest:  []byte("fake-digest"),
 						Invalid: false,
@@ -313,10 +339,10 @@ var _ = Describe("Integration", func() {
 				},
 				QEntries: []*pb.QEntry{
 					{
-						Epoch:     3,
-						SeqNo:     4,
-						Digest:    []byte("fake-digest"),
-						Proposals: [][]byte{[]byte("data")},
+						Epoch:  3,
+						SeqNo:  4,
+						Digest: []byte("fake-digest"),
+						// TODO, broken
 					},
 				},
 			}))
@@ -374,10 +400,10 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Commit: []*pb.QEntry{
 					{
-						Epoch:     3,
-						SeqNo:     4,
-						Digest:    []byte("fake-digest"),
-						Proposals: [][]byte{[]byte("data")},
+						Epoch:  3,
+						SeqNo:  4,
+						Digest: []byte("fake-digest"),
+						// TODO, broken
 					},
 				},
 			}))

@@ -38,7 +38,7 @@ type sequence struct {
 	qEntry *pb.QEntry
 
 	// batch is not set until after state >= Allocated
-	batch [][]byte
+	batch []*request
 
 	// digest is not set until after state >= Digested
 	digest []byte
@@ -60,10 +60,10 @@ func newSequence(owner NodeID, epoch, seqNo uint64, networkConfig *pb.NetworkCon
 	}
 }
 
-// applyPreprepare attempts to apply a batch from a preprepare message to the state machine.
+// allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
 // It transitions to Preprepared and returns a ValidationRequest message.
-func (s *sequence) allocate(batch [][]byte) *Actions {
+func (s *sequence) allocate(batch []*request) *Actions {
 	if s.state != Uninitialized {
 		s.myConfig.Logger.Panic(fmt.Sprintf("illegal state for allocate %v", s.state))
 	}
@@ -71,13 +71,18 @@ func (s *sequence) allocate(batch [][]byte) *Actions {
 	s.state = Allocated
 	s.batch = batch
 
+	proposals := make([]*PreprocessResult, len(batch))
+	for i, request := range batch {
+		proposals[i] = request.preprocessResult
+	}
+
 	return &Actions{
 		Process: []*Batch{
 			{
 				Source:    uint64(s.owner),
 				SeqNo:     s.seqNo,
 				Epoch:     s.epoch,
-				Proposals: batch,
+				Proposals: proposals,
 			},
 		},
 	}
@@ -90,11 +95,19 @@ func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
 
 	s.digest = digest
 
+	requests := make([]*pb.Request, len(s.batch))
+	for i, req := range s.batch {
+		requests[i] = &pb.Request{
+			ReqNo:  req.preprocessResult.Proposal.ReqNo,
+			Digest: req.preprocessResult.Digest,
+		}
+	}
+
 	s.qEntry = &pb.QEntry{
 		SeqNo:     s.seqNo,
 		Epoch:     s.epoch,
 		Digest:    digest,
-		Proposals: s.batch,
+		Proposals: requests,
 	}
 
 	if !valid {
@@ -111,7 +124,7 @@ func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
 				Preprepare: &pb.Preprepare{
 					SeqNo: s.seqNo,
 					Epoch: s.epoch,
-					Batch: s.batch,
+					Batch: requests, // TODO, do we want to share this with the qEntry? Concurrent marshaling is not threadsafe I think
 				},
 			},
 		}
