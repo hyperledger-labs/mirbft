@@ -103,9 +103,9 @@ func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
 	requests := make([]*pb.Request, len(s.batch))
 	for i, req := range s.batch {
 		requests[i] = &pb.Request{
-			Source: req.requestData.Source,
-			ReqNo:  req.requestData.ReqNo,
-			Digest: req.digest,
+			ClientId: req.requestData.ClientId,
+			ReqNo:    req.requestData.ReqNo,
+			Digest:   req.digest,
 		}
 	}
 

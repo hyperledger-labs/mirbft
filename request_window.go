@@ -22,14 +22,12 @@ type request struct {
 type requestWindow struct {
 	lowWatermark    uint64
 	highWatermark   uint64
-	nextToDrain     uint64
 	nextUnallocated uint64
 	requests        []*request
 }
 
 func newRequestWindow(lowWatermark, highWatermark uint64) *requestWindow {
 	return &requestWindow{
-		nextToDrain:     lowWatermark,
 		nextUnallocated: lowWatermark,
 		lowWatermark:    lowWatermark,
 		highWatermark:   highWatermark,

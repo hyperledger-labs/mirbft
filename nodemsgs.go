@@ -36,7 +36,7 @@ type epochMsgs struct {
 	myConfig       *Config
 	epochConfig    *epochConfig
 	epoch          *epoch
-	requestWindows map[NodeID]*requestWindow
+	requestWindows map[string]*requestWindow
 
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
@@ -233,9 +233,9 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 	}
 
 	for _, batchEntry := range msg.Batch {
-		requestWindow, ok := n.requestWindows[NodeID(batchEntry.Source)]
+		requestWindow, ok := n.requestWindows[string(batchEntry.ClientId)]
 		if !ok {
-			panic("TODO, bad source")
+			panic("TODO, bad client-id")
 		}
 
 		if batchEntry.ReqNo < requestWindow.lowWatermark {

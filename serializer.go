@@ -67,7 +67,7 @@ func (s *serializer) run() {
 			actionsC = s.actionsC
 		}
 
-		if s.stateMachine.requestWindows[NodeID(s.stateMachine.myConfig.ID)].hasRoomToAllocate() {
+		if s.stateMachine.requestWindows[string(uint64ToBytes(s.stateMachine.myConfig.ID))].hasRoomToAllocate() {
 			propC = s.propC
 		} else {
 			propC = nil

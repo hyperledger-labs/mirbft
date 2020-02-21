@@ -27,7 +27,7 @@ type Actions struct {
 	// The source of the proposal is included in case the caller wishes to do more
 	// validation on proposals originating from other nodes than proposals originating from
 	// itself.
-	Preprocess []*pb.RequestData
+	Preprocess []*Request
 
 	// Process should validate each batch, and return a digest and a validation status
 	// for that batch.  Usually, if the batch originated at this node, validation may
@@ -96,6 +96,11 @@ func (a *Actions) Append(o *Actions) {
 type Unicast struct {
 	Target uint64
 	Msg    *pb.Msg
+}
+
+type Request struct {
+	Source        uint64
+	ClientRequest *pb.RequestData
 }
 
 // ActionResults should be populated by the caller as a result of

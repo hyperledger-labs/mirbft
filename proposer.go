@@ -22,7 +22,7 @@ func bytesToUint64(value []byte) uint64 {
 
 type proposer struct {
 	myConfig                *Config
-	requestWindowProcessors map[NodeID]*requestWindowProcessor
+	requestWindowProcessors map[string]*requestWindowProcessor
 
 	totalBuckets    int
 	proposalBuckets map[BucketID]*proposalBucket
@@ -39,7 +39,7 @@ type proposalBucket struct {
 	pending   [][]*request
 }
 
-func newProposer(myConfig *Config, requestWindows map[NodeID]*requestWindow, buckets map[BucketID]NodeID) *proposer {
+func newProposer(myConfig *Config, requestWindows map[string]*requestWindow, buckets map[BucketID]NodeID) *proposer {
 	proposalBuckets := map[BucketID]*proposalBucket{}
 	for bucketID, nodeID := range buckets {
 		if nodeID != NodeID(myConfig.ID) {
@@ -48,13 +48,13 @@ func newProposer(myConfig *Config, requestWindows map[NodeID]*requestWindow, buc
 		proposalBuckets[bucketID] = &proposalBucket{}
 	}
 
-	requestWindowProcessors := map[NodeID]*requestWindowProcessor{}
-	for nodeID, requestWindow := range requestWindows {
+	requestWindowProcessors := map[string]*requestWindowProcessor{}
+	for clientID, requestWindow := range requestWindows {
 		rwp := &requestWindowProcessor{
 			lastProcessed: requestWindow.lowWatermark - 1,
 			requestWindow: requestWindow,
 		}
-		requestWindowProcessors[nodeID] = rwp
+		requestWindowProcessors[clientID] = rwp
 	}
 
 	return &proposer{
@@ -68,13 +68,13 @@ func newProposer(myConfig *Config, requestWindows map[NodeID]*requestWindow, buc
 func (p *proposer) stepAllRequestWindows() {
 	// TODO, this is kind of dumb to get a key from a map, and then
 	// look it up in the map again
-	for nodeID := range p.requestWindowProcessors {
-		p.stepRequestWindow(nodeID)
+	for clientID := range p.requestWindowProcessors {
+		p.stepRequestWindow(clientID)
 	}
 }
 
-func (p *proposer) stepRequestWindow(nodeID NodeID) {
-	rwp, ok := p.requestWindowProcessors[nodeID]
+func (p *proposer) stepRequestWindow(clientID string) {
+	rwp, ok := p.requestWindowProcessors[clientID]
 	if !ok {
 		panic("unexpected")
 	}

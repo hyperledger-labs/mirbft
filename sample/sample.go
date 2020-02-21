@@ -134,10 +134,10 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 		c.Link.Send(unicast.Target, unicast.Msg)
 	}
 
-	for i, requestData := range actions.Preprocess {
+	for i, request := range actions.Preprocess {
 		actionResults.Preprocessed[i] = &mirbft.PreprocessResult{
-			RequestData: requestData,
-			Digest:      c.Hasher.Hash(requestData.Data),
+			RequestData: request.ClientRequest,
+			Digest:      c.Hasher.Hash(request.ClientRequest.Data),
 		}
 	}
 

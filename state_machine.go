@@ -20,7 +20,7 @@ type stateMachine struct {
 	myConfig       *Config
 	networkConfig  *pb.NetworkConfig
 	nodeMsgs       map[NodeID]*nodeMsgs
-	requestWindows map[NodeID]*requestWindow
+	requestWindows map[string]*requestWindow
 
 	activeEpoch       *epoch
 	checkpointTracker *checkpointTracker
@@ -38,11 +38,11 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	}
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
-	requestWindows := map[NodeID]*requestWindow{}
+	requestWindows := map[string]*requestWindow{}
 	for _, id := range networkConfig.Nodes {
 		requestWindow := newRequestWindow(fakeCheckpoint.SeqNo+1, fakeCheckpoint.SeqNo+2*uint64(networkConfig.CheckpointInterval))
 		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, requestWindow, myConfig, oddities)
-		requestWindows[NodeID(id)] = requestWindow
+		requestWindows[string(uint64ToBytes(id))] = requestWindow
 	}
 
 	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
@@ -79,13 +79,26 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 }
 
 func (sm *stateMachine) propose(data []byte) *Actions {
-	reqNo := sm.requestWindows[NodeID(sm.myConfig.ID)].allocateNext()
+	reqNo := sm.requestWindows[string(uint64ToBytes(sm.myConfig.ID))].allocateNext()
+	requestData := &pb.RequestData{
+		ClientId: uint64ToBytes(sm.myConfig.ID),
+		ReqNo:    reqNo,
+		Data:     data,
+	}
 	return &Actions{
-		Preprocess: []*pb.RequestData{
+		Broadcast: []*pb.Msg{
 			{
-				Source: sm.myConfig.ID,
-				ReqNo:  reqNo,
-				Data:   data,
+				Type: &pb.Msg_Forward{
+					Forward: &pb.Forward{
+						RequestData: requestData,
+					},
+				},
+			},
+		},
+		Preprocess: []*Request{
+			{
+				Source:        sm.myConfig.ID,
+				ClientRequest: requestData,
 			},
 		},
 	}
@@ -132,7 +145,10 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 					continue
 				}
 				msg := innerMsg.Forward
-				actions.Preprocess = append(actions.Preprocess, msg.RequestData)
+				actions.Preprocess = append(actions.Preprocess, &Request{
+					Source:        uint64(source),
+					ClientRequest: msg.RequestData,
+				})
 			case *pb.Msg_Suspect:
 				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 			case *pb.Msg_EpochChange:
@@ -159,7 +175,7 @@ func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *A
 	requests := make([]*request, len(msg.Batch))
 
 	for i, batchEntry := range msg.Batch {
-		requestWindow, ok := sm.requestWindows[NodeID(batchEntry.Source)]
+		requestWindow, ok := sm.requestWindows[string(batchEntry.ClientId)]
 		if !ok {
 			panic("unexpected")
 		}
@@ -268,7 +284,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 }
 
 func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult) *Actions {
-	requestWindow, ok := sm.requestWindows[NodeID(preprocessResult.RequestData.Source)]
+	requestWindow, ok := sm.requestWindows[string(preprocessResult.RequestData.ClientId)]
 	if !ok {
 		panic("unexpected")
 	}
@@ -277,22 +293,8 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 
 	actions := &Actions{}
 
-	if preprocessResult.RequestData.Source == sm.myConfig.ID {
-		actions.Append(&Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_Forward{
-						Forward: &pb.Forward{
-							RequestData: preprocessResult.RequestData,
-						},
-					},
-				},
-			},
-		})
-	}
-
 	if sm.activeEpoch != nil {
-		sm.activeEpoch.proposer.stepRequestWindow(NodeID(preprocessResult.RequestData.Source))
+		sm.activeEpoch.proposer.stepRequestWindow(string(preprocessResult.RequestData.ClientId))
 		actions.Append(sm.activeEpoch.drainProposer())
 	}
 
@@ -318,7 +320,7 @@ func (sm *stateMachine) status() *Status {
 	for i, nodeID := range sm.networkConfig.Nodes {
 		nodeID := NodeID(nodeID)
 		nodes[i] = sm.nodeMsgs[nodeID].status()
-		requestWindowsStatus[i] = sm.requestWindows[nodeID].status()
+		requestWindowsStatus[i] = sm.requestWindows[string(uint64ToBytes(uint64(nodeID)))].status()
 	}
 
 	checkpoints := []*CheckpointStatus{}

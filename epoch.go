@@ -94,7 +94,7 @@ type epoch struct {
 
 	checkpoints       []*checkpoint
 	checkpointTracker *checkpointTracker
-	requestWindows    map[NodeID]*requestWindow
+	requestWindows    map[string]*requestWindow
 
 	baseCheckpoint *pb.Checkpoint
 }
@@ -102,7 +102,7 @@ type epoch struct {
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, requestWindows map[NodeID]*requestWindow, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
+func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, requestWindows map[string]*requestWindow, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
 
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
@@ -184,7 +184,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 
 			if oldSeq.batch != nil && oldSeq.owner == NodeID(myConfig.ID) {
 				for _, request := range oldSeq.batch {
-					requestWindow, ok := requestWindows[NodeID(request.requestData.Source)]
+					requestWindow, ok := requestWindows[string(request.requestData.ClientId)]
 					if !ok {
 						panic("unexpected")
 

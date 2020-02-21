@@ -75,10 +75,13 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Preprocess: []*pb.RequestData{
+				Preprocess: []*Request{
 					{
 						Source: 0,
-						Data:   []byte("data"),
+						ClientRequest: &pb.RequestData{
+							ClientId: uint64ToBytes(0),
+							Data:     []byte("data"),
+						},
 					},
 				},
 			}))
@@ -89,8 +92,8 @@ var _ = Describe("Integration", func() {
 					{
 						Digest: uint64ToBytes(7),
 						RequestData: &pb.RequestData{
-							Source: 0,
-							Data:   []byte("data"),
+							ClientId: uint64ToBytes(0),
+							Data:     []byte("data"),
 						},
 					},
 				},
@@ -105,8 +108,8 @@ var _ = Describe("Integration", func() {
 						Requests: []*PreprocessResult{
 							{
 								RequestData: &pb.RequestData{
-									Source: 0,
-									Data:   []byte("data"),
+									ClientId: uint64ToBytes(0),
+									Data:     []byte("data"),
 								},
 							},
 						},
@@ -124,8 +127,8 @@ var _ = Describe("Integration", func() {
 							Requests: []*PreprocessResult{
 								{
 									RequestData: &pb.RequestData{
-										Source: 0,
-										Data:   []byte("data"),
+										ClientId: uint64ToBytes(0),
+										Data:     []byte("data"),
 									},
 								},
 							},
@@ -248,10 +251,13 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Preprocess: []*pb.RequestData{
+				Preprocess: []*Request{
 					{
 						Source: 0,
-						Data:   []byte("data"),
+						ClientRequest: &pb.RequestData{
+							ClientId: uint64ToBytes(0),
+							Data:     []byte("data"),
+						},
 					},
 				},
 			}))
@@ -262,8 +268,8 @@ var _ = Describe("Integration", func() {
 					{
 						Digest: uint64ToBytes(7),
 						RequestData: &pb.RequestData{
-							Source: 0,
-							Data:   []byte("data"),
+							ClientId: uint64ToBytes(0),
+							Data:     []byte("data"),
 						},
 					},
 				},
