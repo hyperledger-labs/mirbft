@@ -75,7 +75,7 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Preprocess: []Proposal{
+				Preprocess: []*pb.RequestData{
 					{
 						Source: 0,
 						Data:   []byte("data"),
@@ -88,7 +88,7 @@ var _ = Describe("Integration", func() {
 				Preprocesses: []PreprocessResult{
 					{
 						Digest: uint64ToBytes(7),
-						Proposal: Proposal{
+						RequestData: &pb.RequestData{
 							Source: 0,
 							Data:   []byte("data"),
 						},
@@ -102,9 +102,9 @@ var _ = Describe("Integration", func() {
 					{
 						Epoch: 3,
 						SeqNo: 1,
-						Proposals: []*PreprocessResult{
+						Requests: []*PreprocessResult{
 							{
-								Proposal: Proposal{
+								RequestData: &pb.RequestData{
 									Source: 0,
 									Data:   []byte("data"),
 								},
@@ -121,9 +121,9 @@ var _ = Describe("Integration", func() {
 						Batch: &Batch{
 							Epoch: 3,
 							SeqNo: 1,
-							Proposals: []*PreprocessResult{
+							Requests: []*PreprocessResult{
 								{
-									Proposal: Proposal{
+									RequestData: &pb.RequestData{
 										Source: 0,
 										Data:   []byte("data"),
 									},
@@ -248,7 +248,7 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Preprocess: []Proposal{
+				Preprocess: []*pb.RequestData{
 					{
 						Source: 0,
 						Data:   []byte("data"),
@@ -261,7 +261,7 @@ var _ = Describe("Integration", func() {
 				Preprocesses: []PreprocessResult{
 					{
 						Digest: uint64ToBytes(7),
-						Proposal: Proposal{
+						RequestData: &pb.RequestData{
 							Source: 0,
 							Data:   []byte("data"),
 						},
@@ -276,8 +276,10 @@ var _ = Describe("Integration", func() {
 						Msg: &pb.Msg{
 							Type: &pb.Msg_Forward{
 								Forward: &pb.Forward{
-									ReqNo: 3,
-									Data:  []byte("data"),
+									RequestData: &pb.RequestData{
+										ReqNo: 3,
+										Data:  []byte("data"),
+									},
 								},
 							},
 						},

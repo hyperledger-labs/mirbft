@@ -71,9 +71,12 @@ func (s *sequence) allocate(batch []*request) *Actions {
 	s.state = Allocated
 	s.batch = batch
 
-	proposals := make([]*PreprocessResult, len(batch))
+	requests := make([]*PreprocessResult, len(batch))
 	for i, request := range batch {
-		proposals[i] = request.preprocessResult
+		requests[i] = &PreprocessResult{
+			RequestData: request.requestData,
+			Digest:      request.digest,
+		}
 		request.state = Allocated
 		request.seqNo = s.seqNo
 	}
@@ -81,10 +84,10 @@ func (s *sequence) allocate(batch []*request) *Actions {
 	return &Actions{
 		Process: []*Batch{
 			{
-				Source:    uint64(s.owner),
-				SeqNo:     s.seqNo,
-				Epoch:     s.epoch,
-				Proposals: proposals,
+				Source:   uint64(s.owner),
+				SeqNo:    s.seqNo,
+				Epoch:    s.epoch,
+				Requests: requests,
 			},
 		},
 	}
@@ -100,9 +103,9 @@ func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
 	requests := make([]*pb.Request, len(s.batch))
 	for i, req := range s.batch {
 		requests[i] = &pb.Request{
-			Source: req.preprocessResult.Proposal.Source,
-			ReqNo:  req.preprocessResult.Proposal.ReqNo,
-			Digest: req.preprocessResult.Digest,
+			Source: req.requestData.Source,
+			ReqNo:  req.requestData.ReqNo,
+			Digest: req.digest,
 		}
 	}
 

@@ -95,9 +95,9 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_Forward:
 		switch {
-		case innerMsg.Forward.ReqNo > n.requestWindow.highWatermark:
+		case innerMsg.Forward.RequestData.ReqNo > n.requestWindow.highWatermark:
 			return future
-		case innerMsg.Forward.ReqNo < n.requestWindow.lowWatermark:
+		case innerMsg.Forward.RequestData.ReqNo < n.requestWindow.lowWatermark:
 			return past
 		default:
 			return current

@@ -87,7 +87,7 @@ func (p *proposer) stepRequestWindow(nodeID NodeID) {
 
 		rwp.lastProcessed++
 
-		bucket := BucketID(bytesToUint64(request.preprocessResult.Digest) % uint64(p.totalBuckets))
+		bucket := BucketID(bytesToUint64(request.digest) % uint64(p.totalBuckets))
 		proposalBucket, ok := p.proposalBuckets[bucket]
 		if !ok {
 			// I don't lead this bucket this epoch
@@ -100,7 +100,7 @@ func (p *proposer) stepRequestWindow(nodeID NodeID) {
 		}
 
 		proposalBucket.queue = append(proposalBucket.queue, request)
-		proposalBucket.sizeBytes += len(request.preprocessResult.Proposal.Data)
+		proposalBucket.sizeBytes += len(request.requestData.Data)
 		if proposalBucket.sizeBytes >= p.myConfig.BatchParameters.CutSizeBytes {
 			proposalBucket.pending = append(proposalBucket.pending, proposalBucket.queue)
 			proposalBucket.queue = nil

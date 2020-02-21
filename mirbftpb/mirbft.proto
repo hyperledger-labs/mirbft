@@ -90,6 +90,12 @@ message Msg {
     }
 }
 
+message RequestData {
+    uint64 source = 1;
+    uint64 req_no = 2;
+    bytes data = 3;
+}
+
 message Request {
     uint64 source = 1;
     uint64 req_no = 2;
@@ -120,8 +126,7 @@ message Checkpoint {
 }
 
 message Forward {
-    uint64 req_no = 1;
-    bytes data = 2;
+    RequestData request_data = 1;
 }
 
 message Suspect {

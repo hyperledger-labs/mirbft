@@ -27,7 +27,7 @@ type Actions struct {
 	// The source of the proposal is included in case the caller wishes to do more
 	// validation on proposals originating from other nodes than proposals originating from
 	// itself.
-	Preprocess []Proposal
+	Preprocess []*pb.RequestData
 
 	// Process should validate each batch, and return a digest and a validation status
 	// for that batch.  Usually, if the batch originated at this node, validation may
@@ -120,24 +120,12 @@ type CheckpointResult struct {
 	Value []byte
 }
 
-// Proposal is data which is proposed to be included in a batch and appended to the log.
-type Proposal struct {
-	// Source is the node which originated the proposal.
-	Source uint64
-
-	// ReqNo is the request number for source.
-	ReqNo uint64
-
-	// Data is the message of the proposal
-	Data []byte
-}
-
 // Batch is a collection of proposals which has been allocated a sequence in a given epoch.
 type Batch struct {
-	Source    uint64
-	SeqNo     uint64
-	Epoch     uint64
-	Proposals []*PreprocessResult
+	Source   uint64
+	SeqNo    uint64
+	Epoch    uint64
+	Requests []*PreprocessResult
 }
 
 // PreprocessResult gives the state machine a location which may be used
@@ -149,7 +137,7 @@ type PreprocessResult struct {
 	Digest []byte
 
 	// Proposal is the proposal which was processed into this Preprocess result.
-	Proposal Proposal
+	RequestData *pb.RequestData
 }
 
 // ProcessResult gives the state machine a digest by which to refer to a particular entry.

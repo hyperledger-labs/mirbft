@@ -81,7 +81,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 func (sm *stateMachine) propose(data []byte) *Actions {
 	reqNo := sm.requestWindows[NodeID(sm.myConfig.ID)].allocateNext()
 	return &Actions{
-		Preprocess: []Proposal{
+		Preprocess: []*pb.RequestData{
 			{
 				Source: sm.myConfig.ID,
 				ReqNo:  reqNo,
@@ -132,15 +132,7 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 					continue
 				}
 				msg := innerMsg.Forward
-				actions.Append(&Actions{
-					Preprocess: []Proposal{
-						{
-							ReqNo:  msg.ReqNo,
-							Source: uint64(source),
-							Data:   msg.Data,
-						},
-					},
-				})
+				actions.Preprocess = append(actions.Preprocess, msg.RequestData)
 			case *pb.Msg_Suspect:
 				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 			case *pb.Msg_EpochChange:
@@ -277,23 +269,22 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 }
 
 func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult) *Actions {
-	requestWindow, ok := sm.requestWindows[NodeID(preprocessResult.Proposal.Source)]
+	requestWindow, ok := sm.requestWindows[NodeID(preprocessResult.RequestData.Source)]
 	if !ok {
 		panic("unexpected")
 	}
 
-	requestWindow.allocate(preprocessResult)
+	requestWindow.allocate(preprocessResult.RequestData, preprocessResult.Digest)
 
 	actions := &Actions{}
 
-	if preprocessResult.Proposal.Source == sm.myConfig.ID {
+	if preprocessResult.RequestData.Source == sm.myConfig.ID {
 		actions.Append(&Actions{
 			Broadcast: []*pb.Msg{
 				{
 					Type: &pb.Msg_Forward{
 						Forward: &pb.Forward{
-							ReqNo: preprocessResult.Proposal.ReqNo,
-							Data:  preprocessResult.Proposal.Data,
+							RequestData: preprocessResult.RequestData,
 						},
 					},
 				},
@@ -302,7 +293,7 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 	}
 
 	if sm.activeEpoch != nil {
-		sm.activeEpoch.proposer.stepRequestWindow(NodeID(preprocessResult.Proposal.Source))
+		sm.activeEpoch.proposer.stepRequestWindow(NodeID(preprocessResult.RequestData.Source))
 		actions.Append(sm.activeEpoch.drainProposer())
 	}
 

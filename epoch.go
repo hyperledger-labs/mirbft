@@ -183,26 +183,28 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 			}
 
 			if oldSeq.batch != nil && oldSeq.owner == NodeID(myConfig.ID) {
-				for _, proposal := range oldSeq.batch {
-					requestWindow, ok := requestWindows[NodeID(proposal.preprocessResult.Proposal.Source)]
+				for _, request := range oldSeq.batch {
+					requestWindow, ok := requestWindows[NodeID(request.requestData.Source)]
 					if !ok {
 						panic("unexpected")
 
 					}
 
-					if proposal.preprocessResult.Proposal.ReqNo < requestWindow.lowWatermark {
+					reqNo := request.requestData.ReqNo
+
+					if reqNo < requestWindow.lowWatermark {
 						// This request already committed somewhere
 						continue
 					}
 
-					if proposal.preprocessResult.Proposal.ReqNo > requestWindow.highWatermark {
+					if reqNo > requestWindow.highWatermark {
 						panic("we should not be processing reqnos which are above the watermarks for this checkpoint")
 					}
 
-					request := requestWindow.request(proposal.preprocessResult.Proposal.ReqNo)
-					if request != proposal {
+					newRequest := requestWindow.request(reqNo)
+					if request != newRequest {
 						// TODO don't lose data that we once allocated, but got dropped
-						panic(fmt.Sprintf("about to abandon a proposal %d %x", proposal.preprocessResult.Proposal.ReqNo, proposal.preprocessResult.Digest))
+						panic(fmt.Sprintf("about to abandon a request %d %x", reqNo, request.digest))
 					}
 				}
 			}

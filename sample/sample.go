@@ -134,23 +134,23 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 		c.Link.Send(unicast.Target, unicast.Msg)
 	}
 
-	for i, proposal := range actions.Preprocess {
+	for i, requestData := range actions.Preprocess {
 		actionResults.Preprocesses[i] = mirbft.PreprocessResult{
-			Proposal: proposal,
-			Digest:   c.Hasher.Hash(proposal.Data),
+			RequestData: requestData,
+			Digest:      c.Hasher.Hash(requestData.Data),
 		}
 	}
 
 	for i, batch := range actions.Process {
 		hashes := []byte{}
-		for _, preprocessResult := range batch.Proposals {
+		for _, preprocessResult := range batch.Requests {
 			// TODO this could be much more efficient using
 			// the normal hash interface
 			hashes = append(hashes, preprocessResult.Digest...)
 		}
 
 		valid := true
-		for _, preprocessResult := range batch.Proposals {
+		for _, preprocessResult := range batch.Requests {
 			if err := c.Validator.Validate(preprocessResult); err != nil {
 				valid = false
 				break

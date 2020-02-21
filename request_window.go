@@ -6,12 +6,17 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
-import "fmt"
+import (
+	"fmt"
+
+	pb "github.com/IBM/mirbft/mirbftpb"
+)
 
 type request struct {
-	preprocessResult *PreprocessResult
-	state            SequenceState
-	seqNo            uint64
+	requestData *pb.RequestData
+	digest      []byte
+	state       SequenceState
+	seqNo       uint64
 }
 
 type requestWindow struct {
@@ -69,8 +74,8 @@ func (rw *requestWindow) allocateNext() uint64 {
 	return result
 }
 
-func (rw *requestWindow) allocate(preProcessResult *PreprocessResult) {
-	reqNo := preProcessResult.Proposal.ReqNo
+func (rw *requestWindow) allocate(requestData *pb.RequestData, digest []byte) {
+	reqNo := requestData.ReqNo
 	if reqNo > rw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, rw.highWatermark))
 	}
@@ -85,7 +90,8 @@ func (rw *requestWindow) allocate(preProcessResult *PreprocessResult) {
 	}
 
 	rw.requests[offset] = &request{
-		preprocessResult: preProcessResult,
+		requestData: requestData,
+		digest:      digest,
 	}
 }
 

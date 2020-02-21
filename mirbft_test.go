@@ -418,7 +418,8 @@ func (n *Network) GoRunNetwork(doneC <-chan struct{}) {
 			for {
 				select {
 				case actions := <-n.nodes[i].Ready():
-					n.nodes[i].AddResults(*n.processors[i].Process(&actions))
+					results := n.processors[i].Process(&actions)
+					n.nodes[i].AddResults(*results)
 				case <-doneC:
 					return
 				case <-ticker.C:
