@@ -91,8 +91,9 @@ message Msg {
 }
 
 message Request {
-    uint64 req_no = 1;
-    bytes digest = 2;
+    uint64 source = 1;
+    uint64 req_no = 2;
+    bytes digest = 3;
 }
 
 message Preprepare {

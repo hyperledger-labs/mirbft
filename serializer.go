@@ -68,9 +68,9 @@ func (s *serializer) run() {
 		}
 
 		if s.stateMachine.requestWindows[NodeID(s.stateMachine.myConfig.ID)].hasRoomToAllocate() {
-			propC = nil
-		} else {
 			propC = s.propC
+		} else {
+			propC = nil
 		}
 		// s.stateMachine.myConfig.Logger.Debug("serializer waiting for consumer", zap.Bool("actions", actionsC != nil))
 

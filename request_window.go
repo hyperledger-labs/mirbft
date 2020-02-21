@@ -6,9 +6,12 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
+import "fmt"
+
 type request struct {
 	preprocessResult *PreprocessResult
 	state            SequenceState
+	seqNo            uint64
 }
 
 type requestWindow struct {
@@ -29,6 +32,33 @@ func newRequestWindow(lowWatermark, highWatermark uint64) *requestWindow {
 	}
 }
 
+func (rw *requestWindow) garbageCollect(maxSeqNo uint64) {
+	newRequests := make([]*request, int(rw.highWatermark-rw.lowWatermark)+1)
+	i := 0
+	j := uint64(0)
+	copying := false
+	for _, request := range rw.requests {
+		if request == nil || request.state != Committed || request.seqNo > maxSeqNo {
+			copying = true
+		}
+
+		if copying {
+			newRequests[i] = request
+			i++
+		} else {
+			if request.seqNo == 0 {
+				panic("this should be initialized if here")
+			}
+			j++
+		}
+
+	}
+
+	rw.lowWatermark += j
+	rw.highWatermark += j
+	rw.requests = newRequests
+}
+
 func (rw *requestWindow) hasRoomToAllocate() bool {
 	return rw.nextUnallocated <= rw.highWatermark
 }
@@ -42,11 +72,11 @@ func (rw *requestWindow) allocateNext() uint64 {
 func (rw *requestWindow) allocate(preProcessResult *PreprocessResult) {
 	reqNo := preProcessResult.Proposal.ReqNo
 	if reqNo > rw.highWatermark {
-		panic("unexpected")
+		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, rw.highWatermark))
 	}
 
 	if reqNo < rw.lowWatermark {
-		panic("unexpected")
+		panic(fmt.Sprintf("unexpected: %d < %d", reqNo, rw.lowWatermark))
 	}
 
 	offset := int(reqNo - rw.lowWatermark)
@@ -61,17 +91,41 @@ func (rw *requestWindow) allocate(preProcessResult *PreprocessResult) {
 
 func (rw *requestWindow) request(reqNo uint64) *request {
 	if reqNo > rw.highWatermark {
-		panic("unexpected")
+		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, rw.highWatermark))
 	}
 
 	if reqNo < rw.lowWatermark {
-		panic("unexpected")
+		panic(fmt.Sprintf("unexpected: %d < %d", reqNo, rw.lowWatermark))
 	}
 
 	offset := int(reqNo - rw.lowWatermark)
-	if rw.requests[offset] != nil {
-		panic("unexpected")
-	}
 
 	return rw.requests[offset]
+}
+
+type RequestWindowStatus struct {
+	LowWatermark  uint64
+	HighWatermark uint64
+	Allocated     []uint64
+}
+
+func (rw *requestWindow) status() *RequestWindowStatus {
+	allocated := make([]uint64, len(rw.requests))
+	for i, request := range rw.requests {
+		if request == nil {
+			continue
+		}
+		if request.state == Committed {
+			allocated[i] = 2
+		} else {
+			allocated[i] = 1
+		}
+		// allocated[i] = bytesToUint64(request.preprocessResult.Proposal.Data)
+	}
+
+	return &RequestWindowStatus{
+		LowWatermark:  rw.lowWatermark,
+		HighWatermark: rw.highWatermark,
+		Allocated:     allocated,
+	}
 }

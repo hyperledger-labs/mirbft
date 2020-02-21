@@ -74,6 +74,8 @@ func (s *sequence) allocate(batch []*request) *Actions {
 	proposals := make([]*PreprocessResult, len(batch))
 	for i, request := range batch {
 		proposals[i] = request.preprocessResult
+		request.state = Allocated
+		request.seqNo = s.seqNo
 	}
 
 	return &Actions{
@@ -98,6 +100,7 @@ func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
 	requests := make([]*pb.Request, len(s.batch))
 	for i, req := range s.batch {
 		requests[i] = &pb.Request{
+			Source: req.preprocessResult.Proposal.Source,
 			ReqNo:  req.preprocessResult.Proposal.ReqNo,
 			Digest: req.preprocessResult.Digest,
 		}
@@ -113,6 +116,10 @@ func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
 	if !valid {
 		s.state = Invalid
 		return &Actions{}
+	}
+
+	for _, request := range s.batch {
+		request.state = Preprepared
 	}
 
 	s.state = Preprepared
@@ -173,6 +180,9 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 	}
 
 	s.state = Prepared
+	for _, request := range s.batch {
+		request.state = Prepared
+	}
 
 	return &Actions{
 		Broadcast: []*pb.Msg{
@@ -221,6 +231,9 @@ func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
 	}
 
 	s.state = Committed
+	for _, request := range s.batch {
+		request.state = Committed
+	}
 
 	return &Actions{
 		Commit: []*pb.QEntry{s.qEntry},

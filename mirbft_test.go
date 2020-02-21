@@ -190,7 +190,7 @@ func BytesToUint64(value []byte) uint64 {
 	return binary.LittleEndian.Uint64(value)
 }
 
-var _ = Describe("MirBFT", func() {
+var _ = FDescribe("MirBFT", func() {
 	var (
 		doneC     chan struct{}
 		logger    *zap.Logger
@@ -257,7 +257,7 @@ var _ = Describe("MirBFT", func() {
 			}
 		}
 	},
-		FEntry("SingleNode greenpath", &TestConfig{
+		Entry("SingleNode greenpath", &TestConfig{
 			NodeCount: 1,
 			MsgCount:  1000,
 			Proposer:  LinearProposer{},
@@ -287,11 +287,11 @@ var _ = Describe("MirBFT", func() {
 		Entry("FourNodeBFT with silenced node3", &TestConfig{
 			NodeCount: 4,
 			MsgCount:  1000,
-			TransportFilters: []func(Transport) Transport{
-				Silence(3),
-			},
 			Proposer: SkippingProposer{
 				NodesToSkip: []int{3},
+			},
+			TransportFilters: []func(Transport) Transport{
+				Silence(3),
 			},
 		}),
 	)
@@ -412,7 +412,7 @@ func (n *Network) GoRunNetwork(doneC <-chan struct{}) {
 		go func(i int, doneC <-chan struct{}) {
 			defer GinkgoRecover()
 
-			ticker := time.NewTicker(1 * time.Millisecond)
+			ticker := time.NewTicker(5 * time.Millisecond)
 			defer ticker.Stop()
 
 			for {

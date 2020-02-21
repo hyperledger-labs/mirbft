@@ -25,6 +25,7 @@ type nodeMsgs struct {
 	id             NodeID
 	oddities       *oddities
 	buffer         map[*pb.Msg]struct{} // TODO, this could be much better optimized via a ring buffer
+	requestWindow  *requestWindow
 	epochMsgs      *epochMsgs
 	myConfig       *Config
 	networkConfig  *pb.NetworkConfig
@@ -32,9 +33,10 @@ type nodeMsgs struct {
 }
 
 type epochMsgs struct {
-	myConfig    *Config
-	epochConfig *epochConfig
-	epoch       *epoch
+	myConfig       *Config
+	epochConfig    *epochConfig
+	epoch          *epoch
+	requestWindows map[NodeID]*requestWindow
 
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
@@ -47,7 +49,7 @@ type nextMsg struct {
 	commit  uint64
 }
 
-func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Config, oddities *oddities) *nodeMsgs {
+func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, requestWindow *requestWindow, myConfig *Config, oddities *oddities) *nodeMsgs {
 
 	return &nodeMsgs{
 		id:       nodeID,
@@ -59,6 +61,7 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Confi
 		buffer:         map[*pb.Msg]struct{}{},
 		myConfig:       myConfig,
 		networkConfig:  networkConfig,
+		requestWindow:  requestWindow,
 	}
 }
 
@@ -91,9 +94,14 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	case *pb.Msg_Checkpoint:
 		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_Forward:
-		// epoch = innerMsg.Forward.Epoch
-		// TODO, should forwarding be associated with an epoch
-		return current
+		switch {
+		case innerMsg.Forward.ReqNo > n.requestWindow.highWatermark:
+			return future
+		case innerMsg.Forward.ReqNo < n.requestWindow.lowWatermark:
+			return past
+		default:
+			return current
+		}
 	case *pb.Msg_EpochChange:
 		return current // TODO, decide if this is actually current
 	case *pb.Msg_NewEpoch:
@@ -148,6 +156,9 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	case n.nextCheckpoint > msg.SeqNo:
 		return past
 	case n.nextCheckpoint == msg.SeqNo:
+		if n.epochMsgs == nil {
+			return future
+		}
 		for _, next := range n.epochMsgs.next {
 			if next.commit < n.epochMsgs.epochConfig.seqToColumn(msg.SeqNo) {
 				return future
@@ -182,10 +193,11 @@ func newEpochMsgs(nodeID NodeID, epoch *epoch, myConfig *Config) *epochMsgs {
 	}
 
 	return &epochMsgs{
-		myConfig:    myConfig,
-		epochConfig: epoch.config,
-		epoch:       epoch,
-		next:        next,
+		requestWindows: epoch.requestWindows,
+		myConfig:       myConfig,
+		epochConfig:    epoch.config,
+		epoch:          epoch,
+		next:           next,
 	}
 }
 
@@ -218,6 +230,28 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 
 	if msg.SeqNo > n.epoch.highWatermark() {
 		return future
+	}
+
+	for _, batchEntry := range msg.Batch {
+		requestWindow, ok := n.requestWindows[NodeID(batchEntry.Source)]
+		if !ok {
+			panic("TODO, bad source")
+		}
+
+		if batchEntry.ReqNo < requestWindow.lowWatermark {
+			return past
+		}
+
+		if batchEntry.ReqNo > requestWindow.highWatermark {
+			return future
+		}
+
+		request := requestWindow.request(batchEntry.ReqNo)
+		if request == nil {
+			// XXX, this is a dirty hack which assumes eventually,
+			// all requests arrive, it does not handle byzantine behavior.
+			return future
+		}
 	}
 
 	switch {

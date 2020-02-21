@@ -40,8 +40,9 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	requestWindows := map[NodeID]*requestWindow{}
 	for _, id := range networkConfig.Nodes {
-		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, oddities)
-		requestWindows[NodeID(id)] = newRequestWindow(fakeCheckpoint.SeqNo+1, fakeCheckpoint.SeqNo+2*uint64(networkConfig.CheckpointInterval))
+		requestWindow := newRequestWindow(fakeCheckpoint.SeqNo+1, fakeCheckpoint.SeqNo+2*uint64(networkConfig.CheckpointInterval))
+		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, requestWindow, myConfig, oddities)
+		requestWindows[NodeID(id)] = requestWindow
 	}
 
 	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
@@ -126,12 +127,15 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 				msg := innerMsg.Checkpoint
 				actions.Append(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
 			case *pb.Msg_Forward:
+				if source == NodeID(sm.myConfig.ID) {
+					// We've already pre-processed this
+					continue
+				}
 				msg := innerMsg.Forward
-				// TODO should we have a separate validate step here?  How do we prevent
-				// forwarded messages with bad data from poisoning our batch?
 				actions.Append(&Actions{
 					Preprocess: []Proposal{
 						{
+							ReqNo:  msg.ReqNo,
 							Source: uint64(source),
 							Data:   msg.Data,
 						},
@@ -160,17 +164,17 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 }
 
 func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
-	requestWindow, ok := sm.requestWindows[source]
-	if !ok {
-		panic("unexpected")
-	}
-
 	requests := make([]*request, len(msg.Batch))
 
 	for i, batchEntry := range msg.Batch {
+		requestWindow, ok := sm.requestWindows[NodeID(batchEntry.Source)]
+		if !ok {
+			panic("unexpected")
+		}
+
 		request := requestWindow.request(batchEntry.ReqNo)
 		if request == nil {
-			panic("this is normal, if the request dissemination is slow, we will need to handle this")
+			panic(fmt.Sprintf("could not find reqno=%d for batch entry from %d, this should have been hackily handled by the nodemsgs stuff", batchEntry.ReqNo, source))
 		}
 		requests[i] = request
 	}
@@ -235,6 +239,9 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 		return &Actions{}
 	}
 
+	for _, requestWindow := range sm.requestWindows {
+		requestWindow.garbageCollect(seqNo)
+	}
 	actions := sm.activeEpoch.moveWatermarks()
 	actions.Append(sm.drainNodeMsgs())
 	return actions
@@ -244,6 +251,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	actions := &Actions{}
 
 	for _, preprocessResult := range results.Preprocesses {
+		preprocessResult := preprocessResult // XXX hack
 		// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
 		actions.Append(sm.applyPreprocessResult(&preprocessResult))
 	}
@@ -294,6 +302,7 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 	}
 
 	if sm.activeEpoch != nil {
+		sm.activeEpoch.proposer.stepRequestWindow(NodeID(preprocessResult.Proposal.Source))
 		actions.Append(sm.activeEpoch.drainProposer())
 	}
 
@@ -313,10 +322,13 @@ func (sm *stateMachine) tick() *Actions {
 }
 
 func (sm *stateMachine) status() *Status {
+	requestWindowsStatus := make([]*RequestWindowStatus, len(sm.requestWindows))
+
 	nodes := make([]*NodeStatus, len(sm.networkConfig.Nodes))
 	for i, nodeID := range sm.networkConfig.Nodes {
 		nodeID := NodeID(nodeID)
 		nodes[i] = sm.nodeMsgs[nodeID].status()
+		requestWindowsStatus[i] = sm.requestWindows[nodeID].status()
 	}
 
 	checkpoints := []*CheckpointStatus{}
@@ -341,24 +353,26 @@ func (sm *stateMachine) status() *Status {
 	}
 
 	return &Status{
-		NodeID:        sm.myConfig.ID,
-		LowWatermark:  lowWatermark,
-		HighWatermark: highWatermark,
-		EpochChanger:  sm.epochChanger.status(),
-		Buckets:       buckets,
-		Checkpoints:   checkpoints,
-		Nodes:         nodes,
+		NodeID:         sm.myConfig.ID,
+		LowWatermark:   lowWatermark,
+		HighWatermark:  highWatermark,
+		EpochChanger:   sm.epochChanger.status(),
+		RequestWindows: requestWindowsStatus,
+		Buckets:        buckets,
+		Checkpoints:    checkpoints,
+		Nodes:          nodes,
 	}
 }
 
 type Status struct {
-	NodeID        uint64
-	LowWatermark  uint64
-	HighWatermark uint64
-	EpochChanger  *EpochChangerStatus
-	Nodes         []*NodeStatus
-	Buckets       []*BucketStatus
-	Checkpoints   []*CheckpointStatus
+	NodeID         uint64
+	LowWatermark   uint64
+	HighWatermark  uint64
+	EpochChanger   *EpochChangerStatus
+	Nodes          []*NodeStatus
+	Buckets        []*BucketStatus
+	Checkpoints    []*CheckpointStatus
+	RequestWindows []*RequestWindowStatus
 }
 
 func (s *Status) Pretty() string {
@@ -478,10 +492,12 @@ func (s *Status) Pretty() string {
 			checkpoint := s.Checkpoints[i]
 			if seqNo == s.Checkpoints[i].SeqNo/uint64(len(s.Buckets)) {
 				switch {
-				case checkpoint.NetQuorum && !checkpoint.LocalAgreement:
+				case checkpoint.NetQuorum && !checkpoint.LocalDecision:
 					buffer.WriteString("|N")
-				case checkpoint.NetQuorum && checkpoint.LocalAgreement:
+				case checkpoint.NetQuorum && checkpoint.LocalDecision:
 					buffer.WriteString("|G")
+				case !checkpoint.NetQuorum && checkpoint.LocalDecision:
+					buffer.WriteString("|M")
 				default:
 					buffer.WriteString("|P")
 				}
@@ -495,6 +511,13 @@ func (s *Status) Pretty() string {
 
 	hRule()
 	buffer.WriteString("-\n")
+
+	buffer.WriteString("\n\n Request Windows\n")
+	hRule()
+	for i, rws := range s.RequestWindows {
+		buffer.WriteString(fmt.Sprintf("\nNode %d L/H %d/%d : %v\n", i, rws.LowWatermark, rws.HighWatermark, rws.Allocated))
+		hRule()
+	}
 
 	return buffer.String()
 }

@@ -94,6 +94,7 @@ type epoch struct {
 
 	checkpoints       []*checkpoint
 	checkpointTracker *checkpointTracker
+	requestWindows    map[NodeID]*requestWindow
 
 	baseCheckpoint *pb.Checkpoint
 }
@@ -168,6 +169,9 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 					newSeq.batch = oldSeq.batch
 
 					if oldSeq.state == Committed {
+						for _, batchEntry := range newSeq.batch {
+							batchEntry.state = Committed
+						}
 						newSeq.state = Committed
 					}
 
@@ -180,8 +184,26 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 
 			if oldSeq.batch != nil && oldSeq.owner == NodeID(myConfig.ID) {
 				for _, proposal := range oldSeq.batch {
-					// TODO don't lose data that we once allocated, but got dropped
-					panic(fmt.Sprintf("about to abandon a proposal %d %x", proposal.preprocessResult.Proposal.ReqNo, proposal.preprocessResult.Digest))
+					requestWindow, ok := requestWindows[NodeID(proposal.preprocessResult.Proposal.Source)]
+					if !ok {
+						panic("unexpected")
+
+					}
+
+					if proposal.preprocessResult.Proposal.ReqNo < requestWindow.lowWatermark {
+						// This request already committed somewhere
+						continue
+					}
+
+					if proposal.preprocessResult.Proposal.ReqNo > requestWindow.highWatermark {
+						panic("we should not be processing reqnos which are above the watermarks for this checkpoint")
+					}
+
+					request := requestWindow.request(proposal.preprocessResult.Proposal.ReqNo)
+					if request != proposal {
+						// TODO don't lose data that we once allocated, but got dropped
+						panic(fmt.Sprintf("about to abandon a proposal %d %x", proposal.preprocessResult.Proposal.ReqNo, proposal.preprocessResult.Digest))
+					}
 				}
 			}
 		}
@@ -196,14 +218,16 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 					SeqNo: newSeq.seqNo,
 				}
 			} else {
-				panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x bucket=%d", newSeq.epoch, newSeq.seqNo, newSeq.digest, config.seqToBucket(newSeq.seqNo)))
+				panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%v bucket=%d", newSeq.epoch, newSeq.seqNo, newSeq.digest, config.seqToBucket(newSeq.seqNo)))
 			}
 		}
 	}
 
 	proposer := newProposer(myConfig, requestWindows, config.buckets)
+	proposer.stepAllRequestWindows()
 
 	return &epoch{
+		requestWindows:    requestWindows,
 		baseCheckpoint:    newEpochConfig.StartingCheckpoint,
 		myConfig:          myConfig,
 		config:            config,
@@ -324,6 +348,10 @@ func (e *epoch) drainProposer() *Actions {
 	actions := &Actions{}
 
 	for bucketID, ownerID := range e.config.buckets {
+		if ownerID != NodeID(e.myConfig.ID) {
+			continue
+		}
+
 		for e.proposer.hasPending(bucketID) {
 			e.advanceLowestUnallocated()
 

@@ -136,10 +136,10 @@ func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {
 }
 
 type CheckpointStatus struct {
-	SeqNo          uint64
-	MaxAgreements  int
-	NetQuorum      bool
-	LocalAgreement bool
+	SeqNo         uint64
+	MaxAgreements int
+	NetQuorum     bool
+	LocalDecision bool
 }
 
 func (cw *checkpoint) status() *CheckpointStatus {
@@ -150,9 +150,9 @@ func (cw *checkpoint) status() *CheckpointStatus {
 		}
 	}
 	return &CheckpointStatus{
-		SeqNo:          cw.end,
-		MaxAgreements:  maxAgreements,
-		NetQuorum:      cw.committedValue != nil,
-		LocalAgreement: cw.committedValue != nil && bytes.Equal(cw.committedValue, cw.myValue),
+		SeqNo:         cw.end,
+		MaxAgreements: maxAgreements,
+		NetQuorum:     cw.committedValue != nil,
+		LocalDecision: cw.myValue != nil,
 	}
 }

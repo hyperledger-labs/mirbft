@@ -6,7 +6,9 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 func uint64ToBytes(value uint64) []byte {
 	byteValue := make([]byte, 8)
@@ -63,13 +65,21 @@ func newProposer(myConfig *Config, requestWindows map[NodeID]*requestWindow, buc
 	}
 }
 
+func (p *proposer) stepAllRequestWindows() {
+	// TODO, this is kind of dumb to get a key from a map, and then
+	// look it up in the map again
+	for nodeID := range p.requestWindowProcessors {
+		p.stepRequestWindow(nodeID)
+	}
+}
+
 func (p *proposer) stepRequestWindow(nodeID NodeID) {
 	rwp, ok := p.requestWindowProcessors[nodeID]
 	if !ok {
 		panic("unexpected")
 	}
 
-	for rwp.lastProcessed <= rwp.requestWindow.highWatermark {
+	for rwp.lastProcessed < rwp.requestWindow.highWatermark {
 		request := rwp.requestWindow.request(rwp.lastProcessed + 1)
 		if request == nil {
 			break
@@ -81,6 +91,11 @@ func (p *proposer) stepRequestWindow(nodeID NodeID) {
 		proposalBucket, ok := p.proposalBuckets[bucket]
 		if !ok {
 			// I don't lead this bucket this epoch
+			continue
+		}
+
+		if request.state != Uninitialized {
+			// Already proposed by another node in a previous epoch
 			continue
 		}
 
