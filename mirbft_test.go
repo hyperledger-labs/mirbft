@@ -386,10 +386,15 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 		fakeLogs[i] = fakeLog
 
 		processors[i] = &sample.SerialProcessor{
-			Node:      node,
-			Link:      transport.Link(node.Config.ID),
-			Validator: sample.ValidatorFunc(func(*mirbft.PreprocessResult) error { return nil }),
-			Hasher:    sample.HasherFunc(func(data []byte) []byte { return data }),
+			Node: node,
+			Link: transport.Link(node.Config.ID),
+			Validator: sample.ValidatorFunc(func(result *mirbft.Request) error {
+				if result.Source != BytesToUint64(result.ClientRequest.ClientId) {
+					return fmt.Errorf("mis-matched originating replica and client id")
+				}
+				return nil
+			}),
+			Hasher: sample.HasherFunc(func(data []byte) []byte { return data }),
 			Committer: &sample.SerialCommitter{
 				Log:                    fakeLog,
 				OutstandingSeqNos:      map[uint64]*pb.QEntry{},

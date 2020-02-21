@@ -16,10 +16,10 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-type ValidatorFunc func(*mirbft.PreprocessResult) error
+type ValidatorFunc func(*mirbft.Request) error
 
-func (vf ValidatorFunc) Validate(preprocessResult *mirbft.PreprocessResult) error {
-	return vf(preprocessResult)
+func (vf ValidatorFunc) Validate(request *mirbft.Request) error {
+	return vf(request)
 }
 
 type HasherFunc func([]byte) []byte
@@ -29,7 +29,7 @@ func (hf HasherFunc) Hash(data []byte) []byte {
 }
 
 type Validator interface {
-	Validate(*mirbft.PreprocessResult) error
+	Validate(*mirbft.Request) error
 }
 
 type Link interface {
@@ -135,6 +135,13 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 	}
 
 	for i, request := range actions.Preprocess {
+		if err := c.Validator.Validate(request); err != nil {
+			c.Node.Config.Logger.Warn("dropping request because it could not be validated")
+			// TODO, we should probably signal that it's invalid, so that
+			// we don't keep refetching this request and trying to preprocess it
+			continue
+		}
+
 		actionResults.Preprocessed[i] = &mirbft.PreprocessResult{
 			RequestData: request.ClientRequest,
 			Digest:      c.Hasher.Hash(request.ClientRequest.Data),
@@ -149,18 +156,9 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 			hashes = append(hashes, preprocessResult.Digest...)
 		}
 
-		valid := true
-		for _, preprocessResult := range batch.Requests {
-			if err := c.Validator.Validate(preprocessResult); err != nil {
-				valid = false
-				break
-			}
-		}
-
 		actionResults.Processed[i] = &mirbft.ProcessResult{
-			Batch:   batch,
-			Digest:  c.Hasher.Hash(hashes),
-			Invalid: !valid,
+			Batch:  batch,
+			Digest: c.Hasher.Hash(hashes),
 		}
 	}
 
