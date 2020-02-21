@@ -85,7 +85,7 @@ var _ = Describe("Integration", func() {
 
 			By("returning a processed version of the proposal")
 			serializer.resultsC <- ActionResults{
-				Preprocesses: []PreprocessResult{
+				Preprocessed: []*PreprocessResult{
 					{
 						Digest: uint64ToBytes(7),
 						RequestData: &pb.RequestData{
@@ -116,7 +116,7 @@ var _ = Describe("Integration", func() {
 
 			By("returning a the process result for the batch")
 			serializer.resultsC <- ActionResults{
-				Processed: []ProcessResult{
+				Processed: []*ProcessResult{
 					{
 						Batch: &Batch{
 							Epoch: 3,
@@ -258,7 +258,7 @@ var _ = Describe("Integration", func() {
 
 			By("returning a processed version of the proposal")
 			serializer.resultsC <- ActionResults{
-				Preprocesses: []PreprocessResult{
+				Preprocessed: []*PreprocessResult{
 					{
 						Digest: uint64ToBytes(7),
 						RequestData: &pb.RequestData{
@@ -314,7 +314,7 @@ var _ = Describe("Integration", func() {
 
 			By("returning a digest for the batch")
 			serializer.resultsC <- ActionResults{
-				Processed: []ProcessResult{
+				Processed: []*ProcessResult{
 					{
 						Batch: &Batch{
 							Epoch: 3,

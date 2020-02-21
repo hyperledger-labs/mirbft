@@ -242,10 +242,9 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	actions := &Actions{}
 
-	for _, preprocessResult := range results.Preprocesses {
-		preprocessResult := preprocessResult // XXX hack
+	for _, preprocessResult := range results.Preprocessed {
 		// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
-		actions.Append(sm.applyPreprocessResult(&preprocessResult))
+		actions.Append(sm.applyPreprocessResult(preprocessResult))
 	}
 
 	for _, checkpointResult := range results.Checkpoints {

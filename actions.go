@@ -101,8 +101,8 @@ type Unicast struct {
 // ActionResults should be populated by the caller as a result of
 // executing the actions, then returned to the state machine.
 type ActionResults struct {
-	Processed    []ProcessResult
-	Preprocesses []PreprocessResult
+	Processed    []*ProcessResult
+	Preprocessed []*PreprocessResult
 	Checkpoints  []*CheckpointResult
 }
 
