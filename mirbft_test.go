@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"hash"
 	"sort"
 	"time"
 
@@ -23,6 +24,31 @@ import (
 
 	"go.uber.org/zap"
 )
+
+type NoopHasher struct {
+	Value []byte
+}
+
+func (nh *NoopHasher) Write(b []byte) (int, error) {
+	nh.Value = append(nh.Value, b...)
+	return len(b), nil
+}
+
+func (nh *NoopHasher) Sum(b []byte) []byte {
+	return append(nh.Value, b...)
+}
+
+func (nh *NoopHasher) Reset() {
+	nh.Value = nil
+}
+
+func (nh *NoopHasher) Size() int {
+	return len(nh.Value)
+}
+
+func (nh *NoopHasher) BlockSize() int {
+	return 1
+}
 
 type Proposer interface {
 	Proposal(nodes, i int) (uint64, []byte)
@@ -394,7 +420,7 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 				}
 				return nil
 			}),
-			Hasher: sample.HasherFunc(func(data []byte) []byte { return data }),
+			Hasher: func() hash.Hash { return &NoopHasher{} },
 			Committer: &sample.SerialCommitter{
 				Log:                    fakeLog,
 				OutstandingSeqNos:      map[uint64]*pb.QEntry{},

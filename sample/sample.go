@@ -9,6 +9,7 @@ package sample
 import (
 	"context"
 	"fmt"
+	"hash"
 	"runtime/debug"
 	"time"
 
@@ -22,11 +23,7 @@ func (vf ValidatorFunc) Validate(request *mirbft.Request) error {
 	return vf(request)
 }
 
-type HasherFunc func([]byte) []byte
-
-func (hf HasherFunc) Hash(data []byte) []byte {
-	return hf(data)
-}
+type Hasher func() hash.Hash
 
 type Validator interface {
 	Validate(*mirbft.Request) error
@@ -34,10 +31,6 @@ type Validator interface {
 
 type Link interface {
 	Send(dest uint64, msg *pb.Msg)
-}
-
-type Hasher interface {
-	Hash([]byte) []byte
 }
 
 type Log interface {
@@ -142,23 +135,23 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 			continue
 		}
 
+		h := c.Hasher()
+
 		actionResults.Preprocessed[i] = &mirbft.PreprocessResult{
 			RequestData: request.ClientRequest,
-			Digest:      c.Hasher.Hash(request.ClientRequest.Data),
+			Digest:      h.Sum(request.ClientRequest.Data),
 		}
 	}
 
 	for i, batch := range actions.Process {
-		hashes := []byte{}
+		h := c.Hasher()
 		for _, preprocessResult := range batch.Requests {
-			// TODO this could be much more efficient using
-			// the normal hash interface
-			hashes = append(hashes, preprocessResult.Digest...)
+			h.Write(preprocessResult.Digest)
 		}
 
 		actionResults.Processed[i] = &mirbft.ProcessResult{
 			Batch:  batch,
-			Digest: c.Hasher.Hash(hashes),
+			Digest: h.Sum(nil),
 		}
 	}
 
