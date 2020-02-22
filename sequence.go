@@ -16,9 +16,9 @@ type SequenceState int
 
 const (
 	Uninitialized SequenceState = iota
+	Invalid
 	Allocated
 	Ready
-	Invalid
 	Preprepared
 	Prepared
 	Committed
@@ -60,6 +60,12 @@ func newSequence(owner NodeID, epoch, seqNo uint64, networkConfig *pb.NetworkCon
 	}
 }
 
+func (s *sequence) allocateInvalid(batch []*request) *Actions {
+	// TODO, handle this case by optionally allowing the transition from
+	// Invalid to Prepared if the network agrees that this batch is valid.
+	panic("TODO unhandled")
+}
+
 // allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
 // It transitions to Preprepared and returns a ValidationRequest message.
@@ -93,7 +99,7 @@ func (s *sequence) allocate(batch []*request) *Actions {
 	}
 }
 
-func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
+func (s *sequence) applyProcessResult(digest []byte) *Actions {
 	if s.state != Allocated {
 		s.myConfig.Logger.Panic("illegal state for digest result")
 	}
@@ -114,11 +120,6 @@ func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
 		Epoch:    s.epoch,
 		Digest:   digest,
 		Requests: requests,
-	}
-
-	if !valid {
-		s.state = Invalid
-		return &Actions{}
 	}
 
 	for _, request := range s.batch {

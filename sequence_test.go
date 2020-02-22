@@ -175,7 +175,7 @@ var _ = Describe("sequence", func() {
 		})
 
 		It("transitions from Allocated to Preprepared", func() {
-			actions := s.applyProcessResult([]byte("digest"), true)
+			actions := s.applyProcessResult([]byte("digest"))
 			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{
@@ -237,38 +237,13 @@ var _ = Describe("sequence", func() {
 
 			It("does not transition the state and panics", func() {
 				badTransition := func() {
-					s.applyProcessResult([]byte("digest"), true)
+					s.applyProcessResult([]byte("digest"))
 				}
 				Expect(badTransition).To(Panic())
 				Expect(s.state).To(Equal(Prepared))
 			})
 		})
 
-		When("when the validation is not successful", func() {
-			It("transitions the state to InvalidBatch", func() {
-				actions := s.applyProcessResult([]byte("digest"), false)
-				Expect(actions).To(Equal(&Actions{}))
-				Expect(s.state).To(Equal(Invalid))
-				Expect(s.digest).To(Equal([]byte("digest")))
-				Expect(s.qEntry).To(Equal(&pb.QEntry{
-					SeqNo:  5,
-					Epoch:  4,
-					Digest: []byte("digest"),
-					Requests: []*pb.Request{
-						{
-							ClientId: []byte("client-id"),
-							ReqNo:    7,
-							Digest:   []byte("msg1-digest"),
-						},
-						{
-							ClientId: []byte("client-id"),
-							ReqNo:    8,
-							Digest:   []byte("msg2-digest"),
-						},
-					},
-				}))
-			})
-		})
 	})
 
 	Describe("applyPrepareMsg", func() {

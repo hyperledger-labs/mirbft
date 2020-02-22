@@ -140,6 +140,15 @@ type PreprocessResult struct {
 
 	// Proposal is the proposal which was processed into this Preprocess result.
 	RequestData *pb.RequestData
+
+	// Invalid should be set if the request fails validation according to the application.
+	// Note, validation should be consistent across nodes, so validation should not
+	// be dependent on the current state, as this is not coordinated across nodes.
+	// TODO, we probably want to introduce the notion of a configuration epoch or similar,
+	// which will allow clients to validate requests based on state.
+	// TODO, depending on how the request-ack stuff works out, we may want to be able to flip
+	// the request to valid if enough replicas ACK it.
+	Invalid bool
 }
 
 // ProcessResult gives the state machine a digest by which to refer to a particular entry.
@@ -147,7 +156,6 @@ type PreprocessResult struct {
 // depending on the configuration of the state machine (TODO), this node may still commit
 // the entry, or may wait for state-transfer to kick off.
 type ProcessResult struct {
-	Batch   *Batch
-	Digest  []byte
-	Invalid bool
+	Batch  *Batch
+	Digest []byte
 }

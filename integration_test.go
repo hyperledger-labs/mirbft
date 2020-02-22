@@ -150,8 +150,7 @@ var _ = Describe("Integration", func() {
 								},
 							},
 						},
-						Digest:  []byte("fake-digest"),
-						Invalid: false,
+						Digest: []byte("fake-digest"),
 					},
 				},
 			}

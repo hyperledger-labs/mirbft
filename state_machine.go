@@ -277,7 +277,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	for _, processResult := range results.Processed {
 		// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
 		seqNo := processResult.Batch.SeqNo
-		actions.Append(sm.activeEpoch.applyProcessResult(seqNo, processResult.Digest, !processResult.Invalid))
+		actions.Append(sm.activeEpoch.applyProcessResult(seqNo, processResult.Digest))
 	}
 
 	return actions

@@ -250,6 +250,12 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*request
 		return seq.applyPrepareMsg(source, seq.digest)
 	}
 
+	for _, request := range batch {
+		if request.state == Invalid {
+			return seq.allocateInvalid(batch)
+		}
+	}
+
 	return seq.allocate(batch)
 }
 
@@ -375,10 +381,10 @@ func (e *epoch) drainProposer() *Actions {
 	return actions
 }
 
-func (e *epoch) applyProcessResult(seqNo uint64, digest []byte, valid bool) *Actions {
+func (e *epoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
 	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
 	seq := e.sequences[offset]
-	actions := seq.applyProcessResult(digest, valid)
+	actions := seq.applyProcessResult(digest)
 	if seq.owner != NodeID(e.myConfig.ID) {
 		actions.Append(seq.applyPrepareMsg(seq.owner, digest))
 	}

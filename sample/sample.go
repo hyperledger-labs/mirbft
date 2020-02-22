@@ -123,11 +123,9 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 	}
 
 	for i, request := range actions.Preprocess {
+		invalid := false
 		if err := c.Validator.Validate(request); err != nil {
-			c.Node.Config.Logger.Warn("dropping request because it could not be validated")
-			// TODO, we should probably signal that it's invalid, so that
-			// we don't keep refetching this request and trying to preprocess it
-			continue
+			invalid = true
 		}
 
 		h := c.Hasher()
@@ -135,6 +133,7 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 		actionResults.Preprocessed[i] = &mirbft.PreprocessResult{
 			RequestData: request.ClientRequest,
 			Digest:      h.Sum(request.ClientRequest.Data),
+			Invalid:     invalid,
 		}
 	}
 
