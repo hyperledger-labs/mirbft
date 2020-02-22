@@ -98,9 +98,15 @@ func (n *Node) Propose(ctx context.Context, data []byte) error {
 
 // Step takes authenticated messages from the other nodes in the network.  It
 // is the responsibility of the caller to ensure that the message originated from
-// the designed source.  This method only returns an error if the context ends, or
-// the node is stopped.  In the case that the node is stopped, it returns ErrStopped.
+// the designed source.  This method returns an error if the context ends, the node
+// stopped, or the message is not well formed (unknown proto fields, etc.).  In the
+// case that the node is stopped, it returns ErrStopped.
 func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
+	err := preProcess(msg)
+	if err != nil {
+		return err
+	}
+
 	select {
 	case n.s.stepC <- step{Source: source, Msg: msg}:
 		return nil
