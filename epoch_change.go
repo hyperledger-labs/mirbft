@@ -21,8 +21,8 @@ import (
 // epoch configuration
 type epochTarget struct {
 	changes    map[NodeID]*epochChange
-	echos      map[NodeID]*pb.EpochConfig
-	readies    map[NodeID]*pb.EpochConfig
+	echos      map[*pb.EpochConfig]map[NodeID]struct{}
+	readies    map[*pb.EpochConfig]map[NodeID]struct{}
 	suspicions map[NodeID]struct{}
 
 	myNewEpoch     *pb.NewEpoch
@@ -182,8 +182,8 @@ func (ec *epochChanger) target(epoch uint64) *epochTarget {
 		target = &epochTarget{
 			suspicions: map[NodeID]struct{}{},
 			changes:    map[NodeID]*epochChange{},
-			echos:      map[NodeID]*pb.EpochConfig{},
-			readies:    map[NodeID]*pb.EpochConfig{},
+			echos:      map[*pb.EpochConfig]map[NodeID]struct{}{},
+			readies:    map[*pb.EpochConfig]map[NodeID]struct{}{},
 			isLeader:   epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.ID,
 		}
 		ec.targets[epoch] = target
@@ -340,35 +340,37 @@ func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 //
 // upon receiving t+1 messages(READY, m) and not having sent a READY message:
 // send message (READY, m) to all
-// upon receiving 2t + 1 messages (READY, m):
 //
+// upon receiving 2t + 1 messages (READY, m):
 // r-deliver(m)
 
 func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
-	if ec.state > echoing {
-		return &Actions{}
-	}
 
 	target := ec.target(msg.Config.Number) // TODO, handle nil config
 
-	if _, ok := target.echos[source]; ok {
-		// TODO, if different, byzantine, oddities
-		return &Actions{}
+	var msgEchos map[NodeID]struct{}
+
+	for config, echos := range target.echos {
+		if proto.Equal(config, msg.Config) {
+			msgEchos = echos
+			break
+		}
 	}
 
-	target.echos[source] = msg.Config
+	if msgEchos == nil {
+		msgEchos = map[NodeID]struct{}{}
+		target.echos[msg.Config] = msgEchos
+	}
 
-	if target != ec.pendingEpochTarget && len(target.echos) >= someCorrectQuorum(ec.networkConfig) {
+	msgEchos[source] = struct{}{}
+
+	if target != ec.pendingEpochTarget && len(msgEchos) >= someCorrectQuorum(ec.networkConfig) {
 		ec.updateHighestObservedCorrectEpoch(msg.Config.Number)
 	}
 
-	if len(target.echos) < intersectionQuorum(ec.networkConfig) {
+	if len(msgEchos) < intersectionQuorum(ec.networkConfig) {
 		return &Actions{}
 	}
-
-	// XXX we need to verify that the configs actually match, but
-	// since we have not computed a digest, this is potentially expensive
-	// so deferring the implementation.
 
 	if ec.state > echoing {
 		return &Actions{}
@@ -390,29 +392,30 @@ func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho
 }
 
 func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
-	if ec.state > ready {
-		return &Actions{}
-	}
-
-	target := ec.target(msg.Config.Number) // TODO, handle nil config
-
-	if _, ok := target.readies[source]; ok {
-		// TODO, if different, byzantine, oddities
-		return &Actions{}
-	}
-
-	target.readies[source] = msg.Config
-
 	if ec.state > readying {
 		// We've already accepted the epoch config, move along
 		return &Actions{}
 	}
 
-	// XXX we need to verify that the configs actually match, but
-	// since we have not computed a digest, this is potentially expensive
-	// so deferring the implementation.
+	target := ec.target(msg.Config.Number) // TODO, handle nil config
 
-	if len(target.readies) < someCorrectQuorum(ec.networkConfig) {
+	var msgReadies map[NodeID]struct{}
+
+	for config, readies := range target.readies {
+		if proto.Equal(config, msg.Config) {
+			msgReadies = readies
+			break
+		}
+	}
+
+	if msgReadies == nil {
+		msgReadies = map[NodeID]struct{}{}
+		target.readies[msg.Config] = msgReadies
+	}
+
+	msgReadies[source] = struct{}{}
+
+	if len(msgReadies) < someCorrectQuorum(ec.networkConfig) {
 		return &Actions{}
 	}
 
@@ -432,7 +435,7 @@ func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 		}
 	}
 
-	if len(target.readies) >= intersectionQuorum(ec.networkConfig) {
+	if len(msgReadies) >= intersectionQuorum(ec.networkConfig) {
 		ec.state = ready
 		target.leaderNewEpoch = msg.Config
 	}
@@ -703,15 +706,20 @@ func (et *epochTarget) status() *EpochTargetStatus {
 		return status.EpochChanges[i] < status.EpochChanges[j]
 	})
 
-	for node := range et.echos {
-		status.Echos = append(status.Echos, uint64(node))
+	for _, echoMsgs := range et.echos {
+		for node := range echoMsgs {
+			status.Echos = append(status.Echos, uint64(node))
+		}
 	}
+
 	sort.Slice(status.Echos, func(i, j int) bool {
 		return status.Echos[i] < status.Echos[j]
 	})
 
-	for node := range et.readies {
-		status.Readies = append(status.Readies, uint64(node))
+	for _, readyMsgs := range et.readies {
+		for node := range readyMsgs {
+			status.Readies = append(status.Readies, uint64(node))
+		}
 	}
 	sort.Slice(status.Readies, func(i, j int) bool {
 		return status.Readies[i] < status.Readies[j]
