@@ -64,7 +64,7 @@ message QEntry {
 	uint64 epoch = 1;
 	uint64 seq_no = 2;
 	bytes digest = 3;
-	repeated Request proposals = 4;
+	repeated Request requests = 4;
 }
 
 // PEntry is an entry which must be persisted before a batch is Prepared (ie,

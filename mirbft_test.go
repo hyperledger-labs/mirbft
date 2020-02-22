@@ -178,7 +178,7 @@ type FakeLog struct {
 }
 
 func (fl *FakeLog) Apply(entry *pb.QEntry) {
-	if entry.Proposals == nil {
+	if entry.Requests == nil {
 		// this is a no-op batch from a tick, or catchup, ignore it
 		return
 	}
@@ -273,7 +273,7 @@ var _ = Describe("MirBFT", func() {
 					Expect(entry.Epoch).To(Equal(*testConfig.Expectations.Epoch))
 				}
 
-				proposalUint, ok := proposals[string(entry.Proposals[0].Digest)]
+				proposalUint, ok := proposals[string(entry.Requests[0].Digest)]
 				Expect(ok).To(BeTrue())
 				Expect(proposalUint % uint64(testConfig.NodeCount)).To(Equal((entry.SeqNo - 1) % uint64(testConfig.NodeCount)))
 
@@ -344,7 +344,7 @@ var _ = Describe("MirBFT", func() {
 				} else if len(proposals) > len(network.fakeLogs[nodeIndex].Entries) {
 					entries := map[string]struct{}{}
 					for _, entry := range network.fakeLogs[0].Entries {
-						entries[string(entry.Proposals[0].Digest)] = struct{}{}
+						entries[string(entry.Requests[0].Digest)] = struct{}{}
 					}
 
 					var missing []uint64

@@ -161,10 +161,10 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 					}
 				} else if bytes.Equal(oldSeq.digest, newSeq.digest) {
 					newSeq.qEntry = &pb.QEntry{
-						Epoch:     newSeq.epoch,
-						SeqNo:     newSeq.seqNo,
-						Digest:    newSeq.digest,
-						Proposals: oldSeq.qEntry.Proposals,
+						Epoch:    newSeq.epoch,
+						SeqNo:    newSeq.seqNo,
+						Digest:   newSeq.digest,
+						Requests: oldSeq.qEntry.Requests,
 					}
 					newSeq.batch = oldSeq.batch
 

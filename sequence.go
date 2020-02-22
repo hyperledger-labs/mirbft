@@ -110,10 +110,10 @@ func (s *sequence) applyProcessResult(digest []byte, valid bool) *Actions {
 	}
 
 	s.qEntry = &pb.QEntry{
-		SeqNo:     s.seqNo,
-		Epoch:     s.epoch,
-		Digest:    digest,
-		Proposals: requests,
+		SeqNo:    s.seqNo,
+		Epoch:    s.epoch,
+		Digest:   digest,
+		Requests: requests,
 	}
 
 	if !valid {

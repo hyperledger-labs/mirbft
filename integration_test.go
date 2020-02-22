@@ -179,7 +179,7 @@ var _ = Describe("Integration", func() {
 						Epoch:  3,
 						SeqNo:  1,
 						Digest: []byte("fake-digest"),
-						Proposals: []*pb.Request{
+						Requests: []*pb.Request{
 							{
 								ClientId: uint64ToBytes(0),
 								ReqNo:    1,
@@ -230,7 +230,7 @@ var _ = Describe("Integration", func() {
 							Epoch:  3,
 							SeqNo:  1,
 							Digest: []byte("fake-digest"),
-							Proposals: []*pb.Request{
+							Requests: []*pb.Request{
 								{
 									ClientId: uint64ToBytes(0),
 									ReqNo:    1,
@@ -394,7 +394,7 @@ var _ = Describe("Integration", func() {
 						Epoch:  3,
 						SeqNo:  4,
 						Digest: []byte("fake-digest"),
-						Proposals: []*pb.Request{
+						Requests: []*pb.Request{
 							{
 								ClientId: uint64ToBytes(0),
 								ReqNo:    1,
@@ -462,7 +462,7 @@ var _ = Describe("Integration", func() {
 							Epoch:  3,
 							SeqNo:  4,
 							Digest: []byte("fake-digest"),
-							Proposals: []*pb.Request{
+							Requests: []*pb.Request{
 								{
 									ClientId: uint64ToBytes(0),
 									ReqNo:    1,
