@@ -239,6 +239,11 @@ func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
 	}
 
 	return &Actions{
-		Commit: []*pb.QEntry{s.qEntry},
+		Commits: []*Commit{
+			{
+				QEntry:     s.qEntry,
+				Checkpoint: s.seqNo%uint64(s.networkConfig.CheckpointInterval) == 0,
+			},
+		},
 	}
 }

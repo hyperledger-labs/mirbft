@@ -262,7 +262,7 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
 	actions := e.sequences[offset].applyCommitMsg(source, digest)
 
-	if len(actions.Commit) > 0 && offset == e.lowestUncommitted {
+	if len(actions.Commits) > 0 && offset == e.lowestUncommitted {
 		actions.Append(e.advanceUncommitted())
 	}
 
@@ -275,10 +275,6 @@ func (e *epoch) advanceUncommitted() *Actions {
 	for e.lowestUncommitted < len(e.sequences) {
 		if e.sequences[e.lowestUncommitted].state != Committed {
 			break
-		}
-
-		if (e.lowestUncommitted+1)%int(e.config.networkConfig.CheckpointInterval) == 0 {
-			actions.Checkpoint = append(actions.Checkpoint, e.sequences[e.lowestUncommitted].seqNo)
 		}
 
 		e.lowestUncommitted++

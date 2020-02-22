@@ -204,14 +204,16 @@ var _ = Describe("Integration", func() {
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Commit: []*pb.QEntry{
+				Commits: []*Commit{
 					{
-						Epoch:  3,
-						SeqNo:  1,
-						Digest: []byte("fake-digest"),
-						Proposals: []*pb.Request{
-							{
-								Digest: uint64ToBytes(7),
+						QEntry: &pb.QEntry{
+							Epoch:  3,
+							SeqNo:  1,
+							Digest: []byte("fake-digest"),
+							Proposals: []*pb.Request{
+								{
+									Digest: uint64ToBytes(7),
+								},
 							},
 						},
 					},
@@ -406,12 +408,14 @@ var _ = Describe("Integration", func() {
 
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Commit: []*pb.QEntry{
+				Commits: []*Commit{
 					{
-						Epoch:  3,
-						SeqNo:  4,
-						Digest: []byte("fake-digest"),
-						// TODO, broken
+						QEntry: &pb.QEntry{
+							Epoch:  3,
+							SeqNo:  4,
+							Digest: []byte("fake-digest"),
+							// TODO, broken
+						},
 					},
 				},
 			}))

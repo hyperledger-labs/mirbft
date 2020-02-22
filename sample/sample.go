@@ -41,40 +41,35 @@ type Log interface {
 type SerialCommitter struct {
 	Log                    Log
 	LastCommittedSeqNo     uint64
-	OutstandingSeqNos      map[uint64]*pb.QEntry
+	OutstandingSeqNos      map[uint64]*mirbft.Commit
 	OutstandingCheckpoints map[uint64]struct{}
 }
 
-func (sc *SerialCommitter) Commit(commits []*pb.QEntry, checkpoints []uint64) []*mirbft.CheckpointResult {
+func (sc *SerialCommitter) Commit(commits []*mirbft.Commit) []*mirbft.CheckpointResult {
 	for _, commit := range commits {
 		// Note, this pattern is easy to understand, but memory inefficient.
 		// A ring buffer of size equal to the log size would produce far less
 		// garbage.
-		sc.OutstandingSeqNos[commit.SeqNo] = commit
+		sc.OutstandingSeqNos[commit.QEntry.SeqNo] = commit
 	}
 
-	for _, checkpoint := range checkpoints {
-		sc.OutstandingCheckpoints[checkpoint] = struct{}{}
-	}
-
-	results := []*mirbft.CheckpointResult{}
+	var results []*mirbft.CheckpointResult
 
 	for currentSeqNo := sc.LastCommittedSeqNo + 1; len(sc.OutstandingSeqNos) > 0; currentSeqNo++ {
 		entry, ok := sc.OutstandingSeqNos[currentSeqNo]
 		if !ok {
 			break
 		}
-		sc.Log.Apply(entry) // Apply the entry
+		sc.Log.Apply(entry.QEntry) // Apply the entry
 		sc.LastCommittedSeqNo = currentSeqNo
 		delete(sc.OutstandingSeqNos, currentSeqNo)
 
-		if _, ok := sc.OutstandingCheckpoints[currentSeqNo]; ok {
+		if entry.Checkpoint {
 			value := sc.Log.Snap()
 			results = append(results, &mirbft.CheckpointResult{
 				SeqNo: sc.LastCommittedSeqNo,
 				Value: value,
 			})
-			delete(sc.OutstandingCheckpoints, currentSeqNo)
 		}
 	}
 
@@ -155,7 +150,7 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 		}
 	}
 
-	actionResults.Checkpoints = c.Committer.Commit(actions.Commit, actions.Checkpoint)
+	actionResults.Checkpoints = c.Committer.Commit(actions.Commits)
 
 	return actionResults
 }

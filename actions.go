@@ -43,16 +43,11 @@ type Actions struct {
 	// but with an older epoch may be discarded.
 	PEntries []*pb.PEntry
 
-	// Commit is a set of batches which have achieved final order and are ready to commit.
-	// They will have previously committed via QEntries.
-	Commit []*pb.QEntry
-
-	// Checkpoint is a set of sequence numbers for which all previous sequence numbers in
-	// all buckets have been sent to Commit.  It is the responsibility of the user to
-	// ensure that all commits up to and including (but not past) this sequence number
-	// have been applied.  For each Checkpoint in the list, it is the responsbility of
-	// the caller to AddResult with a CheckpointResult.
-	Checkpoint []uint64
+	// Commits is a set of batches which have achieved final order and are ready to commit.
+	// They will have previously persisted via QEntries.  When the user processes a commit,
+	// if that commit contains a checkpoint, the user must return a checkpoint result for
+	// this commit.  Checkpoints must be persisted before further commits are reported as applied.
+	Commits []*Commit
 }
 
 // Clear nils out all of the fields.
@@ -63,8 +58,7 @@ func (a *Actions) Clear() {
 	a.Process = nil
 	a.QEntries = nil
 	a.PEntries = nil
-	a.Commit = nil
-	a.Checkpoint = nil
+	a.Commits = nil
 }
 
 // IsEmpty returns whether every field is zero in length.
@@ -73,10 +67,9 @@ func (a *Actions) IsEmpty() bool {
 		len(a.Unicast) == 0 &&
 		len(a.Preprocess) == 0 &&
 		len(a.Process) == 0 &&
-		len(a.Commit) == 0 &&
+		len(a.Commits) == 0 &&
 		len(a.QEntries) == 0 &&
-		len(a.PEntries) == 0 &&
-		len(a.Checkpoint) == 0
+		len(a.PEntries) == 0
 }
 
 // Append takes a set of actions and for each field, appends it to
@@ -86,10 +79,9 @@ func (a *Actions) Append(o *Actions) {
 	a.Unicast = append(a.Unicast, o.Unicast...)
 	a.Preprocess = append(a.Preprocess, o.Preprocess...)
 	a.Process = append(a.Process, o.Process...)
-	a.Commit = append(a.Commit, o.Commit...)
+	a.Commits = append(a.Commits, o.Commits...)
 	a.QEntries = append(a.QEntries, o.QEntries...)
 	a.PEntries = append(a.PEntries, o.PEntries...)
-	a.Checkpoint = append(a.Checkpoint, o.Checkpoint...)
 }
 
 // Unicast is an action to send a message to a particular node.
@@ -101,6 +93,11 @@ type Unicast struct {
 type Request struct {
 	Source        uint64
 	ClientRequest *pb.RequestData
+}
+
+type Commit struct {
+	QEntry     *pb.QEntry
+	Checkpoint bool
 }
 
 // ActionResults should be populated by the caller as a result of

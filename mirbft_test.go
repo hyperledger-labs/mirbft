@@ -423,7 +423,7 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 			Hasher: func() hash.Hash { return &NoopHasher{} },
 			Committer: &sample.SerialCommitter{
 				Log:                    fakeLog,
-				OutstandingSeqNos:      map[uint64]*pb.QEntry{},
+				OutstandingSeqNos:      map[uint64]*mirbft.Commit{},
 				OutstandingCheckpoints: map[uint64]struct{}{},
 			},
 			DoneC: doneC,
