@@ -107,13 +107,13 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
 		initialSequence:   newEpochConfig.StartingCheckpoint.SeqNo + 1,
-		plannedExpiration: 100000000000, // XXX derive this from message
+		plannedExpiration: newEpochConfig.StartingCheckpoint.SeqNo + networkConfig.MaxEpochLength,
 		networkConfig:     networkConfig,
 		buckets:           map[BucketID]NodeID{},
 	}
 
-	for bucketID := range networkConfig.Nodes {
-		config.buckets[BucketID(bucketID)] = NodeID(newEpochConfig.Leaders[bucketID%len(newEpochConfig.Leaders)])
+	for i := 0; i < int(networkConfig.NumberOfBuckets); i++ {
+		config.buckets[BucketID(i)] = NodeID(newEpochConfig.Leaders[i%len(newEpochConfig.Leaders)])
 	}
 
 	checkpoints := make([]*checkpoint, 0, 3)

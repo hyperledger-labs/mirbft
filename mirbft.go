@@ -63,7 +63,6 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 		nodes = append(nodes, replica.ID)
 	}
 
-	f := (len(replicas) - 1) / 3
 	return &Node{
 		Config:   config,
 		Replicas: replicas,
@@ -71,8 +70,10 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 			newStateMachine(
 				&pb.NetworkConfig{
 					Nodes:              nodes,
-					F:                  int32(f),
+					F:                  int32((len(replicas) - 1) / 3),
 					CheckpointInterval: int32(5 * len(nodes)),
+					MaxEpochLength:     uint64(len(nodes)*5*10) * 100000,
+					NumberOfBuckets:    int32(len(nodes)),
 				},
 				config,
 			),

@@ -60,6 +60,8 @@ var _ = Describe("Integration", func() {
 				CheckpointInterval: 2,
 				F:                  0,
 				Nodes:              []uint64{0},
+				NumberOfBuckets:    1,
+				MaxEpochLength:     10,
 			}
 
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig)
@@ -255,6 +257,8 @@ var _ = Describe("Integration", func() {
 				CheckpointInterval: 5,
 				F:                  1,
 				Nodes:              []uint64{0, 1, 2, 3},
+				NumberOfBuckets:    4,
+				MaxEpochLength:     10,
 			}
 
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig)

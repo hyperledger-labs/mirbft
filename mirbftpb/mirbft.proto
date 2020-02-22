@@ -16,9 +16,27 @@ package mirbftpb;
 // the entire network.  It must be serialized and reflected in the state
 // snapshots and their corresponding checkpoint values.
 message NetworkConfig {
-	// Nodes represent the active nodeIDs in the network.
-	// The number of nodeIDs corresponds to the size of the network.
-	repeated uint64 nodes = 1;
+        // Nodes represent the active nodeIDs in the network.
+        // The number of nodeIDs corresponds to the size of the network.
+        repeated uint64 nodes = 1;
+
+        // CheckpointInterval is how often checkpoints are taken.  In terms of
+        // of sequence numbers, this is multiplied by the configured number of
+        // buckets, so that it scales naturally as the number of buckets increases
+        // or decreases.
+        int32 checkpoint_interval = 2;
+
+        // MaxEpochLength is the maximum number of sequence numbers which may preprepare
+        // in an epoch.  This is to force bucket rotation even when the system is otherwise
+        // in a healthy state.  Setting this value to uint64_max will effectively disable
+        // graceful epoch changes.
+        uint64 max_epoch_length = 3;
+
+        // NumberOfBuckets is the number of buckets the network is configured to operate over.
+        // Each bucket is a partition of the request space.  Typically, number of buckets should
+        // be nodes * m, where 'm' is some small constant.  Setting this value to 1 effectively
+        // reduces Mir to PBFT.
+        int32 number_of_buckets = 4;
 
         // F is the number of byzantine faults tolerated by the network.
         // It must be less than len(nodes)/3 (truncated).  The 'F' parameter
@@ -29,6 +47,7 @@ message NetworkConfig {
         // nodes F=1, and F=2 both provide crash tolerance of only 2 nodes.  The
         // following table summarizes the number of crash faults tolerated for
         // a given network of size N and number of byzantine faults tolerated F.
+        //
         //    |           F           |
         //    | 0 | 1 | 2 | 3 | 4 | 5 |
         // N --------------------------
@@ -49,30 +68,24 @@ message NetworkConfig {
         // 15 | 7 | 6 | 6 | 5 | 5 |   |
         // 16 | 7 | 7 | 6 | 6 | 5 | 5 |
         // 17 | 8 | 7 | 7 | 6 | 6 | 5 |
-        int32 f = 2;
-
-	// CheckpointInterval is how often checkpoints are taken.  In terms of
-	// of sequence numbers, this is multiplied by the configured number of
-	// buckets, so that it scales naturally as the number of buckets increases
-	// or decreases.
-	int32 checkpoint_interval = 3;
+        int32 f = 5;
 }
 
 // QEntry is an entry which must be persisted before a batch is Preprepared (ie,
 // before a Preprepare or Prepare message is sent).
 message QEntry {
-	uint64 epoch = 1;
-	uint64 seq_no = 2;
-	bytes digest = 3;
-	repeated Request requests = 4;
+        uint64 epoch = 1;
+        uint64 seq_no = 2;
+        bytes digest = 3;
+        repeated Request requests = 4;
 }
 
 // PEntry is an entry which must be persisted before a batch is Prepared (ie,
 // before a Commit message is sent).
 message PEntry {
-	uint64 epoch = 1;
-	uint64 seq_no = 2;
-	bytes digest = 3;
+        uint64 epoch = 1;
+        uint64 seq_no = 2;
+        bytes digest = 3;
 }
 
 message Msg {
