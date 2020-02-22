@@ -13,7 +13,7 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-var _ = PDescribe("sequence", func() {
+var _ = Describe("sequence", func() {
 	var (
 		s *sequence
 	)
@@ -29,6 +29,7 @@ var _ = PDescribe("sequence", func() {
 			},
 			epoch:    4,
 			seqNo:    5,
+			owner:    0,
 			prepares: map[string]map[NodeID]struct{}{},
 			commits:  map[string]map[NodeID]struct{}{},
 		}
@@ -39,10 +40,20 @@ var _ = PDescribe("sequence", func() {
 			actions := s.allocate(
 				[]*request{
 					{
-						//TODO, []byte("msg1"),
+						digest: []byte("msg1-digest"),
+						requestData: &pb.RequestData{
+							ClientId: []byte("client-id"),
+							ReqNo:    7,
+							Data:     []byte("msg1"),
+						},
 					},
 					{
-						//TODO, []byte("msg2"),
+						digest: []byte("msg2-digest"),
+						requestData: &pb.RequestData{
+							ClientId: []byte("client-id"),
+							ReqNo:    8,
+							Data:     []byte("msg2"),
+						},
 					},
 				},
 			)
@@ -50,22 +61,54 @@ var _ = PDescribe("sequence", func() {
 			Expect(actions).To(Equal(&Actions{
 				Process: []*Batch{
 					{
-						SeqNo: 5,
-						Epoch: 4,
-						// TODO, broken
-						// Proposals: [][]byte{
-						// []byte("msg1"),
-						// []byte("msg2"),
-						// },
+						Source: 0,
+						SeqNo:  5,
+						Epoch:  4,
+						Requests: []*PreprocessResult{
+							{
+								Digest: []byte("msg1-digest"),
+								RequestData: &pb.RequestData{
+									ClientId: []byte("client-id"),
+									ReqNo:    7,
+									Data:     []byte("msg1"),
+								},
+							},
+							{
+								Digest: []byte("msg2-digest"),
+								RequestData: &pb.RequestData{
+									ClientId: []byte("client-id"),
+									ReqNo:    8,
+									Data:     []byte("msg2"),
+								},
+							},
+						},
 					},
 				},
 			}))
 
 			Expect(s.state).To(Equal(Allocated))
 			Expect(s.batch).To(Equal(
-				[][]byte{
-					[]byte("msg1"),
-					[]byte("msg2"),
+				[]*request{
+					{
+						state:  Allocated,
+						seqNo:  5,
+						digest: []byte("msg1-digest"),
+						requestData: &pb.RequestData{
+							ClientId: []byte("client-id"),
+							ReqNo:    7,
+							Data:     []byte("msg1"),
+						},
+					},
+					{
+						state:  Allocated,
+						seqNo:  5,
+						digest: []byte("msg2-digest"),
+						requestData: &pb.RequestData{
+							ClientId: []byte("client-id"),
+							ReqNo:    8,
+							Data:     []byte("msg2"),
+						},
+					},
 				},
 			))
 		})
@@ -79,9 +122,22 @@ var _ = PDescribe("sequence", func() {
 				badTransition := func() {
 					s.allocate(
 						[]*request{
-							// TODO, broken
-							// []byte("msg1"),
-							// []byte("msg2"),
+							{
+								digest: []byte("msg1-digest"),
+								requestData: &pb.RequestData{
+									ClientId: []byte("client-id"),
+									ReqNo:    7,
+									Data:     []byte("msg1"),
+								},
+							},
+							{
+								digest: []byte("msg2-digest"),
+								requestData: &pb.RequestData{
+									ClientId: []byte("client-id"),
+									ReqNo:    8,
+									Data:     []byte("msg2"),
+								},
+							},
 						},
 					)
 				}
@@ -95,9 +151,26 @@ var _ = PDescribe("sequence", func() {
 		BeforeEach(func() {
 			s.state = Allocated
 			s.batch = []*request{
-				// TODO, broken
-				// []byte("msg1"),
-				// []byte("msg2"),
+				{
+					state:  Allocated,
+					seqNo:  5,
+					digest: []byte("msg1-digest"),
+					requestData: &pb.RequestData{
+						ClientId: []byte("client-id"),
+						ReqNo:    7,
+						Data:     []byte("msg1"),
+					},
+				},
+				{
+					state:  Allocated,
+					seqNo:  5,
+					digest: []byte("msg2-digest"),
+					requestData: &pb.RequestData{
+						ClientId: []byte("client-id"),
+						ReqNo:    8,
+						Data:     []byte("msg2"),
+					},
+				},
 			}
 		})
 
@@ -120,11 +193,18 @@ var _ = PDescribe("sequence", func() {
 						SeqNo:  5,
 						Epoch:  4,
 						Digest: []byte("digest"),
-						// TODO, broken
-						// Proposals: [][]byte{
-						// []byte("msg1"),
-						// []byte("msg2"),
-						// },
+						Requests: []*pb.Request{
+							{
+								ClientId: []byte("client-id"),
+								ReqNo:    7,
+								Digest:   []byte("msg1-digest"),
+							},
+							{
+								ClientId: []byte("client-id"),
+								ReqNo:    8,
+								Digest:   []byte("msg2-digest"),
+							},
+						},
 					},
 				},
 			}))
@@ -134,11 +214,18 @@ var _ = PDescribe("sequence", func() {
 				SeqNo:  5,
 				Epoch:  4,
 				Digest: []byte("digest"),
-				// TODO, broken
-				// Proposals: [][]byte{
-				// []byte("msg1"),
-				// []byte("msg2"),
-				// },
+				Requests: []*pb.Request{
+					{
+						ClientId: []byte("client-id"),
+						ReqNo:    7,
+						Digest:   []byte("msg1-digest"),
+					},
+					{
+						ClientId: []byte("client-id"),
+						ReqNo:    8,
+						Digest:   []byte("msg2-digest"),
+					},
+				},
 			}))
 
 		})
@@ -167,11 +254,18 @@ var _ = PDescribe("sequence", func() {
 					SeqNo:  5,
 					Epoch:  4,
 					Digest: []byte("digest"),
-					// TODO, broken
-					// Proposals: [][]byte{
-					// []byte("msg1"),
-					// []byte("msg2"),
-					// },
+					Requests: []*pb.Request{
+						{
+							ClientId: []byte("client-id"),
+							ReqNo:    7,
+							Digest:   []byte("msg1-digest"),
+						},
+						{
+							ClientId: []byte("client-id"),
+							ReqNo:    8,
+							Digest:   []byte("msg2-digest"),
+						},
+					},
 				}))
 			})
 		})
