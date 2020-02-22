@@ -13,7 +13,7 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-var _ = Describe("sequence", func() {
+var _ = PDescribe("sequence", func() {
 	var (
 		s *sequence
 	)

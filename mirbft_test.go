@@ -216,7 +216,7 @@ func BytesToUint64(value []byte) uint64 {
 	return binary.LittleEndian.Uint64(value)
 }
 
-var _ = FDescribe("MirBFT", func() {
+var _ = Describe("MirBFT", func() {
 	var (
 		doneC     chan struct{}
 		logger    *zap.Logger

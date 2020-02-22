@@ -75,11 +75,25 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Broadcast: []*pb.Msg{
+					{
+						Type: &pb.Msg_Forward{
+							Forward: &pb.Forward{
+								RequestData: &pb.RequestData{
+									ClientId: uint64ToBytes(0),
+									ReqNo:    1,
+									Data:     []byte("data"),
+								},
+							},
+						},
+					},
+				},
 				Preprocess: []*Request{
 					{
 						Source: 0,
 						ClientRequest: &pb.RequestData{
 							ClientId: uint64ToBytes(0),
+							ReqNo:    1,
 							Data:     []byte("data"),
 						},
 					},
@@ -93,6 +107,7 @@ var _ = Describe("Integration", func() {
 						Digest: uint64ToBytes(7),
 						RequestData: &pb.RequestData{
 							ClientId: uint64ToBytes(0),
+							ReqNo:    1,
 							Data:     []byte("data"),
 						},
 					},
@@ -107,8 +122,10 @@ var _ = Describe("Integration", func() {
 						SeqNo: 1,
 						Requests: []*PreprocessResult{
 							{
+								Digest: uint64ToBytes(7),
 								RequestData: &pb.RequestData{
 									ClientId: uint64ToBytes(0),
+									ReqNo:    1,
 									Data:     []byte("data"),
 								},
 							},
@@ -148,8 +165,9 @@ var _ = Describe("Integration", func() {
 								SeqNo: 1,
 								Batch: []*pb.Request{
 									{
-										ReqNo:  0,
-										Digest: uint64ToBytes(7),
+										ClientId: uint64ToBytes(0),
+										ReqNo:    1,
+										Digest:   uint64ToBytes(7),
 									},
 								},
 							},
@@ -163,7 +181,9 @@ var _ = Describe("Integration", func() {
 						Digest: []byte("fake-digest"),
 						Proposals: []*pb.Request{
 							{
-								Digest: uint64ToBytes(7),
+								ClientId: uint64ToBytes(0),
+								ReqNo:    1,
+								Digest:   uint64ToBytes(7),
 							},
 						},
 					},
@@ -212,7 +232,9 @@ var _ = Describe("Integration", func() {
 							Digest: []byte("fake-digest"),
 							Proposals: []*pb.Request{
 								{
-									Digest: uint64ToBytes(7),
+									ClientId: uint64ToBytes(0),
+									ReqNo:    1,
+									Digest:   uint64ToBytes(7),
 								},
 							},
 						},
@@ -253,11 +275,25 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Broadcast: []*pb.Msg{
+					{
+						Type: &pb.Msg_Forward{
+							Forward: &pb.Forward{
+								RequestData: &pb.RequestData{
+									ClientId: uint64ToBytes(0),
+									ReqNo:    1,
+									Data:     []byte("data"),
+								},
+							},
+						},
+					},
+				},
 				Preprocess: []*Request{
 					{
 						Source: 0,
 						ClientRequest: &pb.RequestData{
 							ClientId: uint64ToBytes(0),
+							ReqNo:    1,
 							Data:     []byte("data"),
 						},
 					},
@@ -271,29 +307,12 @@ var _ = Describe("Integration", func() {
 						Digest: uint64ToBytes(7),
 						RequestData: &pb.RequestData{
 							ClientId: uint64ToBytes(0),
+							ReqNo:    1,
 							Data:     []byte("data"),
 						},
 					},
 				},
 			}
-			Eventually(serializer.actionsC).Should(Receive(actions))
-			Expect(actions).To(Equal(&Actions{
-				Unicast: []Unicast{
-					{
-						Target: 3,
-						Msg: &pb.Msg{
-							Type: &pb.Msg_Forward{
-								Forward: &pb.Forward{
-									RequestData: &pb.RequestData{
-										ReqNo: 3,
-										Data:  []byte("data"),
-									},
-								},
-							},
-						},
-					},
-				},
-			}))
 
 			By("faking a preprepare from the leader")
 			serializer.stepC <- step{
@@ -303,7 +322,13 @@ var _ = Describe("Integration", func() {
 						Preprepare: &pb.Preprepare{
 							Epoch: 3,
 							SeqNo: 4,
-							// TODO, broken
+							Batch: []*pb.Request{
+								{
+									ClientId: uint64ToBytes(0),
+									ReqNo:    1,
+									Digest:   uint64ToBytes(7),
+								},
+							},
 						},
 					},
 				},
@@ -315,7 +340,16 @@ var _ = Describe("Integration", func() {
 						Source: 3,
 						Epoch:  3,
 						SeqNo:  4,
-						// TODO, broken
+						Requests: []*PreprocessResult{
+							{
+								Digest: uint64ToBytes(7),
+								RequestData: &pb.RequestData{
+									ClientId: uint64ToBytes(0),
+									ReqNo:    1,
+									Data:     []byte("data"),
+								},
+							},
+						},
 					},
 				},
 			}))
@@ -327,10 +361,18 @@ var _ = Describe("Integration", func() {
 						Batch: &Batch{
 							Epoch: 3,
 							SeqNo: 4,
-							// TODO, broken
+							Requests: []*PreprocessResult{
+								{
+									Digest: uint64ToBytes(7),
+									RequestData: &pb.RequestData{
+										ClientId: uint64ToBytes(0),
+										ReqNo:    1,
+										Data:     []byte("data"),
+									},
+								},
+							},
 						},
-						Digest:  []byte("fake-digest"),
-						Invalid: false,
+						Digest: []byte("fake-digest"),
 					},
 				},
 			}
@@ -352,7 +394,13 @@ var _ = Describe("Integration", func() {
 						Epoch:  3,
 						SeqNo:  4,
 						Digest: []byte("fake-digest"),
-						// TODO, broken
+						Proposals: []*pb.Request{
+							{
+								ClientId: uint64ToBytes(0),
+								ReqNo:    1,
+								Digest:   uint64ToBytes(7),
+							},
+						},
 					},
 				},
 			}))
@@ -414,7 +462,13 @@ var _ = Describe("Integration", func() {
 							Epoch:  3,
 							SeqNo:  4,
 							Digest: []byte("fake-digest"),
-							// TODO, broken
+							Proposals: []*pb.Request{
+								{
+									ClientId: uint64ToBytes(0),
+									ReqNo:    1,
+									Digest:   uint64ToBytes(7),
+								},
+							},
 						},
 					},
 				},
