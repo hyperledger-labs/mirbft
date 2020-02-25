@@ -135,13 +135,6 @@ func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {
 	}
 }
 
-type CheckpointStatus struct {
-	SeqNo         uint64
-	MaxAgreements int
-	NetQuorum     bool
-	LocalDecision bool
-}
-
 func (cw *checkpoint) status() *CheckpointStatus {
 	maxAgreements := 0
 	for _, nodes := range cw.values {

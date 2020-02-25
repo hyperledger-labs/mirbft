@@ -107,12 +107,6 @@ func (rw *requestWindow) request(reqNo uint64) *request {
 	return rw.requests[offset]
 }
 
-type RequestWindowStatus struct {
-	LowWatermark  uint64
-	HighWatermark uint64
-	Allocated     []uint64
-}
-
 func (rw *requestWindow) status() *RequestWindowStatus {
 	allocated := make([]uint64, len(rw.requests))
 	for i, request := range rw.requests {

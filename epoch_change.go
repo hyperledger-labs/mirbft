@@ -683,14 +683,6 @@ func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epoc
 	return newEpochConfig
 }
 
-type EpochTargetStatus struct {
-	Number       uint64
-	EpochChanges []uint64
-	Echos        []uint64
-	Readies      []uint64
-	Suspicions   []uint64
-}
-
 func (et *epochTarget) status() *EpochTargetStatus {
 	status := &EpochTargetStatus{
 		EpochChanges: make([]uint64, 0, len(et.changes)),
@@ -733,12 +725,6 @@ func (et *epochTarget) status() *EpochTargetStatus {
 	})
 
 	return status
-}
-
-type EpochChangerStatus struct {
-	State           epochChangeState
-	LastActiveEpoch uint64
-	EpochTargets    []*EpochTargetStatus
 }
 
 func (ec *epochChanger) status() *EpochChangerStatus {

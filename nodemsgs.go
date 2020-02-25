@@ -311,19 +311,6 @@ func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
 	}
 }
 
-type NodeStatus struct {
-	ID             uint64
-	BucketStatuses []NodeBucketStatus
-	LastCheckpoint uint64
-}
-
-type NodeBucketStatus struct {
-	BucketID    int
-	IsLeader    bool
-	LastPrepare uint64
-	LastCommit  uint64
-}
-
 func (n *nodeMsgs) status() *NodeStatus {
 	if n.epochMsgs == nil {
 		return &NodeStatus{
