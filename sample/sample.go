@@ -8,10 +8,7 @@ package sample
 
 import (
 	"context"
-	"fmt"
 	"hash"
-	"runtime/debug"
-	"time"
 
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -87,22 +84,6 @@ type SerialProcessor struct {
 }
 
 func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults {
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Printf("\n\n!!! Recovered from crash: %v \nPrinting state machine status\n", r)
-			debug.PrintStack()
-			ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
-			defer cancel()
-			status, err := c.Node.Status(ctx)
-			if err != nil {
-				fmt.Printf("Could not get status: %s", err)
-			} else {
-				fmt.Printf("\n%s\n", status.Pretty())
-			}
-			panic(r)
-		}
-	}()
-
 	actionResults := &mirbft.ActionResults{
 		Preprocessed: make([]*mirbft.PreprocessResult, len(actions.Preprocess)),
 		Processed:    make([]*mirbft.ProcessResult, len(actions.Process)),

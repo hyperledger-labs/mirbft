@@ -85,15 +85,17 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 // Propose injects a new message into the system.  The message may be
 // forwarded to another node after pre-processing for ordering.  This method
 // only returns an error if the context ends, or the node is stopped.
-// In the case that the node is stopped it returns ErrStopped.
+// In the case that the node is stopped gracefully it returns ErrStopped.
 func (n *Node) Propose(ctx context.Context, data []byte) error {
 	select {
 	case n.s.propC <- data:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-n.s.doneC:
-		return ErrStopped
+	case <-n.s.errC:
+		n.s.exitMutex.Lock()
+		defer n.s.exitMutex.Unlock()
+		return n.s.exitErr
 	}
 }
 
@@ -101,7 +103,7 @@ func (n *Node) Propose(ctx context.Context, data []byte) error {
 // is the responsibility of the caller to ensure that the message originated from
 // the designed source.  This method returns an error if the context ends, the node
 // stopped, or the message is not well formed (unknown proto fields, etc.).  In the
-// case that the node is stopped, it returns ErrStopped.
+// case that the node is stopped gracefully, it returns ErrStopped.
 func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 	err := preProcess(msg)
 	if err != nil {
@@ -113,16 +115,20 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-n.s.doneC:
-		return ErrStopped
+	case <-n.s.errC:
+		n.s.exitMutex.Lock()
+		defer n.s.exitMutex.Unlock()
+		return n.s.exitErr
 	}
 }
 
 // Status returns a static snapshot in time of the internal state of the state machine.
 // This method necessarily exposes some of the internal architecture of the system, and
 // especially while the library is in development, the data structures may change substantially.
-// This method only returns an error if the context ends, or the node is stopped.
-// In the case that the node is stopped, it returns ErrStopped.
+// This method returns a nil status and an error if the context ends.  If the serializer go routine
+// exits for any other reason, then a best effort is made to return the last (and final) status.
+// This final status may be relied upon if it is non-nil.  If the serializer exited at the user's
+// request (because the done channel was closed), then ErrStopped is returned.
 func (n *Node) Status(ctx context.Context) (*Status, error) {
 	statusC := make(chan *Status, 1)
 
@@ -133,12 +139,17 @@ func (n *Node) Status(ctx context.Context) (*Status, error) {
 		select {
 		case status := <-statusC:
 			return status, nil
-		case <-n.s.doneC:
-			return nil, ErrStopped
+		case <-n.s.errC:
 		}
-	case <-n.s.doneC:
-		return nil, ErrStopped
+	case <-n.s.errC:
+		// Note, we do not check the doneC, as if doneC closes, errC eventually closes
 	}
+
+	// The serializer has exited
+	n.s.exitMutex.Lock()
+	defer n.s.exitMutex.Unlock()
+
+	return n.s.exitStatus, n.s.exitErr
 }
 
 // Ready returns a channel which will deliver Actions for the user to perform.
@@ -148,12 +159,31 @@ func (n *Node) Ready() <-chan Actions {
 	return n.s.actionsC
 }
 
+// Err should never close unless the consumer has requested the library exit
+// by closing the doneC supplied at construction time.  However, if unforeseen
+// programatic errors violate the safety of the state machine, rather than panic
+// the library will close this channel, and set an exit status.  The consumer may
+// wish to call Status() to get the cause of the exit, and a best effort exit status.
+// If the exit was caused gracefully (by closing the done channel), then ErrStopped
+// is returned.
+func (n *Node) Err() <-chan struct{} {
+	return n.s.errC
+}
+
 // Tick injects a tick into the state machine.  Ticks inform the state machine that
 // time has elapsed, and cause it to perform operations like emit no-op heartbeat
 // batches, or transition into an epoch change.  Typically, a time.Ticker is used
-// and selected on in the same select statement as Ready().
-func (n *Node) Tick() {
-	n.s.tickC <- struct{}{}
+// and selected on in the same select statement as Ready().  An error is returned
+// only if the state machine has stopped (if it was stopped gracefully, ErrStopped is returned).
+func (n *Node) Tick() error {
+	select {
+	case n.s.tickC <- struct{}{}:
+		return nil
+	case <-n.s.errC:
+		n.s.exitMutex.Lock()
+		defer n.s.exitMutex.Unlock()
+		return n.s.exitErr
+	}
 }
 
 // AddResults is a callback from the consumer to the state machine, informing the
@@ -164,7 +194,9 @@ func (n *Node) AddResults(results ActionResults) error {
 	select {
 	case n.s.resultsC <- results:
 		return nil
-	case <-n.s.doneC:
-		return ErrStopped
+	case <-n.s.errC:
+		n.s.exitMutex.Lock()
+		defer n.s.exitMutex.Unlock()
+		return n.s.exitErr
 	}
 }

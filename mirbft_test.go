@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash"
 	"sort"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -221,6 +222,7 @@ var _ = Describe("MirBFT", func() {
 		doneC     chan struct{}
 		logger    *zap.Logger
 		proposals map[string]uint64
+		wg        sync.WaitGroup
 
 		network *Network
 	)
@@ -237,14 +239,50 @@ var _ = Describe("MirBFT", func() {
 	})
 
 	AfterEach(func() {
-		logger.Sync()
 		close(doneC)
+		logger.Sync()
+		wg.Wait()
+
+		if CurrentGinkgoTestDescription().Failed {
+			fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
+			Expect(network).NotTo(BeNil())
+
+			for nodeIndex, node := range network.nodes {
+				status, err := node.Status(context.Background())
+				if err != nil {
+					fmt.Printf("Could not get status for node %d: %s", nodeIndex, err)
+				} else {
+					fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
+				}
+				fmt.Printf("\nFakeLog has %d messages\n", len(network.fakeLogs[nodeIndex].Entries))
+
+				if len(proposals) > len(network.fakeLogs[nodeIndex].Entries)+10 {
+					fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(network.fakeLogs[nodeIndex].Entries))
+				} else if len(proposals) > len(network.fakeLogs[nodeIndex].Entries) {
+					entries := map[string]struct{}{}
+					for _, entry := range network.fakeLogs[0].Entries {
+						entries[string(entry.Requests[0].Digest)] = struct{}{}
+					}
+
+					var missing []uint64
+					for proposalKey, proposalUint := range proposals {
+						if _, ok := entries[proposalKey]; !ok {
+							missing = append(missing, proposalUint)
+						}
+					}
+					sort.Slice(missing, func(i, j int) bool {
+						return missing[i] < missing[j]
+					})
+					fmt.Printf("Missing entries for %v\n", missing)
+				}
+			}
+		}
 	})
 
 	DescribeTable("commits all messages", func(testConfig *TestConfig) {
 		network = CreateNetwork(testConfig, logger, doneC)
 
-		network.GoRunNetwork(doneC)
+		network.GoRunNetwork(doneC, &wg)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -321,46 +359,6 @@ var _ = Describe("MirBFT", func() {
 			},
 		}),
 	)
-
-	JustAfterEach(func() {
-		if CurrentGinkgoTestDescription().Failed {
-			fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
-			ctx, cancel := context.WithTimeout(context.TODO(), 50*time.Millisecond)
-			defer cancel()
-
-			Expect(network).NotTo(BeNil())
-
-			for nodeIndex, node := range network.nodes {
-				status, err := node.Status(ctx)
-				if err != nil {
-					fmt.Printf("Could not get status for node %d: %s", nodeIndex, err)
-				} else {
-					fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
-				}
-				fmt.Printf("\nFakeLog has %d messages\n", len(network.fakeLogs[nodeIndex].Entries))
-
-				if len(proposals) > len(network.fakeLogs[nodeIndex].Entries)+10 {
-					fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(network.fakeLogs[nodeIndex].Entries))
-				} else if len(proposals) > len(network.fakeLogs[nodeIndex].Entries) {
-					entries := map[string]struct{}{}
-					for _, entry := range network.fakeLogs[0].Entries {
-						entries[string(entry.Requests[0].Digest)] = struct{}{}
-					}
-
-					var missing []uint64
-					for proposalKey, proposalUint := range proposals {
-						if _, ok := entries[proposalKey]; !ok {
-							missing = append(missing, proposalUint)
-						}
-					}
-					sort.Slice(missing, func(i, j int) bool {
-						return missing[i] < missing[j]
-					})
-					fmt.Printf("Missing entries for %v\n", missing)
-				}
-			}
-		}
-	})
 })
 
 type Network struct {
@@ -438,10 +436,12 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 	}
 }
 
-func (n *Network) GoRunNetwork(doneC <-chan struct{}) {
+func (n *Network) GoRunNetwork(doneC <-chan struct{}, wg *sync.WaitGroup) {
+	wg.Add(len(n.nodes))
 	for i := range n.nodes {
 		go func(i int, doneC <-chan struct{}) {
 			defer GinkgoRecover()
+			defer wg.Done()
 
 			ticker := time.NewTicker(5 * time.Millisecond)
 			defer ticker.Stop()
@@ -451,7 +451,9 @@ func (n *Network) GoRunNetwork(doneC <-chan struct{}) {
 				case actions := <-n.nodes[i].Ready():
 					results := n.processors[i].Process(&actions)
 					n.nodes[i].AddResults(*results)
-				case <-doneC:
+				case <-n.nodes[i].Err():
+					_, err := n.nodes[i].Status(context.Background())
+					Expect(err).To(MatchError(mirbft.ErrStopped))
 					return
 				case <-ticker.C:
 					n.nodes[i].Tick()

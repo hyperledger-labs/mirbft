@@ -7,9 +7,11 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	"fmt"
+	"sync"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+
+	"github.com/pkg/errors"
 	// "go.uber.org/zap"
 )
 
@@ -28,7 +30,11 @@ type serializer struct {
 	statusC  chan chan<- *Status
 	stepC    chan step
 	tickC    chan struct{}
+	errC     chan struct{}
 
+	exitMutex    sync.Mutex
+	exitErr      error
+	exitStatus   *Status
 	stateMachine *stateMachine
 }
 
@@ -41,6 +47,7 @@ func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serialize
 		statusC:      make(chan chan<- *Status),
 		stepC:        make(chan step),
 		tickC:        make(chan struct{}),
+		errC:         make(chan struct{}),
 		stateMachine: stateMachine,
 	}
 	go s.run()
@@ -51,10 +58,19 @@ func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serialize
 // of other go routines.
 func (s *serializer) run() {
 	defer func() {
+		s.exitMutex.Lock()
+		defer s.exitMutex.Unlock()
+		close(s.errC)
 		if r := recover(); r != nil {
-			fmt.Println(s.stateMachine.status().Pretty())
-			panic(r)
+			if err, ok := r.(error); ok {
+				s.exitErr = errors.WithMessage(err, "serializer caught panic")
+			} else {
+				s.exitErr = errors.Errorf("panic in statemachine: %v", r)
+			}
+		} else {
+			s.exitErr = ErrStopped
 		}
+		s.exitStatus = s.stateMachine.status()
 	}()
 
 	actions := &Actions{}
