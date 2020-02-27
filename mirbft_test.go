@@ -424,7 +424,6 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 				OutstandingSeqNos:      map[uint64]*mirbft.Commit{},
 				OutstandingCheckpoints: map[uint64]struct{}{},
 			},
-			DoneC: doneC,
 		}
 
 	}

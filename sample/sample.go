@@ -79,8 +79,6 @@ type SerialProcessor struct {
 	Hasher    Hasher
 	Committer *SerialCommitter
 	Node      *mirbft.Node
-	PauseC    chan struct{}
-	DoneC     <-chan struct{}
 }
 
 func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults {
