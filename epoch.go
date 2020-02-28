@@ -428,7 +428,7 @@ func (e *epoch) tick() *Actions {
 				},
 			}
 		}
-		return &Actions{}
+		return actions
 	} else {
 		e.ticksSinceProgress = 0
 		e.lastCommittedAtTick = e.sequences[e.lowestUncommitted].seqNo - 1
