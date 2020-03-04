@@ -369,11 +369,8 @@ type Network struct {
 
 func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
 	nodes := make([]*mirbft.Node, testConfig.NodeCount)
-	replicas := make([]mirbft.Replica, testConfig.NodeCount)
 
-	for i := range replicas {
-		replicas[i] = mirbft.Replica{ID: uint64(i)}
-	}
+	networkConfig := mirbft.StandardInitialNetworkConfig(testConfig.NodeCount)
 
 	for i := range nodes {
 		config := &mirbft.Config{
@@ -386,7 +383,7 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 			NewEpochTimeoutTicks: 8,
 		}
 
-		node, err := mirbft.StartNewNode(config, doneC, replicas)
+		node, err := mirbft.StartNewNode(config, doneC, networkConfig)
 		Expect(err).NotTo(HaveOccurred())
 		nodes[i] = node
 	}

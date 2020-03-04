@@ -54,13 +54,29 @@ type Node struct {
 	Replicas []Replica
 }
 
+func StandardInitialNetworkConfig(nodeCount int) *pb.NetworkConfig {
+	nodes := []uint64{}
+	for i := 0; i < nodeCount; i++ {
+		nodes = append(nodes, uint64(i))
+	}
+	return &pb.NetworkConfig{
+		Nodes:              nodes,
+		F:                  int32((nodeCount - 1) / 3),
+		CheckpointInterval: int32(5 * nodeCount),
+		MaxEpochLength:     uint64(nodeCount*5*10) * 100000,
+		NumberOfBuckets:    int32(nodeCount),
+	}
+}
+
 // StartNewNode creates a node to join a fresh network.  Eventually, this method will either
 // be deprecated, or augmented with a RestartNode or similar.  For now, this method
 // hard codes many of the parameters, but more will be exposed in the future.
-func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*Node, error) {
-	nodes := []uint64{}
-	for _, replica := range replicas {
-		nodes = append(nodes, replica.ID)
+func StartNewNode(config *Config, doneC <-chan struct{}, initialNetworkConfig *pb.NetworkConfig) (*Node, error) {
+	replicas := make([]Replica, len(initialNetworkConfig.Nodes))
+	for i, node := range initialNetworkConfig.Nodes {
+		replicas[i] = Replica{
+			ID: node,
+		}
 	}
 
 	return &Node{
@@ -68,13 +84,7 @@ func StartNewNode(config *Config, doneC <-chan struct{}, replicas []Replica) (*N
 		Replicas: replicas,
 		s: newSerializer(
 			newStateMachine(
-				&pb.NetworkConfig{
-					Nodes:              nodes,
-					F:                  int32((len(replicas) - 1) / 3),
-					CheckpointInterval: int32(5 * len(nodes)),
-					MaxEpochLength:     uint64(len(nodes)*5*10) * 100000,
-					NumberOfBuckets:    int32(len(nodes)),
-				},
+				initialNetworkConfig,
 				config,
 			),
 			doneC,
