@@ -193,6 +193,7 @@ func (fl *FakeLog) Snap() []byte {
 
 type TestConfig struct {
 	NodeCount        int
+	BucketCount      int
 	MsgCount         int
 	Proposer         Proposer
 	TransportFilters []func(Transport) Transport
@@ -249,7 +250,7 @@ var _ = Describe("MirBFT", func() {
 
 			for nodeIndex, node := range network.nodes {
 				status, err := node.Status(context.Background())
-				if err != nil {
+				if err != nil && status == nil {
 					fmt.Printf("Could not get status for node %d: %s", nodeIndex, err)
 				} else {
 					fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
@@ -313,7 +314,9 @@ var _ = Describe("MirBFT", func() {
 
 				proposalUint, ok := proposals[string(entry.Requests[0].Digest)]
 				Expect(ok).To(BeTrue())
-				Expect(proposalUint % uint64(testConfig.NodeCount)).To(Equal((entry.SeqNo - 1) % uint64(testConfig.NodeCount)))
+				if testConfig.BucketCount == 0 {
+					Expect(proposalUint % uint64(testConfig.NodeCount)).To(Equal((entry.SeqNo - 1) % uint64(testConfig.NodeCount)))
+				}
 
 				_, ok = observations[proposalUint]
 				Expect(ok).To(BeFalse())
@@ -348,6 +351,16 @@ var _ = Describe("MirBFT", func() {
 			},
 		}),
 
+		Entry("FourNodeBFT single bucket greenpath", &TestConfig{
+			NodeCount:   4,
+			BucketCount: 1,
+			MsgCount:    1000,
+			Proposer:    LinearProposer{},
+			Expectations: TestExpectations{
+				Epoch: Uint64ToPtr(0),
+			},
+		}),
+
 		Entry("FourNodeBFT with silenced node3", &TestConfig{
 			NodeCount: 4,
 			MsgCount:  1000,
@@ -371,6 +384,10 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 	nodes := make([]*mirbft.Node, testConfig.NodeCount)
 
 	networkConfig := mirbft.StandardInitialNetworkConfig(testConfig.NodeCount)
+
+	if testConfig.BucketCount != 0 {
+		networkConfig.NumberOfBuckets = int32(testConfig.BucketCount)
+	}
 
 	for i := range nodes {
 		config := &mirbft.Config{
