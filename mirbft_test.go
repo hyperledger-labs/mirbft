@@ -456,7 +456,11 @@ func (n *Network) GoRunNetwork(doneC <-chan struct{}, wg *sync.WaitGroup) {
 			defer GinkgoRecover()
 			defer wg.Done()
 
-			ticker := time.NewTicker(5 * time.Millisecond)
+			// TODO, these tests are flaky, and non-deterministic.
+			// they need to be re-written onto a single thread with determinism
+			// and the crazy high-stress non-deterministic ones moved to
+			// a test requiring fewer constraints on the results.
+			ticker := time.NewTicker(10 * time.Millisecond)
 			defer ticker.Stop()
 
 			for {

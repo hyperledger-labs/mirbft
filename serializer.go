@@ -63,7 +63,7 @@ func (s *serializer) run() {
 		close(s.errC)
 		if r := recover(); r != nil {
 			if err, ok := r.(error); ok {
-				s.exitErr = errors.WithMessage(err, "serializer caught panic")
+				s.exitErr = errors.Wrapf(err, "serializer caught panic")
 			} else {
 				s.exitErr = errors.Errorf("panic in statemachine: %v", r)
 			}
@@ -77,12 +77,6 @@ func (s *serializer) run() {
 	var actionsC chan<- Actions
 	var propC <-chan []byte
 	for {
-		if actions.IsEmpty() {
-			actionsC = nil
-		} else {
-			actionsC = s.actionsC
-		}
-
 		if s.stateMachine.requestWindows[string(uint64ToBytes(s.stateMachine.myConfig.ID))].hasRoomToAllocate() {
 			propC = s.propC
 		} else {
@@ -100,6 +94,8 @@ func (s *serializer) run() {
 		case actionsC <- *actions:
 			// s.stateMachine.myConfig.Logger.Debug("serializer sent actions")
 			actions.Clear()
+			actionsC = nil
+			continue
 		case results := <-s.resultsC:
 			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "results"))
 			actions.Append(s.stateMachine.processResults(results))
@@ -116,5 +112,15 @@ func (s *serializer) run() {
 			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "done"))
 			return
 		}
+
+		// We unconditionally re-enable the actions channel after any event is injected into the system
+		// which will mean some zero-length actions get sent to the consumer.  This isn't optimal,
+		// but, I've convinced myself that's okay for a couple reasons:
+		// 1) Under stress, processing the actions will take enough time for the actions channel to
+		// become available again anyway.
+		// 2) For tests and visualizations, it's very nice being able to guarantee that we have
+		// the latest set of actions (in the other model, it's unclear whether a call to the actions
+		// channel will ever unblock.
+		actionsC = s.actionsC
 	}
 }

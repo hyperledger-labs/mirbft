@@ -81,12 +81,11 @@ type SerialProcessor struct {
 	Node      *mirbft.Node
 }
 
-func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults {
-	actionResults := &mirbft.ActionResults{
-		Preprocessed: make([]*mirbft.PreprocessResult, len(actions.Preprocess)),
-		Processed:    make([]*mirbft.ProcessResult, len(actions.Process)),
-	}
+func (c *SerialProcessor) Persist(actions *mirbft.Actions) {
+	// TODO we need to persist the PSet, QSet, and some others here
+}
 
+func (c *SerialProcessor) Transmit(actions *mirbft.Actions) {
 	for _, broadcast := range actions.Broadcast {
 		for _, replica := range c.Node.Replicas {
 			if replica.ID == c.Node.Config.ID {
@@ -99,6 +98,13 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 
 	for _, unicast := range actions.Unicast {
 		c.Link.Send(unicast.Target, unicast.Msg)
+	}
+}
+
+func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
+	actionResults := &mirbft.ActionResults{
+		Preprocessed: make([]*mirbft.PreprocessResult, len(actions.Preprocess)),
+		Processed:    make([]*mirbft.ProcessResult, len(actions.Process)),
 	}
 
 	for i, request := range actions.Preprocess {
@@ -131,6 +137,12 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 	actionResults.Checkpoints = c.Committer.Commit(actions.Commits)
 
 	return actionResults
+}
+
+func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults {
+	c.Persist(actions)
+	c.Transmit(actions)
+	return c.Apply(actions)
 }
 
 type FakeLink struct {
