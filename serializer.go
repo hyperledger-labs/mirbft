@@ -22,7 +22,7 @@ type step struct {
 
 type clientReq struct {
 	clientID []byte
-	replyC   chan *requestWaiter
+	replyC   chan *clientWaiter
 }
 
 // serializer provides a single threaded way to access the Mir state machine
@@ -88,17 +88,9 @@ func (s *serializer) run() {
 
 	actions := &Actions{}
 	var actionsC chan<- Actions
-	var propC <-chan *pb.RequestData
 	for {
-		if true { // XXX s.stateMachine.requestWindows[string(uint64ToBytes(s.stateMachine.myConfig.ID))].hasRoomToAllocate() {
-			propC = s.propC
-		} else {
-			propC = nil
-		}
-		// s.stateMachine.myConfig.Logger.Debug("serializer waiting for consumer", zap.Bool("actions", actionsC != nil))
-
 		select {
-		case data := <-propC:
+		case data := <-s.propC:
 			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "proposal"))
 			actions.Append(s.stateMachine.propose(data))
 		case req := <-s.clientC:

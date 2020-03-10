@@ -294,14 +294,14 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 	return actions
 }
 
-func (sm *stateMachine) clientWaiter(clientID []byte) *requestWaiter {
+func (sm *stateMachine) clientWaiter(clientID []byte) *clientWaiter {
 	clientWindow, ok := sm.clientWindows[string(clientID)]
 	if !ok {
 		clientWindow = newRequestWindow(1, 100)
 		sm.clientWindows[string(clientID)] = clientWindow
 	}
 
-	return clientWindow.requestWaiter
+	return clientWindow.clientWaiter
 }
 
 func (sm *stateMachine) tick() *Actions {

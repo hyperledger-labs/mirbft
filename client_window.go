@@ -23,10 +23,10 @@ type clientWindow struct {
 	lowWatermark  uint64
 	highWatermark uint64
 	requests      []*request
-	requestWaiter *requestWaiter // Used to throttle clients
+	clientWaiter  *clientWaiter // Used to throttle clients
 }
 
-type requestWaiter struct {
+type clientWaiter struct {
 	lowWatermark  uint64
 	highWatermark uint64
 	expired       chan struct{}
@@ -37,7 +37,7 @@ func newRequestWindow(lowWatermark, highWatermark uint64) *clientWindow {
 		lowWatermark:  lowWatermark,
 		highWatermark: highWatermark,
 		requests:      make([]*request, int(highWatermark-lowWatermark)+1),
-		requestWaiter: &requestWaiter{
+		clientWaiter: &clientWaiter{
 			lowWatermark:  lowWatermark,
 			highWatermark: highWatermark,
 			expired:       make(chan struct{}),
@@ -70,8 +70,8 @@ func (rw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	rw.lowWatermark += j
 	rw.highWatermark += j
 	rw.requests = newRequests
-	close(rw.requestWaiter.expired)
-	rw.requestWaiter = &requestWaiter{
+	close(rw.clientWaiter.expired)
+	rw.clientWaiter = &clientWaiter{
 		lowWatermark:  rw.lowWatermark,
 		highWatermark: rw.highWatermark,
 		expired:       make(chan struct{}),

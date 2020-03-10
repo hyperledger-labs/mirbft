@@ -55,6 +55,61 @@ type Node struct {
 	Replicas []Replica
 }
 
+type ClientProposer struct {
+	clientID     []byte
+	clientWaiter *clientWaiter
+	s            *serializer
+}
+
+func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.RequestData) error {
+	for {
+		if requestData.ReqNo < cp.clientWaiter.lowWatermark {
+			return errors.Errorf("request %d below watermarks, lowWatermark=%d", requestData.ReqNo, cp.clientWaiter.lowWatermark)
+		}
+
+		if requestData.ReqNo <= cp.clientWaiter.highWatermark {
+			break
+		}
+
+		select {
+		case <-cp.clientWaiter.expired:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-cp.s.errC:
+			return cp.s.getExitErr()
+		}
+
+		replyC := make(chan *clientWaiter, 1)
+		select {
+		case cp.s.clientC <- &clientReq{
+			clientID: requestData.ClientId,
+			replyC:   replyC,
+		}:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-cp.s.errC:
+			return cp.s.getExitErr()
+		}
+
+		select {
+		case cp.clientWaiter = <-replyC:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-cp.s.errC:
+			return cp.s.getExitErr()
+		}
+	}
+
+	select {
+	case cp.s.propC <- requestData:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-cp.s.errC:
+		return cp.s.getExitErr()
+	}
+}
+
 func StandardInitialNetworkConfig(nodeCount int) *pb.NetworkConfig {
 	nodes := []uint64{}
 	for i := 0; i < nodeCount; i++ {
@@ -93,60 +148,50 @@ func StartNewNode(config *Config, doneC <-chan struct{}, initialNetworkConfig *p
 	}, nil
 }
 
+// ClientProposer TODO, decide if we want this as external API.  It should be slightly less
+// expensive to retain the client proposer for clients who are submitting many txes at a time.
+// On the other hand, it's more API surface that we could always expose later.
+func (n *Node) ClientProposer(ctx context.Context, clientID []byte) (*ClientProposer, error) {
+	replyC := make(chan *clientWaiter, 1)
+	select {
+	case n.s.clientC <- &clientReq{
+		clientID: clientID,
+		replyC:   replyC,
+	}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-n.s.errC:
+		return nil, n.s.getExitErr()
+	}
+
+	var cw *clientWaiter
+
+	select {
+	case cw = <-replyC:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-n.s.errC:
+		return nil, n.s.getExitErr()
+	}
+
+	return &ClientProposer{
+		clientID:     clientID,
+		clientWaiter: cw,
+		s:            n.s,
+	}, nil
+}
+
 // Propose injects a new message into the system.  The message may be
 // forwarded to another node after pre-processing for ordering.  This method
 // only returns an error if the context ends, or the node is stopped.
 // In the case that the node is stopped gracefully it returns ErrStopped.
 func (n *Node) Propose(ctx context.Context, requestData *pb.RequestData) error {
-	for {
-		replyC := make(chan *requestWaiter, 1)
-		select {
-		case n.s.clientC <- &clientReq{
-			clientID: requestData.ClientId,
-			replyC:   replyC,
-		}:
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-n.s.errC:
-			return n.s.getExitErr()
-		}
-
-		var cw *requestWaiter
-
-		select {
-		case cw = <-replyC:
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-n.s.errC:
-			return n.s.getExitErr()
-		}
-
-		if cw.lowWatermark > requestData.ReqNo {
-			return errors.Errorf("request below watermarks, lowWatermark=%d", cw.lowWatermark)
-		}
-
-		if cw.highWatermark < requestData.ReqNo {
-			select {
-			case <-cw.expired:
-				continue
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-n.s.errC:
-				return n.s.getExitErr()
-			}
-		}
-
-		break
+	cp, err := n.ClientProposer(ctx, requestData.ClientId)
+	if err != nil {
+		return err
 	}
 
-	select {
-	case n.s.propC <- requestData:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-n.s.errC:
-		return n.s.getExitErr()
-	}
+	return cp.Propose(ctx, requestData)
 }
 
 // Step takes authenticated messages from the other nodes in the network.  It

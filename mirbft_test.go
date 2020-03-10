@@ -288,17 +288,31 @@ var _ = Describe("MirBFT", func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
+		n0Proposer, err := network.nodes[0].ClientProposer(ctx, []byte("fake-client"))
+		Expect(err).NotTo(HaveOccurred())
+
 		Expect(testConfig.MsgCount).NotTo(Equal(0))
 		for i := 0; i < testConfig.MsgCount; i++ {
-			// Unevenly propose across the nodes
-			node := network.nodes[i%2%testConfig.NodeCount]
 			proposalUint, proposalBytes := testConfig.Proposer.Proposal(testConfig.NodeCount, i)
-			err := node.Propose(ctx, &pb.RequestData{
-				ClientId: []byte("fake-client"),
-				ReqNo:    uint64(i) + 1,
-				Data:     proposalBytes,
-			})
-			Expect(err).NotTo(HaveOccurred())
+
+			// Unevenly propose across the nodes
+			nodeID := i % 2 % testConfig.NodeCount
+			if nodeID == 0 {
+				err := n0Proposer.Propose(ctx, &pb.RequestData{
+					ClientId: []byte("fake-client"),
+					ReqNo:    uint64(i) + 1,
+					Data:     proposalBytes,
+				})
+				Expect(err).NotTo(HaveOccurred())
+			} else {
+				node := network.nodes[i%2%testConfig.NodeCount]
+				err := node.Propose(ctx, &pb.RequestData{
+					ClientId: []byte("fake-client"),
+					ReqNo:    uint64(i) + 1,
+					Data:     proposalBytes,
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
 
 			proposalKey := string(proposalBytes)
 			Expect(proposals).NotTo(ContainElement(proposalKey))
