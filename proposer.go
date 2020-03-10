@@ -22,17 +22,17 @@ func bytesToUint64(value []byte) uint64 {
 }
 
 type proposer struct {
-	myConfig                *Config
-	requestWindowProcessors map[string]*requestWindowProcessor
-	requestWindows          map[string]*requestWindow
+	myConfig               *Config
+	clientWindowProcessors map[string]*clientWindowProcessor
+	clientWindows          map[string]*clientWindow
 
 	totalBuckets    int
 	proposalBuckets map[BucketID]*proposalBucket
 }
 
-type requestWindowProcessor struct {
+type clientWindowProcessor struct {
 	lastProcessed uint64
-	requestWindow *requestWindow
+	clientWindow  *clientWindow
 }
 
 type proposalBucket struct {
@@ -41,7 +41,7 @@ type proposalBucket struct {
 	pending   [][]*request
 }
 
-func newProposer(myConfig *Config, requestWindows map[string]*requestWindow, buckets map[BucketID]NodeID) *proposer {
+func newProposer(myConfig *Config, clientWindows map[string]*clientWindow, buckets map[BucketID]NodeID) *proposer {
 	proposalBuckets := map[BucketID]*proposalBucket{}
 	for bucketID, nodeID := range buckets {
 		if nodeID != NodeID(myConfig.ID) {
@@ -50,49 +50,49 @@ func newProposer(myConfig *Config, requestWindows map[string]*requestWindow, buc
 		proposalBuckets[bucketID] = &proposalBucket{}
 	}
 
-	requestWindowProcessors := map[string]*requestWindowProcessor{}
-	for clientID, requestWindow := range requestWindows {
-		rwp := &requestWindowProcessor{
-			lastProcessed: requestWindow.lowWatermark - 1,
-			requestWindow: requestWindow,
+	clientWindowProcessors := map[string]*clientWindowProcessor{}
+	for clientID, clientWindow := range clientWindows {
+		rwp := &clientWindowProcessor{
+			lastProcessed: clientWindow.lowWatermark - 1,
+			clientWindow:  clientWindow,
 		}
-		requestWindowProcessors[clientID] = rwp
+		clientWindowProcessors[clientID] = rwp
 	}
 
 	return &proposer{
-		myConfig:                myConfig,
-		requestWindowProcessors: requestWindowProcessors,
-		requestWindows:          requestWindows,
-		proposalBuckets:         proposalBuckets,
-		totalBuckets:            len(buckets),
+		myConfig:               myConfig,
+		clientWindowProcessors: clientWindowProcessors,
+		clientWindows:          clientWindows,
+		proposalBuckets:        proposalBuckets,
+		totalBuckets:           len(buckets),
 	}
 }
 
 func (p *proposer) stepAllRequestWindows() {
 	// TODO, this is kind of dumb to get a key from a map, and then
 	// look it up in the map again
-	for clientID := range p.requestWindowProcessors {
+	for clientID := range p.clientWindowProcessors {
 		p.stepRequestWindow(clientID)
 	}
 }
 
 func (p *proposer) stepRequestWindow(clientID string) {
-	rwp, ok := p.requestWindowProcessors[clientID]
+	rwp, ok := p.clientWindowProcessors[clientID]
 	if !ok {
-		rw, ok := p.requestWindows[clientID]
+		rw, ok := p.clientWindows[clientID]
 		if !ok {
 			panic(fmt.Sprintf("unexpected, missing client %x", []byte(clientID)))
 		}
 
-		rwp = &requestWindowProcessor{
+		rwp = &clientWindowProcessor{
 			lastProcessed: rw.lowWatermark - 1,
-			requestWindow: rw,
+			clientWindow:  rw,
 		}
-		p.requestWindowProcessors[clientID] = rwp
+		p.clientWindowProcessors[clientID] = rwp
 	}
 
-	for rwp.lastProcessed < rwp.requestWindow.highWatermark {
-		request := rwp.requestWindow.request(rwp.lastProcessed + 1)
+	for rwp.lastProcessed < rwp.clientWindow.highWatermark {
+		request := rwp.clientWindow.request(rwp.lastProcessed + 1)
 		if request == nil {
 			break
 		}

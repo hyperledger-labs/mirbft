@@ -28,15 +28,15 @@ type nodeMsgs struct {
 	epochMsgs      *epochMsgs
 	myConfig       *Config
 	networkConfig  *pb.NetworkConfig
-	requestWindows map[string]*requestWindow
+	clientWindows  map[string]*clientWindow
 	nextCheckpoint uint64
 }
 
 type epochMsgs struct {
-	myConfig       *Config
-	epochConfig    *epochConfig
-	epoch          *epoch
-	requestWindows map[string]*requestWindow
+	myConfig      *Config
+	epochConfig   *epochConfig
+	epoch         *epoch
+	clientWindows map[string]*clientWindow
 
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
@@ -49,7 +49,7 @@ type nextMsg struct {
 	commit  uint64
 }
 
-func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Config, requestWindows map[string]*requestWindow, oddities *oddities) *nodeMsgs {
+func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Config, clientWindows map[string]*clientWindow, oddities *oddities) *nodeMsgs {
 
 	return &nodeMsgs{
 		id:       nodeID,
@@ -58,7 +58,7 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Confi
 		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 		// XXX we should initialize this properly, sort of like the above
 		nextCheckpoint: uint64(networkConfig.CheckpointInterval),
-		requestWindows: requestWindows,
+		clientWindows:  clientWindows,
 		buffer:         map[*pb.Msg]struct{}{},
 		myConfig:       myConfig,
 		networkConfig:  networkConfig,
@@ -96,7 +96,7 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	case *pb.Msg_Forward:
 		requestData := innerMsg.Forward.RequestData
 		clientID := string(innerMsg.Forward.RequestData.ClientId)
-		requestWindow, ok := n.requestWindows[clientID]
+		clientWindow, ok := n.clientWindows[clientID]
 		if !ok {
 			if requestData.ReqNo == 1 {
 				return current
@@ -105,9 +105,9 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 			}
 		}
 		switch {
-		case requestWindow.lowWatermark > requestData.ReqNo:
+		case clientWindow.lowWatermark > requestData.ReqNo:
 			return past
-		case requestWindow.highWatermark < requestData.ReqNo:
+		case clientWindow.highWatermark < requestData.ReqNo:
 			return future
 		default:
 			return current
@@ -203,11 +203,11 @@ func newEpochMsgs(nodeID NodeID, epoch *epoch, myConfig *Config) *epochMsgs {
 	}
 
 	return &epochMsgs{
-		requestWindows: epoch.requestWindows,
-		myConfig:       myConfig,
-		epochConfig:    epoch.config,
-		epoch:          epoch,
-		next:           next,
+		clientWindows: epoch.clientWindows,
+		myConfig:      myConfig,
+		epochConfig:   epoch.config,
+		epoch:         epoch,
+		next:          next,
 	}
 }
 
@@ -243,20 +243,20 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 	}
 
 	for _, batchEntry := range msg.Batch {
-		requestWindow, ok := n.requestWindows[string(batchEntry.ClientId)]
+		clientWindow, ok := n.clientWindows[string(batchEntry.ClientId)]
 		if !ok {
 			return future
 		}
 
-		if batchEntry.ReqNo < requestWindow.lowWatermark {
+		if batchEntry.ReqNo < clientWindow.lowWatermark {
 			return past
 		}
 
-		if batchEntry.ReqNo > requestWindow.highWatermark {
+		if batchEntry.ReqNo > clientWindow.highWatermark {
 			return future
 		}
 
-		request := requestWindow.request(batchEntry.ReqNo)
+		request := clientWindow.request(batchEntry.ReqNo)
 		if request == nil {
 			// XXX, this is a dirty hack which assumes eventually,
 			// all requests arrive, it does not handle byzantine behavior.

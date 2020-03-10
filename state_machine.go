@@ -15,10 +15,10 @@ import (
 )
 
 type stateMachine struct {
-	myConfig       *Config
-	networkConfig  *pb.NetworkConfig
-	nodeMsgs       map[NodeID]*nodeMsgs
-	requestWindows map[string]*requestWindow
+	myConfig      *Config
+	networkConfig *pb.NetworkConfig
+	nodeMsgs      map[NodeID]*nodeMsgs
+	clientWindows map[string]*clientWindow
 
 	activeEpoch       *epoch
 	checkpointTracker *checkpointTracker
@@ -36,9 +36,9 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	}
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
-	requestWindows := map[string]*requestWindow{}
+	clientWindows := map[string]*clientWindow{}
 	for _, id := range networkConfig.Nodes {
-		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, requestWindows, oddities)
+		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, clientWindows, oddities)
 	}
 
 	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
@@ -70,7 +70,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		epochChanger:      epochChanger,
 		checkpointTracker: checkpointTracker,
 		nodeMsgs:          nodeMsgs,
-		requestWindows:    requestWindows,
+		clientWindows:     clientWindows,
 	}
 }
 
@@ -165,12 +165,12 @@ func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *A
 	requests := make([]*request, len(msg.Batch))
 
 	for i, batchEntry := range msg.Batch {
-		requestWindow, ok := sm.requestWindows[string(batchEntry.ClientId)]
+		clientWindow, ok := sm.clientWindows[string(batchEntry.ClientId)]
 		if !ok {
 			panic("unexpected")
 		}
 
-		request := requestWindow.request(batchEntry.ReqNo)
+		request := clientWindow.request(batchEntry.ReqNo)
 		if request == nil {
 			panic(fmt.Sprintf("could not find reqno=%d for batch entry from %d, this should have been hackily handled by the nodemsgs stuff", batchEntry.ReqNo, source))
 		}
@@ -206,7 +206,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 	actions := sm.epochChanger.applyNewEpochReadyMsg(source, msg)
 
 	if sm.epochChanger.state == ready {
-		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.requestWindows, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
+		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
 		for _, sequence := range sm.activeEpoch.sequences {
 			if sequence.state >= Prepared {
 				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
@@ -237,8 +237,8 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 		return &Actions{}
 	}
 
-	for _, requestWindow := range sm.requestWindows {
-		requestWindow.garbageCollect(seqNo)
+	for _, clientWindow := range sm.clientWindows {
+		clientWindow.garbageCollect(seqNo)
 	}
 	actions := sm.activeEpoch.moveWatermarks()
 	actions.Append(sm.drainNodeMsgs())
@@ -276,13 +276,13 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 
 func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult) *Actions {
 	clientID := string(preprocessResult.RequestData.ClientId)
-	requestWindow, ok := sm.requestWindows[clientID]
+	clientWindow, ok := sm.clientWindows[clientID]
 	if !ok {
-		requestWindow = newRequestWindow(1, 1000) // XXX really need to apply backpressure to the client
-		sm.requestWindows[clientID] = requestWindow
+		clientWindow = newRequestWindow(1, 1000) // XXX really need to apply backpressure to the client
+		sm.clientWindows[clientID] = clientWindow
 	}
 
-	requestWindow.allocate(preprocessResult.RequestData, preprocessResult.Digest)
+	clientWindow.allocate(preprocessResult.RequestData, preprocessResult.Digest)
 
 	actions := &Actions{}
 
@@ -295,13 +295,13 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 }
 
 func (sm *stateMachine) clientWaiter(clientID []byte) *requestWaiter {
-	requestWindow, ok := sm.requestWindows[string(clientID)]
+	clientWindow, ok := sm.clientWindows[string(clientID)]
 	if !ok {
-		requestWindow = newRequestWindow(1, 100)
-		sm.requestWindows[string(clientID)] = requestWindow
+		clientWindow = newRequestWindow(1, 100)
+		sm.clientWindows[string(clientID)] = clientWindow
 	}
 
-	return requestWindow.requestWaiter
+	return clientWindow.requestWaiter
 }
 
 func (sm *stateMachine) tick() *Actions {
@@ -317,12 +317,12 @@ func (sm *stateMachine) tick() *Actions {
 }
 
 func (sm *stateMachine) status() *Status {
-	requestWindowsStatus := make([]*RequestWindowStatus, len(sm.requestWindows))
+	clientWindowsStatus := make([]*RequestWindowStatus, len(sm.clientWindows))
 	i := 0
-	for id, requestWindow := range sm.requestWindows {
-		rws := requestWindow.status()
+	for id, clientWindow := range sm.clientWindows {
+		rws := clientWindow.status()
 		rws.ClientID = []byte(id)
-		requestWindowsStatus[i] = rws
+		clientWindowsStatus[i] = rws
 		i++
 	}
 
@@ -358,7 +358,7 @@ func (sm *stateMachine) status() *Status {
 		LowWatermark:   lowWatermark,
 		HighWatermark:  highWatermark,
 		EpochChanger:   sm.epochChanger.status(),
-		RequestWindows: requestWindowsStatus,
+		RequestWindows: clientWindowsStatus,
 		Buckets:        buckets,
 		Checkpoints:    checkpoints,
 		Nodes:          nodes,

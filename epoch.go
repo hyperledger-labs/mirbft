@@ -94,7 +94,7 @@ type epoch struct {
 
 	checkpoints       []*checkpoint
 	checkpointTracker *checkpointTracker
-	requestWindows    map[string]*requestWindow
+	clientWindows     map[string]*clientWindow
 
 	baseCheckpoint *pb.Checkpoint
 }
@@ -102,7 +102,7 @@ type epoch struct {
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, requestWindows map[string]*requestWindow, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
+func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows map[string]*clientWindow, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
 
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
@@ -184,7 +184,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 
 			if oldSeq.batch != nil && oldSeq.owner == NodeID(myConfig.ID) {
 				for _, request := range oldSeq.batch {
-					requestWindow, ok := requestWindows[string(request.requestData.ClientId)]
+					clientWindow, ok := clientWindows[string(request.requestData.ClientId)]
 					if !ok {
 						panic("unexpected")
 
@@ -192,16 +192,16 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 
 					reqNo := request.requestData.ReqNo
 
-					if reqNo < requestWindow.lowWatermark {
+					if reqNo < clientWindow.lowWatermark {
 						// This request already committed somewhere
 						continue
 					}
 
-					if reqNo > requestWindow.highWatermark {
+					if reqNo > clientWindow.highWatermark {
 						panic("we should not be processing reqnos which are above the watermarks for this checkpoint")
 					}
 
-					newRequest := requestWindow.request(reqNo)
+					newRequest := clientWindow.request(reqNo)
 					if request != newRequest {
 						// TODO don't lose data that we once allocated, but got dropped
 						panic(fmt.Sprintf("about to abandon a request %d %x", reqNo, request.digest))
@@ -225,11 +225,11 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		}
 	}
 
-	proposer := newProposer(myConfig, requestWindows, config.buckets)
+	proposer := newProposer(myConfig, clientWindows, config.buckets)
 	proposer.stepAllRequestWindows()
 
 	return &epoch{
-		requestWindows:    requestWindows,
+		clientWindows:     clientWindows,
 		baseCheckpoint:    newEpochConfig.StartingCheckpoint,
 		myConfig:          myConfig,
 		config:            config,

@@ -19,7 +19,7 @@ type request struct {
 	seqNo       uint64
 }
 
-type requestWindow struct {
+type clientWindow struct {
 	lowWatermark  uint64
 	highWatermark uint64
 	requests      []*request
@@ -32,8 +32,8 @@ type requestWaiter struct {
 	expired       chan struct{}
 }
 
-func newRequestWindow(lowWatermark, highWatermark uint64) *requestWindow {
-	return &requestWindow{
+func newRequestWindow(lowWatermark, highWatermark uint64) *clientWindow {
+	return &clientWindow{
 		lowWatermark:  lowWatermark,
 		highWatermark: highWatermark,
 		requests:      make([]*request, int(highWatermark-lowWatermark)+1),
@@ -45,7 +45,7 @@ func newRequestWindow(lowWatermark, highWatermark uint64) *requestWindow {
 	}
 }
 
-func (rw *requestWindow) garbageCollect(maxSeqNo uint64) {
+func (rw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	newRequests := make([]*request, int(rw.highWatermark-rw.lowWatermark)+1)
 	i := 0
 	j := uint64(0)
@@ -78,7 +78,7 @@ func (rw *requestWindow) garbageCollect(maxSeqNo uint64) {
 	}
 }
 
-func (rw *requestWindow) allocate(requestData *pb.RequestData, digest []byte) {
+func (rw *clientWindow) allocate(requestData *pb.RequestData, digest []byte) {
 	reqNo := requestData.ReqNo
 	if reqNo > rw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, rw.highWatermark))
@@ -99,7 +99,7 @@ func (rw *requestWindow) allocate(requestData *pb.RequestData, digest []byte) {
 	}
 }
 
-func (rw *requestWindow) request(reqNo uint64) *request {
+func (rw *clientWindow) request(reqNo uint64) *request {
 	if reqNo > rw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, rw.highWatermark))
 	}
@@ -113,7 +113,7 @@ func (rw *requestWindow) request(reqNo uint64) *request {
 	return rw.requests[offset]
 }
 
-func (rw *requestWindow) status() *RequestWindowStatus {
+func (rw *clientWindow) status() *RequestWindowStatus {
 	allocated := make([]uint64, len(rw.requests))
 	for i, request := range rw.requests {
 		if request == nil {

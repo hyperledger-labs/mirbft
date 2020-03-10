@@ -65,7 +65,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig)
-			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.requestWindows, nil, networkConfig, consumerConfig)
+			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, nil, networkConfig, consumerConfig)
 			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
 
 			serializer = newSerializer(stateMachineVal, doneC)
@@ -261,7 +261,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig)
-			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.requestWindows, nil, networkConfig, consumerConfig)
+			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, nil, networkConfig, consumerConfig)
 			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
 			stateMachineVal.nodeMsgs[1].setActiveEpoch(stateMachineVal.activeEpoch)
 			stateMachineVal.nodeMsgs[2].setActiveEpoch(stateMachineVal.activeEpoch)
