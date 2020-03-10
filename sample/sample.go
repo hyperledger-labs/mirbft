@@ -129,7 +129,8 @@ func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
 		}
 
 		actionResults.Processed[i] = &mirbft.ProcessResult{
-			Batch:  batch,
+			SeqNo:  batch.SeqNo,
+			Epoch:  batch.Epoch,
 			Digest: h.Sum(nil),
 		}
 	}

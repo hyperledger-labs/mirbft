@@ -20,12 +20,18 @@ type step struct {
 	Msg    *pb.Msg
 }
 
+type clientReq struct {
+	clientID []byte
+	replyC   chan *requestWaiter
+}
+
 // serializer provides a single threaded way to access the Mir state machine
 // and passes work to/from the state machine.
 type serializer struct {
 	actionsC chan Actions
 	doneC    <-chan struct{}
-	propC    chan []byte
+	clientC  chan *clientReq
+	propC    chan *pb.RequestData
 	resultsC chan ActionResults
 	statusC  chan chan<- *Status
 	stepC    chan step
@@ -42,7 +48,8 @@ func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serialize
 	s := &serializer{
 		actionsC:     make(chan Actions),
 		doneC:        doneC,
-		propC:        make(chan []byte),
+		propC:        make(chan *pb.RequestData),
+		clientC:      make(chan *clientReq),
 		resultsC:     make(chan ActionResults),
 		statusC:      make(chan chan<- *Status),
 		stepC:        make(chan step),
@@ -52,6 +59,12 @@ func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serialize
 	}
 	go s.run()
 	return s
+}
+
+func (s *serializer) getExitErr() error {
+	s.exitMutex.Lock()
+	defer s.exitMutex.Unlock()
+	return s.exitErr
 }
 
 // run must be single threaded and is therefore hidden to prevent accidental capture
@@ -75,9 +88,9 @@ func (s *serializer) run() {
 
 	actions := &Actions{}
 	var actionsC chan<- Actions
-	var propC <-chan []byte
+	var propC <-chan *pb.RequestData
 	for {
-		if s.stateMachine.requestWindows[string(uint64ToBytes(s.stateMachine.myConfig.ID))].hasRoomToAllocate() {
+		if true { // XXX s.stateMachine.requestWindows[string(uint64ToBytes(s.stateMachine.myConfig.ID))].hasRoomToAllocate() {
 			propC = s.propC
 		} else {
 			propC = nil
@@ -88,6 +101,8 @@ func (s *serializer) run() {
 		case data := <-propC:
 			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "proposal"))
 			actions.Append(s.stateMachine.propose(data))
+		case req := <-s.clientC:
+			req.replyC <- s.stateMachine.clientWaiter(req.clientID)
 		case step := <-s.stepC:
 			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "step"))
 			actions.Append(s.stateMachine.step(NodeID(step.Source), step.Msg))

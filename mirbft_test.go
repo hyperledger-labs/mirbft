@@ -293,7 +293,11 @@ var _ = Describe("MirBFT", func() {
 			// Unevenly propose across the nodes
 			node := network.nodes[i%2%testConfig.NodeCount]
 			proposalUint, proposalBytes := testConfig.Proposer.Proposal(testConfig.NodeCount, i)
-			err := node.Propose(ctx, proposalBytes)
+			err := node.Propose(ctx, &pb.RequestData{
+				ClientId: []byte("fake-client"),
+				ReqNo:    uint64(i) + 1,
+				Data:     proposalBytes,
+			})
 			Expect(err).NotTo(HaveOccurred())
 
 			proposalKey := string(proposalBytes)
@@ -470,7 +474,10 @@ func (n *Network) GoRunNetwork(doneC <-chan struct{}, wg *sync.WaitGroup) {
 					n.nodes[i].AddResults(*results)
 				case <-n.nodes[i].Err():
 					_, err := n.nodes[i].Status(context.Background())
-					Expect(err).To(MatchError(mirbft.ErrStopped))
+					if err != mirbft.ErrStopped {
+						fmt.Printf("Unexpected err: %+v\n", err)
+						Expect(err).NotTo(HaveOccurred())
+					}
 					return
 				case <-ticker.C:
 					n.nodes[i].Tick()

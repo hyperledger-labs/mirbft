@@ -38,9 +38,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	requestWindows := map[string]*requestWindow{}
 	for _, id := range networkConfig.Nodes {
-		requestWindow := newRequestWindow(fakeCheckpoint.SeqNo+1, fakeCheckpoint.SeqNo+2*uint64(networkConfig.CheckpointInterval))
-		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, requestWindow, myConfig, oddities)
-		requestWindows[string(uint64ToBytes(id))] = requestWindow
+		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, requestWindows, oddities)
 	}
 
 	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
@@ -76,13 +74,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	}
 }
 
-func (sm *stateMachine) propose(data []byte) *Actions {
-	reqNo := sm.requestWindows[string(uint64ToBytes(sm.myConfig.ID))].allocateNext()
-	requestData := &pb.RequestData{
-		ClientId: uint64ToBytes(sm.myConfig.ID),
-		ReqNo:    reqNo,
-		Data:     data,
-	}
+func (sm *stateMachine) propose(requestData *pb.RequestData) *Actions {
 	return &Actions{
 		Broadcast: []*pb.Msg{
 			{
@@ -274,7 +266,8 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 
 	for _, processResult := range results.Processed {
 		// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
-		seqNo := processResult.Batch.SeqNo
+		seqNo := processResult.SeqNo
+		// XXX we need to verify that the epoch matches the expected one
 		actions.Append(sm.activeEpoch.applyProcessResult(seqNo, processResult.Digest))
 	}
 
@@ -282,9 +275,11 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 }
 
 func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult) *Actions {
-	requestWindow, ok := sm.requestWindows[string(preprocessResult.RequestData.ClientId)]
+	clientID := string(preprocessResult.RequestData.ClientId)
+	requestWindow, ok := sm.requestWindows[clientID]
 	if !ok {
-		panic("unexpected")
+		requestWindow = newRequestWindow(1, 1000) // XXX really need to apply backpressure to the client
+		sm.requestWindows[clientID] = requestWindow
 	}
 
 	requestWindow.allocate(preprocessResult.RequestData, preprocessResult.Digest)
@@ -292,11 +287,21 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 	actions := &Actions{}
 
 	if sm.activeEpoch != nil {
-		sm.activeEpoch.proposer.stepRequestWindow(string(preprocessResult.RequestData.ClientId))
+		sm.activeEpoch.proposer.stepRequestWindow(clientID)
 		actions.Append(sm.activeEpoch.drainProposer())
 	}
 
 	return actions
+}
+
+func (sm *stateMachine) clientWaiter(clientID []byte) *requestWaiter {
+	requestWindow, ok := sm.requestWindows[string(clientID)]
+	if !ok {
+		requestWindow = newRequestWindow(1, 100)
+		sm.requestWindows[string(clientID)] = requestWindow
+	}
+
+	return requestWindow.requestWaiter
 }
 
 func (sm *stateMachine) tick() *Actions {
@@ -313,12 +318,18 @@ func (sm *stateMachine) tick() *Actions {
 
 func (sm *stateMachine) status() *Status {
 	requestWindowsStatus := make([]*RequestWindowStatus, len(sm.requestWindows))
+	i := 0
+	for id, requestWindow := range sm.requestWindows {
+		rws := requestWindow.status()
+		rws.ClientID = []byte(id)
+		requestWindowsStatus[i] = rws
+		i++
+	}
 
 	nodes := make([]*NodeStatus, len(sm.networkConfig.Nodes))
 	for i, nodeID := range sm.networkConfig.Nodes {
 		nodeID := NodeID(nodeID)
 		nodes[i] = sm.nodeMsgs[nodeID].status()
-		requestWindowsStatus[i] = sm.requestWindows[string(uint64ToBytes(uint64(nodeID)))].status()
 	}
 
 	checkpoints := []*CheckpointStatus{}

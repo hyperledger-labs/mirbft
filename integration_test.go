@@ -73,7 +73,12 @@ var _ = Describe("Integration", func() {
 
 		It("works from proposal through commit", func() {
 			By("proposing a message")
-			serializer.propC <- []byte("data")
+			serializer.propC <- &pb.RequestData{
+				ClientId:  []byte("client-1"),
+				ReqNo:     1,
+				Data:      []byte("data"),
+				Signature: []byte("signature"),
+			}
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
@@ -82,9 +87,10 @@ var _ = Describe("Integration", func() {
 						Type: &pb.Msg_Forward{
 							Forward: &pb.Forward{
 								RequestData: &pb.RequestData{
-									ClientId: uint64ToBytes(0),
-									ReqNo:    1,
-									Data:     []byte("data"),
+									ClientId:  []byte("client-1"),
+									ReqNo:     1,
+									Data:      []byte("data"),
+									Signature: []byte("signature"),
 								},
 							},
 						},
@@ -94,9 +100,10 @@ var _ = Describe("Integration", func() {
 					{
 						Source: 0,
 						ClientRequest: &pb.RequestData{
-							ClientId: uint64ToBytes(0),
-							ReqNo:    1,
-							Data:     []byte("data"),
+							ClientId:  []byte("client-1"),
+							ReqNo:     1,
+							Data:      []byte("data"),
+							Signature: []byte("signature"),
 						},
 					},
 				},
@@ -108,9 +115,10 @@ var _ = Describe("Integration", func() {
 					{
 						Digest: uint64ToBytes(7),
 						RequestData: &pb.RequestData{
-							ClientId: uint64ToBytes(0),
-							ReqNo:    1,
-							Data:     []byte("data"),
+							ClientId:  []byte("client-1"),
+							ReqNo:     1,
+							Data:      []byte("data"),
+							Signature: []byte("signature"),
 						},
 					},
 				},
@@ -126,9 +134,10 @@ var _ = Describe("Integration", func() {
 							{
 								Digest: uint64ToBytes(7),
 								RequestData: &pb.RequestData{
-									ClientId: uint64ToBytes(0),
-									ReqNo:    1,
-									Data:     []byte("data"),
+									ClientId:  []byte("client-1"),
+									ReqNo:     1,
+									Data:      []byte("data"),
+									Signature: []byte("signature"),
 								},
 							},
 						},
@@ -140,18 +149,8 @@ var _ = Describe("Integration", func() {
 			serializer.resultsC <- ActionResults{
 				Processed: []*ProcessResult{
 					{
-						Batch: &Batch{
-							Epoch: 3,
-							SeqNo: 1,
-							Requests: []*PreprocessResult{
-								{
-									RequestData: &pb.RequestData{
-										ClientId: uint64ToBytes(0),
-										Data:     []byte("data"),
-									},
-								},
-							},
-						},
+						Epoch:  3,
+						SeqNo:  1,
 						Digest: []byte("fake-digest"),
 					},
 				},
@@ -166,7 +165,7 @@ var _ = Describe("Integration", func() {
 								SeqNo: 1,
 								Batch: []*pb.Request{
 									{
-										ClientId: uint64ToBytes(0),
+										ClientId: []byte("client-1"),
 										ReqNo:    1,
 										Digest:   uint64ToBytes(7),
 									},
@@ -182,7 +181,7 @@ var _ = Describe("Integration", func() {
 						Digest: []byte("fake-digest"),
 						Requests: []*pb.Request{
 							{
-								ClientId: uint64ToBytes(0),
+								ClientId: []byte("client-1"),
 								ReqNo:    1,
 								Digest:   uint64ToBytes(7),
 							},
@@ -233,7 +232,7 @@ var _ = Describe("Integration", func() {
 							Digest: []byte("fake-digest"),
 							Requests: []*pb.Request{
 								{
-									ClientId: uint64ToBytes(0),
+									ClientId: []byte("client-1"),
 									ReqNo:    1,
 									Digest:   uint64ToBytes(7),
 								},
@@ -274,7 +273,12 @@ var _ = Describe("Integration", func() {
 
 		It("works from proposal through commit", func() {
 			By("proposing a message")
-			serializer.propC <- []byte("data")
+			serializer.propC <- &pb.RequestData{
+				ClientId:  []byte("client-1"),
+				ReqNo:     1,
+				Data:      []byte("data"),
+				Signature: []byte("signature"),
+			}
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
@@ -283,9 +287,10 @@ var _ = Describe("Integration", func() {
 						Type: &pb.Msg_Forward{
 							Forward: &pb.Forward{
 								RequestData: &pb.RequestData{
-									ClientId: uint64ToBytes(0),
-									ReqNo:    1,
-									Data:     []byte("data"),
+									ClientId:  []byte("client-1"),
+									ReqNo:     1,
+									Data:      []byte("data"),
+									Signature: []byte("signature"),
 								},
 							},
 						},
@@ -295,9 +300,10 @@ var _ = Describe("Integration", func() {
 					{
 						Source: 0,
 						ClientRequest: &pb.RequestData{
-							ClientId: uint64ToBytes(0),
-							ReqNo:    1,
-							Data:     []byte("data"),
+							ClientId:  []byte("client-1"),
+							ReqNo:     1,
+							Data:      []byte("data"),
+							Signature: []byte("signature"),
 						},
 					},
 				},
@@ -309,9 +315,10 @@ var _ = Describe("Integration", func() {
 					{
 						Digest: uint64ToBytes(7),
 						RequestData: &pb.RequestData{
-							ClientId: uint64ToBytes(0),
-							ReqNo:    1,
-							Data:     []byte("data"),
+							ClientId:  []byte("client-1"),
+							ReqNo:     1,
+							Data:      []byte("data"),
+							Signature: []byte("signature"),
 						},
 					},
 				},
@@ -327,7 +334,7 @@ var _ = Describe("Integration", func() {
 							SeqNo: 4,
 							Batch: []*pb.Request{
 								{
-									ClientId: uint64ToBytes(0),
+									ClientId: []byte("client-1"),
 									ReqNo:    1,
 									Digest:   uint64ToBytes(7),
 								},
@@ -347,9 +354,10 @@ var _ = Describe("Integration", func() {
 							{
 								Digest: uint64ToBytes(7),
 								RequestData: &pb.RequestData{
-									ClientId: uint64ToBytes(0),
-									ReqNo:    1,
-									Data:     []byte("data"),
+									ClientId:  []byte("client-1"),
+									ReqNo:     1,
+									Data:      []byte("data"),
+									Signature: []byte("signature"),
 								},
 							},
 						},
@@ -361,20 +369,8 @@ var _ = Describe("Integration", func() {
 			serializer.resultsC <- ActionResults{
 				Processed: []*ProcessResult{
 					{
-						Batch: &Batch{
-							Epoch: 3,
-							SeqNo: 4,
-							Requests: []*PreprocessResult{
-								{
-									Digest: uint64ToBytes(7),
-									RequestData: &pb.RequestData{
-										ClientId: uint64ToBytes(0),
-										ReqNo:    1,
-										Data:     []byte("data"),
-									},
-								},
-							},
-						},
+						Epoch:  3,
+						SeqNo:  4,
 						Digest: []byte("fake-digest"),
 					},
 				},
@@ -399,7 +395,7 @@ var _ = Describe("Integration", func() {
 						Digest: []byte("fake-digest"),
 						Requests: []*pb.Request{
 							{
-								ClientId: uint64ToBytes(0),
+								ClientId: []byte("client-1"),
 								ReqNo:    1,
 								Digest:   uint64ToBytes(7),
 							},
@@ -467,7 +463,7 @@ var _ = Describe("Integration", func() {
 							Digest: []byte("fake-digest"),
 							Requests: []*pb.Request{
 								{
-									ClientId: uint64ToBytes(0),
+									ClientId: []byte("client-1"),
 									ReqNo:    1,
 									Digest:   uint64ToBytes(7),
 								},

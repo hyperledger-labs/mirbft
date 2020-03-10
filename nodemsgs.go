@@ -25,10 +25,10 @@ type nodeMsgs struct {
 	id             NodeID
 	oddities       *oddities
 	buffer         map[*pb.Msg]struct{} // TODO, this could be much better optimized via a ring buffer
-	requestWindow  *requestWindow
 	epochMsgs      *epochMsgs
 	myConfig       *Config
 	networkConfig  *pb.NetworkConfig
+	requestWindows map[string]*requestWindow
 	nextCheckpoint uint64
 }
 
@@ -49,7 +49,7 @@ type nextMsg struct {
 	commit  uint64
 }
 
-func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, requestWindow *requestWindow, myConfig *Config, oddities *oddities) *nodeMsgs {
+func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Config, requestWindows map[string]*requestWindow, oddities *oddities) *nodeMsgs {
 
 	return &nodeMsgs{
 		id:       nodeID,
@@ -58,10 +58,10 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, requestWindow *
 		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 		// XXX we should initialize this properly, sort of like the above
 		nextCheckpoint: uint64(networkConfig.CheckpointInterval),
+		requestWindows: requestWindows,
 		buffer:         map[*pb.Msg]struct{}{},
 		myConfig:       myConfig,
 		networkConfig:  networkConfig,
-		requestWindow:  requestWindow,
 	}
 }
 
@@ -94,11 +94,21 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	case *pb.Msg_Checkpoint:
 		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_Forward:
+		requestData := innerMsg.Forward.RequestData
+		clientID := string(innerMsg.Forward.RequestData.ClientId)
+		requestWindow, ok := n.requestWindows[clientID]
+		if !ok {
+			if requestData.ReqNo == 1 {
+				return current
+			} else {
+				return future
+			}
+		}
 		switch {
-		case innerMsg.Forward.RequestData.ReqNo > n.requestWindow.highWatermark:
-			return future
-		case innerMsg.Forward.RequestData.ReqNo < n.requestWindow.lowWatermark:
+		case requestWindow.lowWatermark > requestData.ReqNo:
 			return past
+		case requestWindow.highWatermark < requestData.ReqNo:
+			return future
 		default:
 			return current
 		}
@@ -235,7 +245,7 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 	for _, batchEntry := range msg.Batch {
 		requestWindow, ok := n.requestWindows[string(batchEntry.ClientId)]
 		if !ok {
-			panic("TODO, bad client-id")
+			return future
 		}
 
 		if batchEntry.ReqNo < requestWindow.lowWatermark {

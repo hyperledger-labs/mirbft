@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/pkg/errors"
 )
 
 var ErrStopped = fmt.Errorf("stopped at caller request")
@@ -96,16 +97,55 @@ func StartNewNode(config *Config, doneC <-chan struct{}, initialNetworkConfig *p
 // forwarded to another node after pre-processing for ordering.  This method
 // only returns an error if the context ends, or the node is stopped.
 // In the case that the node is stopped gracefully it returns ErrStopped.
-func (n *Node) Propose(ctx context.Context, data []byte) error {
+func (n *Node) Propose(ctx context.Context, requestData *pb.RequestData) error {
+	for {
+		replyC := make(chan *requestWaiter, 1)
+		select {
+		case n.s.clientC <- &clientReq{
+			clientID: requestData.ClientId,
+			replyC:   replyC,
+		}:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-n.s.errC:
+			return n.s.getExitErr()
+		}
+
+		var cw *requestWaiter
+
+		select {
+		case cw = <-replyC:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-n.s.errC:
+			return n.s.getExitErr()
+		}
+
+		if cw.lowWatermark > requestData.ReqNo {
+			return errors.Errorf("request below watermarks, lowWatermark=%d", cw.lowWatermark)
+		}
+
+		if cw.highWatermark < requestData.ReqNo {
+			select {
+			case <-cw.expired:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-n.s.errC:
+				return n.s.getExitErr()
+			}
+		}
+
+		break
+	}
+
 	select {
-	case n.s.propC <- data:
+	case n.s.propC <- requestData:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-n.s.errC:
-		n.s.exitMutex.Lock()
-		defer n.s.exitMutex.Unlock()
-		return n.s.exitErr
+		return n.s.getExitErr()
 	}
 }
 
@@ -126,9 +166,7 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-n.s.errC:
-		n.s.exitMutex.Lock()
-		defer n.s.exitMutex.Unlock()
-		return n.s.exitErr
+		return n.s.getExitErr()
 	}
 }
 
@@ -190,9 +228,7 @@ func (n *Node) Tick() error {
 	case n.s.tickC <- struct{}{}:
 		return nil
 	case <-n.s.errC:
-		n.s.exitMutex.Lock()
-		defer n.s.exitMutex.Unlock()
-		return n.s.exitErr
+		return n.s.getExitErr()
 	}
 }
 
@@ -205,8 +241,6 @@ func (n *Node) AddResults(results ActionResults) error {
 	case n.s.resultsC <- results:
 		return nil
 	case <-n.s.errC:
-		n.s.exitMutex.Lock()
-		defer n.s.exitMutex.Unlock()
-		return n.s.exitErr
+		return n.s.getExitErr()
 	}
 }

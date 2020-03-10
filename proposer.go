@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"encoding/binary"
+	"fmt"
 )
 
 func uint64ToBytes(value uint64) []byte {
@@ -23,6 +24,7 @@ func bytesToUint64(value []byte) uint64 {
 type proposer struct {
 	myConfig                *Config
 	requestWindowProcessors map[string]*requestWindowProcessor
+	requestWindows          map[string]*requestWindow
 
 	totalBuckets    int
 	proposalBuckets map[BucketID]*proposalBucket
@@ -60,6 +62,7 @@ func newProposer(myConfig *Config, requestWindows map[string]*requestWindow, buc
 	return &proposer{
 		myConfig:                myConfig,
 		requestWindowProcessors: requestWindowProcessors,
+		requestWindows:          requestWindows,
 		proposalBuckets:         proposalBuckets,
 		totalBuckets:            len(buckets),
 	}
@@ -76,7 +79,16 @@ func (p *proposer) stepAllRequestWindows() {
 func (p *proposer) stepRequestWindow(clientID string) {
 	rwp, ok := p.requestWindowProcessors[clientID]
 	if !ok {
-		panic("unexpected")
+		rw, ok := p.requestWindows[clientID]
+		if !ok {
+			panic(fmt.Sprintf("unexpected, missing client %x", []byte(clientID)))
+		}
+
+		rwp = &requestWindowProcessor{
+			lastProcessed: rw.lowWatermark - 1,
+			requestWindow: rw,
+		}
+		p.requestWindowProcessors[clientID] = rwp
 	}
 
 	for rwp.lastProcessed < rwp.requestWindow.highWatermark {

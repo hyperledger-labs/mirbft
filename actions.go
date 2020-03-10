@@ -156,6 +156,7 @@ type PreprocessResult struct {
 // depending on the configuration of the state machine (TODO), this node may still commit
 // the entry, or may wait for state-transfer to kick off.
 type ProcessResult struct {
-	Batch  *Batch
+	SeqNo  uint64
+	Epoch  uint64
 	Digest []byte
 }

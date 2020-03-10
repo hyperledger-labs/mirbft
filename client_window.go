@@ -20,18 +20,28 @@ type request struct {
 }
 
 type requestWindow struct {
-	lowWatermark    uint64
-	highWatermark   uint64
-	nextUnallocated uint64
-	requests        []*request
+	lowWatermark  uint64
+	highWatermark uint64
+	requests      []*request
+	requestWaiter *requestWaiter // Used to throttle clients
+}
+
+type requestWaiter struct {
+	lowWatermark  uint64
+	highWatermark uint64
+	expired       chan struct{}
 }
 
 func newRequestWindow(lowWatermark, highWatermark uint64) *requestWindow {
 	return &requestWindow{
-		nextUnallocated: lowWatermark,
-		lowWatermark:    lowWatermark,
-		highWatermark:   highWatermark,
-		requests:        make([]*request, int(highWatermark-lowWatermark)+1),
+		lowWatermark:  lowWatermark,
+		highWatermark: highWatermark,
+		requests:      make([]*request, int(highWatermark-lowWatermark)+1),
+		requestWaiter: &requestWaiter{
+			lowWatermark:  lowWatermark,
+			highWatermark: highWatermark,
+			expired:       make(chan struct{}),
+		},
 	}
 }
 
@@ -60,16 +70,12 @@ func (rw *requestWindow) garbageCollect(maxSeqNo uint64) {
 	rw.lowWatermark += j
 	rw.highWatermark += j
 	rw.requests = newRequests
-}
-
-func (rw *requestWindow) hasRoomToAllocate() bool {
-	return rw.nextUnallocated <= rw.highWatermark
-}
-
-func (rw *requestWindow) allocateNext() uint64 {
-	result := rw.nextUnallocated
-	rw.nextUnallocated++
-	return result
+	close(rw.requestWaiter.expired)
+	rw.requestWaiter = &requestWaiter{
+		lowWatermark:  rw.lowWatermark,
+		highWatermark: rw.highWatermark,
+		expired:       make(chan struct{}),
+	}
 }
 
 func (rw *requestWindow) allocate(requestData *pb.RequestData, digest []byte) {

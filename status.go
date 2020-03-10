@@ -64,6 +64,7 @@ type NodeBucketStatus struct {
 }
 
 type RequestWindowStatus struct {
+	ClientID      []byte   `json:"client_id"`
 	LowWatermark  uint64   `json:"low_watermark"`
 	HighWatermark uint64   `json:"high_watermark"`
 	Allocated     []uint64 `json:"allocated"`
@@ -208,8 +209,8 @@ func (s *Status) Pretty() string {
 
 	buffer.WriteString("\n\n Request Windows\n")
 	hRule()
-	for i, rws := range s.RequestWindows {
-		buffer.WriteString(fmt.Sprintf("\nNode %d L/H %d/%d : %v\n", i, rws.LowWatermark, rws.HighWatermark, rws.Allocated))
+	for _, rws := range s.RequestWindows {
+		buffer.WriteString(fmt.Sprintf("\nClient %x L/H %d/%d : %v\n", rws.ClientID, rws.LowWatermark, rws.HighWatermark, rws.Allocated))
 		hRule()
 	}
 
