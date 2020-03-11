@@ -1,0 +1,97 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package testenginepb;
+
+import "mirbftpb/mirbft.proto";
+
+// To re-generate, run:
+//   protoc --go_out=. testengine.proto
+// or simply run go generate
+
+message ScenarioConfig {
+	string name = 1;
+	string description = 2;
+	mirbftpb.NetworkConfig initial_network_config = 3;
+	repeated NodeConfig node_configs = 4;
+}
+
+message NodeConfig {
+	uint64 id = 1;
+	int32 heartbeat_ticks = 2;
+	int32 suspect_ticks = 3;
+	int32 new_epoch_timeout_ticks = 4;
+	int32 tick_interval = 5;   // in fake ms
+	int32 link_latency = 6;    // in fake ms
+	int32 ready_latency = 7;   // in fake ms
+	int32 process_latency = 8; // in fake ms
+}
+
+
+message Request {
+	bytes client_id = 1;
+	uint64 req_no = 2;
+	bytes data = 3;
+	bytes signature = 4;
+	bytes digest = 5;
+}
+
+message Batch {
+	uint64 source = 1;
+	uint64 epoch = 2;
+	uint64 seq_no = 3;
+	bytes digest = 4;
+	repeated mirbftpb.Request requests = 5;
+}
+
+message Checkpoint {
+	uint64 seq_no = 1;
+	bytes value = 2;
+}
+
+message Event {
+	message Apply {
+		repeated Request preprocessed = 1;
+		repeated Batch processed = 2;
+		repeated Checkpoint checkpoints = 3;
+	}
+
+	message Process {}
+
+	message Propose {
+		mirbftpb.RequestData request_data = 1;
+	}
+
+	message Receive {
+		uint64 source = 1;
+		mirbftpb.Msg msg = 2;
+	}
+
+	message Tick {}
+
+	uint64 target = 1;
+	uint64 time = 2;
+	oneof type {
+		Apply apply = 3;
+		Receive receive = 4;
+		Process process = 5;
+		Propose propose = 6;
+		Tick tick = 7;
+	}
+}
+
+message LogEntryPreamble {
+	enum Type {
+		UNKNOWN = 0;
+		SCENARIO = 1;
+		EVENT = 2;
+	}
+
+	Type type = 1;
+	int32 length = 2;
+}
