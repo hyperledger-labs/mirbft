@@ -167,7 +167,7 @@ func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *A
 	for i, batchEntry := range msg.Batch {
 		clientWindow, ok := sm.clientWindows[string(batchEntry.ClientId)]
 		if !ok {
-			panic("unexpected")
+			panic(fmt.Sprintf("got preprepare including a client which we don't know about"))
 		}
 
 		request := clientWindow.request(batchEntry.ReqNo)

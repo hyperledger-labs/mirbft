@@ -61,7 +61,7 @@ type ClientProposer struct {
 	s            *serializer
 }
 
-func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.RequestData) error {
+func (cp *ClientProposer) Propose(ctx context.Context, blocking bool, requestData *pb.RequestData) error {
 	for {
 		if requestData.ReqNo < cp.clientWaiter.lowWatermark {
 			return errors.Errorf("request %d below watermarks, lowWatermark=%d", requestData.ReqNo, cp.clientWaiter.lowWatermark)
@@ -71,12 +71,24 @@ func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.RequestDa
 			break
 		}
 
-		select {
-		case <-cp.clientWaiter.expired:
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-cp.s.errC:
-			return cp.s.getExitErr()
+		if blocking {
+			select {
+			case <-cp.clientWaiter.expired:
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-cp.s.errC:
+				return cp.s.getExitErr()
+			}
+		} else {
+			select {
+			case <-cp.clientWaiter.expired:
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-cp.s.errC:
+				return cp.s.getExitErr()
+			default:
+				return errors.Errorf("request above watermarks, and not blocking for movement")
+			}
 		}
 
 		replyC := make(chan *clientWaiter, 1)
@@ -185,13 +197,15 @@ func (n *Node) ClientProposer(ctx context.Context, clientID []byte) (*ClientProp
 // forwarded to another node after pre-processing for ordering.  This method
 // only returns an error if the context ends, or the node is stopped.
 // In the case that the node is stopped gracefully it returns ErrStopped.
-func (n *Node) Propose(ctx context.Context, requestData *pb.RequestData) error {
+// If blocking is set to true, then even if this request is outside of the watermarks,
+// call will wait for the watermarks to move (or the context to expire).
+func (n *Node) Propose(ctx context.Context, blocking bool, requestData *pb.RequestData) error {
 	cp, err := n.ClientProposer(ctx, requestData.ClientId)
 	if err != nil {
 		return err
 	}
 
-	return cp.Propose(ctx, requestData)
+	return cp.Propose(ctx, blocking, requestData)
 }
 
 // Step takes authenticated messages from the other nodes in the network.  It

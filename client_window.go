@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"bytes"
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -89,8 +90,8 @@ func (rw *clientWindow) allocate(requestData *pb.RequestData, digest []byte) {
 	}
 
 	offset := int(reqNo - rw.lowWatermark)
-	if rw.requests[offset] != nil {
-		panic("unexpected")
+	if rw.requests[offset] != nil && !bytes.Equal(rw.requests[offset].digest, digest) {
+		panic("we don't handle byzantine clients yet, but two different requests for the same reqno")
 	}
 
 	rw.requests[offset] = &request{

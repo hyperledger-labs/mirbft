@@ -186,7 +186,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 				for _, request := range oldSeq.batch {
 					clientWindow, ok := clientWindows[string(request.requestData.ClientId)]
 					if !ok {
-						panic("unexpected")
+						panic(fmt.Sprintf("epoch tried to start with request from unknown client"))
 
 					}
 

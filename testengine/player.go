@@ -144,7 +144,7 @@ func (p *Player) Step() error {
 		return nil
 	case *tpb.Event_Propose_:
 		request := et.Propose.RequestData
-		err := node.Node.Propose(context.Background(), request)
+		err := node.Node.Propose(context.Background(), false, request)
 		if err != nil {
 			return errors.WithMessagef(err, "node %d could not propose msg from client %x with reqno %d", event.Target, request.ClientId, request.ReqNo)
 		}
@@ -157,7 +157,7 @@ func (p *Player) Step() error {
 		node.Actions.Append(&actions)
 	case <-node.Node.Err():
 		_, err := node.Node.Status(context.Background())
-		return errors.WithMessagef(err, "node %d is in an errored state", event.Target)
+		return errors.WithMessagef(err, "node %d is in an errored state -- last event: %T", event.Target, event.Type)
 	}
 
 	status, _ := node.Node.Status(context.Background())

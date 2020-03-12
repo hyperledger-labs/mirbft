@@ -298,7 +298,7 @@ var _ = Describe("MirBFT", func() {
 			// Unevenly propose across the nodes
 			nodeID := i % 2 % testConfig.NodeCount
 			if nodeID == 0 {
-				err := n0Proposer.Propose(ctx, &pb.RequestData{
+				err := n0Proposer.Propose(ctx, true, &pb.RequestData{
 					ClientId: []byte("fake-client"),
 					ReqNo:    uint64(i) + 1,
 					Data:     proposalBytes,
@@ -306,7 +306,7 @@ var _ = Describe("MirBFT", func() {
 				Expect(err).NotTo(HaveOccurred())
 			} else {
 				node := network.nodes[i%2%testConfig.NodeCount]
-				err := node.Propose(ctx, &pb.RequestData{
+				err := node.Propose(ctx, true, &pb.RequestData{
 					ClientId: []byte("fake-client"),
 					ReqNo:    uint64(i) + 1,
 					Data:     proposalBytes,
