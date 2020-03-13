@@ -53,29 +53,8 @@ var _ = Describe("Recorder", func() {
 	})
 
 	It("Executes and produces a log", func() {
-		start := time.Now()
-		count := 0
-		for {
-			count++
-			err := recording.Step()
-			Expect(err).NotTo(HaveOccurred())
-
-			allDone := true
-			for _, node := range recording.Nodes {
-				if node.State.Length < totalReqs {
-					allDone = false
-					break
-				}
-			}
-
-			if time.Since(start) > 5*time.Second {
-				panic("test took too long")
-			}
-
-			if allDone {
-				break
-			}
-		}
+		count, err := recording.DrainClients(5 * time.Second)
+		Expect(err).NotTo(HaveOccurred())
 
 		fmt.Printf("Executing test required a log of %d events\n", count)
 

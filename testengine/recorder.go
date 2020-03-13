@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash"
+	"time"
 
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -320,6 +321,42 @@ func (r *Recording) Step() error {
 	}
 
 	return nil
+}
+
+// DrainClients will execute the recording until all client requests have committed.
+// It will return with an error if the (real) execution time takes longer than the
+// specified timeout.  If any step returns an error, this function returns that error.
+func (r *Recording) DrainClients(timeout time.Duration) (int, error) {
+	start := time.Now()
+	totalReqs := uint64(0)
+	for _, client := range r.Clients {
+		totalReqs += client.Config.Total
+	}
+
+	count := 0
+	for {
+		count++
+		err := r.Step()
+		if err != nil {
+			return 0, err
+		}
+
+		allDone := true
+		for _, node := range r.Nodes {
+			if node.State.Length < totalReqs {
+				allDone = false
+				break
+			}
+		}
+
+		if allDone {
+			return count, nil
+		}
+
+		if time.Since(start) > timeout {
+			return 0, errors.Errorf("timed out")
+		}
+	}
 }
 
 func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
