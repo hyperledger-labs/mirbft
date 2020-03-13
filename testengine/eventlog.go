@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -64,16 +65,20 @@ func (l *EventLog) Write(dest io.Writer) error {
 			},
 		},
 	}); err != nil {
-		return err
+		return errors.WithMessage(err, "could not serialize scenario")
 	}
 
 	for logEntry := l.FirstEventLogEntry; logEntry != nil; logEntry = logEntry.Next {
+		if logEntry.Event == nil {
+			panic(fmt.Sprintf("log-entry has nil event %v", logEntry))
+		}
+
 		if err := writePrefixedProto(dest, &tpb.LogEntry{
 			Type: &tpb.LogEntry_Event{
 				Event: logEntry.Event,
 			},
 		}); err != nil {
-			return err
+			return errors.WithMessagef(err, "could not serialize event %+v", logEntry)
 		}
 	}
 
@@ -207,7 +212,9 @@ func (l *EventLog) InsertProcess(target uint64, fromNow uint64) {
 	l.Insert(&tpb.Event{
 		Target: target,
 		Time:   l.FakeTime + fromNow,
-		Type:   &tpb.Event_Process_{},
+		Type: &tpb.Event_Process_{
+			Process: &tpb.Event_Process{},
+		},
 	})
 }
 

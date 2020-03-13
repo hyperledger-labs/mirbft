@@ -102,7 +102,10 @@ var _ = Describe("Recorder", func() {
 
 	It("Executes and produces a log", func() {
 		start := time.Now()
+		_ = start
+		count := 0
 		for {
+			count++
 			err := recording.Step()
 			Expect(err).NotTo(HaveOccurred())
 
@@ -114,14 +117,16 @@ var _ = Describe("Recorder", func() {
 				}
 			}
 
-			if time.Since(start) > 9*time.Second {
-				panic("test took too long")
-			}
+			// if time.Since(start) > 9*time.Second {
+			// panic("test took too long")
+			// }
 
 			if allDone {
 				break
 			}
 		}
+
+		fmt.Printf("Executing test required a log of %d events\n", count)
 
 		for _, node := range recording.Nodes {
 			status, err := node.PlaybackNode.Node.Status(context.Background())
@@ -132,8 +137,16 @@ var _ = Describe("Recorder", func() {
 			Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
 			Expect(node.State.Length).To(Equal(totalReqs))
 			Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(864)))
-			// Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("dfae94a36c763806b7894e7c49e8557cce1d4662a01c14749787e9e0ad930fe1"))
-			// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
+
+			// Uncomment the below lines to dump the test output to disk
+			// file, err := os.Create("eventlog.bin")
+			// Expect(err).NotTo(HaveOccurred())
+			// defer file.Close()
+			// err = recording.Player.EventLog.Write(file)
+			// Expect(err).NotTo(HaveOccurred())
+
+			//Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
+			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("575b4e80673bd514cf5bc6a52f72850b27c8f1baa00669ded619c58d5116d856"))
 		}
 	})
 })
