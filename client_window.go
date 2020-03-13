@@ -19,11 +19,6 @@ type clientWindows struct {
 	clients []string
 }
 
-func (cws *clientWindows) hasClient(clientID []byte) bool {
-	_, ok := cws.windows[string(clientID)]
-	return ok
-}
-
 func (cws *clientWindows) clientWindow(clientID []byte) (*clientWindow, bool) {
 	cw, ok := cws.windows[string(clientID)]
 	return cw, ok
