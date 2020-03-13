@@ -9,9 +9,54 @@ package mirbft
 import (
 	"bytes"
 	"fmt"
+	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
+
+type clientWindows struct {
+	windows map[string]*clientWindow
+	clients []string
+}
+
+func (cws *clientWindows) hasClient(clientID []byte) bool {
+	_, ok := cws.windows[string(clientID)]
+	return ok
+}
+
+func (cws *clientWindows) clientWindow(clientID []byte) (*clientWindow, bool) {
+	cw, ok := cws.windows[string(clientID)]
+	return cw, ok
+}
+
+func (cws *clientWindows) insert(clientID []byte, cw *clientWindow) {
+	cws.windows[string(clientID)] = cw
+	cws.clients = append(cws.clients, string(clientID))
+	sort.Slice(cws.clients, func(i, j int) bool {
+		return cws.clients[i] < cws.clients[j]
+	})
+}
+
+func (cws *clientWindows) iterator() *clientWindowIterator {
+	return &clientWindowIterator{
+		clientWindows: cws,
+	}
+}
+
+type clientWindowIterator struct {
+	index         int
+	clientWindows *clientWindows
+}
+
+func (cwi *clientWindowIterator) next() *clientWindow {
+	if cwi.index >= len(cwi.clientWindows.clients) {
+		return nil
+	}
+	client := cwi.clientWindows.clients[cwi.index]
+	clientWindow := cwi.clientWindows.windows[client]
+	cwi.index++
+	return clientWindow
+}
 
 type request struct {
 	requestData *pb.RequestData

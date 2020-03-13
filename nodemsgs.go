@@ -28,7 +28,7 @@ type nodeMsgs struct {
 	epochMsgs      *epochMsgs
 	myConfig       *Config
 	networkConfig  *pb.NetworkConfig
-	clientWindows  map[string]*clientWindow
+	clientWindows  *clientWindows
 	nextCheckpoint uint64
 }
 
@@ -36,7 +36,7 @@ type epochMsgs struct {
 	myConfig      *Config
 	epochConfig   *epochConfig
 	epoch         *epoch
-	clientWindows map[string]*clientWindow
+	clientWindows *clientWindows
 
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
@@ -49,7 +49,7 @@ type nextMsg struct {
 	commit  uint64
 }
 
-func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Config, clientWindows map[string]*clientWindow, oddities *oddities) *nodeMsgs {
+func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Config, clientWindows *clientWindows, oddities *oddities) *nodeMsgs {
 
 	return &nodeMsgs{
 		id:       nodeID,
@@ -70,7 +70,7 @@ func (n *nodeMsgs) setActiveEpoch(epoch *epoch) {
 		n.epochMsgs = nil
 		return
 	}
-	n.epochMsgs = newEpochMsgs(n.id, epoch, n.myConfig)
+	n.epochMsgs = newEpochMsgs(n.id, n.clientWindows, epoch, n.myConfig)
 }
 
 // ingest the message for management by the nodeMsgs.  This message
@@ -95,8 +95,7 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_Forward:
 		requestData := innerMsg.Forward.RequestData
-		clientID := string(innerMsg.Forward.RequestData.ClientId)
-		clientWindow, ok := n.clientWindows[clientID]
+		clientWindow, ok := n.clientWindows.clientWindow(requestData.ClientId)
 		if !ok {
 			if requestData.ReqNo == 1 {
 				return current
@@ -182,7 +181,7 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	}
 }
 
-func newEpochMsgs(nodeID NodeID, epoch *epoch, myConfig *Config) *epochMsgs {
+func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *epoch, myConfig *Config) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
 	for bucketID, leaderID := range epoch.config.buckets {
 		nm := &nextMsg{
@@ -203,7 +202,7 @@ func newEpochMsgs(nodeID NodeID, epoch *epoch, myConfig *Config) *epochMsgs {
 	}
 
 	return &epochMsgs{
-		clientWindows: epoch.clientWindows,
+		clientWindows: clientWindows,
 		myConfig:      myConfig,
 		epochConfig:   epoch.config,
 		epoch:         epoch,
@@ -243,7 +242,7 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 	}
 
 	for _, batchEntry := range msg.Batch {
-		clientWindow, ok := n.clientWindows[string(batchEntry.ClientId)]
+		clientWindow, ok := n.clientWindows.clientWindow(batchEntry.ClientId)
 		if !ok {
 			return future
 		}

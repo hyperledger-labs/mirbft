@@ -18,7 +18,7 @@ type stateMachine struct {
 	myConfig      *Config
 	networkConfig *pb.NetworkConfig
 	nodeMsgs      map[NodeID]*nodeMsgs
-	clientWindows map[string]*clientWindow
+	clientWindows *clientWindows
 
 	activeEpoch       *epoch
 	checkpointTracker *checkpointTracker
@@ -36,7 +36,9 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	}
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
-	clientWindows := map[string]*clientWindow{}
+	clientWindows := &clientWindows{
+		windows: map[string]*clientWindow{},
+	}
 	for _, id := range networkConfig.Nodes {
 		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, clientWindows, oddities)
 	}
@@ -165,7 +167,7 @@ func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *A
 	requests := make([]*request, len(msg.Batch))
 
 	for i, batchEntry := range msg.Batch {
-		clientWindow, ok := sm.clientWindows[string(batchEntry.ClientId)]
+		clientWindow, ok := sm.clientWindows.clientWindow(batchEntry.ClientId)
 		if !ok {
 			panic(fmt.Sprintf("got preprepare including a client which we don't know about"))
 		}
@@ -237,8 +239,9 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 		return &Actions{}
 	}
 
-	for _, clientWindow := range sm.clientWindows {
-		clientWindow.garbageCollect(seqNo)
+	cwi := sm.clientWindows.iterator()
+	for cw := cwi.next(); cw != nil; cw = cwi.next() {
+		cw.garbageCollect(seqNo)
 	}
 	actions := sm.activeEpoch.moveWatermarks()
 	actions.Append(sm.drainNodeMsgs())
@@ -275,11 +278,11 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 }
 
 func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult) *Actions {
-	clientID := string(preprocessResult.RequestData.ClientId)
-	clientWindow, ok := sm.clientWindows[clientID]
+	clientID := preprocessResult.RequestData.ClientId
+	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newRequestWindow(1, 1000) // XXX really need to apply backpressure to the client
-		sm.clientWindows[clientID] = clientWindow
+		clientWindow = newRequestWindow(1, 100) // XXX this should be configurable
+		sm.clientWindows.insert(clientID, clientWindow)
 	}
 
 	clientWindow.allocate(preprocessResult.RequestData, preprocessResult.Digest)
@@ -295,10 +298,10 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 }
 
 func (sm *stateMachine) clientWaiter(clientID []byte) *clientWaiter {
-	clientWindow, ok := sm.clientWindows[string(clientID)]
+	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newRequestWindow(1, 100)
-		sm.clientWindows[string(clientID)] = clientWindow
+		clientWindow = newRequestWindow(1, 100) // XXX this should be configurable
+		sm.clientWindows.insert(clientID, clientWindow)
 	}
 
 	return clientWindow.clientWaiter
@@ -317,13 +320,13 @@ func (sm *stateMachine) tick() *Actions {
 }
 
 func (sm *stateMachine) status() *Status {
-	clientWindowsStatus := make([]*RequestWindowStatus, len(sm.clientWindows))
-	i := 0
-	for id, clientWindow := range sm.clientWindows {
+	clientWindowsStatus := make([]*RequestWindowStatus, len(sm.clientWindows.clients))
+
+	for i, id := range sm.clientWindows.clients {
+		clientWindow := sm.clientWindows.windows[id]
 		rws := clientWindow.status()
 		rws.ClientID = []byte(id)
 		clientWindowsStatus[i] = rws
-		i++
 	}
 
 	nodes := make([]*NodeStatus, len(sm.networkConfig.Nodes))

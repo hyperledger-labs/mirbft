@@ -24,7 +24,7 @@ func bytesToUint64(value []byte) uint64 {
 type proposer struct {
 	myConfig               *Config
 	clientWindowProcessors map[string]*clientWindowProcessor
-	clientWindows          map[string]*clientWindow
+	clientWindows          *clientWindows
 
 	totalBuckets    int
 	proposalBuckets map[BucketID]*proposalBucket
@@ -41,7 +41,7 @@ type proposalBucket struct {
 	pending   [][]*request
 }
 
-func newProposer(myConfig *Config, clientWindows map[string]*clientWindow, buckets map[BucketID]NodeID) *proposer {
+func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[BucketID]NodeID) *proposer {
 	proposalBuckets := map[BucketID]*proposalBucket{}
 	for bucketID, nodeID := range buckets {
 		if nodeID != NodeID(myConfig.ID) {
@@ -51,7 +51,7 @@ func newProposer(myConfig *Config, clientWindows map[string]*clientWindow, bucke
 	}
 
 	clientWindowProcessors := map[string]*clientWindowProcessor{}
-	for clientID, clientWindow := range clientWindows {
+	for clientID, clientWindow := range clientWindows.windows {
 		rwp := &clientWindowProcessor{
 			lastProcessed: clientWindow.lowWatermark - 1,
 			clientWindow:  clientWindow,
@@ -69,17 +69,17 @@ func newProposer(myConfig *Config, clientWindows map[string]*clientWindow, bucke
 }
 
 func (p *proposer) stepAllRequestWindows() {
-	// TODO, this is kind of dumb to get a key from a map, and then
-	// look it up in the map again
-	for clientID := range p.clientWindowProcessors {
-		p.stepRequestWindow(clientID)
+	for _, clientID := range p.clientWindows.clients {
+		// TODO, this logic favors clients with lower IDs, we really should
+		// remember where we last left off to prevent starvation
+		p.stepRequestWindow([]byte(clientID))
 	}
 }
 
-func (p *proposer) stepRequestWindow(clientID string) {
-	rwp, ok := p.clientWindowProcessors[clientID]
+func (p *proposer) stepRequestWindow(clientID []byte) {
+	rwp, ok := p.clientWindowProcessors[string(clientID)]
 	if !ok {
-		rw, ok := p.clientWindows[clientID]
+		rw, ok := p.clientWindows.clientWindow(clientID)
 		if !ok {
 			panic(fmt.Sprintf("unexpected, missing client %x", []byte(clientID)))
 		}
@@ -88,7 +88,7 @@ func (p *proposer) stepRequestWindow(clientID string) {
 			lastProcessed: rw.lowWatermark - 1,
 			clientWindow:  rw,
 		}
-		p.clientWindowProcessors[clientID] = rwp
+		p.clientWindowProcessors[string(clientID)] = rwp
 	}
 
 	for rwp.lastProcessed < rwp.clientWindow.highWatermark {
