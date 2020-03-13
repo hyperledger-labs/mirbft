@@ -2,86 +2,38 @@ package testengine_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/IBM/mirbft"
-	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/testengine"
-	tpb "github.com/IBM/mirbft/testengine/testenginepb"
-
-	"go.uber.org/zap"
 )
 
 var _ = Describe("Recorder", func() {
 	var (
-		networkConfig *pb.NetworkConfig
-		clientConfigs []*testengine.ClientConfig
-		nodeConfigs   []*tpb.NodeConfig
-		logger        *zap.Logger
-		player        *testengine.Player
-		recorder      *testengine.Recorder
-		recording     *testengine.Recording
-		totalReqs     uint64
+		recorder  *testengine.Recorder
+		recording *testengine.Recording
+		totalReqs uint64
 	)
 
 	BeforeEach(func() {
-		nodeCount := 4
-
-		networkConfig = mirbft.StandardInitialNetworkConfig(nodeCount)
-
-		for i := 0; i < nodeCount; i++ {
-			nodeConfigs = append(nodeConfigs, &tpb.NodeConfig{
-				Id:                   uint64(i),
-				HeartbeatTicks:       2,
-				SuspectTicks:         4,
-				NewEpochTimeoutTicks: 8,
-				TickInterval:         500,
-				LinkLatency:          100,
-				ReadyLatency:         50,
-				ProcessLatency:       10,
-			})
-		}
-
-		clientCount := 4
-
-		for i := 0; i < clientCount; i++ {
-			total := uint64(200)
-			clientConfigs = append(clientConfigs, &testengine.ClientConfig{
-				ID:          []byte(fmt.Sprintf("%d", i)),
-				MaxInFlight: int(networkConfig.CheckpointInterval / 2),
-				Total:       total,
-			})
-			totalReqs += total
-		}
+		recorder = testengine.BasicRecorder(4, 4, 200)
+		totalReqs = 4 * 200
 
 		var err error
-		logger, err = zap.NewProduction()
-		Expect(err).NotTo(HaveOccurred())
-
-		recorder = &testengine.Recorder{
-			NetworkConfig: networkConfig,
-			NodeConfigs:   nodeConfigs,
-			Logger:        logger,
-			Hasher:        sha256.New,
-			ClientConfigs: clientConfigs,
-		}
-
 		recording, err = recorder.Recording()
 		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		if player != nil && player.DoneC != nil {
-			close(player.DoneC)
+		if recording != nil && recording.Player != nil && recording.Player.DoneC != nil {
+			close(recording.Player.DoneC)
 		}
 
-		if logger != nil {
-			logger.Sync()
+		if recorder.Logger != nil {
+			recorder.Logger.Sync()
 		}
 
 		if CurrentGinkgoTestDescription().Failed {
@@ -102,7 +54,6 @@ var _ = Describe("Recorder", func() {
 
 	It("Executes and produces a log", func() {
 		start := time.Now()
-		_ = start
 		count := 0
 		for {
 			count++
@@ -117,9 +68,9 @@ var _ = Describe("Recorder", func() {
 				}
 			}
 
-			// if time.Since(start) > 9*time.Second {
-			// panic("test took too long")
-			// }
+			if time.Since(start) > 5*time.Second {
+				panic("test took too long")
+			}
 
 			if allDone {
 				break

@@ -72,17 +72,6 @@ var _ = XDescribe("Non-determinism finding test", func() {
 				break
 			}
 		}
-		/*
-			Expect(proto.Equal(
-				eventLog.FirstEventLogEntry.Event,
-				newEventLog.FirstEventLogEntry.Event,
-			)).To(BeTrue())
-			Expect(proto.Equal(
-				eventLog.FirstEventLogEntry.Next.Event,
-				newEventLog.FirstEventLogEntry.Next.Event,
-			)).To(BeTrue())
-			Expect(newEventLog.FirstEventLogEntry.Next.Next).To(BeNil())
-		*/
 	})
 })
 

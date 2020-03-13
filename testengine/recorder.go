@@ -9,6 +9,7 @@ package testengine
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"hash"
@@ -319,4 +320,44 @@ func (r *Recording) Step() error {
 	}
 
 	return nil
+}
+
+func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
+	networkConfig := mirbft.StandardInitialNetworkConfig(nodeCount)
+
+	var nodeConfigs []*tpb.NodeConfig
+	for i := 0; i < nodeCount; i++ {
+		nodeConfigs = append(nodeConfigs, &tpb.NodeConfig{
+			Id:                   uint64(i),
+			HeartbeatTicks:       2,
+			SuspectTicks:         4,
+			NewEpochTimeoutTicks: 8,
+			TickInterval:         500,
+			LinkLatency:          100,
+			ReadyLatency:         50,
+			ProcessLatency:       10,
+		})
+	}
+
+	var clientConfigs []*ClientConfig
+	for i := 0; i < clientCount; i++ {
+		clientConfigs = append(clientConfigs, &ClientConfig{
+			ID:          []byte(fmt.Sprintf("%d", i)),
+			MaxInFlight: int(networkConfig.CheckpointInterval / 2),
+			Total:       reqsPerClient,
+		})
+	}
+
+	logger, err := zap.NewProduction()
+	if err != nil {
+		panic(err)
+	}
+
+	return &Recorder{
+		NetworkConfig: networkConfig,
+		NodeConfigs:   nodeConfigs,
+		Logger:        logger,
+		Hasher:        sha256.New,
+		ClientConfigs: clientConfigs,
+	}
 }
