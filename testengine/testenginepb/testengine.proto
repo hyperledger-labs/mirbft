@@ -85,13 +85,9 @@ message Event {
 	}
 }
 
-message LogEntryPreamble {
-	enum Type {
-		UNKNOWN = 0;
-		SCENARIO = 1;
-		EVENT = 2;
+message LogEntry {
+	oneof Type {
+		ScenarioConfig scenario = 1;
+		Event event = 2;
 	}
-
-	Type type = 1;
-	int32 length = 2;
 }
