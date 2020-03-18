@@ -347,10 +347,10 @@ func (sm *stateMachine) status() *Status {
 
 		buckets = epoch.status()
 
-		lowWatermark = epoch.baseCheckpoint.SeqNo / uint64(len(buckets))
+		lowWatermark = epoch.baseCheckpoint.SeqNo
 
 		if epoch != nil && len(epoch.checkpoints) > 0 {
-			highWatermark = epoch.checkpoints[len(epoch.checkpoints)-1].end / uint64(len(buckets))
+			highWatermark = epoch.checkpoints[len(epoch.checkpoints)-1].end
 		} else {
 			highWatermark = lowWatermark
 		}

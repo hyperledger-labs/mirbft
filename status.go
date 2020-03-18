@@ -90,14 +90,14 @@ func (s *Status) Pretty() string {
 	buffer.WriteString("\n")
 
 	hRule := func() {
-		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
+		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
 			buffer.WriteString("--")
 		}
 	}
 
 	for i := len(fmt.Sprintf("%d", s.HighWatermark)); i > 0; i-- {
 		magnitude := math.Pow10(i - 1)
-		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
+		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
 			buffer.WriteString(fmt.Sprintf(" %d", seqNo/uint64(magnitude)%10))
 		}
 		buffer.WriteString("\n")
@@ -112,7 +112,7 @@ func (s *Status) Pretty() string {
 		hRule()
 		buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeStatus.ID))
 		for bucket, bucketStatus := range nodeStatus.BucketStatuses {
-			for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
+			for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
 				if seqNo == nodeStatus.LastCheckpoint {
 					buffer.WriteString("|X")
 					continue
@@ -169,10 +169,10 @@ func (s *Status) Pretty() string {
 	hRule()
 	buffer.WriteString("- === Checkpoints ===\n")
 	i := 0
-	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
+	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
 		if len(s.Checkpoints) > i {
 			checkpoint := s.Checkpoints[i]
-			if seqNo == checkpoint.SeqNo/uint64(len(s.Buckets)) {
+			if seqNo == checkpoint.SeqNo {
 				buffer.WriteString(fmt.Sprintf("|%d", checkpoint.MaxAgreements))
 				i++
 				continue
@@ -182,7 +182,7 @@ func (s *Status) Pretty() string {
 	}
 	buffer.WriteString("| Max Agreements\n")
 	i = 0
-	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo++ {
+	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
 		if len(s.Checkpoints) > i {
 			checkpoint := s.Checkpoints[i]
 			if seqNo == s.Checkpoints[i].SeqNo/uint64(len(s.Buckets)) {

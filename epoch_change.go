@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"bytes"
+	"fmt"
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -570,6 +571,7 @@ func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epoc
 	var maxCheckpoint *checkpointKey
 
 	for key, supporters := range checkpoints {
+		key := key // shadow for when we take the pointer
 		if len(supporters) < someCorrectQuorum(config) {
 			continue
 		}
@@ -595,7 +597,7 @@ func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epoc
 		}
 
 		if maxCheckpoint.SeqNo == key.SeqNo {
-			panic("two correct quorums have different checkpoints for same seqno")
+			panic(fmt.Sprintf("two correct quorums have different checkpoints for same seqno %d -- %x != %x", key.SeqNo, []byte(maxCheckpoint.Value), []byte(key.Value)))
 		}
 
 		maxCheckpoint = &key

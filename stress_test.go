@@ -51,70 +51,6 @@ func (nh *NoopHasher) BlockSize() int {
 	return 1
 }
 
-type Proposer interface {
-	Proposal(nodes, i int) (uint64, []byte)
-}
-
-type LinearProposer struct{}
-
-func (LinearProposer) Proposal(nodes, i int) (uint64, []byte) {
-	return uint64(i), Uint64ToBytes(uint64(i))
-}
-
-type SkippingProposer struct {
-	NodesToSkip []int
-}
-
-func (sp SkippingProposer) Proposal(nodes, i int) (uint64, []byte) {
-	nonSkipped := nodes - len(sp.NodesToSkip)
-	alreadySkipped := i / nonSkipped * len(sp.NodesToSkip)
-	for j := 0; j <= i%nonSkipped; j++ {
-		for _, n := range sp.NodesToSkip {
-			if n == j {
-				alreadySkipped++
-			}
-		}
-	}
-
-	next := uint64(i + alreadySkipped)
-	return next, Uint64ToBytes(next)
-}
-
-var _ = Describe("SkippingPropser", func() {
-	It("skips what I expect", func() {
-		sp := SkippingProposer{
-			NodesToSkip: []int{0, 3},
-		}
-
-		// Expect 1, 2, 5, 6, 9, 10, 13, 14, ...
-
-		i0, b0 := sp.Proposal(4, 0)
-		Expect(i0).To(Equal(uint64(1)))
-		Expect(b0).To(Equal(Uint64ToBytes(1)))
-
-		i1, _ := sp.Proposal(4, 1)
-		Expect(i1).To(Equal(uint64(2)))
-
-		i2, _ := sp.Proposal(4, 2)
-		Expect(i2).To(Equal(uint64(5)))
-
-		i3, _ := sp.Proposal(4, 3)
-		Expect(i3).To(Equal(uint64(6)))
-
-		i4, _ := sp.Proposal(4, 4)
-		Expect(i4).To(Equal(uint64(9)))
-
-		i5, _ := sp.Proposal(4, 5)
-		Expect(i5).To(Equal(uint64(10)))
-
-		i6, _ := sp.Proposal(4, 6)
-		Expect(i6).To(Equal(uint64(13)))
-
-		i7, _ := sp.Proposal(4, 7)
-		Expect(i7).To(Equal(uint64(14)))
-	})
-})
-
 type Transport interface {
 	Send(source, dest uint64, msg *pb.Msg)
 	Link(source uint64) sample.Link
@@ -144,35 +80,6 @@ func (ft *FakeTransport) Link(source uint64) sample.Link {
 	}
 }
 
-type SilencingTransport struct {
-	Underlying Transport
-	Silenced   uint64
-}
-
-func (it *SilencingTransport) Send(source, dest uint64, msg *pb.Msg) {
-	if source == it.Silenced {
-		return
-	}
-
-	it.Underlying.Send(source, dest, msg)
-}
-
-func (it *SilencingTransport) Link(source uint64) sample.Link {
-	return &FakeLink{
-		FakeTransport: it,
-		Source:        source,
-	}
-}
-
-func Silence(source uint64) func(Transport) Transport {
-	return func(t Transport) Transport {
-		return &SilencingTransport{
-			Underlying: t,
-			Silenced:   source,
-		}
-	}
-}
-
 type FakeLog struct {
 	Entries []*pb.QEntry
 	CommitC chan *pb.QEntry
@@ -192,16 +99,9 @@ func (fl *FakeLog) Snap() []byte {
 }
 
 type TestConfig struct {
-	NodeCount        int
-	BucketCount      int
-	MsgCount         int
-	Proposer         Proposer
-	TransportFilters []func(Transport) Transport
-	Expectations     TestExpectations
-}
-
-type TestExpectations struct {
-	Epoch *uint64
+	NodeCount   int
+	BucketCount int
+	MsgCount    int
 }
 
 func Uint64ToPtr(value uint64) *uint64 {
@@ -218,6 +118,12 @@ func BytesToUint64(value []byte) uint64 {
 	return binary.LittleEndian.Uint64(value)
 }
 
+// StressyTest attempts to spin up as 'real' a network as possible, using
+// fake links, but real concurrent go routines.  This means the test is non-deterministic
+// so we can't make assertions about the state of the network that are as specific
+// as the more general single threaded testengine type tests.  Still, there
+// seems to be value in confirming that at a basic level, a concurrent network executes
+// correctly.
 var _ = Describe("StressyTest", func() {
 	var (
 		doneC     chan struct{}
@@ -293,7 +199,7 @@ var _ = Describe("StressyTest", func() {
 
 		Expect(testConfig.MsgCount).NotTo(Equal(0))
 		for i := 0; i < testConfig.MsgCount; i++ {
-			proposalUint, proposalBytes := testConfig.Proposer.Proposal(testConfig.NodeCount, i)
+			proposalUint, proposalBytes := uint64(i), Uint64ToBytes(uint64(i))
 
 			// Unevenly propose across the nodes
 			nodeID := i % 2 % testConfig.NodeCount
@@ -326,10 +232,6 @@ var _ = Describe("StressyTest", func() {
 				entry := &pb.QEntry{}
 				Eventually(fakeLog.CommitC).Should(Receive(&entry))
 
-				if testConfig.Expectations.Epoch != nil {
-					Expect(entry.Epoch).To(Equal(*testConfig.Expectations.Epoch))
-				}
-
 				proposalUint, ok := proposals[string(entry.Requests[0].Digest)]
 				Expect(ok).To(BeTrue())
 				if testConfig.BucketCount == 0 {
@@ -345,29 +247,17 @@ var _ = Describe("StressyTest", func() {
 		Entry("SingleNode greenpath", &TestConfig{
 			NodeCount: 1,
 			MsgCount:  1000,
-			Proposer:  LinearProposer{},
-			Expectations: TestExpectations{
-				Epoch: Uint64ToPtr(0),
-			},
 		}),
 
 		Entry("FourNodeBFT greenpath", &TestConfig{
 			NodeCount: 4,
 			MsgCount:  1000,
-			Proposer:  LinearProposer{},
-			Expectations: TestExpectations{
-				Epoch: Uint64ToPtr(0),
-			},
 		}),
 
 		Entry("FourNodeBFT single bucket greenpath", &TestConfig{
 			NodeCount:   4,
 			BucketCount: 1,
 			MsgCount:    1000,
-			Proposer:    LinearProposer{},
-			Expectations: TestExpectations{
-				Epoch: Uint64ToPtr(0),
-			},
 		}),
 	)
 })
@@ -405,10 +295,6 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 
 	var transport Transport = &FakeTransport{
 		Destinations: nodes,
-	}
-
-	for _, transportFilter := range testConfig.TransportFilters {
-		transport = transportFilter(transport)
 	}
 
 	fakeLogs := make([]*FakeLog, testConfig.NodeCount)
@@ -454,10 +340,6 @@ func (n *Network) GoRunNetwork(doneC <-chan struct{}, wg *sync.WaitGroup) {
 			defer GinkgoRecover()
 			defer wg.Done()
 
-			// TODO, these tests are flaky, and non-deterministic.
-			// they need to be re-written onto a single thread with determinism
-			// and the crazy high-stress non-deterministic ones moved to
-			// a test requiring fewer constraints on the results.
 			ticker := time.NewTicker(10 * time.Millisecond)
 			defer ticker.Stop()
 

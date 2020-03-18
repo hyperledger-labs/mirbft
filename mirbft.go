@@ -127,12 +127,17 @@ func StandardInitialNetworkConfig(nodeCount int) *pb.NetworkConfig {
 	for i := 0; i < nodeCount; i++ {
 		nodes = append(nodes, uint64(i))
 	}
+
+	numberOfBuckets := int32(nodeCount)
+	checkpointInterval := numberOfBuckets * 5
+	maxEpochLength := checkpointInterval * 10
+
 	return &pb.NetworkConfig{
 		Nodes:              nodes,
 		F:                  int32((nodeCount - 1) / 3),
-		CheckpointInterval: int32(5 * nodeCount),
-		MaxEpochLength:     uint64(nodeCount*5*10) * 100000,
-		NumberOfBuckets:    int32(nodeCount),
+		NumberOfBuckets:    numberOfBuckets,
+		CheckpointInterval: checkpointInterval,
+		MaxEpochLength:     uint64(maxEpochLength),
 	}
 }
 
