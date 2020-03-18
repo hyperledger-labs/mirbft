@@ -331,7 +331,7 @@ var _ = Describe("Integration", func() {
 					Type: &pb.Msg_Preprepare{
 						Preprepare: &pb.Preprepare{
 							Epoch: 3,
-							SeqNo: 4,
+							SeqNo: 1,
 							Batch: []*pb.Request{
 								{
 									ClientId: []byte("client-1"),
@@ -349,7 +349,7 @@ var _ = Describe("Integration", func() {
 					{
 						Source: 3,
 						Epoch:  3,
-						SeqNo:  4,
+						SeqNo:  1,
 						Requests: []*PreprocessResult{
 							{
 								Digest: uint64ToBytes(7),
@@ -370,7 +370,7 @@ var _ = Describe("Integration", func() {
 				Processed: []*ProcessResult{
 					{
 						Epoch:  3,
-						SeqNo:  4,
+						SeqNo:  1,
 						Digest: []byte("fake-digest"),
 					},
 				},
@@ -382,7 +382,7 @@ var _ = Describe("Integration", func() {
 						Type: &pb.Msg_Prepare{
 							Prepare: &pb.Prepare{
 								Epoch:  3,
-								SeqNo:  4,
+								SeqNo:  1,
 								Digest: []byte(("fake-digest")),
 							},
 						},
@@ -391,7 +391,7 @@ var _ = Describe("Integration", func() {
 				QEntries: []*pb.QEntry{
 					{
 						Epoch:  3,
-						SeqNo:  4,
+						SeqNo:  1,
 						Digest: []byte("fake-digest"),
 						Requests: []*pb.Request{
 							{
@@ -422,7 +422,7 @@ var _ = Describe("Integration", func() {
 						Type: &pb.Msg_Commit{
 							Commit: &pb.Commit{
 								Epoch:  3,
-								SeqNo:  4,
+								SeqNo:  1,
 								Digest: []byte(("fake-digest")),
 							},
 						},
@@ -431,7 +431,7 @@ var _ = Describe("Integration", func() {
 				PEntries: []*pb.PEntry{
 					{
 						Epoch:  3,
-						SeqNo:  4,
+						SeqNo:  1,
 						Digest: []byte("fake-digest"),
 					},
 				},
@@ -459,7 +459,7 @@ var _ = Describe("Integration", func() {
 					{
 						QEntry: &pb.QEntry{
 							Epoch:  3,
-							SeqNo:  4,
+							SeqNo:  1,
 							Digest: []byte("fake-digest"),
 							Requests: []*pb.Request{
 								{

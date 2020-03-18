@@ -115,8 +115,21 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		leaders:           newEpochConfig.Leaders,
 	}
 
+	leaders := map[uint64]struct{}{}
+	for _, leader := range newEpochConfig.Leaders {
+		leaders[leader] = struct{}{}
+	}
+
+	overflowIndex := 0 // TODO, this should probably start after the last assigned node
 	for i := 0; i < int(networkConfig.NumberOfBuckets); i++ {
-		config.buckets[BucketID(i)] = NodeID(newEpochConfig.Leaders[i%len(newEpochConfig.Leaders)])
+		bucketID := BucketID(i)
+		leader := networkConfig.Nodes[(uint64(i)+newEpochConfig.Number)%uint64(len(networkConfig.Nodes))]
+		if _, ok := leaders[leader]; !ok {
+			config.buckets[bucketID] = NodeID(newEpochConfig.Leaders[overflowIndex%len(newEpochConfig.Leaders)])
+			overflowIndex++
+		} else {
+			config.buckets[bucketID] = NodeID(leader)
+		}
 	}
 
 	checkpoints := make([]*checkpoint, 0, 3)
