@@ -63,7 +63,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 
 	target := epochChanger.target(0)
 	target.changes[NodeID(myConfig.ID)] = epochChange
-	target.myEpochChange = epochChange.underlying
+	target.myEpochChange = epochChange
 	epochChanger.pendingEpochTarget = target
 
 	return &stateMachine{

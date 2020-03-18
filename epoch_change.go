@@ -26,7 +26,7 @@ type epochTarget struct {
 	suspicions map[NodeID]struct{}
 
 	myNewEpoch     *pb.NewEpoch
-	myEpochChange  *pb.EpochChange
+	myEpochChange  *epochChange
 	leaderNewEpoch *pb.EpochConfig
 	isLeader       bool
 }
@@ -96,7 +96,7 @@ func (ec *epochChanger) repeatEpochChangeBroadcast() *Actions {
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_EpochChange{
-					EpochChange: ec.pendingEpochTarget.myEpochChange,
+					EpochChange: ec.pendingEpochTarget.myEpochChange.underlying,
 				},
 			},
 		},
@@ -210,9 +210,13 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 		ec.state = prepending
 		newTarget := ec.target(epoch + 1)
 		ec.pendingEpochTarget = newTarget
-		newTarget.myEpochChange = ec.lastActiveEpoch.constructEpochChange(epoch + 1)
+		var err error
+		newTarget.myEpochChange, err = newEpochChange(ec.lastActiveEpoch.constructEpochChange(epoch + 1))
+		if err != nil {
+			panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
+		}
 		ec.updateHighestObservedCorrectEpoch(epoch + 1)
-		return target.myEpochChange
+		return target.myEpochChange.underlying
 	}
 
 	if len(target.suspicions) >= someCorrectQuorum(ec.networkConfig) &&
@@ -226,7 +230,6 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 }
 
 func (ec *epochChanger) applyEpochChangeMsg(source NodeID, epochChange *pb.EpochChange) *Actions {
-
 	change, err := newEpochChange(epochChange)
 	if err != nil {
 		// TODO, log
@@ -241,7 +244,7 @@ func (ec *epochChanger) applyEpochChangeMsg(source NodeID, epochChange *pb.Epoch
 		ec.updateHighestObservedCorrectEpoch(epochChange.NewEpoch)
 	}
 
-	if len(target.changes) < intersectionQuorum(ec.networkConfig) {
+	if len(target.changes) < intersectionQuorum(ec.networkConfig) || target.myEpochChange == nil {
 		return &Actions{}
 	}
 
@@ -249,8 +252,43 @@ func (ec *epochChanger) applyEpochChangeMsg(source NodeID, epochChange *pb.Epoch
 	if ec.lastActiveEpoch == nil {
 		newLeaders = ec.networkConfig.Nodes
 	} else {
-		// XXX actually reduce the leader set
-		newLeaders = ec.networkConfig.Nodes
+		oldLeaders := ec.lastActiveEpoch.config.leaders
+		if len(oldLeaders) == 1 {
+			newLeaders = []uint64{ec.myConfig.ID}
+		} else {
+			var badNode uint64
+			if ec.lastActiveEpoch.config.number+1 == target.myEpochChange.underlying.NewEpoch {
+				var lowestEntry uint64
+				for i := target.myEpochChange.lowWatermark + 1; i < target.myEpochChange.lowWatermark+uint64(ec.networkConfig.CheckpointInterval)*2; i++ {
+					if _, ok := target.myEpochChange.pSet[i]; !ok {
+						lowestEntry = i
+						break
+					}
+				}
+
+				if lowestEntry == 0 {
+					// All of the sequence numbers within the watermarks prepared, so it's
+					// unclear why the epoch failed, eliminate the previous epoch leader
+					badNode = ec.lastActiveEpoch.config.number % uint64(len(ec.networkConfig.Nodes))
+				} else {
+					bucket := ec.lastActiveEpoch.config.seqToBucket(lowestEntry)
+					badNode = uint64(ec.lastActiveEpoch.config.buckets[bucket])
+				}
+			} else {
+				// If we never saw the last epoch start, we assume
+				// that replica must be faulty.
+				// Subtraction on epoch number is safe, as for epoch 0, lastActiveEpoch is nil
+				badNode = (target.myEpochChange.underlying.NewEpoch - 1) % uint64(len(ec.networkConfig.Nodes))
+			}
+
+			newLeaders = make([]uint64, 0, len(oldLeaders)-1)
+			for _, oldLeader := range oldLeaders {
+				if oldLeader == badNode {
+					continue
+				}
+				newLeaders = append(newLeaders, oldLeader)
+			}
+		}
 	}
 
 	if ec.state == prepending && target.myNewEpoch == nil {

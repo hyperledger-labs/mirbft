@@ -23,6 +23,7 @@ import (
 type EventLogEntry struct {
 	Event *tpb.Event
 	Next  *EventLogEntry
+	Prev  *EventLogEntry
 }
 
 type EventLog struct {
@@ -151,6 +152,7 @@ func ReadEventLog(source io.Reader) (el *EventLog, err error) {
 				eventLog.FirstEventLogEntry = eventLogEntry
 				eventLog.NextEventLogEntry = eventLogEntry
 			} else {
+				eventLogEntry.Prev = eventLog.NextEventLogEntry
 				eventLog.NextEventLogEntry.Next = eventLogEntry
 				eventLog.NextEventLogEntry = eventLogEntry
 			}
@@ -237,21 +239,41 @@ func (l *EventLog) Insert(event *tpb.Event) {
 
 	if l.FirstEventLogEntry == nil {
 		l.FirstEventLogEntry = logEntry
-	}
-
-	if l.NextEventLogEntry == nil || event.Time < l.NextEventLogEntry.Event.Time {
-		logEntry.Next = l.NextEventLogEntry
 		l.NextEventLogEntry = logEntry
 		return
 	}
 
 	currentEntry := l.NextEventLogEntry
 	for {
-		if currentEntry.Next == nil || currentEntry.Next.Event.Time > event.Time {
-			logEntry.Next = currentEntry.Next
+		if currentEntry.Event.Time > event.Time {
+			logEntry.Next = currentEntry
+			logEntry.Prev = currentEntry.Prev
+			currentEntry.Prev = logEntry
+			if logEntry.Prev != nil {
+				logEntry.Prev.Next = logEntry
+			}
+			if currentEntry == l.NextEventLogEntry {
+				l.NextEventLogEntry = logEntry
+			}
+			if currentEntry == l.FirstEventLogEntry {
+				l.FirstEventLogEntry = logEntry
+			}
+			return
+		}
+
+		if currentEntry.Next == nil {
 			currentEntry.Next = logEntry
+			logEntry.Prev = currentEntry
 			return
 		}
 		currentEntry = currentEntry.Next
 	}
+}
+
+func (l *EventLog) Count() int {
+	total := 0
+	for event := l.FirstEventLogEntry; event != nil; event = event.Next {
+		total++
+	}
+	return total
 }

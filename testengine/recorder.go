@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash"
+	"math/rand"
 	"time"
 
 	"github.com/IBM/mirbft"
@@ -129,8 +130,10 @@ type Recorder struct {
 	NetworkConfig *pb.NetworkConfig
 	NodeConfigs   []*tpb.NodeConfig
 	ClientConfigs []*ClientConfig
+	Manglers      []Mangler
 	Logger        *zap.Logger
 	Hasher        Hasher
+	RandomSeed    int64
 }
 
 func (r *Recorder) Recording() (*Recording, error) {
@@ -184,7 +187,13 @@ func (r *Recorder) Recording() (*Recording, error) {
 		Player:   player,
 		Nodes:    nodes,
 		Clients:  clients,
+		Manglers: r.Manglers,
+		Rand:     rand.New(rand.NewSource(r.RandomSeed)),
 	}, nil
+}
+
+type Mangler interface {
+	BeforeStep(random int, el *EventLog)
 }
 
 type Recording struct {
@@ -193,9 +202,19 @@ type Recording struct {
 	Player   *Player
 	Nodes    []*RecorderNode
 	Clients  []*RecorderClient
+	Manglers []Mangler
+	Rand     *rand.Rand
 }
 
 func (r *Recording) Step() error {
+	if r.EventLog.NextEventLogEntry == nil {
+		return errors.Errorf("event log is empty, nothing to do")
+	}
+
+	for _, mangler := range r.Manglers {
+		mangler.BeforeStep(r.Rand.Int(), r.EventLog)
+	}
+
 	err := r.Player.Step()
 	if err != nil {
 		return errors.WithMessagef(err, "could not step recorder's underlying player")
@@ -350,7 +369,7 @@ func (r *Recording) DrainClients(timeout time.Duration) (int, error) {
 		}
 
 		if time.Since(start) > timeout {
-			return 0, errors.Errorf("timed out")
+			return 0, errors.Errorf("timed out after %d entries", r.EventLog.Count())
 		}
 	}
 }
