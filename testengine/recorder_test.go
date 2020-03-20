@@ -20,6 +20,7 @@ var _ = Describe("Recorder", func() {
 
 	BeforeEach(func() {
 		recorder = testengine.BasicRecorder(4, 4, 200)
+		recorder.NetworkConfig.MaxEpochLength = 100000 // XXX this works around a bug in the library for now
 		totalReqs = 4 * 200
 
 		var err error

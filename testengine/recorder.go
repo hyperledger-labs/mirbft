@@ -62,12 +62,19 @@ func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.RequestData {
 	}
 }
 
+type CommitList struct {
+	Commit *mirbft.Commit
+	Next   *CommitList
+}
+
 type NodeState struct {
 	LastCommittedSeqNo uint64
 	OutstandingCommits []*mirbft.Commit
 	Hasher             hash.Hash
 	Value              []byte
 	Length             uint64
+	FirstCommit        *CommitList
+	LastCommit         *CommitList
 }
 
 func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*tpb.Checkpoint {
@@ -90,6 +97,18 @@ func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*tpb.Checkp
 			break
 		}
 		i++
+
+		if ns.FirstCommit == nil {
+			ns.FirstCommit = &CommitList{
+				Commit: commit,
+			}
+			ns.LastCommit = ns.FirstCommit
+		} else {
+			ns.LastCommit.Next = &CommitList{
+				Commit: commit,
+			}
+			ns.LastCommit = ns.LastCommit.Next
+		}
 
 		for _, request := range commit.QEntry.Requests {
 			ns.Hasher.Write(request.Digest)

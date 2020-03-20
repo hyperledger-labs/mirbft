@@ -3,6 +3,8 @@ package mirbft_test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -20,6 +22,7 @@ var _ = Describe("Mirbft", func() {
 
 	BeforeEach(func() {
 		recorder = testengine.BasicRecorder(4, 4, 100)
+		Expect(recorder.NetworkConfig.MaxEpochLength).To(Equal(uint64(200)))
 	})
 
 	JustBeforeEach(func() {
@@ -37,7 +40,8 @@ var _ = Describe("Mirbft", func() {
 			recorder.Logger.Sync()
 		}
 
-		if CurrentGinkgoTestDescription().Failed {
+		tDesc := CurrentGinkgoTestDescription()
+		if tDesc.Failed {
 			fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
 			Expect(recording).NotTo(BeNil())
 
@@ -52,12 +56,26 @@ var _ = Describe("Mirbft", func() {
 					}
 				}
 			}
+
+			fmt.Printf("\nWriting EventLog to disk\n")
+			tmpFile, err := ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
+			if err != nil {
+				fmt.Printf("Encountered error creating tempfile: %s\n", err)
+				return
+			}
+			defer tmpFile.Close()
+			err = recording.EventLog.Write(tmpFile)
+			Expect(err).NotTo(HaveOccurred())
+			fmt.Printf("EventLog available at '%s'\n", tmpFile.Name())
 		}
 	})
 
 	It("delivers all requests", func() {
 		_, err := recording.DrainClients(5 * time.Second)
 		Expect(err).NotTo(HaveOccurred())
+
+		// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.Epoch).To(Equal(uint64(0)))
+		// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.SeqNo).To(Equal(uint64(100)))
 	})
 
 	When("the third node is silenced", func() {
@@ -75,6 +93,9 @@ var _ = Describe("Mirbft", func() {
 		It("still delivers all requests", func() {
 			_, err := recording.DrainClients(5 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
+
+			// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.Epoch).To(Equal(uint64(1)))
+			// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.SeqNo).To(Equal(uint64(100)))
 		})
 	})
 })
