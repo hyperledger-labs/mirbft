@@ -33,7 +33,7 @@ func (sm *SilencingMangler) BeforeStep(random int, el *EventLog) {
 		el.NextEventLogEntry.Prev.Next = currentEntry.Next
 	}
 	if currentEntry.Next != nil {
-		currentEntry.Prev = currentEntry.Prev
+		currentEntry.Next.Prev = currentEntry.Prev
 	}
 	el.NextEventLogEntry = currentEntry.Next
 }
