@@ -8,7 +8,6 @@ package testengine
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -273,28 +272,21 @@ func (r *Recording) Step() error {
 		processing := playbackNode.Processing
 		for _, msg := range processing.Broadcast {
 			for i := range r.Player.Nodes {
-				if uint64(i) != lastEvent.Target {
-					r.EventLog.InsertRecv(uint64(i), lastEvent.Target, msg, uint64(nodeConfig.LinkLatency))
-				} else {
-					// Send it to ourselves with no latency
-					err := playbackNode.Node.Step(context.Background(), lastEvent.Target, msg)
-					if err != nil {
-						return errors.WithMessagef(err, "node %d could not step message to self", lastEvent.Target)
-					}
+				if uint64(i) == lastEvent.Target {
+					// We've already sent it to ourselves
+					continue
 				}
+				r.EventLog.InsertRecv(uint64(i), lastEvent.Target, msg, uint64(nodeConfig.LinkLatency))
 			}
 		}
 
 		for _, unicast := range processing.Unicast {
-			if unicast.Target != lastEvent.Target {
-				r.EventLog.InsertRecv(unicast.Target, lastEvent.Target, unicast.Msg, uint64(nodeConfig.LinkLatency))
-			} else {
-				// Send it to ourselves with no latency
-				err := playbackNode.Node.Step(context.Background(), lastEvent.Target, unicast.Msg)
-				if err != nil {
-					return errors.WithMessagef(err, "node %d could not step message to self", lastEvent.Target)
-				}
+			if unicast.Target == lastEvent.Target {
+				// We've already sent it to ourselves
+				continue
 			}
+
+			r.EventLog.InsertRecv(unicast.Target, lastEvent.Target, unicast.Msg, uint64(nodeConfig.LinkLatency))
 		}
 
 		apply := &tpb.Event_Apply{

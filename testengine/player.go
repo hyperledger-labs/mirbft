@@ -142,6 +142,24 @@ func (p *Player) Step() error {
 			return errors.Errorf("node %d is currently processing but got a second process event", event.Target)
 		}
 
+		for _, msg := range node.Actions.Broadcast {
+			err := node.Node.Step(context.Background(), event.Target, msg)
+			if err != nil {
+				return errors.WithMessagef(err, "node %d could not step message to self", event.Target)
+			}
+		}
+
+		for _, unicast := range node.Actions.Unicast {
+			if unicast.Target != event.Target {
+				continue
+			}
+			// It's a bit weird to unicast to ourselves, but let's handle it.
+			err := node.Node.Step(context.Background(), event.Target, unicast.Msg)
+			if err != nil {
+				return errors.WithMessagef(err, "node %d could not step message to self", event.Target)
+			}
+		}
+
 		node.Processing = node.Actions
 		node.Actions = &mirbft.Actions{}
 		return nil
