@@ -77,6 +77,9 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 
 func (p *Player) Step() error {
 	event := p.EventLog.ConsumeAndAdvance()
+	if event == nil {
+		return errors.Errorf("event log has no more events")
+	}
 	p.LastEvent = event
 
 	if event.Target >= uint64(len(p.Nodes)) {

@@ -163,6 +163,9 @@ func ReadEventLog(source io.Reader) (el *EventLog, err error) {
 		return nil, errors.Errorf("file ended before initial scenario")
 	}
 
+	// Reset the cursor to the beginning of the log
+	eventLog.NextEventLogEntry = eventLog.FirstEventLogEntry
+
 	return eventLog, nil
 }
 
