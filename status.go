@@ -95,17 +95,22 @@ func (s *Status) Pretty() string {
 		}
 	}
 
+	if s.LowWatermark == s.HighWatermark {
+		buffer.WriteString("=== Empty Watermarks ===\n")
+		return buffer.String()
+	}
+
+	if s.HighWatermark-s.LowWatermark > 10000 {
+		buffer.WriteString(fmt.Sprintf("=== Suspiciously wide watermarks [%d, %d] ===\n", s.LowWatermark, s.HighWatermark))
+		return buffer.String()
+	}
+
 	for i := len(fmt.Sprintf("%d", s.HighWatermark)); i > 0; i-- {
 		magnitude := math.Pow10(i - 1)
 		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
 			buffer.WriteString(fmt.Sprintf(" %d", seqNo/uint64(magnitude)%10))
 		}
 		buffer.WriteString("\n")
-	}
-
-	if s.LowWatermark == s.HighWatermark {
-		buffer.WriteString("=== Empty Watermarks ===\n")
-		return buffer.String()
 	}
 
 	for _, nodeStatus := range s.Nodes {

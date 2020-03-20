@@ -33,6 +33,7 @@ type EventLog struct {
 	NodeConfigs        []*tpb.NodeConfig
 	FirstEventLogEntry *EventLogEntry
 	NextEventLogEntry  *EventLogEntry
+	LastConsumed       *EventLogEntry
 	FakeTime           uint64
 }
 
@@ -177,6 +178,7 @@ func (l *EventLog) ConsumeAndAdvance() *tpb.Event {
 
 	l.FakeTime = nele.Event.Time
 	l.NextEventLogEntry = nele.Next
+	l.LastConsumed = nele
 	return nele.Event
 }
 
@@ -243,6 +245,13 @@ func (l *EventLog) Insert(event *tpb.Event) {
 	if l.FirstEventLogEntry == nil {
 		l.FirstEventLogEntry = logEntry
 		l.NextEventLogEntry = logEntry
+		return
+	}
+
+	if l.NextEventLogEntry == nil {
+		l.NextEventLogEntry = logEntry
+		l.LastConsumed.Next = logEntry
+		logEntry.Prev = l.LastConsumed
 		return
 	}
 
