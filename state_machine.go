@@ -352,6 +352,11 @@ func (sm *stateMachine) status() *Status {
 		} else {
 			highWatermark = lowWatermark
 		}
+	} else {
+		buckets = make([]*BucketStatus, sm.networkConfig.NumberOfBuckets)
+		for i := range buckets {
+			buckets[i] = &BucketStatus{ID: uint64(i)}
+		}
 	}
 
 	return &Status{
