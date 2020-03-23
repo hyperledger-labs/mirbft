@@ -335,15 +335,13 @@ func (sm *stateMachine) status() *Status {
 		nodes[i] = sm.nodeMsgs[nodeID].status()
 	}
 
-	checkpoints := []*CheckpointStatus{}
+	checkpoints := sm.checkpointTracker.status()
+
 	var buckets []*BucketStatus
 	var lowWatermark, highWatermark uint64
 
 	if sm.epochChanger.lastActiveEpoch != nil {
 		epoch := sm.epochChanger.lastActiveEpoch
-		for _, cw := range epoch.checkpoints {
-			checkpoints = append(checkpoints, cw.status())
-		}
 
 		buckets = epoch.status()
 

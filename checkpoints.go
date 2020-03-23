@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"bytes"
+	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
@@ -55,6 +56,21 @@ func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte) *
 
 func (ct *checkpointTracker) release(cp *checkpoint) {
 	delete(ct.checkpoints, cp.end)
+}
+
+func (ct *checkpointTracker) status() []*CheckpointStatus {
+	result := make([]*CheckpointStatus, len(ct.checkpoints))
+	i := 0
+	for _, cp := range ct.checkpoints {
+		result[i] = cp.status()
+		i++
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].SeqNo < result[j].SeqNo
+	})
+
+	return result
 }
 
 type checkpoint struct {
