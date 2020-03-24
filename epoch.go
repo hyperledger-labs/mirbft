@@ -413,46 +413,53 @@ func (e *epoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
 }
 
 func (e *epoch) tick() *Actions {
-	actions := &Actions{} // TODO, only heartbeat if no progress
-	if e.myConfig.HeartbeatTicks != 0 && e.ticks%uint64(e.myConfig.HeartbeatTicks) == 0 {
-		e.advanceLowestUnallocated()
-		for bucketID, index := range e.lowestUnallocated {
-			if e.config.buckets[BucketID(bucketID)] != NodeID(e.myConfig.ID) {
-				continue
-			}
-
-			if len(e.sequences)-index <= int(e.config.networkConfig.CheckpointInterval) {
-				continue
-			}
-
-			if e.proposer.hasOutstanding(BucketID(bucketID)) {
-				proposals := e.proposer.next(BucketID(bucketID))
-				actions.Append(e.sequences[index].allocate(proposals))
-			} else {
-				actions.Append(e.sequences[index].allocate(nil))
-			}
-		}
+	if e.lowestUncommitted < len(e.sequences) && e.sequences[e.lowestUncommitted].seqNo != e.lastCommittedAtTick+1 {
+		e.ticksSinceProgress = 0
+		e.lastCommittedAtTick = e.sequences[e.lowestUncommitted].seqNo - 1
+		return &Actions{}
 	}
 
-	if e.lowestUncommitted >= len(e.sequences) || e.sequences[e.lowestUncommitted].seqNo == e.lastCommittedAtTick+1 {
-		e.ticksSinceProgress++
-		if e.ticksSinceProgress > e.myConfig.SuspectTicks {
-			return &Actions{
-				Broadcast: []*pb.Msg{
-					{
-						Type: &pb.Msg_Suspect{
-							Suspect: &pb.Suspect{
-								Epoch: e.config.number,
-							},
+	e.ticksSinceProgress++
+	actions := &Actions{}
+
+	if e.ticksSinceProgress > e.myConfig.SuspectTicks {
+		actions.Append(&Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_Suspect{
+						Suspect: &pb.Suspect{
+							Epoch: e.config.number,
 						},
 					},
 				},
-			}
-		}
+			},
+		})
+	}
+
+	if e.myConfig.HeartbeatTicks == 0 || e.ticksSinceProgress%e.myConfig.HeartbeatTicks != 0 {
 		return actions
-	} else {
-		e.ticksSinceProgress = 0
-		e.lastCommittedAtTick = e.sequences[e.lowestUncommitted].seqNo - 1
+	}
+
+	e.advanceLowestUnallocated()
+	for bucketID, index := range e.lowestUnallocated {
+		if index >= len(e.sequences) {
+			continue
+		}
+
+		if e.config.buckets[BucketID(bucketID)] != NodeID(e.myConfig.ID) {
+			continue
+		}
+
+		if len(e.sequences)-index <= int(e.config.networkConfig.CheckpointInterval) && !e.ending {
+			continue
+		}
+
+		if e.proposer.hasOutstanding(BucketID(bucketID)) {
+			proposals := e.proposer.next(BucketID(bucketID))
+			actions.Append(e.sequences[index].allocate(proposals))
+		} else {
+			actions.Append(e.sequences[index].allocate(nil))
+		}
 	}
 
 	return actions

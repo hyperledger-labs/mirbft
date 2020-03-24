@@ -109,6 +109,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 
 func (sm *stateMachine) drainNodeMsgs() *Actions {
 	actions := &Actions{}
+
 	for {
 		moreActions := false
 		for source, nodeMsgs := range sm.nodeMsgs {
