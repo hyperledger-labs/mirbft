@@ -7,9 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	"fmt"
-
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"go.uber.org/zap"
 )
 
 type SequenceState int
@@ -71,7 +70,7 @@ func (s *sequence) allocateInvalid(batch []*request) *Actions {
 // It transitions to Preprepared and returns a ValidationRequest message.
 func (s *sequence) allocate(batch []*request) *Actions {
 	if s.state != Uninitialized {
-		s.myConfig.Logger.Panic(fmt.Sprintf("illegal state for allocate %v", s.state))
+		s.myConfig.Logger.Panic("illegal state for allocate", zap.Int("State", int(s.state)), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
 	}
 
 	s.state = Allocated

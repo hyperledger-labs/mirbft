@@ -11,6 +11,7 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"go.uber.org/zap"
 )
 
 // epochConfig is the information required by the various
@@ -89,6 +90,7 @@ type epoch struct {
 
 	sequences []*sequence
 
+	ending            bool // set when this epoch about to end gracefully
 	lowestUncommitted int
 	lowestUnallocated []int // index by bucket
 
@@ -193,7 +195,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 
 					continue outer
 				} else {
-					panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%x bucket=%d", newSeq.epoch, newSeq.seqNo, newSeq.digest, config.seqToBucket(newSeq.seqNo)))
+					myConfig.Logger.Panic("we need persistence and or state transfer to handle this path", zap.Uint64("Epoch", newSeq.epoch), zap.Uint64("SeqNo", newSeq.seqNo), zap.Binary("Digest", newSeq.digest), zap.Uint64("Bucket", uint64(config.seqToBucket(newSeq.seqNo))))
 				}
 				break
 			}
@@ -307,16 +309,15 @@ func (e *epoch) advanceUncommitted() *Actions {
 func (e *epoch) moveWatermarks() *Actions {
 	lastCW := e.checkpoints[len(e.checkpoints)-1]
 
-	if e.config.plannedExpiration == lastCW.end {
-		// This epoch is about to end gracefully, don't allocate new windows
-		// so no need to go into allocation or garbage collection logic.
-		return &Actions{}
-	}
-
 	secondToLastCW := e.checkpoints[len(e.checkpoints)-2]
 	ci := int(e.config.networkConfig.CheckpointInterval)
 
-	if secondToLastCW.stable {
+	// If this epoch is ending, don't allocate new sequences
+	if lastCW.end == e.config.plannedExpiration {
+		e.ending = true
+	}
+
+	if secondToLastCW.stable && !e.ending {
 		for i := 0; i < ci; i++ {
 			seqNo := lastCW.end + uint64(i) + 1
 			epoch := e.config.number
@@ -352,7 +353,12 @@ func (e *epoch) advanceLowestUnallocated() {
 			// not have skipped the sequences we didn't own and now be negative.
 			e.lowestUnallocated[bucketID] = 0
 		}
-		for i := e.lowestUnallocated[bucketID]; i < len(e.sequences); i++ {
+		for i := e.lowestUnallocated[bucketID]; i <= len(e.sequences); i++ {
+			if i == len(e.sequences) {
+				e.lowestUnallocated[bucketID] = i
+				break
+			}
+
 			seq := e.sequences[i]
 			e.lowestUnallocated[bucketID] = i
 			if seq.state != Uninitialized || e.config.seqToBucket(seq.seqNo) != BucketID(bucketID) {
@@ -375,12 +381,12 @@ func (e *epoch) drainProposer() *Actions {
 			e.advanceLowestUnallocated()
 
 			i := e.lowestUnallocated[int(bucketID)]
-			if i > len(e.sequences) {
+			if i >= len(e.sequences) {
 				break
 			}
 			seq := e.sequences[i]
 
-			if len(e.sequences)-i <= int(e.config.networkConfig.CheckpointInterval) {
+			if len(e.sequences)-i <= int(e.config.networkConfig.CheckpointInterval) && !e.ending {
 				// let the network move watermarks before filling up the last checkpoint
 				// interval
 				break
