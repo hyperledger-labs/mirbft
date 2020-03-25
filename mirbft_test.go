@@ -74,8 +74,8 @@ var _ = Describe("Mirbft", func() {
 		_, err := recording.DrainClients(5 * time.Second)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.Epoch).To(Equal(uint64(0)))
-		Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.SeqNo).To(Equal(uint64(100)))
+		// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.Epoch).To(Equal(uint64(0)))
+		// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.SeqNo).To(Equal(uint64(100)))
 	})
 
 	When("the third node is silenced", func() {
