@@ -46,16 +46,27 @@ func preProcess(outerMsg *pb.Msg) error {
 			return errors.Errorf("message of type EpochChange, but epoch_change field is nil")
 		}
 	case *pb.Msg_NewEpoch:
-		if innerMsg.NewEpoch == nil {
+		switch {
+		case innerMsg.NewEpoch == nil:
 			return errors.Errorf("message of type NewEpoch, but new_epoch field is nil")
+		case innerMsg.NewEpoch.Config == nil:
+			return errors.Errorf("NewEpoch has nil Config")
+		case innerMsg.NewEpoch.Config.StartingCheckpoint == nil:
+			return errors.Errorf("NewEpoch Config has nil StartingCheckpoint")
 		}
 	case *pb.Msg_NewEpochEcho:
-		if innerMsg.NewEpochEcho == nil {
+		switch {
+		case innerMsg.NewEpochEcho == nil:
 			return errors.Errorf("message of type NewEpochEcho, but new_epoch_echo field is nil")
+		case innerMsg.NewEpochEcho.Config == nil:
+			return errors.Errorf("NewEpochEcho has nil Config")
 		}
 	case *pb.Msg_NewEpochReady:
-		if innerMsg.NewEpochReady == nil {
+		switch {
+		case innerMsg.NewEpochReady == nil:
 			return errors.Errorf("message of type NewEpochReady, but new_epoch_ready field is nil")
+		case innerMsg.NewEpochReady.Config == nil:
+			return errors.Errorf("NewEpochReady has nil Config")
 		}
 	default:
 		return errors.Errorf("unknown type '%T' for message", outerMsg.Type)
