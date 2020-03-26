@@ -98,4 +98,23 @@ var _ = Describe("Mirbft", func() {
 			// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.SeqNo).To(Equal(uint64(100)))
 		})
 	})
+
+	When("the third node is 100% droppy", func() {
+		BeforeEach(func() {
+			recorder.Manglers = []testengine.Mangler{
+				&testengine.DroppyMangler{
+					NodeToDrop: 3,
+					Percentage: 100,
+				},
+			}
+			for _, clientConfig := range recorder.ClientConfigs {
+				clientConfig.Total = 20
+			}
+		})
+
+		It("still delivers all requests", func() {
+			_, err := recording.DrainClients(5 * time.Second)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
 })

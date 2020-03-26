@@ -63,3 +63,27 @@ func (cm *ConditionalMangler) BeforeStep(random int, el *EventLog) {
 
 	cm.Mangler.BeforeStep(random, el)
 }
+
+type DroppyMangler struct {
+	NodeToDrop uint64
+	Percentage int
+}
+
+func (dm *DroppyMangler) BeforeStep(random int, el *EventLog) {
+	event := el.NextEventLogEntry.Event
+
+	recv, ok := event.Type.(*tpb.Event_Receive_)
+	if !ok {
+		return
+	}
+
+	if recv.Receive.Source != dm.NodeToDrop {
+		return
+	}
+
+	if random%100 > dm.Percentage {
+		return
+	}
+
+	event.Dropped = true
+}
