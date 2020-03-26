@@ -37,7 +37,7 @@ func newCheckpointTracker(networkConfig *pb.NetworkConfig, myConfig *Config) *ch
 func (ct *checkpointTracker) checkpoint(seqNo uint64) *checkpoint {
 	cp, ok := ct.checkpoints[seqNo]
 	if !ok {
-		cp = newCheckpoint(seqNo-uint64(ct.networkConfig.CheckpointInterval), seqNo, ct.networkConfig, ct.myConfig)
+		cp = newCheckpoint(seqNo, ct.networkConfig, ct.myConfig)
 		ct.checkpoints[seqNo] = cp
 	}
 
@@ -74,7 +74,6 @@ func (ct *checkpointTracker) status() []*CheckpointStatus {
 }
 
 type checkpoint struct {
-	start         uint64
 	end           uint64
 	myConfig      *Config
 	networkConfig *pb.NetworkConfig
@@ -86,9 +85,8 @@ type checkpoint struct {
 	obsolete       bool
 }
 
-func newCheckpoint(start, end uint64, config *pb.NetworkConfig, myConfig *Config) *checkpoint {
+func newCheckpoint(end uint64, config *pb.NetworkConfig, myConfig *Config) *checkpoint {
 	return &checkpoint{
-		start:         start,
 		end:           end,
 		networkConfig: config,
 		myConfig:      myConfig,
