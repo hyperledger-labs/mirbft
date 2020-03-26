@@ -82,6 +82,13 @@ func (p *Player) Step() error {
 	}
 	p.LastEvent = event
 
+	if event.Dropped {
+		// We allow the log to encode events which were set to be processed, but were
+		// deliberatley dropped by some mangler.  This makes it easier to review event logs
+		// identifying why tests failed.
+		return nil
+	}
+
 	if event.Target >= uint64(len(p.Nodes)) {
 		return errors.Errorf("event log referenced a node %d which does not exist", event.Target)
 	}

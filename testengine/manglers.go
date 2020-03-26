@@ -18,9 +18,9 @@ type SilencingMangler struct {
 }
 
 func (sm *SilencingMangler) BeforeStep(random int, el *EventLog) {
-	currentEntry := el.NextEventLogEntry
+	event := el.NextEventLogEntry.Event
 
-	recv, ok := currentEntry.Event.Type.(*tpb.Event_Receive_)
+	recv, ok := event.Type.(*tpb.Event_Receive_)
 	if !ok {
 		return
 	}
@@ -29,11 +29,37 @@ func (sm *SilencingMangler) BeforeStep(random int, el *EventLog) {
 		return
 	}
 
-	if el.NextEventLogEntry.Prev != nil {
-		el.NextEventLogEntry.Prev.Next = currentEntry.Next
+	event.Dropped = true
+}
+
+type ProposeDropper struct {
+	NodeToDropAt uint64
+}
+
+func (pd *ProposeDropper) BeforeStep(random int, el *EventLog) {
+	event := el.NextEventLogEntry.Event
+
+	_, ok := event.Type.(*tpb.Event_Propose_)
+	if !ok {
+		return
 	}
-	if currentEntry.Next != nil {
-		currentEntry.Next.Prev = currentEntry.Prev
+
+	if event.Target != pd.NodeToDropAt {
+		return
 	}
-	el.NextEventLogEntry = currentEntry.Next
+
+	event.Dropped = true
+}
+
+type ConditionalMangler struct {
+	Mangler   Mangler
+	Condition func() bool
+}
+
+func (cm *ConditionalMangler) BeforeStep(random int, el *EventLog) {
+	if !cm.Condition() {
+		return
+	}
+
+	cm.Mangler.BeforeStep(random, el)
 }

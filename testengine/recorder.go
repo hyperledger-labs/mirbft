@@ -239,6 +239,10 @@ func (r *Recording) Step() error {
 	}
 
 	lastEvent := r.Player.LastEvent
+	if lastEvent.Dropped {
+		return nil
+	}
+
 	node := r.Nodes[int(lastEvent.Target)]
 	nodeConfig := node.Config
 	playbackNode := node.PlaybackNode

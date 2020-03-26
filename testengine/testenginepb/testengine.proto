@@ -76,12 +76,13 @@ message Event {
 
 	uint64 target = 1;
 	uint64 time = 2;
+	bool dropped = 3;
 	oneof type {
-		Apply apply = 3;
-		Receive receive = 4;
-		Process process = 5;
-		Propose propose = 6;
-		Tick tick = 7;
+		Apply apply = 4;
+		Receive receive = 5;
+		Process process = 6;
+		Propose propose = 7;
+		Tick tick = 8;
 	}
 }
 
