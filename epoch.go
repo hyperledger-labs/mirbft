@@ -11,6 +11,7 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -258,10 +259,21 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 	}
 }
 
+func (e *epoch) getSequence(seqNo uint64) (*sequence, error) {
+	if seqNo < e.lowWatermark() || seqNo > e.highWatermark() {
+		return nil, errors.Errorf("requested seq no (%d) is out of range [%d - %d]",
+			seqNo, e.lowWatermark(), e.highWatermark())
+	}
+	return e.sequences[int(seqNo-e.lowWatermark())], nil
+}
+
 func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*request) *Actions {
-	baseCheckpoint := e.baseCheckpoint
-	offset := int(seqNo-baseCheckpoint.SeqNo) - 1
-	seq := e.sequences[offset]
+	seq, err := e.getSequence(seqNo)
+	if err != nil {
+		e.myConfig.Logger.Error(err.Error())
+		return &Actions{}
+	}
+
 	if source == NodeID(e.myConfig.ID) {
 		// Apply our own preprepares as a prepare
 		return seq.applyPrepareMsg(source, seq.digest)
@@ -277,14 +289,22 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*request
 }
 
 func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
-	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
-	return e.sequences[offset].applyPrepareMsg(source, digest)
+	seq, err := e.getSequence(seqNo)
+	if err != nil {
+		e.myConfig.Logger.Error(err.Error())
+		return &Actions{}
+	}
+	return seq.applyPrepareMsg(source, digest)
 }
 
 func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
-	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
-	actions := e.sequences[offset].applyCommitMsg(source, digest)
-
+	seq, err := e.getSequence(seqNo)
+	if err != nil {
+		e.myConfig.Logger.Error(err.Error())
+		return &Actions{}
+	}
+	actions := seq.applyCommitMsg(source, digest)
+	offset := int(seqNo - e.lowWatermark())
 	if len(actions.Commits) > 0 && offset == e.lowestUncommitted {
 		actions.Append(e.advanceUncommitted())
 	}
@@ -403,8 +423,12 @@ func (e *epoch) drainProposer() *Actions {
 }
 
 func (e *epoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
-	offset := int(seqNo-e.baseCheckpoint.SeqNo) - 1
-	seq := e.sequences[offset]
+	seq, err := e.getSequence(seqNo)
+	if err != nil {
+		e.myConfig.Logger.Error(err.Error())
+		return &Actions{}
+	}
+
 	actions := seq.applyProcessResult(digest)
 	if seq.owner != NodeID(e.myConfig.ID) {
 		actions.Append(seq.applyPrepareMsg(seq.owner, digest))
@@ -465,11 +489,9 @@ func (e *epoch) tick() *Actions {
 	return actions
 }
 
-/*
 func (e *epoch) lowWatermark() uint64 {
 	return e.sequences[0].seqNo
 }
-*/
 
 func (e *epoch) highWatermark() uint64 {
 	return e.sequences[len(e.sequences)-1].seqNo
