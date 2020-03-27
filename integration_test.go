@@ -82,20 +82,6 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Broadcast: []*pb.Msg{
-					{
-						Type: &pb.Msg_Forward{
-							Forward: &pb.Forward{
-								RequestData: &pb.RequestData{
-									ClientId:  []byte("client-1"),
-									ReqNo:     1,
-									Data:      []byte("data"),
-									Signature: []byte("signature"),
-								},
-							},
-						},
-					},
-				},
 				Preprocess: []*Request{
 					{
 						Source: 0,
@@ -159,6 +145,18 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{
+						Type: &pb.Msg_Forward{
+							Forward: &pb.Forward{
+								RequestData: &pb.RequestData{
+									ClientId:  []byte("client-1"),
+									ReqNo:     1,
+									Data:      []byte("data"),
+									Signature: []byte("signature"),
+								},
+							},
+						},
+					},
+					{
 						Type: &pb.Msg_Preprepare{
 							Preprepare: &pb.Preprepare{
 								Epoch: 3,
@@ -193,7 +191,7 @@ var _ = Describe("Integration", func() {
 			By("broadcasting the pre-prepare to myself")
 			serializer.stepC <- step{
 				Source: 0,
-				Msg:    actions.Broadcast[0],
+				Msg:    actions.Broadcast[1],
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
@@ -282,20 +280,6 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Broadcast: []*pb.Msg{
-					{
-						Type: &pb.Msg_Forward{
-							Forward: &pb.Forward{
-								RequestData: &pb.RequestData{
-									ClientId:  []byte("client-1"),
-									ReqNo:     1,
-									Data:      []byte("data"),
-									Signature: []byte("signature"),
-								},
-							},
-						},
-					},
-				},
 				Preprocess: []*Request{
 					{
 						Source: 0,
@@ -323,6 +307,27 @@ var _ = Describe("Integration", func() {
 					},
 				},
 			}
+
+			// TODO, we should include this, and make sure that we don't reprocess
+			// once we include the expected digest on the forward
+			/*
+				By("faking a forward from the leader")
+				serializer.stepC <- step{
+					Source: 3,
+					Msg: &pb.Msg{
+						Type: &pb.Msg_Forward{
+							Forward: &pb.Forward{
+								RequestData: &pb.RequestData{
+									ClientId:  []byte("client-1"),
+									ReqNo:     1,
+									Data:      []byte("data"),
+									Signature: []byte("signature"),
+								},
+							},
+						},
+					},
+				}
+			*/
 
 			By("faking a preprepare from the leader")
 			serializer.stepC <- step{

@@ -127,9 +127,19 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 
 	s.state = Preprepared
 
-	var msg *pb.Msg
+	var msgs []*pb.Msg
 	if uint64(s.owner) == s.myConfig.ID {
-		msg = &pb.Msg{
+		msgs = make([]*pb.Msg, len(s.batch)+1)
+		for i, request := range s.batch {
+			msgs[i] = &pb.Msg{
+				Type: &pb.Msg_Forward{
+					Forward: &pb.Forward{
+						RequestData: request.requestData,
+					},
+				},
+			}
+		}
+		msgs[len(s.batch)] = &pb.Msg{
 			Type: &pb.Msg_Preprepare{
 				Preprepare: &pb.Preprepare{
 					SeqNo: s.seqNo,
@@ -139,19 +149,21 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 			},
 		}
 	} else {
-		msg = &pb.Msg{
-			Type: &pb.Msg_Prepare{
-				Prepare: &pb.Prepare{
-					SeqNo:  s.seqNo,
-					Epoch:  s.epoch,
-					Digest: s.digest,
+		msgs = []*pb.Msg{
+			{
+				Type: &pb.Msg_Prepare{
+					Prepare: &pb.Prepare{
+						SeqNo:  s.seqNo,
+						Epoch:  s.epoch,
+						Digest: s.digest,
+					},
 				},
 			},
 		}
 	}
 
 	return &Actions{
-		Broadcast: []*pb.Msg{msg},
+		Broadcast: msgs,
 		QEntries:  []*pb.QEntry{s.qEntry},
 	}
 }

@@ -78,15 +78,6 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 
 func (sm *stateMachine) propose(requestData *pb.RequestData) *Actions {
 	return &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_Forward{
-					Forward: &pb.Forward{
-						RequestData: requestData,
-					},
-				},
-			},
-		},
 		Preprocess: []*Request{
 			{
 				Source:        sm.myConfig.ID,
@@ -241,8 +232,10 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 	}
 
 	cwi := sm.clientWindows.iterator()
-	for cw := cwi.next(); cw != nil; cw = cwi.next() {
+	for _, cw := cwi.next(); cw != nil; _, cw = cwi.next() {
+		// oldLowReqNo := cw.lowWatermark
 		cw.garbageCollect(seqNo)
+		// sm.myConfig.Logger.Debug("move client watermarks", zap.Binary("ClientID", cid), zap.Uint64("Old", oldLowReqNo), zap.Uint64("New", cw.lowWatermark))
 	}
 	actions := sm.activeEpoch.moveWatermarks()
 	actions.Append(sm.drainNodeMsgs())
@@ -275,6 +268,8 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		actions.Append(sm.activeEpoch.applyProcessResult(seqNo, processResult.Digest))
 	}
 
+	actions.Append(sm.drainNodeMsgs())
+
 	return actions
 }
 
@@ -282,7 +277,7 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 	clientID := preprocessResult.RequestData.ClientId
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newClientWindow(1, 100) // XXX this should be configurable
+		clientWindow = newClientWindow(1, 100, sm.myConfig) // XXX this should be configurable
 		sm.clientWindows.insert(clientID, clientWindow)
 	}
 
@@ -301,7 +296,7 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 func (sm *stateMachine) clientWaiter(clientID []byte) *clientWaiter {
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newClientWindow(1, 100) // XXX this should be configurable
+		clientWindow = newClientWindow(1, 100, sm.myConfig) // XXX this should be configurable
 		sm.clientWindows.insert(clientID, clientWindow)
 	}
 

@@ -43,14 +43,14 @@ type clientWindowIterator struct {
 	clientWindows *clientWindows
 }
 
-func (cwi *clientWindowIterator) next() *clientWindow {
+func (cwi *clientWindowIterator) next() ([]byte, *clientWindow) {
 	if cwi.index >= len(cwi.clientWindows.clients) {
-		return nil
+		return nil, nil
 	}
 	client := cwi.clientWindows.clients[cwi.index]
 	clientWindow := cwi.clientWindows.windows[client]
 	cwi.index++
-	return clientWindow
+	return []byte(client), clientWindow
 }
 
 type request struct {
@@ -61,6 +61,7 @@ type request struct {
 }
 
 type clientWindow struct {
+	myConfig      *Config
 	lowWatermark  uint64
 	highWatermark uint64
 	requests      []*request
@@ -73,8 +74,9 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newClientWindow(lowWatermark, highWatermark uint64) *clientWindow {
+func newClientWindow(lowWatermark, highWatermark uint64, myConfig *Config) *clientWindow {
 	return &clientWindow{
+		myConfig:      myConfig,
 		lowWatermark:  lowWatermark,
 		highWatermark: highWatermark,
 		requests:      make([]*request, int(highWatermark-lowWatermark)+1),
@@ -130,8 +132,11 @@ func (cw *clientWindow) allocate(requestData *pb.RequestData, digest []byte) {
 	}
 
 	offset := int(reqNo - cw.lowWatermark)
-	if cw.requests[offset] != nil && !bytes.Equal(cw.requests[offset].digest, digest) {
-		panic("we don't handle byzantine clients yet, but two different requests for the same reqno")
+	if cw.requests[offset] != nil {
+		if !bytes.Equal(cw.requests[offset].digest, digest) {
+			panic("we don't handle byzantine clients yet, but two different requests for the same reqno")
+		}
+		return
 	}
 
 	cw.requests[offset] = &request{

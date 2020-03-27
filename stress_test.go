@@ -194,24 +194,11 @@ var _ = Describe("StressyTest", func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		n0Proposer, err := network.nodes[0].ClientProposer(ctx, []byte("fake-client"))
-		Expect(err).NotTo(HaveOccurred())
-
 		Expect(testConfig.MsgCount).NotTo(Equal(0))
 		for i := 0; i < testConfig.MsgCount; i++ {
 			proposalUint, proposalBytes := uint64(i), Uint64ToBytes(uint64(i))
 
-			// Unevenly propose across the nodes
-			nodeID := i % 2 % testConfig.NodeCount
-			if nodeID == 0 {
-				err := n0Proposer.Propose(ctx, true, &pb.RequestData{
-					ClientId: []byte("fake-client"),
-					ReqNo:    uint64(i) + 1,
-					Data:     proposalBytes,
-				})
-				Expect(err).NotTo(HaveOccurred())
-			} else {
-				node := network.nodes[i%2%testConfig.NodeCount]
+			for _, node := range network.nodes {
 				err := node.Propose(ctx, true, &pb.RequestData{
 					ClientId: []byte("fake-client"),
 					ReqNo:    uint64(i) + 1,
