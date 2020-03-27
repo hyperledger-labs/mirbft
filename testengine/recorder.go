@@ -251,7 +251,7 @@ func (r *Recording) Step() error {
 	switch lastEvent.Type.(type) {
 	case *tpb.Event_Apply_:
 		nodeStatus := node.PlaybackNode.Status
-		for _, rw := range nodeStatus.RequestWindows {
+		for _, rw := range nodeStatus.ClientWindows {
 			for _, client := range r.Clients {
 				if !bytes.Equal(client.Config.ID, rw.ClientID) {
 					continue

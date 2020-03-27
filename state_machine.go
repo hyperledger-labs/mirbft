@@ -282,7 +282,7 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 	clientID := preprocessResult.RequestData.ClientId
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newRequestWindow(1, 100) // XXX this should be configurable
+		clientWindow = newClientWindow(1, 100) // XXX this should be configurable
 		sm.clientWindows.insert(clientID, clientWindow)
 	}
 
@@ -291,7 +291,7 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 	actions := &Actions{}
 
 	if sm.activeEpoch != nil {
-		sm.activeEpoch.proposer.stepRequestWindow(clientID)
+		sm.activeEpoch.proposer.stepClientWindow(clientID)
 		actions.Append(sm.activeEpoch.drainProposer())
 	}
 
@@ -301,7 +301,7 @@ func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult
 func (sm *stateMachine) clientWaiter(clientID []byte) *clientWaiter {
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newRequestWindow(1, 100) // XXX this should be configurable
+		clientWindow = newClientWindow(1, 100) // XXX this should be configurable
 		sm.clientWindows.insert(clientID, clientWindow)
 	}
 
@@ -321,7 +321,7 @@ func (sm *stateMachine) tick() *Actions {
 }
 
 func (sm *stateMachine) status() *Status {
-	clientWindowsStatus := make([]*RequestWindowStatus, len(sm.clientWindows.clients))
+	clientWindowsStatus := make([]*ClientWindowStatus, len(sm.clientWindows.clients))
 
 	for i, id := range sm.clientWindows.clients {
 		clientWindow := sm.clientWindows.windows[id]
@@ -361,13 +361,13 @@ func (sm *stateMachine) status() *Status {
 	}
 
 	return &Status{
-		NodeID:         sm.myConfig.ID,
-		LowWatermark:   lowWatermark,
-		HighWatermark:  highWatermark,
-		EpochChanger:   sm.epochChanger.status(),
-		RequestWindows: clientWindowsStatus,
-		Buckets:        buckets,
-		Checkpoints:    checkpoints,
-		Nodes:          nodes,
+		NodeID:        sm.myConfig.ID,
+		LowWatermark:  lowWatermark,
+		HighWatermark: highWatermark,
+		EpochChanger:  sm.epochChanger.status(),
+		ClientWindows: clientWindowsStatus,
+		Buckets:       buckets,
+		Checkpoints:   checkpoints,
+		Nodes:         nodes,
 	}
 }

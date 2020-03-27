@@ -68,15 +68,15 @@ func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[Buc
 	}
 }
 
-func (p *proposer) stepAllRequestWindows() {
+func (p *proposer) stepAllClientWindows() {
 	for _, clientID := range p.clientWindows.clients {
 		// TODO, this logic favors clients with lower IDs, we really should
 		// remember where we last left off to prevent starvation
-		p.stepRequestWindow([]byte(clientID))
+		p.stepClientWindow([]byte(clientID))
 	}
 }
 
-func (p *proposer) stepRequestWindow(clientID []byte) {
+func (p *proposer) stepClientWindow(clientID []byte) {
 	rwp, ok := p.clientWindowProcessors[string(clientID)]
 	if !ok {
 		rw, ok := p.clientWindows.clientWindow(clientID)

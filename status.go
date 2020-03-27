@@ -13,14 +13,14 @@ import (
 )
 
 type Status struct {
-	NodeID         uint64                 `json:"node_id"`
-	LowWatermark   uint64                 `json:"low_watermark"`
-	HighWatermark  uint64                 `json:"high_watermark"`
-	EpochChanger   *EpochChangerStatus    `json:"epoch_changer"`
-	Nodes          []*NodeStatus          `json:"nodes"`
-	Buckets        []*BucketStatus        `json:"buckets"`
-	Checkpoints    []*CheckpointStatus    `json:"checkpoints"`
-	RequestWindows []*RequestWindowStatus `json:"request_windows"`
+	NodeID        uint64                `json:"node_id"`
+	LowWatermark  uint64                `json:"low_watermark"`
+	HighWatermark uint64                `json:"high_watermark"`
+	EpochChanger  *EpochChangerStatus   `json:"epoch_changer"`
+	Nodes         []*NodeStatus         `json:"nodes"`
+	Buckets       []*BucketStatus       `json:"buckets"`
+	Checkpoints   []*CheckpointStatus   `json:"checkpoints"`
+	ClientWindows []*ClientWindowStatus `json:"request_windows"`
 }
 
 type BucketStatus struct {
@@ -63,7 +63,7 @@ type NodeBucketStatus struct {
 	LastCommit  uint64 `json:"last_commit"`
 }
 
-type RequestWindowStatus struct {
+type ClientWindowStatus struct {
 	ClientID      []byte   `json:"client_id"`
 	LowWatermark  uint64   `json:"low_watermark"`
 	HighWatermark uint64   `json:"high_watermark"`
@@ -214,7 +214,7 @@ func (s *Status) Pretty() string {
 
 	buffer.WriteString("\n\n Request Windows\n")
 	hRule()
-	for _, rws := range s.RequestWindows {
+	for _, rws := range s.ClientWindows {
 		buffer.WriteString(fmt.Sprintf("\nClient %x L/H %d/%d : %v\n", rws.ClientID, rws.LowWatermark, rws.HighWatermark, rws.Allocated))
 		hRule()
 	}

@@ -244,7 +244,7 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 	}
 
 	proposer := newProposer(myConfig, clientWindows, config.buckets)
-	proposer.stepAllRequestWindows()
+	proposer.stepAllClientWindows()
 
 	return &epoch{
 		baseCheckpoint:    newEpochConfig.StartingCheckpoint,

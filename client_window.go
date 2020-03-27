@@ -73,7 +73,7 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newRequestWindow(lowWatermark, highWatermark uint64) *clientWindow {
+func newClientWindow(lowWatermark, highWatermark uint64) *clientWindow {
 	return &clientWindow{
 		lowWatermark:  lowWatermark,
 		highWatermark: highWatermark,
@@ -86,12 +86,12 @@ func newRequestWindow(lowWatermark, highWatermark uint64) *clientWindow {
 	}
 }
 
-func (rw *clientWindow) garbageCollect(maxSeqNo uint64) {
-	newRequests := make([]*request, int(rw.highWatermark-rw.lowWatermark)+1)
+func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
+	newRequests := make([]*request, int(cw.highWatermark-cw.lowWatermark)+1)
 	i := 0
 	j := uint64(0)
 	copying := false
-	for _, request := range rw.requests {
+	for _, request := range cw.requests {
 		if request == nil || request.state != Committed || request.seqNo > maxSeqNo {
 			copying = true
 		}
@@ -108,55 +108,55 @@ func (rw *clientWindow) garbageCollect(maxSeqNo uint64) {
 
 	}
 
-	rw.lowWatermark += j
-	rw.highWatermark += j
-	rw.requests = newRequests
-	close(rw.clientWaiter.expired)
-	rw.clientWaiter = &clientWaiter{
-		lowWatermark:  rw.lowWatermark,
-		highWatermark: rw.highWatermark,
+	cw.lowWatermark += j
+	cw.highWatermark += j
+	cw.requests = newRequests
+	close(cw.clientWaiter.expired)
+	cw.clientWaiter = &clientWaiter{
+		lowWatermark:  cw.lowWatermark,
+		highWatermark: cw.highWatermark,
 		expired:       make(chan struct{}),
 	}
 }
 
-func (rw *clientWindow) allocate(requestData *pb.RequestData, digest []byte) {
+func (cw *clientWindow) allocate(requestData *pb.RequestData, digest []byte) {
 	reqNo := requestData.ReqNo
-	if reqNo > rw.highWatermark {
-		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, rw.highWatermark))
+	if reqNo > cw.highWatermark {
+		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
 	}
 
-	if reqNo < rw.lowWatermark {
-		panic(fmt.Sprintf("unexpected: %d < %d", reqNo, rw.lowWatermark))
+	if reqNo < cw.lowWatermark {
+		panic(fmt.Sprintf("unexpected: %d < %d", reqNo, cw.lowWatermark))
 	}
 
-	offset := int(reqNo - rw.lowWatermark)
-	if rw.requests[offset] != nil && !bytes.Equal(rw.requests[offset].digest, digest) {
+	offset := int(reqNo - cw.lowWatermark)
+	if cw.requests[offset] != nil && !bytes.Equal(cw.requests[offset].digest, digest) {
 		panic("we don't handle byzantine clients yet, but two different requests for the same reqno")
 	}
 
-	rw.requests[offset] = &request{
+	cw.requests[offset] = &request{
 		requestData: requestData,
 		digest:      digest,
 	}
 }
 
-func (rw *clientWindow) request(reqNo uint64) *request {
-	if reqNo > rw.highWatermark {
-		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, rw.highWatermark))
+func (cw *clientWindow) request(reqNo uint64) *request {
+	if reqNo > cw.highWatermark {
+		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
 	}
 
-	if reqNo < rw.lowWatermark {
-		panic(fmt.Sprintf("unexpected: %d < %d", reqNo, rw.lowWatermark))
+	if reqNo < cw.lowWatermark {
+		panic(fmt.Sprintf("unexpected: %d < %d", reqNo, cw.lowWatermark))
 	}
 
-	offset := int(reqNo - rw.lowWatermark)
+	offset := int(reqNo - cw.lowWatermark)
 
-	return rw.requests[offset]
+	return cw.requests[offset]
 }
 
-func (rw *clientWindow) status() *RequestWindowStatus {
-	allocated := make([]uint64, len(rw.requests))
-	for i, request := range rw.requests {
+func (cw *clientWindow) status() *ClientWindowStatus {
+	allocated := make([]uint64, len(cw.requests))
+	for i, request := range cw.requests {
 		if request == nil {
 			continue
 		}
@@ -168,9 +168,9 @@ func (rw *clientWindow) status() *RequestWindowStatus {
 		// allocated[i] = bytesToUint64(request.preprocessResult.Proposal.Data)
 	}
 
-	return &RequestWindowStatus{
-		LowWatermark:  rw.lowWatermark,
-		HighWatermark: rw.highWatermark,
+	return &ClientWindowStatus{
+		LowWatermark:  cw.lowWatermark,
+		HighWatermark: cw.highWatermark,
 		Allocated:     allocated,
 	}
 }
