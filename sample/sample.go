@@ -114,10 +114,11 @@ func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
 		}
 
 		h := c.Hasher()
+		h.Write(request.ClientRequest.Data)
 
 		actionResults.Preprocessed[i] = &mirbft.PreprocessResult{
 			RequestData: request.ClientRequest,
-			Digest:      h.Sum(request.ClientRequest.Data),
+			Digest:      h.Sum(nil),
 			Invalid:     invalid,
 		}
 	}
