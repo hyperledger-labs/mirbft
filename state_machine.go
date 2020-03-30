@@ -130,8 +130,14 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 				}
 				msg := innerMsg.Forward
 				actions.Preprocess = append(actions.Preprocess, &Request{
-					Source:        uint64(source),
-					ClientRequest: msg.RequestData,
+					Source: uint64(source),
+					ClientRequest: &pb.RequestData{
+						ClientId:  msg.ClientId,
+						ReqNo:     msg.ReqNo,
+						Data:      msg.Data,
+						Signature: msg.Signature,
+					},
+					PurportedDigest: msg.Digest,
 				})
 			case *pb.Msg_Suspect:
 				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)

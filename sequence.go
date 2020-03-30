@@ -134,7 +134,11 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 			msgs[i] = &pb.Msg{
 				Type: &pb.Msg_Forward{
 					Forward: &pb.Forward{
-						RequestData: request.requestData,
+						ClientId:  request.requestData.ClientId,
+						ReqNo:     request.requestData.ReqNo,
+						Data:      request.requestData.Data,
+						Signature: request.requestData.Signature,
+						Digest:    request.digest,
 					},
 				},
 			}

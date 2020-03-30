@@ -147,12 +147,11 @@ var _ = Describe("Integration", func() {
 					{
 						Type: &pb.Msg_Forward{
 							Forward: &pb.Forward{
-								RequestData: &pb.RequestData{
-									ClientId:  []byte("client-1"),
-									ReqNo:     1,
-									Data:      []byte("data"),
-									Signature: []byte("signature"),
-								},
+								ClientId:  []byte("client-1"),
+								ReqNo:     1,
+								Data:      []byte("data"),
+								Signature: []byte("signature"),
+								Digest:    uint64ToBytes(7),
 							},
 						},
 					},

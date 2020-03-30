@@ -91,8 +91,9 @@ type Unicast struct {
 }
 
 type Request struct {
-	Source        uint64
-	ClientRequest *pb.RequestData
+	Source          uint64
+	ClientRequest   *pb.RequestData
+	PurportedDigest []byte
 }
 
 type Commit struct {

@@ -142,7 +142,11 @@ message Checkpoint {
 }
 
 message Forward {
-    RequestData request_data = 1;
+    bytes client_id = 1;
+    uint64 req_no = 2;
+    bytes data = 3;
+    bytes signature = 4;
+    bytes digest = 5;
 }
 
 message Suspect {
