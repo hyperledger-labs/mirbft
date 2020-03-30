@@ -81,9 +81,7 @@ var _ = Describe("Mirbft", func() {
 	When("the third node is silenced", func() {
 		BeforeEach(func() {
 			recorder.Manglers = []testengine.Mangler{
-				&testengine.SilencingMangler{
-					NodeToSilence: 3,
-				},
+				testengine.Drop().Messages().FromNodes(3),
 			}
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
@@ -99,16 +97,23 @@ var _ = Describe("Mirbft", func() {
 		})
 	})
 
-	When("the third node is 100% droppy", func() {
+	When("the network loses 2 percent of messages", func() {
 		BeforeEach(func() {
 			recorder.Manglers = []testengine.Mangler{
-				&testengine.DroppyMangler{
-					NodeToDrop: 3,
-					Percentage: 100,
-				},
+				testengine.Drop().AtPercent(2).Messages(),
 			}
-			for _, clientConfig := range recorder.ClientConfigs {
-				clientConfig.Total = 20
+		})
+
+		PIt("still delivers all requests", func() {
+			_, err := recording.DrainClients(5 * time.Second)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	When("the network messages have up to a 30ms jittery delay", func() {
+		BeforeEach(func() {
+			recorder.Manglers = []testengine.Mangler{
+				testengine.Jitter(30).Messages(),
 			}
 		})
 

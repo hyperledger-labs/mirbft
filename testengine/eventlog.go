@@ -238,6 +238,10 @@ func (l *EventLog) InsertPropose(target uint64, requestData *pb.RequestData, fro
 }
 
 func (l *EventLog) Insert(event *tpb.Event) {
+	if event.Time < l.FakeTime {
+		panic("attempted to modify the past")
+	}
+
 	logEntry := &EventLogEntry{
 		Event: event,
 	}

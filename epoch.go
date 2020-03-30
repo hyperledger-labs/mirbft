@@ -501,7 +501,7 @@ func (e *epoch) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 	}
 
 	for _, seq := range e.sequences {
-		if seq.state < Prepared {
+		if seq.state < Preprepared {
 			continue
 		}
 
@@ -513,7 +513,7 @@ func (e *epoch) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 
 		epochChange.QSet = append(epochChange.QSet, entry)
 
-		if seq.state < Preprepared {
+		if seq.state < Prepared {
 			continue
 		}
 

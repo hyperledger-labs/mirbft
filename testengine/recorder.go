@@ -415,8 +415,8 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 		})
 	}
 
-	// logger, err := zap.NewProduction()
-	logger, err := zap.NewDevelopment()
+	logger, err := zap.NewProduction()
+	// logger, err := zap.NewDevelopment()
 	if err != nil {
 		panic(err)
 	}
