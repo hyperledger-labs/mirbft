@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"bytes"
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -129,6 +130,17 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 					continue
 				}
 				msg := innerMsg.Forward
+				cw, ok := sm.clientWindows.clientWindow(msg.ClientId)
+				if ok {
+					if request := cw.request(msg.ReqNo); request != nil {
+						// TODO, once we support byzantine clients, there could be more than one digest
+						if bytes.Equal(request.digest, msg.Digest) {
+							// This forwarded message is already known to us
+							continue
+						}
+					}
+				}
+
 				actions.Preprocess = append(actions.Preprocess, &Request{
 					Source: uint64(source),
 					ClientRequest: &pb.RequestData{
