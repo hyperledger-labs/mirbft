@@ -103,6 +103,14 @@ func Jitter(maxDelay int) *EventMangling {
 	}
 }
 
+func Duplicate(maxDelay int) *EventMangling {
+	return &EventMangling{
+		Mangler: &DuplicateMangler{
+			MaxDelay: maxDelay,
+		},
+	}
+}
+
 type DropMangler struct{}
 
 func (DropMangler) BeforeStep(random int, el *EventLog) {
@@ -110,14 +118,15 @@ func (DropMangler) BeforeStep(random int, el *EventLog) {
 }
 
 type DuplicateMangler struct {
-	Delay uint64
+	MaxDelay int
 }
 
 func (dm *DuplicateMangler) BeforeStep(random int, el *EventLog) {
 	clone := proto.Clone(el.NextEventLogEntry.Event).(*tpb.Event)
-	clone.Time += dm.Delay
+	delay := uint64(random % dm.MaxDelay)
+	clone.Time += delay
 	el.Insert(clone)
-	// TODO clone.Duplicate = true
+	clone.Duplicated = delay
 }
 
 // JitterMangler will delay events a random amount of time, up to MaxDelay
@@ -126,9 +135,9 @@ type JitterMangler struct {
 }
 
 func (jm *JitterMangler) BeforeStep(random int, el *EventLog) {
-	delay := random % jm.MaxDelay
+	delay := uint64(random % jm.MaxDelay)
 
-	el.NextEventLogEntry.Event.Time += uint64(delay)
+	el.NextEventLogEntry.Event.Time += delay
 	event := el.NextEventLogEntry
 	if event.Next != nil && event.Next.Event.Time < event.Event.Time {
 		el.NextEventLogEntry = event.Next
@@ -159,7 +168,7 @@ func (jm *JitterMangler) BeforeStep(random int, el *EventLog) {
 		firstEvent.Next = thirdEvent
 	}
 
-	// TODO event.Jitter = delay
+	event.Event.Delayed = delay
 }
 
 type EventTypeFilterMangler struct {

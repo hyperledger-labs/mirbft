@@ -122,4 +122,17 @@ var _ = Describe("Mirbft", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
+
+	When("the network duplicates messages 10 percent of the time", func() {
+		BeforeEach(func() {
+			recorder.Manglers = []testengine.Mangler{
+				testengine.Duplicate(30).AtPercent(10).Messages(),
+			}
+		})
+
+		It("still delivers all requests", func() {
+			_, err := recording.DrainClients(5 * time.Second)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
 })
