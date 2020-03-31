@@ -14,17 +14,7 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-type ValidatorFunc func(*mirbft.Request) error
-
-func (vf ValidatorFunc) Validate(request *mirbft.Request) error {
-	return vf(request)
-}
-
 type Hasher func() hash.Hash
-
-type Validator interface {
-	Validate(*mirbft.Request) error
-}
 
 type Link interface {
 	Send(dest uint64, msg *pb.Msg)
@@ -75,7 +65,6 @@ func (sc *SerialCommitter) Commit(commits []*mirbft.Commit) []*mirbft.Checkpoint
 
 type SerialProcessor struct {
 	Link      Link
-	Validator Validator
 	Hasher    Hasher
 	Committer *SerialCommitter
 	Node      *mirbft.Node
@@ -103,24 +92,7 @@ func (c *SerialProcessor) Transmit(actions *mirbft.Actions) {
 
 func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
 	actionResults := &mirbft.ActionResults{
-		Preprocessed: make([]*mirbft.PreprocessResult, len(actions.Preprocess)),
-		Digests:      make([]*mirbft.HashResult, len(actions.Hash)),
-	}
-
-	for i, request := range actions.Preprocess {
-		invalid := false
-		if err := c.Validator.Validate(request); err != nil {
-			invalid = true
-		}
-
-		h := c.Hasher()
-		h.Write(request.ClientRequest.Data)
-
-		actionResults.Preprocessed[i] = &mirbft.PreprocessResult{
-			RequestData: request.ClientRequest,
-			Digest:      h.Sum(nil),
-			Invalid:     invalid,
-		}
+		Digests: make([]*mirbft.HashResult, len(actions.Hash)),
 	}
 
 	for i, req := range actions.Hash {

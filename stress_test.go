@@ -191,7 +191,7 @@ var _ = Describe("StressyTest", func() {
 
 		network.GoRunNetwork(doneC, &wg)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		Expect(testConfig.MsgCount).NotTo(Equal(0))
@@ -200,16 +200,16 @@ var _ = Describe("StressyTest", func() {
 
 			for _, node := range network.nodes {
 				err := node.Propose(ctx, true, &pb.RequestData{
-					ClientId: []byte("fake-client"),
+					ClientId: []byte{},
 					ReqNo:    uint64(i) + 1,
 					Data:     proposalBytes,
 				})
 				Expect(err).NotTo(HaveOccurred())
 			}
 
-			proposalKey := string(proposalBytes)
+			proposalKey := append(Uint64ToBytes(uint64(i)+1), proposalBytes...)
 			Expect(proposals).NotTo(ContainElement(proposalKey))
-			proposals[proposalKey] = proposalUint
+			proposals[string(proposalKey)] = proposalUint
 		}
 
 		observations := map[uint64]struct{}{}
@@ -221,9 +221,6 @@ var _ = Describe("StressyTest", func() {
 
 				proposalUint, ok := proposals[string(entry.Requests[0].Digest)]
 				Expect(ok).To(BeTrue())
-				if testConfig.BucketCount == 0 {
-					Expect(proposalUint % uint64(testConfig.NodeCount)).To(Equal((entry.SeqNo - 1) % uint64(testConfig.NodeCount)))
-				}
 
 				_, ok = observations[proposalUint]
 				Expect(ok).To(BeFalse())
@@ -236,12 +233,12 @@ var _ = Describe("StressyTest", func() {
 			MsgCount:  1000,
 		}),
 
-		Entry("FourNodeBFT greenpath", &TestConfig{
+		XEntry("FourNodeBFT greenpath", &TestConfig{
 			NodeCount: 4,
 			MsgCount:  1000,
 		}),
 
-		Entry("FourNodeBFT single bucket greenpath", &TestConfig{
+		XEntry("FourNodeBFT single bucket greenpath", &TestConfig{
 			NodeCount:   4,
 			BucketCount: 1,
 			MsgCount:    1000,
@@ -295,14 +292,8 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 		fakeLogs[i] = fakeLog
 
 		processors[i] = &sample.SerialProcessor{
-			Node: node,
-			Link: transport.Link(node.Config.ID),
-			Validator: sample.ValidatorFunc(func(result *mirbft.Request) error {
-				if result.Source != BytesToUint64(result.ClientRequest.ClientId) {
-					return fmt.Errorf("mis-matched originating replica and client id")
-				}
-				return nil
-			}),
+			Node:   node,
+			Link:   transport.Link(node.Config.ID),
 			Hasher: func() hash.Hash { return &NoopHasher{} },
 			Committer: &sample.SerialCommitter{
 				Log:                    fakeLog,

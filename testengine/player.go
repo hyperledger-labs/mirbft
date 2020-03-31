@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/IBM/mirbft"
-	pb "github.com/IBM/mirbft/mirbftpb"
 	tpb "github.com/IBM/mirbft/testengine/testenginepb"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -105,34 +104,33 @@ func (p *Player) Step() error {
 
 		apply := et.Apply
 		actionResults := &mirbft.ActionResults{
-			Preprocessed: make([]*mirbft.PreprocessResult, len(apply.Preprocessed)),
-			Digests:      make([]*mirbft.HashResult, len(apply.Processed)),
-			Checkpoints:  make([]*mirbft.CheckpointResult, len(apply.Checkpoints)),
+			Digests:     make([]*mirbft.HashResult, len(apply.Digests)),
+			Checkpoints: make([]*mirbft.CheckpointResult, len(apply.Checkpoints)),
 		}
 
-		for i, pp := range apply.Preprocessed {
-			actionResults.Preprocessed[i] = &mirbft.PreprocessResult{
-				Digest: pp.Digest,
-				RequestData: &pb.RequestData{
-					ClientId:  pp.ClientId,
-					ReqNo:     pp.ReqNo,
-					Data:      pp.Data,
-					Signature: pp.Signature,
-				},
-			}
-		}
+		for i, hashResult := range apply.Digests {
 
-		for i, pr := range apply.Processed {
 			actionResults.Digests[i] = &mirbft.HashResult{
-				Request: &mirbft.HashRequest{
-					Batch: &mirbft.Batch{
-						SeqNo:    pr.SeqNo,
-						Epoch:    pr.Epoch,
-						Source:   pr.Source,
-						Requests: pr.Requests,
+				Digest: hashResult.Digest,
+			}
+
+			switch result := hashResult.Type.(type) {
+			case *tpb.HashResult_Request:
+				actionResults.Digests[i].Request = &mirbft.HashRequest{
+					Request: &mirbft.Request{
+						Source:      result.Request.Source,
+						RequestData: result.Request.RequestData,
 					},
-				},
-				Digest: pr.Digest,
+				}
+			case *tpb.HashResult_Batch:
+				actionResults.Digests[i].Request = &mirbft.HashRequest{
+					Batch: &mirbft.Batch{
+						Source:   result.Batch.Source,
+						SeqNo:    result.Batch.SeqNo,
+						Epoch:    result.Batch.Epoch,
+						Requests: result.Batch.Requests,
+					},
+				}
 			}
 		}
 

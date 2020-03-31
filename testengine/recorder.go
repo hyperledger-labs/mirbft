@@ -294,24 +294,7 @@ func (r *Recording) Step() error {
 		}
 
 		apply := &tpb.Event_Apply{
-			Preprocessed: make([]*tpb.Request, len(processing.Preprocess)),
-			Processed:    make([]*tpb.Batch, len(processing.Hash)),
-		}
-
-		for i, preprocess := range processing.Preprocess {
-			hasher := r.Hasher()
-			hasher.Write(preprocess.ClientRequest.ClientId)
-			hasher.Write(uint64ToBytes(preprocess.ClientRequest.ReqNo))
-			hasher.Write(preprocess.ClientRequest.Data)
-			hasher.Write(preprocess.ClientRequest.Signature)
-
-			apply.Preprocessed[i] = &tpb.Request{
-				ClientId:  preprocess.ClientRequest.ClientId,
-				ReqNo:     preprocess.ClientRequest.ReqNo,
-				Data:      preprocess.ClientRequest.Data,
-				Signature: preprocess.ClientRequest.Signature,
-				Digest:    hasher.Sum(nil),
-			}
+			Digests: make([]*tpb.HashResult, len(processing.Hash)),
 		}
 
 		for i, hashRequest := range processing.Hash {
@@ -320,12 +303,27 @@ func (r *Recording) Step() error {
 				hasher.Write(data)
 			}
 
-			apply.Processed[i] = &tpb.Batch{
-				Source:   hashRequest.Batch.Source,
-				Epoch:    hashRequest.Batch.Epoch,
-				SeqNo:    hashRequest.Batch.SeqNo,
-				Requests: hashRequest.Batch.Requests,
-				Digest:   hasher.Sum(nil),
+			apply.Digests[i] = &tpb.HashResult{
+				Digest: hasher.Sum(nil),
+			}
+
+			switch {
+			case hashRequest.Request != nil:
+				apply.Digests[i].Type = &tpb.HashResult_Request{
+					Request: &tpb.Request{
+						Source:      hashRequest.Request.Source,
+						RequestData: hashRequest.Request.RequestData,
+					},
+				}
+			case hashRequest.Batch != nil:
+				apply.Digests[i].Type = &tpb.HashResult_Batch{
+					Batch: &tpb.Batch{
+						Source:   hashRequest.Batch.Source,
+						Epoch:    hashRequest.Batch.Epoch,
+						SeqNo:    hashRequest.Batch.SeqNo,
+						Requests: hashRequest.Batch.Requests,
+					},
+				}
 			}
 		}
 

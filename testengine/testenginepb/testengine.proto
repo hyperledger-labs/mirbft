@@ -32,20 +32,22 @@ message NodeConfig {
 	int32 process_latency = 8; // in fake ms
 }
 
-
+message HashResult {
+	bytes digest = 1;
+	oneof type {
+		Request request = 2;
+		Batch batch = 3;
+        }
+}
 message Request {
-	bytes client_id = 1;
-	uint64 req_no = 2;
-	bytes data = 3;
-	bytes signature = 4;
-	bytes digest = 5;
+	uint64 source = 1;
+	mirbftpb.RequestData request_data = 2;
 }
 
 message Batch {
 	uint64 source = 1;
 	uint64 epoch = 2;
 	uint64 seq_no = 3;
-	bytes digest = 4;
 	repeated mirbftpb.Request requests = 5;
 }
 
@@ -56,9 +58,8 @@ message Checkpoint {
 
 message Event {
 	message Apply {
-		repeated Request preprocessed = 1;
-		repeated Batch processed = 2;
-		repeated Checkpoint checkpoints = 3;
+		repeated HashResult digests = 1;
+		repeated Checkpoint checkpoints = 2;
 	}
 
 	message Process {}

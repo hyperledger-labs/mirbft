@@ -78,11 +78,20 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 }
 
 func (sm *stateMachine) propose(requestData *pb.RequestData) *Actions {
+	data := [][]byte{
+		requestData.ClientId,
+		uint64ToBytes(requestData.ReqNo),
+		requestData.Data,
+	}
+
 	return &Actions{
-		Preprocess: []*Request{
+		Hash: []*HashRequest{
 			{
-				Source:        sm.myConfig.ID,
-				ClientRequest: requestData,
+				Data: data,
+				Request: &Request{
+					Source:      sm.myConfig.ID,
+					RequestData: requestData,
+				},
 			},
 		},
 	}
@@ -141,15 +150,22 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 					}
 				}
 
-				actions.Preprocess = append(actions.Preprocess, &Request{
-					Source: uint64(source),
-					ClientRequest: &pb.RequestData{
-						ClientId:  msg.ClientId,
-						ReqNo:     msg.ReqNo,
-						Data:      msg.Data,
-						Signature: msg.Signature,
+				actions.Hash = append(actions.Hash, &HashRequest{
+					Data: [][]byte{
+						msg.ClientId,
+						uint64ToBytes(msg.ReqNo),
+						msg.Data,
 					},
-					PurportedDigest: msg.Digest,
+					Request: &Request{
+						Source: uint64(source),
+						RequestData: &pb.RequestData{
+							ClientId:  msg.ClientId,
+							ReqNo:     msg.ReqNo,
+							Data:      msg.Data,
+							Signature: msg.Signature,
+						},
+						// PurportedDigest: msg.Digest,
+					},
 				})
 			case *pb.Msg_Suspect:
 				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
@@ -263,31 +279,32 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	actions := &Actions{}
 
-	for _, preprocessResult := range results.Preprocessed {
-		// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
-		actions.Append(sm.applyPreprocessResult(preprocessResult))
-	}
-
 	for _, checkpointResult := range results.Checkpoints {
 		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
 		actions.Append(sm.checkpointTracker.applyCheckpointResult(checkpointResult.SeqNo, checkpointResult.Value))
-	}
-
-	if sm.activeEpoch == nil {
-		// TODO, this is a little heavy handed, we should probably
-		// work with the persistence so we don't redo the effort.
-		return actions
 	}
 
 	for _, hashResult := range results.Digests {
 		request := hashResult.Request
 		switch {
 		case request.Batch != nil:
+			if sm.activeEpoch == nil {
+				// TODO, this is a little heavy handed, we should probably
+				// work with the persistence so we don't redo the effort.
+				continue
+			}
+
 			batch := request.Batch
 			// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
 			seqNo := batch.SeqNo
 			// XXX we need to verify that the epoch matches the expected one
+			// TODO, rename applyProcessResult to something better
 			actions.Append(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
+		case request.Request != nil:
+			request := request.Request
+			// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
+			// TODO, rename applyPreprocessResult to something better
+			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request))
 		default:
 			panic("no hash result type set")
 		}
@@ -298,15 +315,15 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) applyPreprocessResult(preprocessResult *PreprocessResult) *Actions {
-	clientID := preprocessResult.RequestData.ClientId
+func (sm *stateMachine) applyPreprocessResult(digest []byte, request *Request) *Actions {
+	clientID := request.RequestData.ClientId
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
 		clientWindow = newClientWindow(1, 100, sm.myConfig) // XXX this should be configurable
 		sm.clientWindows.insert(clientID, clientWindow)
 	}
 
-	clientWindow.allocate(preprocessResult.RequestData, preprocessResult.Digest)
+	clientWindow.allocate(request.RequestData, digest)
 
 	actions := &Actions{}
 

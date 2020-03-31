@@ -82,14 +82,21 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Preprocess: []*Request{
+				Hash: []*HashRequest{
 					{
-						Source: 0,
-						ClientRequest: &pb.RequestData{
-							ClientId:  []byte("client-1"),
-							ReqNo:     1,
-							Data:      []byte("data"),
-							Signature: []byte("signature"),
+						Data: [][]byte{
+							[]byte("client-1"),
+							uint64ToBytes(1),
+							[]byte("data"),
+						},
+						Request: &Request{
+							Source: 0,
+							RequestData: &pb.RequestData{
+								ClientId:  []byte("client-1"),
+								ReqNo:     1,
+								Data:      []byte("data"),
+								Signature: []byte("signature"),
+							},
 						},
 					},
 				},
@@ -97,14 +104,24 @@ var _ = Describe("Integration", func() {
 
 			By("returning a processed version of the proposal")
 			serializer.resultsC <- ActionResults{
-				Preprocessed: []*PreprocessResult{
+				Digests: []*HashResult{
 					{
 						Digest: uint64ToBytes(7),
-						RequestData: &pb.RequestData{
-							ClientId:  []byte("client-1"),
-							ReqNo:     1,
-							Data:      []byte("data"),
-							Signature: []byte("signature"),
+						Request: &HashRequest{
+							Data: [][]byte{
+								[]byte("client-1"),
+								uint64ToBytes(1),
+								[]byte("data"),
+							},
+							Request: &Request{
+								Source: 0,
+								RequestData: &pb.RequestData{
+									ClientId:  []byte("client-1"),
+									ReqNo:     1,
+									Data:      []byte("data"),
+									Signature: []byte("signature"),
+								},
+							},
 						},
 					},
 				},
@@ -297,14 +314,21 @@ var _ = Describe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Preprocess: []*Request{
+				Hash: []*HashRequest{
 					{
-						Source: 0,
-						ClientRequest: &pb.RequestData{
-							ClientId:  []byte("client-1"),
-							ReqNo:     1,
-							Data:      []byte("data"),
-							Signature: []byte("signature"),
+						Data: [][]byte{
+							[]byte("client-1"),
+							uint64ToBytes(1),
+							[]byte("data"),
+						},
+						Request: &Request{
+							Source: 0,
+							RequestData: &pb.RequestData{
+								ClientId:  []byte("client-1"),
+								ReqNo:     1,
+								Data:      []byte("data"),
+								Signature: []byte("signature"),
+							},
 						},
 					},
 				},
@@ -312,14 +336,24 @@ var _ = Describe("Integration", func() {
 
 			By("returning a processed version of the proposal")
 			serializer.resultsC <- ActionResults{
-				Preprocessed: []*PreprocessResult{
+				Digests: []*HashResult{
 					{
 						Digest: uint64ToBytes(7),
-						RequestData: &pb.RequestData{
-							ClientId:  []byte("client-1"),
-							ReqNo:     1,
-							Data:      []byte("data"),
-							Signature: []byte("signature"),
+						Request: &HashRequest{
+							Data: [][]byte{
+								[]byte("client-1"),
+								uint64ToBytes(1),
+								[]byte("data"),
+							},
+							Request: &Request{
+								Source: 0,
+								RequestData: &pb.RequestData{
+									ClientId:  []byte("client-1"),
+									ReqNo:     1,
+									Data:      []byte("data"),
+									Signature: []byte("signature"),
+								},
+							},
 						},
 					},
 				},
