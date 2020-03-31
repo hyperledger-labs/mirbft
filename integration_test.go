@@ -112,18 +112,20 @@ var _ = Describe("Integration", func() {
 
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Process: []*Batch{
+				Hash: []*HashRequest{
 					{
-						Epoch: 3,
-						SeqNo: 1,
-						Requests: []*PreprocessResult{
-							{
-								Digest: uint64ToBytes(7),
-								RequestData: &pb.RequestData{
-									ClientId:  []byte("client-1"),
-									ReqNo:     1,
-									Data:      []byte("data"),
-									Signature: []byte("signature"),
+						Data: [][]byte{
+							uint64ToBytes(7),
+						},
+						Batch: &Batch{
+							Source: 0,
+							Epoch:  3,
+							SeqNo:  1,
+							Requests: []*pb.Request{
+								{
+									ClientId: []byte("client-1"),
+									ReqNo:    1,
+									Digest:   uint64ToBytes(7),
 								},
 							},
 						},
@@ -133,10 +135,26 @@ var _ = Describe("Integration", func() {
 
 			By("returning a the process result for the batch")
 			serializer.resultsC <- ActionResults{
-				Processed: []*ProcessResult{
+				Digests: []*HashResult{
 					{
-						Epoch:  3,
-						SeqNo:  1,
+						Request: &HashRequest{
+							Data: [][]byte{
+								uint64ToBytes(7),
+							},
+							Batch: &Batch{
+								Source: 0,
+								Epoch:  3,
+								SeqNo:  1,
+								Requests: []*pb.Request{
+									{
+										ClientId: []byte("client-1"),
+										ReqNo:    1,
+										Digest:   uint64ToBytes(7),
+									},
+								},
+							},
+						},
+
 						Digest: []byte("fake-digest"),
 					},
 				},
@@ -349,21 +367,22 @@ var _ = Describe("Integration", func() {
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
-				Process: []*Batch{
+				Hash: []*HashRequest{
 					{
-						Source: 3,
-						Epoch:  3,
-						SeqNo:  1,
-						Requests: []*PreprocessResult{
-							{
-								Digest: uint64ToBytes(7),
-								RequestData: &pb.RequestData{
-									ClientId:  []byte("client-1"),
-									ReqNo:     1,
-									Data:      []byte("data"),
-									Signature: []byte("signature"),
+						Batch: &Batch{
+							Source: 3,
+							Epoch:  3,
+							SeqNo:  1,
+							Requests: []*pb.Request{
+								{
+									ClientId: []byte("client-1"),
+									ReqNo:    1,
+									Digest:   uint64ToBytes(7),
 								},
 							},
+						},
+						Data: [][]byte{
+							uint64ToBytes(7),
 						},
 					},
 				},
@@ -371,10 +390,25 @@ var _ = Describe("Integration", func() {
 
 			By("returning a digest for the batch")
 			serializer.resultsC <- ActionResults{
-				Processed: []*ProcessResult{
+				Digests: []*HashResult{
 					{
-						Epoch:  3,
-						SeqNo:  1,
+						Request: &HashRequest{
+							Batch: &Batch{
+								Source: 3,
+								Epoch:  3,
+								SeqNo:  1,
+								Requests: []*pb.Request{
+									{
+										ClientId: []byte("client-1"),
+										ReqNo:    1,
+										Digest:   uint64ToBytes(7),
+									},
+								},
+							},
+							Data: [][]byte{
+								uint64ToBytes(7),
+							},
+						},
 						Digest: []byte("fake-digest"),
 					},
 				},

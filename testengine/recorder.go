@@ -295,7 +295,7 @@ func (r *Recording) Step() error {
 
 		apply := &tpb.Event_Apply{
 			Preprocessed: make([]*tpb.Request, len(processing.Preprocess)),
-			Processed:    make([]*tpb.Batch, len(processing.Process)),
+			Processed:    make([]*tpb.Batch, len(processing.Hash)),
 		}
 
 		for i, preprocess := range processing.Preprocess {
@@ -314,24 +314,18 @@ func (r *Recording) Step() error {
 			}
 		}
 
-		for i, process := range processing.Process {
+		for i, hashRequest := range processing.Hash {
 			hasher := r.Hasher()
-			requests := make([]*pb.Request, len(process.Requests))
-			for i, request := range process.Requests {
-				hasher.Write(request.Digest)
-				requests[i] = &pb.Request{
-					ClientId: request.RequestData.ClientId,
-					ReqNo:    request.RequestData.ReqNo,
-					Digest:   request.Digest,
-				}
+			for _, data := range hashRequest.Data {
+				hasher.Write(data)
 			}
 
 			apply.Processed[i] = &tpb.Batch{
-				Source:   process.Source,
-				Epoch:    process.Epoch,
-				SeqNo:    process.SeqNo,
+				Source:   hashRequest.Batch.Source,
+				Epoch:    hashRequest.Batch.Epoch,
+				SeqNo:    hashRequest.Batch.SeqNo,
+				Requests: hashRequest.Batch.Requests,
 				Digest:   hasher.Sum(nil),
-				Requests: requests,
 			}
 		}
 

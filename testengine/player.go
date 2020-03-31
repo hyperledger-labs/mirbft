@@ -106,7 +106,7 @@ func (p *Player) Step() error {
 		apply := et.Apply
 		actionResults := &mirbft.ActionResults{
 			Preprocessed: make([]*mirbft.PreprocessResult, len(apply.Preprocessed)),
-			Processed:    make([]*mirbft.ProcessResult, len(apply.Processed)),
+			Digests:      make([]*mirbft.HashResult, len(apply.Processed)),
 			Checkpoints:  make([]*mirbft.CheckpointResult, len(apply.Checkpoints)),
 		}
 
@@ -123,9 +123,15 @@ func (p *Player) Step() error {
 		}
 
 		for i, pr := range apply.Processed {
-			actionResults.Processed[i] = &mirbft.ProcessResult{
-				SeqNo:  pr.SeqNo,
-				Epoch:  pr.Epoch,
+			actionResults.Digests[i] = &mirbft.HashResult{
+				Request: &mirbft.HashRequest{
+					Batch: &mirbft.Batch{
+						SeqNo:    pr.SeqNo,
+						Epoch:    pr.Epoch,
+						Source:   pr.Source,
+						Requests: pr.Requests,
+					},
+				},
 				Digest: pr.Digest,
 			}
 		}

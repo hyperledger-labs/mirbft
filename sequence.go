@@ -76,23 +76,30 @@ func (s *sequence) allocate(batch []*request) *Actions {
 	s.state = Allocated
 	s.batch = batch
 
-	requests := make([]*PreprocessResult, len(batch))
+	requests := make([]*pb.Request, len(batch))
+	data := make([][]byte, len(batch))
 	for i, request := range batch {
-		requests[i] = &PreprocessResult{
-			RequestData: request.requestData,
-			Digest:      request.digest,
+		requests[i] = &pb.Request{
+			ClientId: request.requestData.ClientId,
+			ReqNo:    request.requestData.ReqNo,
+			Digest:   request.digest,
 		}
+		data[i] = request.digest
 		request.state = Allocated
 		request.seqNo = s.seqNo
 	}
 
 	return &Actions{
-		Process: []*Batch{
+		Hash: []*HashRequest{
 			{
-				Source:   uint64(s.owner),
-				SeqNo:    s.seqNo,
-				Epoch:    s.epoch,
-				Requests: requests,
+				Data: data,
+
+				Batch: &Batch{
+					Source:   uint64(s.owner),
+					SeqNo:    s.seqNo,
+					Epoch:    s.epoch,
+					Requests: requests,
+				},
 			},
 		},
 	}

@@ -59,28 +59,28 @@ var _ = Describe("sequence", func() {
 			)
 
 			Expect(actions).To(Equal(&Actions{
-				Process: []*Batch{
+				Hash: []*HashRequest{
 					{
-						Source: 0,
-						SeqNo:  5,
-						Epoch:  4,
-						Requests: []*PreprocessResult{
-							{
-								Digest: []byte("msg1-digest"),
-								RequestData: &pb.RequestData{
+						Batch: &Batch{
+							Source: 0,
+							SeqNo:  5,
+							Epoch:  4,
+							Requests: []*pb.Request{
+								{
 									ClientId: []byte("client-id"),
 									ReqNo:    7,
-									Data:     []byte("msg1"),
+									Digest:   []byte("msg1-digest"),
 								},
-							},
-							{
-								Digest: []byte("msg2-digest"),
-								RequestData: &pb.RequestData{
+								{
 									ClientId: []byte("client-id"),
 									ReqNo:    8,
-									Data:     []byte("msg2"),
+									Digest:   []byte("msg2-digest"),
 								},
 							},
+						},
+						Data: [][]byte{
+							[]byte("msg1-digest"),
+							[]byte("msg2-digest"),
 						},
 					},
 				},

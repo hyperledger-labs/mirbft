@@ -279,11 +279,18 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		return actions
 	}
 
-	for _, processResult := range results.Processed {
-		// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
-		seqNo := processResult.SeqNo
-		// XXX we need to verify that the epoch matches the expected one
-		actions.Append(sm.activeEpoch.applyProcessResult(seqNo, processResult.Digest))
+	for _, hashResult := range results.Digests {
+		request := hashResult.Request
+		switch {
+		case request.Batch != nil:
+			batch := request.Batch
+			// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
+			seqNo := batch.SeqNo
+			// XXX we need to verify that the epoch matches the expected one
+			actions.Append(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
+		default:
+			panic("no hash result type set")
+		}
 	}
 
 	actions.Append(sm.drainNodeMsgs())

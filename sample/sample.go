@@ -104,7 +104,7 @@ func (c *SerialProcessor) Transmit(actions *mirbft.Actions) {
 func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
 	actionResults := &mirbft.ActionResults{
 		Preprocessed: make([]*mirbft.PreprocessResult, len(actions.Preprocess)),
-		Processed:    make([]*mirbft.ProcessResult, len(actions.Process)),
+		Digests:      make([]*mirbft.HashResult, len(actions.Hash)),
 	}
 
 	for i, request := range actions.Preprocess {
@@ -123,16 +123,15 @@ func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
 		}
 	}
 
-	for i, batch := range actions.Process {
+	for i, req := range actions.Hash {
 		h := c.Hasher()
-		for _, preprocessResult := range batch.Requests {
-			h.Write(preprocessResult.Digest)
+		for _, data := range req.Data {
+			h.Write(data)
 		}
 
-		actionResults.Processed[i] = &mirbft.ProcessResult{
-			SeqNo:  batch.SeqNo,
-			Epoch:  batch.Epoch,
-			Digest: h.Sum(nil),
+		actionResults.Digests[i] = &mirbft.HashResult{
+			Request: req,
+			Digest:  h.Sum(nil),
 		}
 	}
 

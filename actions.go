@@ -29,11 +29,9 @@ type Actions struct {
 	// itself.
 	Preprocess []*Request
 
-	// Process should validate each batch, and return a digest and a validation status
-	// for that batch.  Usually, if the batch originated at this node, validation may
-	// be skipped.  For each item in the Process list the caller must Addresult with a
-	// ProcessResult.
-	Process []*Batch
+	// Hash is a set of requests to be hashed.  Hash can (and usually should) be done
+	// in parallel with persisting to disk and performing network sends.
+	Hash []*HashRequest
 
 	// QEntries should be persisted to persistent storage.  Multiple QEntries may be
 	// persisted for the same SeqNo, but for different epochs and all must be retained.
@@ -55,7 +53,7 @@ func (a *Actions) Clear() {
 	a.Broadcast = nil
 	a.Unicast = nil
 	a.Preprocess = nil
-	a.Process = nil
+	a.Hash = nil
 	a.QEntries = nil
 	a.PEntries = nil
 	a.Commits = nil
@@ -66,8 +64,8 @@ func (a *Actions) IsEmpty() bool {
 	return len(a.Broadcast) == 0 &&
 		len(a.Unicast) == 0 &&
 		len(a.Preprocess) == 0 &&
-		len(a.Process) == 0 &&
 		len(a.Commits) == 0 &&
+		len(a.Hash) == 0 &&
 		len(a.QEntries) == 0 &&
 		len(a.PEntries) == 0
 }
@@ -78,10 +76,33 @@ func (a *Actions) Append(o *Actions) {
 	a.Broadcast = append(a.Broadcast, o.Broadcast...)
 	a.Unicast = append(a.Unicast, o.Unicast...)
 	a.Preprocess = append(a.Preprocess, o.Preprocess...)
-	a.Process = append(a.Process, o.Process...)
 	a.Commits = append(a.Commits, o.Commits...)
+	a.Hash = append(a.Hash, o.Hash...)
 	a.QEntries = append(a.QEntries, o.QEntries...)
 	a.PEntries = append(a.PEntries, o.PEntries...)
+}
+
+type HashRequest struct {
+	// Data is a series of byte slices which should be added to the hash
+	Data [][]byte
+
+	// Batch is internal state used to associate the result of this hash request
+	// with the batch it originated at.  Consumers should usually not need to
+	// reference this field.
+	Batch *Batch
+}
+
+// Batch is a collection of proposals which has been allocated a sequence in a given epoch.
+type Batch struct {
+	Source   uint64
+	SeqNo    uint64
+	Epoch    uint64
+	Requests []*pb.Request
+}
+
+type HashResult struct {
+	Digest  []byte
+	Request *HashRequest
 }
 
 // Unicast is an action to send a message to a particular node.
@@ -104,7 +125,7 @@ type Commit struct {
 // ActionResults should be populated by the caller as a result of
 // executing the actions, then returned to the state machine.
 type ActionResults struct {
-	Processed    []*ProcessResult
+	Digests      []*HashResult
 	Preprocessed []*PreprocessResult
 	Checkpoints  []*CheckpointResult
 }
@@ -121,14 +142,6 @@ type CheckpointResult struct {
 	// computed from a Merkle tree, hash chain, or other structure exihibiting
 	// the properties of a strong hash function.
 	Value []byte
-}
-
-// Batch is a collection of proposals which has been allocated a sequence in a given epoch.
-type Batch struct {
-	Source   uint64
-	SeqNo    uint64
-	Epoch    uint64
-	Requests []*PreprocessResult
 }
 
 // PreprocessResult gives the state machine a location which may be used
@@ -150,14 +163,4 @@ type PreprocessResult struct {
 	// TODO, depending on how the request-ack stuff works out, we may want to be able to flip
 	// the request to valid if enough replicas ACK it.
 	Invalid bool
-}
-
-// ProcessResult gives the state machine a digest by which to refer to a particular entry.
-// as well as an indication of whether the batch is valid.  If the batch is invalid, then
-// depending on the configuration of the state machine (TODO), this node may still commit
-// the entry, or may wait for state-transfer to kick off.
-type ProcessResult struct {
-	SeqNo  uint64
-	Epoch  uint64
-	Digest []byte
 }
