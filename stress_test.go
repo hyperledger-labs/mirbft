@@ -233,12 +233,12 @@ var _ = Describe("StressyTest", func() {
 			MsgCount:  1000,
 		}),
 
-		XEntry("FourNodeBFT greenpath", &TestConfig{
+		Entry("FourNodeBFT greenpath", &TestConfig{
 			NodeCount: 4,
 			MsgCount:  1000,
 		}),
 
-		XEntry("FourNodeBFT single bucket greenpath", &TestConfig{
+		Entry("FourNodeBFT single bucket greenpath", &TestConfig{
 			NodeCount:   4,
 			BucketCount: 1,
 			MsgCount:    1000,

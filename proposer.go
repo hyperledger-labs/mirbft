@@ -99,7 +99,9 @@ func (p *proposer) stepClientWindow(clientID []byte) {
 
 		rwp.lastProcessed++
 
-		bucket := BucketID(bytesToUint64(request.digest) % uint64(p.totalBuckets))
+		// TODO, maybe offset the bucket ID by something in the client ID so not all start in bucket 1?
+		// maybe some sort of client index?
+		bucket := BucketID(request.requestData.ReqNo % uint64(p.totalBuckets))
 		proposalBucket, ok := p.proposalBuckets[bucket]
 		if !ok {
 			// I don't lead this bucket this epoch

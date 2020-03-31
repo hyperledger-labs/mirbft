@@ -106,7 +106,7 @@ var _ = Describe("Integration", func() {
 			serializer.resultsC <- ActionResults{
 				Digests: []*HashResult{
 					{
-						Digest: uint64ToBytes(7),
+						Digest: []byte("request-digest"),
 						Request: &HashRequest{
 							Data: [][]byte{
 								[]byte("client-1"),
@@ -132,7 +132,7 @@ var _ = Describe("Integration", func() {
 				Hash: []*HashRequest{
 					{
 						Data: [][]byte{
-							uint64ToBytes(7),
+							[]byte("request-digest"),
 						},
 						Batch: &Batch{
 							Source: 0,
@@ -142,7 +142,7 @@ var _ = Describe("Integration", func() {
 								{
 									ClientId: []byte("client-1"),
 									ReqNo:    1,
-									Digest:   uint64ToBytes(7),
+									Digest:   []byte("request-digest"),
 								},
 							},
 						},
@@ -166,13 +166,13 @@ var _ = Describe("Integration", func() {
 									{
 										ClientId: []byte("client-1"),
 										ReqNo:    1,
-										Digest:   uint64ToBytes(7),
+										Digest:   []byte("request-digest"),
 									},
 								},
 							},
 						},
 
-						Digest: []byte("fake-digest"),
+						Digest: []byte("batch-digest"),
 					},
 				},
 			}
@@ -186,7 +186,7 @@ var _ = Describe("Integration", func() {
 								ReqNo:     1,
 								Data:      []byte("data"),
 								Signature: []byte("signature"),
-								Digest:    uint64ToBytes(7),
+								Digest:    []byte("request-digest"),
 							},
 						},
 					},
@@ -199,7 +199,7 @@ var _ = Describe("Integration", func() {
 									{
 										ClientId: []byte("client-1"),
 										ReqNo:    1,
-										Digest:   uint64ToBytes(7),
+										Digest:   []byte("request-digest"),
 									},
 								},
 							},
@@ -210,12 +210,12 @@ var _ = Describe("Integration", func() {
 					{
 						Epoch:  3,
 						SeqNo:  1,
-						Digest: []byte("fake-digest"),
+						Digest: []byte("batch-digest"),
 						Requests: []*pb.Request{
 							{
 								ClientId: []byte("client-1"),
 								ReqNo:    1,
-								Digest:   uint64ToBytes(7),
+								Digest:   []byte("request-digest"),
 							},
 						},
 					},
@@ -235,7 +235,7 @@ var _ = Describe("Integration", func() {
 							Commit: &pb.Commit{
 								Epoch:  3,
 								SeqNo:  1,
-								Digest: []byte("fake-digest"),
+								Digest: []byte("batch-digest"),
 							},
 						},
 					},
@@ -244,7 +244,7 @@ var _ = Describe("Integration", func() {
 					{
 						Epoch:  3,
 						SeqNo:  1,
-						Digest: []byte("fake-digest"),
+						Digest: []byte("batch-digest"),
 					},
 				},
 			}))
@@ -261,12 +261,12 @@ var _ = Describe("Integration", func() {
 						QEntry: &pb.QEntry{
 							Epoch:  3,
 							SeqNo:  1,
-							Digest: []byte("fake-digest"),
+							Digest: []byte("batch-digest"),
 							Requests: []*pb.Request{
 								{
 									ClientId: []byte("client-1"),
 									ReqNo:    1,
-									Digest:   uint64ToBytes(7),
+									Digest:   []byte("request-digest"),
 								},
 							},
 						},
@@ -279,7 +279,7 @@ var _ = Describe("Integration", func() {
 	Describe("F=1,N=4", func() {
 		BeforeEach(func() {
 			epochConfig = &pb.EpochConfig{
-				Number:             3,
+				Number:             2,
 				Leaders:            []uint64{0, 1, 2, 3},
 				StartingCheckpoint: &pb.Checkpoint{},
 			}
@@ -338,7 +338,7 @@ var _ = Describe("Integration", func() {
 			serializer.resultsC <- ActionResults{
 				Digests: []*HashResult{
 					{
-						Digest: uint64ToBytes(7),
+						Digest: []byte("request-digest"),
 						Request: &HashRequest{
 							Data: [][]byte{
 								[]byte("client-1"),
@@ -386,13 +386,13 @@ var _ = Describe("Integration", func() {
 				Msg: &pb.Msg{
 					Type: &pb.Msg_Preprepare{
 						Preprepare: &pb.Preprepare{
-							Epoch: 3,
-							SeqNo: 1,
+							Epoch: 2,
+							SeqNo: 2,
 							Batch: []*pb.Request{
 								{
 									ClientId: []byte("client-1"),
 									ReqNo:    1,
-									Digest:   uint64ToBytes(7),
+									Digest:   []byte("request-digest"),
 								},
 							},
 						},
@@ -405,18 +405,18 @@ var _ = Describe("Integration", func() {
 					{
 						Batch: &Batch{
 							Source: 3,
-							Epoch:  3,
-							SeqNo:  1,
+							Epoch:  2,
+							SeqNo:  2,
 							Requests: []*pb.Request{
 								{
 									ClientId: []byte("client-1"),
 									ReqNo:    1,
-									Digest:   uint64ToBytes(7),
+									Digest:   []byte("request-digest"),
 								},
 							},
 						},
 						Data: [][]byte{
-							uint64ToBytes(7),
+							[]byte("request-digest"),
 						},
 					},
 				},
@@ -429,8 +429,8 @@ var _ = Describe("Integration", func() {
 						Request: &HashRequest{
 							Batch: &Batch{
 								Source: 3,
-								Epoch:  3,
-								SeqNo:  1,
+								Epoch:  2,
+								SeqNo:  2,
 								Requests: []*pb.Request{
 									{
 										ClientId: []byte("client-1"),
@@ -440,10 +440,10 @@ var _ = Describe("Integration", func() {
 								},
 							},
 							Data: [][]byte{
-								uint64ToBytes(7),
+								[]byte("request-digest"),
 							},
 						},
-						Digest: []byte("fake-digest"),
+						Digest: []byte("batch-digest"),
 					},
 				},
 			}
@@ -453,23 +453,23 @@ var _ = Describe("Integration", func() {
 					{
 						Type: &pb.Msg_Prepare{
 							Prepare: &pb.Prepare{
-								Epoch:  3,
-								SeqNo:  1,
-								Digest: []byte(("fake-digest")),
+								Epoch:  2,
+								SeqNo:  2,
+								Digest: []byte("batch-digest"),
 							},
 						},
 					},
 				},
 				QEntries: []*pb.QEntry{
 					{
-						Epoch:  3,
-						SeqNo:  1,
-						Digest: []byte("fake-digest"),
+						Epoch:  2,
+						SeqNo:  2,
+						Digest: []byte("batch-digest"),
 						Requests: []*pb.Request{
 							{
 								ClientId: []byte("client-1"),
 								ReqNo:    1,
-								Digest:   uint64ToBytes(7),
+								Digest:   []byte("request-digest"),
 							},
 						},
 					},
@@ -483,7 +483,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			serializer.stepC <- step{
-				Source: 1,
+				Source: 2,
 				Msg:    actions.Broadcast[0],
 			}
 
@@ -493,18 +493,18 @@ var _ = Describe("Integration", func() {
 					{
 						Type: &pb.Msg_Commit{
 							Commit: &pb.Commit{
-								Epoch:  3,
-								SeqNo:  1,
-								Digest: []byte(("fake-digest")),
+								Epoch:  2,
+								SeqNo:  2,
+								Digest: []byte("batch-digest"),
 							},
 						},
 					},
 				},
 				PEntries: []*pb.PEntry{
 					{
-						Epoch:  3,
-						SeqNo:  1,
-						Digest: []byte("fake-digest"),
+						Epoch:  2,
+						SeqNo:  2,
+						Digest: []byte("batch-digest"),
 					},
 				},
 			}))
@@ -516,7 +516,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			serializer.stepC <- step{
-				Source: 1,
+				Source: 2,
 				Msg:    actions.Broadcast[0],
 			}
 
@@ -530,14 +530,14 @@ var _ = Describe("Integration", func() {
 				Commits: []*Commit{
 					{
 						QEntry: &pb.QEntry{
-							Epoch:  3,
-							SeqNo:  1,
-							Digest: []byte("fake-digest"),
+							Epoch:  2,
+							SeqNo:  2,
+							Digest: []byte("batch-digest"),
 							Requests: []*pb.Request{
 								{
 									ClientId: []byte("client-1"),
 									ReqNo:    1,
-									Digest:   uint64ToBytes(7),
+									Digest:   []byte("request-digest"),
 								},
 							},
 						},
