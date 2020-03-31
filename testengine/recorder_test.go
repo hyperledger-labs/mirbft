@@ -56,7 +56,7 @@ var _ = Describe("Recorder", func() {
 	It("Executes and produces a log", func() {
 		count, err := recording.DrainClients(10 * time.Second)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(count).To(Equal(31208))
+		Expect(count).To(Equal(27796))
 
 		fmt.Printf("Executing test required a log of %d events\n", count)
 
@@ -68,7 +68,7 @@ var _ = Describe("Recorder", func() {
 			Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
 			Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
 			Expect(node.State.Length).To(Equal(totalReqs))
-			Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(864)))
+			Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
 
 			// Uncomment the below lines to dump the test output to disk
 			// file, err := os.Create("eventlog.bin")
@@ -77,8 +77,8 @@ var _ = Describe("Recorder", func() {
 			// err = recording.Player.EventLog.Write(file)
 			// Expect(err).NotTo(HaveOccurred())
 
-			//Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
-			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("575b4e80673bd514cf5bc6a52f72850b27c8f1baa00669ded619c58d5116d856"))
+			// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
+			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("689567a3721c39955e37f71beee801fdf89862ac9d2b2354ee7e01e9a2839230"))
 		}
 	})
 

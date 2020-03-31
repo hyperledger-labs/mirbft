@@ -22,13 +22,6 @@ type Actions struct {
 	// Unicast messages should be sent only to the specified target.
 	Unicast []Unicast
 
-	// Preprocess is a set of messages (and their origins) for pre-processing.
-	// For each item in the Preprocess list, the caller must AddResult with a PreprocessResult.
-	// The source of the proposal is included in case the caller wishes to do more
-	// validation on proposals originating from other nodes than proposals originating from
-	// itself.
-	Preprocess []*Request
-
 	// Hash is a set of requests to be hashed.  Hash can (and usually should) be done
 	// in parallel with persisting to disk and performing network sends.
 	Hash []*HashRequest
