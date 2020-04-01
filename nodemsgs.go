@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"container/list"
+
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
@@ -24,7 +26,7 @@ const (
 type nodeMsgs struct {
 	id             NodeID
 	oddities       *oddities
-	buffer         map[*pb.Msg]struct{} // TODO, this could be much better optimized via a ring buffer
+	buffer         *list.List
 	epochMsgs      *epochMsgs
 	myConfig       *Config
 	networkConfig  *pb.NetworkConfig
@@ -59,7 +61,7 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Confi
 		// XXX we should initialize this properly, sort of like the above
 		nextCheckpoint: uint64(networkConfig.CheckpointInterval),
 		clientWindows:  clientWindows,
-		buffer:         map[*pb.Msg]struct{}{},
+		buffer:         list.New(),
 		myConfig:       myConfig,
 		networkConfig:  networkConfig,
 	}
@@ -77,7 +79,7 @@ func (n *nodeMsgs) setActiveEpoch(epoch *epoch) {
 // may immediately become available to read from next(), or it may be enqueued
 // for future consumption
 func (n *nodeMsgs) ingest(outerMsg *pb.Msg) {
-	n.buffer[outerMsg] = struct{}{}
+	n.buffer.PushBack(outerMsg)
 }
 
 func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
@@ -146,17 +148,26 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 }
 
 func (n *nodeMsgs) next() *pb.Msg {
-	for msg := range n.buffer {
+	e := n.buffer.Front()
+	if e == nil {
+		return nil
+	}
+
+	for e != nil {
+		msg := e.Value.(*pb.Msg)
 		switch n.process(msg) {
 		case past:
 			n.oddities.alreadyProcessed(n.id, msg)
-			delete(n.buffer, msg)
+			x := e
+			e = e.Next() // get next before removing current
+			n.buffer.Remove(x)
 		case current:
-			delete(n.buffer, msg)
+			n.buffer.Remove(e)
 			return msg
 		case future:
 			// TODO, this is too aggressive, but useful for debugging
 			n.myConfig.Logger.Debug("deferring apply as it's from the future", logBasics(n.id, msg)...)
+			e = e.Next()
 		}
 	}
 
