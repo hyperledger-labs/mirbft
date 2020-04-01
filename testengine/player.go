@@ -47,6 +47,7 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 				SuspectTicks:         int(nodeConfig.SuspectTicks),
 				NewEpochTimeoutTicks: int(nodeConfig.NewEpochTimeoutTicks),
 				HeartbeatTicks:       int(nodeConfig.HeartbeatTicks),
+				BufferSize:           int(nodeConfig.BufferSize),
 			},
 			doneC,
 			el.InitialConfig,

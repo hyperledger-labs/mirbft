@@ -38,6 +38,7 @@ var _ = Describe("Integration", func() {
 			BatchParameters: BatchParameters{
 				CutSizeBytes: 1,
 			},
+			BufferSize: 500,
 		}
 
 		doneC = make(chan struct{})

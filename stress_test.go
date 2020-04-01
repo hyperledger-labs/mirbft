@@ -270,6 +270,7 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 			},
 			SuspectTicks:         4,
 			NewEpochTimeoutTicks: 8,
+			BufferSize:           500,
 		}
 
 		node, err := mirbft.StartNewNode(config, doneC, networkConfig)
