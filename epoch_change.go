@@ -36,7 +36,19 @@ type epochTarget struct {
 }
 
 func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConfig) *pb.NewEpoch {
-	config := constructNewEpochConfig(nc, newLeaders, et.strongChanges)
+	filteredStrongChanges := map[NodeID]*epochChange{}
+	for nodeID, change := range et.strongChanges {
+		if change.underlying == nil {
+			continue
+		}
+		filteredStrongChanges[nodeID] = change
+	}
+
+	if len(filteredStrongChanges) < intersectionQuorum(nc) {
+		return nil
+	}
+
+	config := constructNewEpochConfig(nc, newLeaders, filteredStrongChanges)
 	if config == nil {
 		return nil
 	}
@@ -44,8 +56,8 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConf
 	remoteChanges := make([]*pb.NewEpoch_RemoteEpochChange, 0, len(et.changes))
 	for nodeID, change := range et.strongChanges {
 		remoteChanges = append(remoteChanges, &pb.NewEpoch_RemoteEpochChange{
-			NodeId:      uint64(nodeID),
-			EpochChange: change.underlying,
+			NodeId: uint64(nodeID),
+			Digest: change.digest,
 		})
 	}
 
@@ -464,6 +476,8 @@ func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 		return &Actions{}
 	}
 
+	target := ec.target(msg.Config.Number)
+
 	epochChanges := map[NodeID]*epochChange{}
 	for _, remoteEpochChange := range msg.EpochChanges {
 		if _, ok := epochChanges[NodeID(remoteEpochChange.NodeId)]; ok {
@@ -471,19 +485,13 @@ func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 			return &Actions{}
 		}
 
-		helper := &epochChange{
-			networkConfig: ec.networkConfig,
-		}
-		err := helper.setMsg(remoteEpochChange.EpochChange)
-		if err != nil {
-			// TODO, log
-			return &Actions{}
+		change, ok := target.weakChanges[NodeID(remoteEpochChange.NodeId)]
+		if !ok || change.underlying == nil {
+			panic("we don't handle this yet")
 		}
 
-		epochChanges[NodeID(remoteEpochChange.NodeId)] = helper
+		epochChanges[NodeID(remoteEpochChange.NodeId)] = change
 	}
-
-	// XXX need to validate the signatures on the epoch changes
 
 	// TODO, do we need to try to validate the leader set?
 

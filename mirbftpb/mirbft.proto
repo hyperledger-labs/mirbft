@@ -217,11 +217,11 @@ message NewEpoch {
 
     message RemoteEpochChange {
         uint64 node_id = 1;
-        EpochChange epoch_change = 2;
+        bytes digest = 2;
     }
 
-    // epoch_changes must contains at least 2f+1 EpochChange messages from
-    // replicas in the network.  If two EpochChanges originated from the same
+    // epoch_changes must contains at least 2f+1 EpochChange messages references from
+    // replicas in the network.  If two EpochChanges references originated from the same
     // replica, then the NewEpoch message is invalid.
     repeated RemoteEpochChange epoch_changes = 2;
 }
