@@ -37,6 +37,7 @@ message HashResult {
 	oneof type {
 		Request request = 2;
 		Batch batch = 3;
+		EpochChange epoch_change = 4;
         }
 }
 message Request {
@@ -49,6 +50,11 @@ message Batch {
 	uint64 epoch = 2;
 	uint64 seq_no = 3;
 	repeated mirbftpb.Request requests = 5;
+}
+
+message EpochChange {
+	uint64 source = 1;
+	mirbftpb.EpochChange epoch_change = 2;
 }
 
 message Checkpoint {

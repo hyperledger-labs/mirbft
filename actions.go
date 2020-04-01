@@ -88,6 +88,9 @@ type HashRequest struct {
 
 	// Request is the proposal which is being hashed.
 	Request *Request
+
+	// EpochChange is the epoch change message beig hashed.
+	EpochChange *EpochChange
 }
 
 // Batch is a collection of proposals which has been allocated a sequence in a given epoch.
@@ -101,6 +104,11 @@ type Batch struct {
 type Request struct {
 	Source      uint64
 	RequestData *pb.RequestData
+}
+
+type EpochChange struct {
+	Source      uint64
+	EpochChange *pb.EpochChange
 }
 
 type HashResult struct {

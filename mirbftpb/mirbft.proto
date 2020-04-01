@@ -99,9 +99,10 @@ message Msg {
         Checkpoint checkpoint = 5;
         Suspect suspect = 6;
         EpochChange epoch_change = 7;
-        NewEpoch new_epoch = 8;
-        NewEpochEcho new_epoch_echo = 9;
-        NewEpochReady new_epoch_ready = 10;
+        EpochChangeAck epoch_change_ack = 8;
+        NewEpoch new_epoch = 9;
+        NewEpochEcho new_epoch_echo = 10;
+        NewEpochReady new_epoch_ready = 11;
     }
 }
 
@@ -159,16 +160,11 @@ message Suspect {
 // and particularly for computing a digest to attest to.  If any set contains
 // a duplicated entry, the message may be discarded as byzantine.
 message EpochChange {
-    // attestation should be a signature covering the remainder of the fields
-    // in the message.  additional information may optionally be encoded in the
-    // attestation.
-    bytes attestation = 1;
-
-    uint64 new_epoch = 2;
+    uint64 new_epoch = 1;
 
     // c_set contains the entries for the C-set as defined by the classical
     // PBFT view-change protocol.
-    repeated Checkpoint checkpoints = 3;
+    repeated Checkpoint checkpoints = 2;
 
     message SetEntry {
         uint64 epoch = 1;
@@ -178,11 +174,21 @@ message EpochChange {
 
     // p_set contains the entries for the P-set as defined by the classical
     // PBFT view-change protocol.  
-    repeated SetEntry p_set = 4;
+    repeated SetEntry p_set = 3;
 
     // q_set contains the entries for the Q-set as defined by the classical
     // PBFT view-change protocol.
-    repeated SetEntry q_set = 5;
+    repeated SetEntry q_set = 4;
+}
+
+// EpochChangeAck messages are broadcast in response to receiving a valid epoch change
+// from a replica.  Replicas collect these epoch change ack messages, and when there are 2f+1
+// such messages begin to count that epoch change as appropriately broadcast for purposes of
+// the epoch change timer.
+message EpochChangeAck {
+    uint64 new_epoch = 1;
+    uint64 sender = 2;
+    bytes digest = 3;
 }
 
 message EpochConfig {

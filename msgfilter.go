@@ -45,6 +45,10 @@ func preProcess(outerMsg *pb.Msg) error {
 		if innerMsg.EpochChange == nil {
 			return errors.Errorf("message of type EpochChange, but epoch_change field is nil")
 		}
+	case *pb.Msg_EpochChangeAck:
+		if innerMsg.EpochChangeAck == nil {
+			return errors.Errorf("message of type EpochChangeAck, but epoch_change_ack field is nil")
+		}
 	case *pb.Msg_NewEpoch:
 		switch {
 		case innerMsg.NewEpoch == nil:

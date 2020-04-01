@@ -46,12 +46,14 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 
 	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
 
-	epochChange, err := newEpochChange(
+	epochChange := &epochChange{
+		networkConfig: networkConfig,
+	}
+	err := epochChange.setMsg(
 		&pb.EpochChange{
 			Checkpoints: []*pb.Checkpoint{fakeCheckpoint},
 		},
 	)
-
 	if err != nil {
 		panic(err)
 	}
@@ -171,6 +173,8 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 			case *pb.Msg_EpochChange:
 				actions.Append(sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange))
+			case *pb.Msg_EpochChangeAck:
+				actions.Append(sm.epochChanger.applyEpochChangeAckMsg(source, innerMsg.EpochChangeAck))
 			case *pb.Msg_NewEpoch:
 				actions.Append(sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch))
 			case *pb.Msg_NewEpochEcho:
@@ -305,6 +309,9 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
 			// TODO, rename applyPreprocessResult to something better
 			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request))
+		case request.EpochChange != nil:
+			epochChange := request.EpochChange
+			actions.Append(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
 		default:
 			panic("no hash result type set")
 		}

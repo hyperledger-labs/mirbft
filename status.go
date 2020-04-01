@@ -43,11 +43,17 @@ type EpochChangerStatus struct {
 }
 
 type EpochTargetStatus struct {
-	Number       uint64   `json:"number"`
-	EpochChanges []uint64 `json:"epoch_changes"`
-	Echos        []uint64 `json:"echos"`
-	Readies      []uint64 `json:"readies"`
-	Suspicions   []uint64 `json:"suspicions"`
+	Number       uint64               `json:"number"`
+	EpochChanges []*EpochChangeStatus `json:"epoch_changes"`
+	Echos        []uint64             `json:"echos"`
+	Readies      []uint64             `json:"readies"`
+	Suspicions   []uint64             `json:"suspicions"`
+}
+
+type EpochChangeStatus struct {
+	Source uint64   `json:"source"`
+	Digest []byte   `json:"digest"`
+	Acks   []uint64 `json:"acks"`
 }
 
 type NodeStatus struct {
@@ -80,7 +86,7 @@ func (s *Status) Pretty() string {
 	buffer.WriteString(fmt.Sprintf("Change is in state: %d, last active epoch %d\n", s.EpochChanger.State, s.EpochChanger.LastActiveEpoch))
 	for _, et := range s.EpochChanger.EpochTargets {
 		buffer.WriteString(fmt.Sprintf("Target Epoch %d:\n", et.Number))
-		buffer.WriteString(fmt.Sprintf("  EpochChanges: %v\n", et.EpochChanges))
+		buffer.WriteString(fmt.Sprintf("  EpochChanges: %v\n", et.EpochChanges)) // TODO, prettify
 		buffer.WriteString(fmt.Sprintf("  Echos: %v\n", et.Echos))
 		buffer.WriteString(fmt.Sprintf("  Readies: %v\n", et.Readies))
 		buffer.WriteString(fmt.Sprintf("  Suspicions: %v\n", et.Suspicions))
