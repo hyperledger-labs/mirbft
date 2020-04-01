@@ -19,8 +19,54 @@ const (
 	invalid
 )
 
-// nodeMsgs buffers incoming messages from a node, and allowing them to be applied
-// in order, even though links may be out of order.
+// nodeMsgs is responsible for two primary tasks
+//
+//   1) Acting as a buffer to handle times of network turbulence.  For instance, when the network
+//      is moving its checkpoint watermarks, or adopting a new view, some nodes will receive the
+//      intersection quorum certificate before others.  This means that those nodes may begin sending
+//      messages for the new watermarks, or new epoch before the other nodes are ready to receive them.
+//      The nodeMsgs instance will hold a bounded number of these messages in buffer to be ready to be
+//      played when it adopts the network parameters the rest of the network has already performed.
+//      This prevents the case of discarding out-of-bounds messages, then needing to refetch them, or
+//      trigger a view-change.
+//
+//   2) Acting as a first-pass filter on byzantine behavior.  The msgfilters.go acts as a pre-filter,
+//      excluding messages that are obviously malformed, but there are many other ways messages can
+//      be malformed which are state dependent.  For instance, replicas may only ACK a single epoch
+//      change message, and only the leader of an epoch may send a NewEpoch message.  By catching and
+//      rejecting these malformed requests before passing them into the rest of the state machine,
+//      it reduces the error handling requirements and prevents a DoS style attack from triggering
+//      more expensive paths of the state machine.
+//
+// The general path of interaction with nodeMsgs is very simple.  When the state machine receives a
+// message it gives the message to the nodeMsgs for a particular node via the 'ingest' method.  Then,
+// it reads from the 'next()' method until no more messages are available.  When important pieces of
+// state change (like the active epoch, or the watermarks), the state machine calls into nodeMsgs to
+// trigger any re-evaluation of buffered messages.  The state machine will typically immediately drain
+// the message queues via 'next'()' after such a reconfiguration.
+//
+// Expected behavior:
+//
+// Messages are divided into:
+//   1) Active epoch dependent messages.  These messages are the normal three-phase commit in the green
+//      path of Preprepare, Prepare, Commit.  For sequence numbers below the low watermark, these messages
+//      should be discarded as in the past.  For epoch numbers below the last active epoch, these messages
+//      should be discarded as in the past.  For sequence numbers above the high watermark, or above
+//      the current epoch, they should be buffered as in the future.  For messages in the currently active
+//      epoch within the watermarks, today, we buffer them to arrive in bucket order (e.g. in a 4 bucket
+//      network we require that sequences arrive as (1, 5, 9, 13, ...) or (2, 6, 10, 14, ...), or (3, 7, ...)
+//      etc.).  We may want to revist the decision to buffer these, but it is a relatively lightweight way
+//      to ensure that we do not allow duplication of these messages from a node.
+//   2) Checkpoint messages.  This is only the Checkpoint message.  Checkpoint messages below the low watermark
+//      should be marked as in the past.
+//   3) Client request related messages
+//      (TODO, this needs work at the moment, but this would include the 'Forward' message as of today)
+//   4) Epoch changing messages.  These messages are those relating to epoch change.  They include
+//      Suspect, EpochChange, EpochChangeAck, NewEpoch, NewEpochEcho, and NewEpochReady.  Epoch related
+//      messages for epochs older than the current epoch should be marked as in the past.  Depending on
+//      the state of the active epoch, some messages should be marked as in the past (for instance, EpochChange
+//      is only valid for an Epoch which is not prepending yet.  TODO, this area is a bit under development at
+//      the moment, and needs to implement epoch-change fetching, so this will likely change a small bit.
 type nodeMsgs struct {
 	id             NodeID
 	oddities       *oddities
