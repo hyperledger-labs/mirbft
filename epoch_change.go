@@ -17,10 +17,24 @@ import (
 	"github.com/pkg/errors"
 )
 
+type epochChangeState int
+
+const (
+	prepending = iota // Have sent an epoch-change, but waiting for a quorum
+	pending           // Have a quorum of epoch-change messages, waits on new-epoch
+	echoing           // Have received new-epoch, waits for a quorum of echos
+	readying          // Have received a quorum of echos, waits on qourum of ready
+	ready             // New epoch is ready to begin
+	idle              // No pending change
+	done              // We have sent an epoch change, ending this epoch for us
+)
+
 // epochTarget is like an epoch, but this node need not have agreed
 // to transition to this target, and may not have information like the
 // epoch configuration
 type epochTarget struct {
+	state         epochChangeState
+	stateTicks    uint64
 	number        uint64
 	changes       map[NodeID]*epochChange
 	weakChanges   map[NodeID]*epochChange
@@ -29,10 +43,14 @@ type epochTarget struct {
 	readies       map[*pb.EpochConfig]map[NodeID]struct{}
 	suspicions    map[NodeID]struct{}
 
-	myNewEpoch     *pb.NewEpoch
-	myEpochChange  *epochChange
-	leaderNewEpoch *pb.EpochConfig
-	isLeader       bool
+	myNewEpoch      *pb.NewEpoch // The NewEpoch msg we computed from the epoch changes we know of
+	myEpochChange   *epochChange
+	leaderNewEpoch  *pb.NewEpoch    // The NewEpoch msg we received directly from the leader
+	networkNewEpoch *pb.EpochConfig // The NewEpoch msg as received via the bracha broadcast
+	isLeader        bool
+
+	networkConfig *pb.NetworkConfig
+	myConfig      *Config
 }
 
 func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConfig) *pb.NewEpoch {
@@ -88,19 +106,52 @@ func (et *epochTarget) updateCorrectChanges() bool {
 	return modified
 }
 
-type epochChangeState int
+func (et *epochTarget) updateNewEpochState() *Actions {
+	if et.leaderNewEpoch == nil {
+		return &Actions{}
+	}
 
-const (
-	prepending epochChangeState = iota // Have sent an epoch-change, but waiting for a quorum
-	pending                            // Have a quorum of epoch-change messages, waits on new-epoch
-	echoing                            // Have received new-epoch, waits for a quorum of echos
-	readying                           // Have received a quorum of echos, waits on qourum of ready
-	ready                              // New epoch is ready to begin
-	idle                               // No pending change
-)
+	epochChanges := map[NodeID]*epochChange{}
+	for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
+		if _, ok := epochChanges[NodeID(remoteEpochChange.NodeId)]; ok {
+			// TODO, malformed, log oddity
+			return &Actions{}
+		}
+
+		change, ok := et.weakChanges[NodeID(remoteEpochChange.NodeId)]
+		if !ok || change.underlying == nil {
+			panic("we don't handle this yet")
+			return &Actions{}
+		}
+
+		epochChanges[NodeID(remoteEpochChange.NodeId)] = change
+	}
+
+	// TODO, do we need to try to validate the leader set?
+
+	newEpochConfig := constructNewEpochConfig(et.networkConfig, et.leaderNewEpoch.Config.Leaders, epochChanges)
+
+	if !proto.Equal(newEpochConfig, et.leaderNewEpoch.Config) {
+		// TODO byzantine, log oddity
+		return &Actions{}
+	}
+
+	et.state = echoing
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_NewEpochEcho{
+					NewEpochEcho: &pb.NewEpochEcho{
+						Config: et.leaderNewEpoch.Config,
+					},
+				},
+			},
+		},
+	}
+}
 
 type epochChanger struct {
-	state                       epochChangeState
 	stateTicks                  uint64
 	lastActiveEpoch             *epoch
 	pendingEpochTarget          *epochTarget
@@ -111,57 +162,51 @@ type epochChanger struct {
 }
 
 func (ec *epochChanger) tick() *Actions {
-	ec.stateTicks++
+	return ec.pendingEpochTarget.tick()
+}
 
-	switch ec.state {
+func (et *epochTarget) tick() *Actions {
+	switch et.state {
 	case prepending:
-		return ec.tickPrepending()
+		return et.tickPrepending()
 	case pending:
-		return ec.tickPending()
+		return et.tickPending()
 	default: // case done:
 	}
 
 	return &Actions{}
 }
 
-func (ec *epochChanger) repeatEpochChangeBroadcast() *Actions {
-	if ec.pendingEpochTarget == nil {
-		panic("TODO, handle me? Are we guaranteed to have sent an epoch change, I hope so")
-	}
-
+func (et *epochTarget) repeatEpochChangeBroadcast() *Actions {
 	return &Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_EpochChange{
-					EpochChange: ec.pendingEpochTarget.myEpochChange.underlying,
+					EpochChange: et.myEpochChange.underlying,
 				},
 			},
 		},
 	}
 }
 
-func (ec *epochChanger) tickPrepending() *Actions {
-	if ec.pendingEpochTarget == nil {
-		panic("we should never be prepending with a nil pending target")
-	}
-
-	if ec.pendingEpochTarget.myNewEpoch == nil {
-		if ec.stateTicks%uint64(ec.myConfig.NewEpochTimeoutTicks/2) == 0 {
-			return ec.repeatEpochChangeBroadcast()
+func (et *epochTarget) tickPrepending() *Actions {
+	if et.myNewEpoch == nil {
+		if et.stateTicks%uint64(et.myConfig.NewEpochTimeoutTicks/2) == 0 {
+			return et.repeatEpochChangeBroadcast()
 		}
 
 		return &Actions{}
 	}
 
-	ec.stateTicks = 0
-	ec.state = pending
+	et.stateTicks = 0
+	et.state = pending
 
-	if ec.pendingEpochTarget.isLeader {
+	if et.isLeader {
 		return &Actions{
 			Broadcast: []*pb.Msg{
 				{
 					Type: &pb.Msg_NewEpoch{
-						NewEpoch: ec.pendingEpochTarget.myNewEpoch,
+						NewEpoch: et.myNewEpoch,
 					},
 				},
 			},
@@ -171,16 +216,16 @@ func (ec *epochChanger) tickPrepending() *Actions {
 	return &Actions{}
 }
 
-func (ec *epochChanger) tickPending() *Actions {
-	pendingTicks := ec.stateTicks % uint64(ec.myConfig.NewEpochTimeoutTicks)
-	if ec.pendingEpochTarget.isLeader {
+func (et *epochTarget) tickPending() *Actions {
+	pendingTicks := et.stateTicks % uint64(et.myConfig.NewEpochTimeoutTicks)
+	if et.isLeader {
 		// resend the new-view if others perhaps missed it
 		if pendingTicks%2 == 0 {
 			return &Actions{
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_NewEpoch{
-							NewEpoch: ec.pendingEpochTarget.myNewEpoch,
+							NewEpoch: et.myNewEpoch,
 						},
 					},
 				},
@@ -193,7 +238,7 @@ func (ec *epochChanger) tickPending() *Actions {
 					{
 						Type: &pb.Msg_Suspect{
 							Suspect: &pb.Suspect{
-								Epoch: ec.pendingEpochTarget.myNewEpoch.Config.Number,
+								Epoch: et.myNewEpoch.Config.Number,
 							},
 						},
 					},
@@ -201,7 +246,7 @@ func (ec *epochChanger) tickPending() *Actions {
 			}
 		}
 		if pendingTicks%2 == 0 {
-			return ec.repeatEpochChangeBroadcast()
+			return et.repeatEpochChangeBroadcast()
 		}
 	}
 	return &Actions{}
@@ -228,47 +273,47 @@ func (ec *epochChanger) target(epoch uint64) *epochTarget {
 			myEpochChange: &epochChange{
 				networkConfig: ec.networkConfig,
 			},
+			networkConfig: ec.networkConfig,
+			myConfig:      ec.myConfig,
 		}
 		ec.targets[epoch] = target
 	}
 	return target
 }
 
-func (ec *epochChanger) updateHighestObservedCorrectEpoch(epoch uint64) {
+func (ec *epochChanger) setPendingTarget(target *epochTarget) {
 	for number := range ec.targets {
-		if number < epoch {
+		if number < target.number {
 			delete(ec.targets, number)
 		}
 	}
-
-	ec.highestObservedCorrectEpoch = epoch
-	// TODO, handle if the active epoch is behind
 }
 
 func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
 	target := ec.target(epoch)
-	target.suspicions[source] = struct{}{}
-
-	if len(target.suspicions) >= intersectionQuorum(ec.networkConfig) {
-		ec.state = prepending
-		newTarget := ec.target(epoch + 1)
-		ec.pendingEpochTarget = newTarget
-		err := newTarget.myEpochChange.setMsg(ec.lastActiveEpoch.constructEpochChange(epoch + 1))
-		if err != nil {
-			panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
-		}
-		ec.updateHighestObservedCorrectEpoch(epoch + 1)
-		return target.myEpochChange.underlying
+	target.applySuspectMsg(source)
+	if target.state < done {
+		return nil
 	}
 
-	if len(target.suspicions) >= someCorrectQuorum(ec.networkConfig) &&
-		ec.highestObservedCorrectEpoch < epoch {
-		ec.highestObservedCorrectEpoch = epoch
-		// TODO, end current epoch
+	epochChange := ec.lastActiveEpoch.constructEpochChange(epoch + 1)
+
+	newTarget := ec.target(epoch + 1)
+	ec.pendingEpochTarget = newTarget
+	err := newTarget.myEpochChange.setMsg(epochChange)
+	if err != nil {
+		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 	}
 
-	return nil
+	return epochChange
+}
 
+func (et *epochTarget) applySuspectMsg(source NodeID) {
+	et.suspicions[source] = struct{}{}
+
+	if len(et.suspicions) >= intersectionQuorum(et.networkConfig) {
+		et.state = done
+	}
 }
 
 func epochChangeHashData(epochChange *pb.EpochChange) [][]byte {
@@ -391,11 +436,6 @@ func (ec *epochChanger) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChang
 }
 
 func (ec *epochChanger) checkEpochQuorum(target *epochTarget) *Actions {
-	if len(target.weakChanges) > someCorrectQuorum(ec.networkConfig) &&
-		ec.highestObservedCorrectEpoch < target.number {
-		ec.updateHighestObservedCorrectEpoch(target.number)
-	}
-
 	if len(target.strongChanges) < intersectionQuorum(ec.networkConfig) || target.myEpochChange == nil {
 		return &Actions{}
 	}
@@ -443,7 +483,7 @@ func (ec *epochChanger) checkEpochQuorum(target *epochTarget) *Actions {
 		}
 	}
 
-	if ec.state == prepending && target.myNewEpoch == nil {
+	if target.state == prepending && target.myNewEpoch == nil {
 		// TODO, all of the above processing to pick the leaderset should not occur if we've
 		// already created a new epoch
 
@@ -471,50 +511,15 @@ func (ec *epochChanger) checkEpochQuorum(target *epochTarget) *Actions {
 }
 
 func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
-	if ec.state > pending {
+	target := ec.target(msg.Config.Number)
+
+	if target.state > pending {
 		// TODO log oddity? maybe ensure not possible via nodemsgs
 		return &Actions{}
 	}
 
-	target := ec.target(msg.Config.Number)
-
-	epochChanges := map[NodeID]*epochChange{}
-	for _, remoteEpochChange := range msg.EpochChanges {
-		if _, ok := epochChanges[NodeID(remoteEpochChange.NodeId)]; ok {
-			// TODO, malformed, log oddity
-			return &Actions{}
-		}
-
-		change, ok := target.weakChanges[NodeID(remoteEpochChange.NodeId)]
-		if !ok || change.underlying == nil {
-			panic("we don't handle this yet")
-		}
-
-		epochChanges[NodeID(remoteEpochChange.NodeId)] = change
-	}
-
-	// TODO, do we need to try to validate the leader set?
-
-	newEpochConfig := constructNewEpochConfig(ec.networkConfig, msg.Config.Leaders, epochChanges)
-
-	if !proto.Equal(newEpochConfig, msg.Config) {
-		// TODO byzantine, log oddity
-		return &Actions{}
-	}
-
-	ec.state = echoing
-
-	return &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_NewEpochEcho{
-					NewEpochEcho: &pb.NewEpochEcho{
-						Config: msg.Config,
-					},
-				},
-			},
-		},
-	}
+	target.leaderNewEpoch = msg
+	return target.updateNewEpochState()
 }
 
 // Summary of Bracha reliable broadcast from:
@@ -537,12 +542,14 @@ func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 // r-deliver(m)
 
 func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
-
 	target := ec.target(msg.Config.Number) // TODO, handle nil config
+	return target.applyNewEpochEchoMsg(source, msg)
+}
 
+func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
 	var msgEchos map[NodeID]struct{}
 
-	for config, echos := range target.echos {
+	for config, echos := range et.echos {
 		if proto.Equal(config, msg.Config) {
 			msgEchos = echos
 			break
@@ -551,24 +558,20 @@ func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho
 
 	if msgEchos == nil {
 		msgEchos = map[NodeID]struct{}{}
-		target.echos[msg.Config] = msgEchos
+		et.echos[msg.Config] = msgEchos
 	}
 
 	msgEchos[source] = struct{}{}
 
-	if target != ec.pendingEpochTarget && len(msgEchos) >= someCorrectQuorum(ec.networkConfig) {
-		ec.updateHighestObservedCorrectEpoch(msg.Config.Number)
-	}
-
-	if len(msgEchos) < intersectionQuorum(ec.networkConfig) {
+	if len(msgEchos) < intersectionQuorum(et.networkConfig) {
 		return &Actions{}
 	}
 
-	if ec.state > echoing {
+	if et.state > echoing {
 		return &Actions{}
 	}
 
-	ec.state = readying
+	et.state = readying
 
 	return &Actions{
 		Broadcast: []*pb.Msg{
@@ -584,16 +587,19 @@ func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho
 }
 
 func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
-	if ec.state > readying {
+	target := ec.target(msg.Config.Number)
+	return target.applyNewEpochReadyMsg(source, msg)
+}
+
+func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
+	if et.state > readying {
 		// We've already accepted the epoch config, move along
 		return &Actions{}
 	}
 
-	target := ec.target(msg.Config.Number) // TODO, handle nil config
-
 	var msgReadies map[NodeID]struct{}
 
-	for config, readies := range target.readies {
+	for config, readies := range et.readies {
 		if proto.Equal(config, msg.Config) {
 			msgReadies = readies
 			break
@@ -602,17 +608,17 @@ func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 
 	if msgReadies == nil {
 		msgReadies = map[NodeID]struct{}{}
-		target.readies[msg.Config] = msgReadies
+		et.readies[msg.Config] = msgReadies
 	}
 
 	msgReadies[source] = struct{}{}
 
-	if len(msgReadies) < someCorrectQuorum(ec.networkConfig) {
+	if len(msgReadies) < someCorrectQuorum(et.networkConfig) {
 		return &Actions{}
 	}
 
-	if ec.state < readying {
-		ec.state = readying
+	if et.state < readying {
+		et.state = readying
 
 		return &Actions{
 			Broadcast: []*pb.Msg{
@@ -627,9 +633,9 @@ func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 		}
 	}
 
-	if len(msgReadies) >= intersectionQuorum(ec.networkConfig) {
-		ec.state = ready
-		target.leaderNewEpoch = msg.Config
+	if len(msgReadies) >= intersectionQuorum(et.networkConfig) {
+		et.state = ready
+		et.networkNewEpoch = msg.Config
 	}
 
 	return &Actions{}
@@ -998,7 +1004,7 @@ func (ec *epochChanger) status() *EpochChangerStatus {
 	})
 
 	return &EpochChangerStatus{
-		State:           ec.state,
+		State:           ec.pendingEpochTarget.state,
 		LastActiveEpoch: lastActiveEpoch,
 		EpochTargets:    targets,
 	}

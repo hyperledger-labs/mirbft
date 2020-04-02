@@ -237,8 +237,8 @@ func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
 	actions := sm.epochChanger.applyNewEpochReadyMsg(source, msg)
 
-	if sm.epochChanger.state == ready {
-		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.leaderNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
+	if sm.epochChanger.pendingEpochTarget.state == ready {
+		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.networkNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
 		for _, sequence := range sm.activeEpoch.sequences {
 			if sequence.state >= Prepared {
 				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
@@ -254,7 +254,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 		}
 		actions.Append(sm.activeEpoch.advanceUncommitted())
 		actions.Append(sm.activeEpoch.drainProposer())
-		sm.epochChanger.state = idle
+		sm.epochChanger.pendingEpochTarget.state = idle
 		sm.epochChanger.lastActiveEpoch = sm.activeEpoch
 		for _, nodeMsgs := range sm.nodeMsgs {
 			nodeMsgs.setActiveEpoch(sm.activeEpoch)
