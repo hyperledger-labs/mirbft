@@ -17,13 +17,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-type epochChangeState int
+type epochTargetState int
 
 const (
 	prepending = iota // Have sent an epoch-change, but waiting for a quorum
 	pending           // Have a quorum of epoch-change messages, waits on new-epoch
-	echoing           // Have received new-epoch, waits for a quorum of echos
-	readying          // Have received a quorum of echos, waits on qourum of ready
+	echoing           // Have received and validated a new-epoch, waiting for a quorum of echos
+	readying          // Have received a quorum of echos, waiting a on qourum of readies
 	ready             // New epoch is ready to begin
 	idle              // No pending change
 	done              // We have sent an epoch change, ending this epoch for us
@@ -33,7 +33,7 @@ const (
 // to transition to this target, and may not have information like the
 // epoch configuration
 type epochTarget struct {
-	state         epochChangeState
+	state         epochTargetState
 	stateTicks    uint64
 	number        uint64
 	changes       map[NodeID]*epochChange
@@ -267,7 +267,9 @@ func (et *epochTarget) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *
 
 func (et *epochTarget) applyEpochChangeDigest(epochChange *EpochChange, digest []byte) *Actions {
 	pChange := et.changes[NodeID(epochChange.Source)]
-	pChange.digest = digest
+	oldState := pChange.state
+	pChange.setDigest(digest)
+
 	actions := &Actions{
 		Broadcast: []*pb.Msg{
 			{
@@ -282,12 +284,11 @@ func (et *epochTarget) applyEpochChangeDigest(epochChange *EpochChange, digest [
 		},
 	}
 
-	modified := pChange.updateAcks()
-	if !modified {
+	if oldState == pChange.state {
 		return actions
 	}
 
-	modified = et.updateCorrectChanges()
+	modified := et.updateCorrectChanges()
 	if !modified {
 		return actions
 	}
@@ -305,16 +306,14 @@ func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChange
 		et.changes[source] = change
 	}
 
-	if change.acks == nil {
-		change.acks = map[NodeID][]byte{}
-	}
-	change.acks[source] = ack.Digest
-	modified := change.updateAcks()
-	if !modified {
+	oldState := change.state
+	change.setAck(source, ack.Digest)
+
+	if oldState == change.state {
 		return &Actions{}
 	}
 
-	modified = et.updateCorrectChanges()
+	modified := et.updateCorrectChanges()
 	if !modified {
 		return &Actions{}
 	}
@@ -627,32 +626,49 @@ func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 	return target.applyNewEpochReadyMsg(source, msg)
 }
 
-// TODO, these nested maps are a little tricky to read, might be better to make proper types
+type epochChangeState int
+
+const (
+	ecUninitialized epochChangeState = iota
+	ecDigesting
+	ecSetUnverified
+	ecSetWeak
+	ecSetStrong
+)
 
 type epochChange struct {
+	state epochChangeState
+
 	// set at creation
 	networkConfig *pb.NetworkConfig
 
-	// set via applyEpochChangeMsg
-	underlying *pb.EpochChange
-	digest     []byte
-	pSet       map[uint64]*pb.EpochChange_SetEntry
-	qSet       map[uint64]map[uint64][]byte
+	// set via setMsg and setDigest
+	underlying   *pb.EpochChange
+	pSet         map[uint64]*pb.EpochChange_SetEntry // TODO, maybe make a real type?
+	qSet         map[uint64]map[uint64][]byte        // TODO, maybe make a real type?
+	lowWatermark uint64
+	digest       []byte
 
-	// set via applyEpochChangeAckMsg
+	// set via setAcks
 	acks map[NodeID][]byte
 
-	// updated via applyEpochChangeMsg and applyEpochChangeAckMsg
-	weakCert     bool
-	strongCert   bool
-	lowWatermark uint64
+	// updated via updateAcks
+	weakCert   bool
+	strongCert bool
 }
 
-// updateAcks checks to see if there are enough acks to form a strong
-// or weak cert.  It returns whether the result changed since last check.
-func (ec *epochChange) updateAcks() bool {
-	if ec.digest == nil || ec.strongCert {
-		return false
+func (ec *epochChange) setDigest(digest []byte) {
+	ec.digest = digest
+	ec.state = ecSetUnverified
+	ec.updateAcks()
+}
+
+// updateAcks should only be invoked by epochChange itself, as it has internal
+// state side-effects.  It transitions the state if an appropriate number
+// of acks have been collected.
+func (ec *epochChange) updateAcks() {
+	if ec.strongCert {
+		return
 	}
 
 	agreements := 0
@@ -666,18 +682,22 @@ func (ec *epochChange) updateAcks() bool {
 	if agreements >= intersectionQuorum(ec.networkConfig) {
 		ec.strongCert = true
 		ec.weakCert = true
-		return true
-	}
-
-	if ec.weakCert {
-		return false
+		ec.state = ecSetStrong
+		return
 	}
 
 	if agreements >= someCorrectQuorum(ec.networkConfig) {
+		ec.state = ecSetWeak
 		ec.weakCert = true
 	}
+}
 
-	return ec.weakCert
+func (ec *epochChange) setAck(source NodeID, digest []byte) {
+	if ec.acks == nil {
+		ec.acks = map[NodeID][]byte{}
+	}
+	ec.acks[source] = digest
+	ec.updateAcks()
 }
 
 func (ec *epochChange) setMsg(underlying *pb.EpochChange) error {

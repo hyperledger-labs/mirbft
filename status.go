@@ -37,7 +37,7 @@ type CheckpointStatus struct {
 }
 
 type EpochChangerStatus struct {
-	State           epochChangeState     `json:"state"`
+	State           epochTargetState     `json:"state"` // TODO, export or untype
 	LastActiveEpoch uint64               `json:"last_active_epoch"`
 	EpochTargets    []*EpochTargetStatus `json:"epoch_targets"`
 }
