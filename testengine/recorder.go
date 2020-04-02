@@ -328,6 +328,7 @@ func (r *Recording) Step() error {
 				apply.Digests[i].Type = &tpb.HashResult_EpochChange{
 					EpochChange: &tpb.EpochChange{
 						Source:      hashRequest.EpochChange.Source,
+						Origin:      hashRequest.EpochChange.Origin,
 						EpochChange: hashRequest.EpochChange.EpochChange,
 					},
 				}

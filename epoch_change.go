@@ -37,14 +37,13 @@ type epochTarget struct {
 	stateTicks    uint64
 	number        uint64
 	changes       map[NodeID]*epochChange
-	weakChanges   map[NodeID]*epochChange
-	strongChanges map[NodeID]*epochChange
+	strongChanges map[NodeID]*parsedEpochChange
 	echos         map[*pb.EpochConfig]map[NodeID]struct{}
 	readies       map[*pb.EpochConfig]map[NodeID]struct{}
 	suspicions    map[NodeID]struct{}
 
 	myNewEpoch      *pb.NewEpoch // The NewEpoch msg we computed from the epoch changes we know of
-	myEpochChange   *epochChange
+	myEpochChange   *parsedEpochChange
 	myLeaderChoice  []uint64        // Set along with myEpochChange
 	leaderNewEpoch  *pb.NewEpoch    // The NewEpoch msg we received directly from the leader
 	networkNewEpoch *pb.EpochConfig // The NewEpoch msg as received via the bracha broadcast
@@ -55,7 +54,7 @@ type epochTarget struct {
 }
 
 func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConfig) *pb.NewEpoch {
-	filteredStrongChanges := map[NodeID]*epochChange{}
+	filteredStrongChanges := map[NodeID]*parsedEpochChange{}
 	for nodeID, change := range et.strongChanges {
 		if change.underlying == nil {
 			continue
@@ -73,10 +72,10 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConf
 	}
 
 	remoteChanges := make([]*pb.NewEpoch_RemoteEpochChange, 0, len(et.changes))
-	for nodeID, change := range et.strongChanges {
+	for nodeID := range et.strongChanges {
 		remoteChanges = append(remoteChanges, &pb.NewEpoch_RemoteEpochChange{
 			NodeId: uint64(nodeID),
-			Digest: change.digest,
+			Digest: et.changes[nodeID].strongCert,
 		})
 	}
 
@@ -86,46 +85,30 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConf
 	}
 }
 
-func (et *epochTarget) updateCorrectChanges() bool {
-	modified := false
-	for nodeID, change := range et.changes {
-		if change.weakCert {
-			if _, ok := et.weakChanges[nodeID]; !ok {
-				modified = true
-			}
-			et.weakChanges[nodeID] = change
-		}
-
-		if change.strongCert {
-			if _, ok := et.strongChanges[nodeID]; !ok {
-				modified = true
-			}
-			et.strongChanges[nodeID] = change
-		}
-	}
-
-	return modified
-}
-
 func (et *epochTarget) updateNewEpochState() *Actions {
 	if et.leaderNewEpoch == nil {
 		return &Actions{}
 	}
 
-	epochChanges := map[NodeID]*epochChange{}
+	epochChanges := map[NodeID]*parsedEpochChange{}
 	for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
 		if _, ok := epochChanges[NodeID(remoteEpochChange.NodeId)]; ok {
-			// TODO, malformed, log oddity
+			// TODO, references multiple epoch changes from the same node, malformed, log oddity
 			return &Actions{}
 		}
 
-		change, ok := et.weakChanges[NodeID(remoteEpochChange.NodeId)]
-		if !ok || change.underlying == nil {
-			panic("we don't handle this yet")
+		change, ok := et.changes[NodeID(remoteEpochChange.NodeId)]
+		if !ok {
+			// Either the primary is lying, or, we simply don't have enough information yet.
 			return &Actions{}
 		}
 
-		epochChanges[NodeID(remoteEpochChange.NodeId)] = change
+		parsedChange, ok := change.parsedByDigest[string(remoteEpochChange.Digest)]
+		if !ok || len(parsedChange.acks) < someCorrectQuorum(et.networkConfig) {
+			return &Actions{}
+		}
+
+		epochChanges[NodeID(remoteEpochChange.NodeId)] = parsedChange
 	}
 
 	// TODO, do we need to try to validate the leader set?
@@ -239,23 +222,13 @@ func (et *epochTarget) tickPending() *Actions {
 	return &Actions{}
 }
 
-func (et *epochTarget) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
-	change := &epochChange{
-		networkConfig: et.networkConfig,
-	}
-	err := change.setMsg(msg)
-	if err != nil {
-		// TODO, log
-		return &Actions{}
-	}
-
+func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, origin NodeID, msg *pb.EpochChange) *Actions {
 	// TODO, make sure nodemsgs prevents us from receiving an epoch change twice
-	et.changes[source] = change
-
 	hashRequest := &HashRequest{
 		Data: epochChangeHashData(msg),
 		EpochChange: &EpochChange{
 			Source:      uint64(source),
+			Origin:      uint64(origin),
 			EpochChange: msg,
 		},
 	}
@@ -265,58 +238,29 @@ func (et *epochTarget) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *
 	}
 }
 
-func (et *epochTarget) applyEpochChangeDigest(epochChange *EpochChange, digest []byte) *Actions {
-	pChange := et.changes[NodeID(epochChange.Source)]
-	oldState := pChange.state
-	pChange.setDigest(digest)
+func (et *epochTarget) applyEpochChangeDigest(processedChange *EpochChange, digest []byte) *Actions {
+	originNode := NodeID(processedChange.Origin)
+	sourceNode := NodeID(processedChange.Source)
 
-	actions := &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_EpochChangeAck{
-					EpochChangeAck: &pb.EpochChangeAck{
-						NewEpoch: et.number,
-						Sender:   epochChange.Source,
-						Digest:   digest,
-					},
-				},
-			},
-		},
-	}
-
-	if oldState == pChange.state {
-		return actions
-	}
-
-	modified := et.updateCorrectChanges()
-	if !modified {
-		return actions
-	}
-
-	actions.Append(et.checkEpochQuorum())
-	return actions
-}
-
-func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
-	change, ok := et.changes[NodeID(ack.Sender)]
+	change, ok := et.changes[originNode]
 	if !ok {
 		change = &epochChange{
 			networkConfig: et.networkConfig,
 		}
-		et.changes[source] = change
+		et.changes[originNode] = change
 	}
 
-	oldState := change.state
-	change.setAck(source, ack.Digest)
+	change.addMsg(sourceNode, processedChange.EpochChange, digest)
 
-	if oldState == change.state {
+	if change.strongCert == nil {
 		return &Actions{}
 	}
 
-	modified := et.updateCorrectChanges()
-	if !modified {
+	if _, alreadyInQuorum := et.strongChanges[originNode]; alreadyInQuorum {
 		return &Actions{}
 	}
+
+	et.strongChanges[originNode] = change.parsedByDigest[string(change.strongCert)]
 
 	return et.checkEpochQuorum()
 }
@@ -474,14 +418,10 @@ func (ec *epochChanger) target(epoch uint64) *epochTarget {
 			number:        epoch,
 			suspicions:    map[NodeID]struct{}{},
 			changes:       map[NodeID]*epochChange{},
-			weakChanges:   map[NodeID]*epochChange{},
-			strongChanges: map[NodeID]*epochChange{},
+			strongChanges: map[NodeID]*parsedEpochChange{},
 			echos:         map[*pb.EpochConfig]map[NodeID]struct{}{},
 			readies:       map[*pb.EpochConfig]map[NodeID]struct{}{},
 			isLeader:      epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.ID,
-			myEpochChange: &epochChange{
-				networkConfig: ec.networkConfig,
-			},
 			networkConfig: ec.networkConfig,
 			myConfig:      ec.myConfig,
 		}
@@ -517,16 +457,18 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 
 	newTarget := ec.target(epoch + 1)
 	ec.pendingEpochTarget = newTarget
-	err := newTarget.myEpochChange.setMsg(epochChange)
-	newTarget.myLeaderChoice = ec.chooseLeaders(newTarget.myEpochChange)
+	var err error
+	newTarget.myEpochChange, err = newParsedEpochChange(epochChange)
 	if err != nil {
 		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 	}
 
+	newTarget.myLeaderChoice = ec.chooseLeaders(newTarget.myEpochChange)
+
 	return epochChange
 }
 
-func (ec *epochChanger) chooseLeaders(epochChange *epochChange) []uint64 {
+func (ec *epochChanger) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 	if ec.lastActiveEpoch == nil {
 		panic("this shouldn't happen")
 	}
@@ -577,8 +519,26 @@ func (ec *epochChanger) chooseLeaders(epochChange *epochChange) []uint64 {
 }
 
 func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
-	target := ec.target(msg.NewEpoch)
-	return target.applyEpochChangeMsg(source, msg)
+	actions := &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_EpochChangeAck{
+					EpochChangeAck: &pb.EpochChangeAck{
+						Originator:  uint64(source),
+						EpochChange: msg,
+					},
+				},
+			},
+		},
+	}
+
+	// TODO, I don't think we need more than one type of message, an 'EpochChange'
+	// with an 'Origin' field seems adequate.
+	// XXX, I don't think this is necessary, since replicas will ack their own
+	// messages.
+	// target := ec.target(msg.NewEpoch)
+	// actions.Append(target.applyEpochChangeAckMsg(source, source, msg))
+	return actions
 }
 
 func (ec *epochChanger) applyEpochChangeDigest(epochChange *EpochChange, digest []byte) *Actions {
@@ -588,8 +548,8 @@ func (ec *epochChanger) applyEpochChangeDigest(epochChange *EpochChange, digest 
 }
 
 func (ec *epochChanger) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
-	target := ec.target(ack.NewEpoch)
-	return target.applyEpochChangeAckMsg(source, ack)
+	target := ec.target(ack.EpochChange.NewEpoch)
+	return target.applyEpochChangeAckMsg(source, NodeID(ack.Originator), ack.EpochChange)
 }
 
 func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
@@ -628,81 +588,63 @@ func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 
 type epochChangeState int
 
-const (
-	ecUninitialized epochChangeState = iota
-	ecDigesting
-	ecSetUnverified
-	ecSetWeak
-	ecSetStrong
-)
-
 type epochChange struct {
-	state epochChangeState
-
 	// set at creation
 	networkConfig *pb.NetworkConfig
 
 	// set via setMsg and setDigest
+	parsedByDigest map[string]*parsedEpochChange
+
+	// updated via updateAcks
+	strongCert []byte
+}
+
+func (ec *epochChange) addMsg(source NodeID, msg *pb.EpochChange, digest []byte) {
+	if ec.parsedByDigest == nil {
+		ec.parsedByDigest = map[string]*parsedEpochChange{}
+	}
+
+	parsedChange, ok := ec.parsedByDigest[string(digest)]
+	if !ok {
+		var err error
+		parsedChange, err = newParsedEpochChange(msg)
+		if err != nil {
+			// TODO, log
+			return
+		}
+		ec.parsedByDigest[string(digest)] = parsedChange
+	}
+
+	parsedChange.acks[source] = struct{}{}
+
+	if ec.strongCert != nil || len(parsedChange.acks) < intersectionQuorum(ec.networkConfig) {
+		return
+	}
+
+	ec.strongCert = digest
+}
+
+func (ec *epochChange) agreementsWithDigest(digest []byte) int {
+	parsedChange, ok := ec.parsedByDigest[string(digest)]
+	if !ok {
+		return 0
+	}
+
+	return len(parsedChange.acks)
+}
+
+type parsedEpochChange struct {
 	underlying   *pb.EpochChange
 	pSet         map[uint64]*pb.EpochChange_SetEntry // TODO, maybe make a real type?
 	qSet         map[uint64]map[uint64][]byte        // TODO, maybe make a real type?
 	lowWatermark uint64
-	digest       []byte
 
-	// set via setAcks
-	acks map[NodeID][]byte
-
-	// updated via updateAcks
-	weakCert   bool
-	strongCert bool
+	acks map[NodeID]struct{}
 }
 
-func (ec *epochChange) setDigest(digest []byte) {
-	ec.digest = digest
-	ec.state = ecSetUnverified
-	ec.updateAcks()
-}
-
-// updateAcks should only be invoked by epochChange itself, as it has internal
-// state side-effects.  It transitions the state if an appropriate number
-// of acks have been collected.
-func (ec *epochChange) updateAcks() {
-	if ec.strongCert {
-		return
-	}
-
-	agreements := 0
-	for _, ack := range ec.acks {
-		if !bytes.Equal(ack, ec.digest) {
-			continue
-		}
-		agreements++
-	}
-
-	if agreements >= intersectionQuorum(ec.networkConfig) {
-		ec.strongCert = true
-		ec.weakCert = true
-		ec.state = ecSetStrong
-		return
-	}
-
-	if agreements >= someCorrectQuorum(ec.networkConfig) {
-		ec.state = ecSetWeak
-		ec.weakCert = true
-	}
-}
-
-func (ec *epochChange) setAck(source NodeID, digest []byte) {
-	if ec.acks == nil {
-		ec.acks = map[NodeID][]byte{}
-	}
-	ec.acks[source] = digest
-	ec.updateAcks()
-}
-
-func (ec *epochChange) setMsg(underlying *pb.EpochChange) error {
+func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error) {
 	if len(underlying.Checkpoints) == 0 {
-		return errors.Errorf("epoch change did not contain any checkpoints")
+		return nil, errors.Errorf("epoch change did not contain any checkpoints")
 	}
 
 	lowWatermark := underlying.Checkpoints[0].SeqNo
@@ -714,7 +656,7 @@ func (ec *epochChange) setMsg(underlying *pb.EpochChange) error {
 		}
 
 		if _, ok := checkpoints[checkpoint.SeqNo]; ok {
-			return errors.Errorf("epoch change contained duplicated seqnos for %d", checkpoint.SeqNo)
+			return nil, errors.Errorf("epoch change contained duplicated seqnos for %d", checkpoint.SeqNo)
 		}
 	}
 
@@ -725,7 +667,7 @@ func (ec *epochChange) setMsg(underlying *pb.EpochChange) error {
 	pSet := map[uint64]*pb.EpochChange_SetEntry{}
 	for _, entry := range underlying.PSet {
 		if _, ok := pSet[entry.SeqNo]; ok {
-			return errors.Errorf("epoch change pSet contained duplicate entries for seqno=%d", entry.SeqNo)
+			return nil, errors.Errorf("epoch change pSet contained duplicate entries for seqno=%d", entry.SeqNo)
 		}
 
 		pSet[entry.SeqNo] = entry
@@ -740,20 +682,22 @@ func (ec *epochChange) setMsg(underlying *pb.EpochChange) error {
 		}
 
 		if _, ok := views[entry.Epoch]; ok {
-			return errors.Errorf("epoch change qSet contained duplicate entries for seqno=%d epoch=%d", entry.SeqNo, entry.Epoch)
+			return nil, errors.Errorf("epoch change qSet contained duplicate entries for seqno=%d epoch=%d", entry.SeqNo, entry.Epoch)
 		}
 
 		views[entry.Epoch] = entry.Digest
 	}
 
-	ec.underlying = underlying
-	ec.lowWatermark = lowWatermark
-	ec.pSet = pSet
-	ec.qSet = qSet
-	return nil
+	return &parsedEpochChange{
+		underlying:   underlying,
+		lowWatermark: lowWatermark,
+		pSet:         pSet,
+		qSet:         qSet,
+		acks:         map[NodeID]struct{}{},
+	}, nil
 }
 
-func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epochChanges map[NodeID]*epochChange) *pb.EpochConfig {
+func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epochChanges map[NodeID]*parsedEpochChange) *pb.EpochConfig {
 	type checkpointKey struct {
 		SeqNo uint64
 		Value string
@@ -966,16 +910,19 @@ func epochChangeHashData(epochChange *pb.EpochChange) [][]byte {
 func (ec *epochChange) status(source uint64) *EpochChangeStatus {
 	status := &EpochChangeStatus{
 		Source: source,
-		Acks:   make([]uint64, 0, len(ec.acks)),
-		Digest: ec.digest,
+		// Acks:   make([]uint64, 0, len(ec.acks)),
+		// Digest: ec.digest,
 	}
 
-	for node := range ec.acks {
-		status.Acks = append(status.Acks, uint64(node))
-	}
-	sort.Slice(status.Acks, func(i, j int) bool {
-		return status.Acks[i] < status.Acks[j]
-	})
+	// XXX fix this, but the status model makes no sense anymore
+	/*
+		for node := range ec.acks {
+			status.Acks = append(status.Acks, uint64(node))
+		}
+		sort.Slice(status.Acks, func(i, j int) bool {
+			return status.Acks[i] < status.Acks[j]
+		})
+	*/
 
 	return status
 }

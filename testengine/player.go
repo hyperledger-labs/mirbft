@@ -135,6 +135,7 @@ func (p *Player) Step() error {
 				actionResults.Digests[i].Request = &mirbft.HashRequest{
 					EpochChange: &mirbft.EpochChange{
 						Source:      result.EpochChange.Source,
+						Origin:      result.EpochChange.Origin,
 						EpochChange: result.EpochChange.EpochChange,
 					},
 				}

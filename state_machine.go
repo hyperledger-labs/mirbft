@@ -46,14 +46,9 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 
 	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
 
-	epochChange := &epochChange{
-		networkConfig: networkConfig,
-	}
-	err := epochChange.setMsg(
-		&pb.EpochChange{
-			Checkpoints: []*pb.Checkpoint{fakeCheckpoint},
-		},
-	)
+	epochChange, err := newParsedEpochChange(&pb.EpochChange{
+		Checkpoints: []*pb.Checkpoint{fakeCheckpoint},
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -65,7 +60,6 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	}
 
 	target := epochChanger.target(0)
-	target.changes[NodeID(myConfig.ID)] = epochChange
 	target.myEpochChange = epochChange
 	target.myLeaderChoice = networkConfig.Nodes
 	epochChanger.pendingEpochTarget = target

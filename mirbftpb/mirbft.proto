@@ -186,9 +186,13 @@ message EpochChange {
 // such messages begin to count that epoch change as appropriately broadcast for purposes of
 // the epoch change timer.
 message EpochChangeAck {
-    uint64 new_epoch = 1;
-    uint64 sender = 2;
-    bytes digest = 3;
+    uint64 originator = 1;
+
+    // epoch_change is included fully instead of echo-ing the digest as suggested by the original
+    // PBFT paper.  This is purely to prevent requiring a separate fetch step for missing epoch change
+    // requests.  Although this is slightly heavier, because ungraceful epoch change is not a performance
+    // optimal path, the simplification seems worthwhile.
+    EpochChange epoch_change = 2;
 }
 
 message EpochConfig {

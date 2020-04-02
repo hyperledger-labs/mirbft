@@ -54,7 +54,8 @@ message Batch {
 
 message EpochChange {
 	uint64 source = 1;
-	mirbftpb.EpochChange epoch_change = 2;
+	uint64 origin = 2;
+	mirbftpb.EpochChange epoch_change = 3;
 }
 
 message Checkpoint {

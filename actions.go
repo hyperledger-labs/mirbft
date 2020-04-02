@@ -89,7 +89,7 @@ type HashRequest struct {
 	// Request is the proposal which is being hashed.
 	Request *Request
 
-	// EpochChange is the epoch change message beig hashed.
+	// EpochChange contains the epoch change message being hashed.
 	EpochChange *EpochChange
 }
 
@@ -107,7 +107,14 @@ type Request struct {
 }
 
 type EpochChange struct {
-	Source      uint64
+	// Source is who actually sent us the request, whereas Origin is
+	// the purported originator of the message.
+	Source uint64
+
+	// Origin is the replica which originated the epoch change message
+	Origin uint64
+
+	// EpochChange is the epoch change message being hashed.
 	EpochChange *pb.EpochChange
 }
 
