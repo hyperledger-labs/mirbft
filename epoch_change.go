@@ -265,6 +265,89 @@ func (et *epochTarget) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *
 	}
 }
 
+func (et *epochTarget) applyEpochChangeDigest(epochChange *EpochChange, digest []byte) *Actions {
+	pChange := et.changes[NodeID(epochChange.Source)]
+	pChange.digest = digest
+	actions := &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_EpochChangeAck{
+					EpochChangeAck: &pb.EpochChangeAck{
+						NewEpoch: et.number,
+						Sender:   epochChange.Source,
+						Digest:   digest,
+					},
+				},
+			},
+		},
+	}
+
+	modified := pChange.updateAcks()
+	if !modified {
+		return actions
+	}
+
+	modified = et.updateCorrectChanges()
+	if !modified {
+		return actions
+	}
+
+	actions.Append(et.checkEpochQuorum())
+	return actions
+}
+
+func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
+	change, ok := et.changes[NodeID(ack.Sender)]
+	if !ok {
+		change = &epochChange{
+			networkConfig: et.networkConfig,
+		}
+		et.changes[source] = change
+	}
+
+	if change.acks == nil {
+		change.acks = map[NodeID][]byte{}
+	}
+	change.acks[source] = ack.Digest
+	modified := change.updateAcks()
+	if !modified {
+		return &Actions{}
+	}
+
+	modified = et.updateCorrectChanges()
+	if !modified {
+		return &Actions{}
+	}
+
+	return et.checkEpochQuorum()
+}
+
+func (et *epochTarget) checkEpochQuorum() *Actions {
+	if len(et.strongChanges) < intersectionQuorum(et.networkConfig) || et.myEpochChange == nil {
+		return &Actions{}
+	}
+
+	et.myNewEpoch = et.constructNewEpoch(et.myLeaderChoice, et.networkConfig)
+	if et.myNewEpoch == nil {
+
+		return &Actions{}
+	}
+
+	if et.isLeader {
+		return &Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_NewEpoch{
+						NewEpoch: et.myNewEpoch,
+					},
+				},
+			},
+		}
+	}
+
+	return &Actions{}
+}
+
 func (et *epochTarget) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 	if et.state > pending {
 		// TODO log oddity? maybe ensure not possible via nodemsgs
@@ -505,92 +588,9 @@ func (ec *epochChanger) applyEpochChangeDigest(epochChange *EpochChange, digest 
 	return target.applyEpochChangeDigest(epochChange, digest)
 }
 
-func (et *epochTarget) applyEpochChangeDigest(epochChange *EpochChange, digest []byte) *Actions {
-	pChange := et.changes[NodeID(epochChange.Source)]
-	pChange.digest = digest
-	actions := &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_EpochChangeAck{
-					EpochChangeAck: &pb.EpochChangeAck{
-						NewEpoch: et.number,
-						Sender:   epochChange.Source,
-						Digest:   digest,
-					},
-				},
-			},
-		},
-	}
-
-	modified := pChange.updateAcks()
-	if !modified {
-		return actions
-	}
-
-	modified = et.updateCorrectChanges()
-	if !modified {
-		return actions
-	}
-
-	actions.Append(et.checkEpochQuorum())
-	return actions
-}
-
 func (ec *epochChanger) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
 	target := ec.target(ack.NewEpoch)
 	return target.applyEpochChangeAckMsg(source, ack)
-}
-
-func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
-	change, ok := et.changes[NodeID(ack.Sender)]
-	if !ok {
-		change = &epochChange{
-			networkConfig: et.networkConfig,
-		}
-		et.changes[source] = change
-	}
-
-	if change.acks == nil {
-		change.acks = map[NodeID][]byte{}
-	}
-	change.acks[source] = ack.Digest
-	modified := change.updateAcks()
-	if !modified {
-		return &Actions{}
-	}
-
-	modified = et.updateCorrectChanges()
-	if !modified {
-		return &Actions{}
-	}
-
-	return et.checkEpochQuorum()
-}
-
-func (et *epochTarget) checkEpochQuorum() *Actions {
-	if len(et.strongChanges) < intersectionQuorum(et.networkConfig) || et.myEpochChange == nil {
-		return &Actions{}
-	}
-
-	et.myNewEpoch = et.constructNewEpoch(et.myLeaderChoice, et.networkConfig)
-	if et.myNewEpoch == nil {
-
-		return &Actions{}
-	}
-
-	if et.isLeader {
-		return &Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_NewEpoch{
-						NewEpoch: et.myNewEpoch,
-					},
-				},
-			},
-		}
-	}
-
-	return &Actions{}
 }
 
 func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
