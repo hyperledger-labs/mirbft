@@ -151,20 +151,6 @@ func (et *epochTarget) updateNewEpochState() *Actions {
 	}
 }
 
-type epochChanger struct {
-	stateTicks                  uint64
-	lastActiveEpoch             *epoch
-	pendingEpochTarget          *epochTarget
-	highestObservedCorrectEpoch uint64
-	networkConfig               *pb.NetworkConfig
-	myConfig                    *Config
-	targets                     map[uint64]*epochTarget
-}
-
-func (ec *epochChanger) tick() *Actions {
-	return ec.pendingEpochTarget.tick()
-}
-
 func (et *epochTarget) tick() *Actions {
 	switch et.state {
 	case prepending:
@@ -252,6 +238,146 @@ func (et *epochTarget) tickPending() *Actions {
 	return &Actions{}
 }
 
+func (et *epochTarget) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
+	change := &epochChange{
+		networkConfig: et.networkConfig,
+	}
+	err := change.setMsg(msg)
+	if err != nil {
+		// TODO, log
+		return &Actions{}
+	}
+
+	// TODO, make sure nodemsgs prevents us from receiving an epoch change twice
+	et.changes[source] = change
+
+	hashRequest := &HashRequest{
+		Data: epochChangeHashData(msg),
+		EpochChange: &EpochChange{
+			Source:      uint64(source),
+			EpochChange: msg,
+		},
+	}
+
+	return &Actions{
+		Hash: []*HashRequest{hashRequest},
+	}
+}
+
+func (et *epochTarget) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
+	if et.state > pending {
+		// TODO log oddity? maybe ensure not possible via nodemsgs
+		return &Actions{}
+	}
+
+	et.leaderNewEpoch = msg
+	return et.updateNewEpochState()
+}
+
+func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
+	var msgEchos map[NodeID]struct{}
+
+	for config, echos := range et.echos {
+		if proto.Equal(config, msg.Config) {
+			msgEchos = echos
+			break
+		}
+	}
+
+	if msgEchos == nil {
+		msgEchos = map[NodeID]struct{}{}
+		et.echos[msg.Config] = msgEchos
+	}
+
+	msgEchos[source] = struct{}{}
+
+	if len(msgEchos) < intersectionQuorum(et.networkConfig) {
+		return &Actions{}
+	}
+
+	if et.state > echoing {
+		return &Actions{}
+	}
+
+	et.state = readying
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_NewEpochReady{
+					NewEpochReady: &pb.NewEpochReady{
+						Config: msg.Config,
+					},
+				},
+			},
+		},
+	}
+}
+
+func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
+	if et.state > readying {
+		// We've already accepted the epoch config, move along
+		return &Actions{}
+	}
+
+	var msgReadies map[NodeID]struct{}
+
+	for config, readies := range et.readies {
+		if proto.Equal(config, msg.Config) {
+			msgReadies = readies
+			break
+		}
+	}
+
+	if msgReadies == nil {
+		msgReadies = map[NodeID]struct{}{}
+		et.readies[msg.Config] = msgReadies
+	}
+
+	msgReadies[source] = struct{}{}
+
+	if len(msgReadies) < someCorrectQuorum(et.networkConfig) {
+		return &Actions{}
+	}
+
+	if et.state < readying {
+		et.state = readying
+
+		return &Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_NewEpochReady{
+						NewEpochReady: &pb.NewEpochReady{
+							Config: msg.Config,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	if len(msgReadies) >= intersectionQuorum(et.networkConfig) {
+		et.state = ready
+		et.networkNewEpoch = msg.Config
+	}
+
+	return &Actions{}
+}
+
+type epochChanger struct {
+	stateTicks                  uint64
+	lastActiveEpoch             *epoch
+	pendingEpochTarget          *epochTarget
+	highestObservedCorrectEpoch uint64
+	networkConfig               *pb.NetworkConfig
+	myConfig                    *Config
+	targets                     map[uint64]*epochTarget
+}
+
+func (ec *epochChanger) tick() *Actions {
+	return ec.pendingEpochTarget.tick()
+}
+
 func (ec *epochChanger) target(epoch uint64) *epochTarget {
 	// TODO, we need to garbage collect in responst to
 	// spammy suspicions and epoch changes.  Basically
@@ -281,6 +407,14 @@ func (ec *epochChanger) target(epoch uint64) *epochTarget {
 	return target
 }
 
+func (et *epochTarget) applySuspectMsg(source NodeID) {
+	et.suspicions[source] = struct{}{}
+
+	if len(et.suspicions) >= intersectionQuorum(et.networkConfig) {
+		et.state = done
+	}
+}
+
 func (ec *epochChanger) setPendingTarget(target *epochTarget) {
 	for number := range ec.targets {
 		if number < target.number {
@@ -308,71 +442,9 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 	return epochChange
 }
 
-func (et *epochTarget) applySuspectMsg(source NodeID) {
-	et.suspicions[source] = struct{}{}
-
-	if len(et.suspicions) >= intersectionQuorum(et.networkConfig) {
-		et.state = done
-	}
-}
-
-func epochChangeHashData(epochChange *pb.EpochChange) [][]byte {
-	// [new_epoch, checkpoints, pSet, qSet]
-	hashData := make([][]byte, 1+len(epochChange.Checkpoints)*2+len(epochChange.PSet)*3+len(epochChange.QSet)*3)
-	hashData[0] = uint64ToBytes(epochChange.NewEpoch)
-
-	cpOffset := 1
-	for i, cp := range epochChange.Checkpoints {
-		hashData[cpOffset+2*i] = uint64ToBytes(cp.SeqNo)
-		hashData[cpOffset+2*i+1] = cp.Value
-	}
-
-	pEntryOffset := cpOffset + len(epochChange.Checkpoints)*2
-	for i, pEntry := range epochChange.PSet {
-		hashData[pEntryOffset+3*i] = uint64ToBytes(pEntry.Epoch)
-		hashData[pEntryOffset+3*i+1] = uint64ToBytes(pEntry.SeqNo)
-		hashData[pEntryOffset+3*i+2] = pEntry.Digest
-	}
-
-	qEntryOffset := pEntryOffset + len(epochChange.PSet)*3
-	for i, qEntry := range epochChange.QSet {
-		hashData[qEntryOffset+3*i] = uint64ToBytes(qEntry.Epoch)
-		hashData[qEntryOffset+3*i+1] = uint64ToBytes(qEntry.SeqNo)
-		hashData[qEntryOffset+3*i+2] = qEntry.Digest
-	}
-
-	if qEntryOffset+len(epochChange.QSet)*3 != len(hashData) {
-		panic("TODO, remove me, but this is bad")
-	}
-
-	return hashData
-}
-
 func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
-	change := &epochChange{
-		networkConfig: ec.networkConfig,
-	}
-	err := change.setMsg(msg)
-	if err != nil {
-		// TODO, log
-		return &Actions{}
-	}
-
 	target := ec.target(msg.NewEpoch)
-	// TODO, make sure nodemsgs prevents us from receiving an epoch change twice
-	target.changes[source] = change
-
-	hashRequest := &HashRequest{
-		Data: epochChangeHashData(msg),
-		EpochChange: &EpochChange{
-			Source:      uint64(source),
-			EpochChange: msg,
-		},
-	}
-
-	return &Actions{
-		Hash: []*HashRequest{hashRequest},
-	}
+	return target.applyEpochChangeMsg(source, msg)
 }
 
 func (ec *epochChanger) applyEpochChangeDigest(epochChange *EpochChange, digest []byte) *Actions {
@@ -512,14 +584,7 @@ func (ec *epochChanger) checkEpochQuorum(target *epochTarget) *Actions {
 
 func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 	target := ec.target(msg.Config.Number)
-
-	if target.state > pending {
-		// TODO log oddity? maybe ensure not possible via nodemsgs
-		return &Actions{}
-	}
-
-	target.leaderNewEpoch = msg
-	return target.updateNewEpochState()
+	return target.applyNewEpochMsg(msg)
 }
 
 // Summary of Bracha reliable broadcast from:
@@ -546,99 +611,9 @@ func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho
 	return target.applyNewEpochEchoMsg(source, msg)
 }
 
-func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
-	var msgEchos map[NodeID]struct{}
-
-	for config, echos := range et.echos {
-		if proto.Equal(config, msg.Config) {
-			msgEchos = echos
-			break
-		}
-	}
-
-	if msgEchos == nil {
-		msgEchos = map[NodeID]struct{}{}
-		et.echos[msg.Config] = msgEchos
-	}
-
-	msgEchos[source] = struct{}{}
-
-	if len(msgEchos) < intersectionQuorum(et.networkConfig) {
-		return &Actions{}
-	}
-
-	if et.state > echoing {
-		return &Actions{}
-	}
-
-	et.state = readying
-
-	return &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_NewEpochReady{
-					NewEpochReady: &pb.NewEpochReady{
-						Config: msg.Config,
-					},
-				},
-			},
-		},
-	}
-}
-
 func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
 	target := ec.target(msg.Config.Number)
 	return target.applyNewEpochReadyMsg(source, msg)
-}
-
-func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
-	if et.state > readying {
-		// We've already accepted the epoch config, move along
-		return &Actions{}
-	}
-
-	var msgReadies map[NodeID]struct{}
-
-	for config, readies := range et.readies {
-		if proto.Equal(config, msg.Config) {
-			msgReadies = readies
-			break
-		}
-	}
-
-	if msgReadies == nil {
-		msgReadies = map[NodeID]struct{}{}
-		et.readies[msg.Config] = msgReadies
-	}
-
-	msgReadies[source] = struct{}{}
-
-	if len(msgReadies) < someCorrectQuorum(et.networkConfig) {
-		return &Actions{}
-	}
-
-	if et.state < readying {
-		et.state = readying
-
-		return &Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_NewEpochReady{
-						NewEpochReady: &pb.NewEpochReady{
-							Config: msg.Config,
-						},
-					},
-				},
-			},
-		}
-	}
-
-	if len(msgReadies) >= intersectionQuorum(et.networkConfig) {
-		et.state = ready
-		et.networkNewEpoch = msg.Config
-	}
-
-	return &Actions{}
 }
 
 // TODO, these nested maps are a little tricky to read, might be better to make proper types
@@ -923,6 +898,38 @@ func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epoc
 	}
 
 	return newEpochConfig
+}
+
+func epochChangeHashData(epochChange *pb.EpochChange) [][]byte {
+	// [new_epoch, checkpoints, pSet, qSet]
+	hashData := make([][]byte, 1+len(epochChange.Checkpoints)*2+len(epochChange.PSet)*3+len(epochChange.QSet)*3)
+	hashData[0] = uint64ToBytes(epochChange.NewEpoch)
+
+	cpOffset := 1
+	for i, cp := range epochChange.Checkpoints {
+		hashData[cpOffset+2*i] = uint64ToBytes(cp.SeqNo)
+		hashData[cpOffset+2*i+1] = cp.Value
+	}
+
+	pEntryOffset := cpOffset + len(epochChange.Checkpoints)*2
+	for i, pEntry := range epochChange.PSet {
+		hashData[pEntryOffset+3*i] = uint64ToBytes(pEntry.Epoch)
+		hashData[pEntryOffset+3*i+1] = uint64ToBytes(pEntry.SeqNo)
+		hashData[pEntryOffset+3*i+2] = pEntry.Digest
+	}
+
+	qEntryOffset := pEntryOffset + len(epochChange.PSet)*3
+	for i, qEntry := range epochChange.QSet {
+		hashData[qEntryOffset+3*i] = uint64ToBytes(qEntry.Epoch)
+		hashData[qEntryOffset+3*i+1] = uint64ToBytes(qEntry.SeqNo)
+		hashData[qEntryOffset+3*i+2] = qEntry.Digest
+	}
+
+	if qEntryOffset+len(epochChange.QSet)*3 != len(hashData) {
+		panic("TODO, remove me, but this is bad")
+	}
+
+	return hashData
 }
 
 func (ec *epochChange) status(source uint64) *EpochChangeStatus {
