@@ -22,6 +22,7 @@ type epochTargetState int
 const (
 	prepending = iota // Have sent an epoch-change, but waiting for a quorum
 	pending           // Have a quorum of epoch-change messages, waits on new-epoch
+	verifying         // Have a new view message but it references epoch changes we cannot yet verify
 	echoing           // Have received and validated a new-epoch, waiting for a quorum of echos
 	readying          // Have received a quorum of echos, waiting a on qourum of readies
 	ready             // New epoch is ready to begin
@@ -169,7 +170,6 @@ func (et *epochTarget) tickPrepending() *Actions {
 	}
 
 	et.stateTicks = 0
-	et.state = pending
 
 	if et.isLeader {
 		return &Actions{
@@ -276,6 +276,8 @@ func (et *epochTarget) checkEpochQuorum() *Actions {
 		return &Actions{}
 	}
 
+	et.state = pending
+
 	if et.isLeader {
 		return &Actions{
 			Broadcast: []*pb.Msg{
@@ -298,6 +300,7 @@ func (et *epochTarget) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 	}
 
 	et.leaderNewEpoch = msg
+	et.state = verifying
 	return et.updateNewEpochState()
 }
 
@@ -519,25 +522,24 @@ func (ec *epochChanger) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 }
 
 func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
-	actions := &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_EpochChangeAck{
-					EpochChangeAck: &pb.EpochChangeAck{
-						Originator:  uint64(source),
-						EpochChange: msg,
-					},
+	actions := &Actions{}
+	if source != NodeID(ec.myConfig.ID) {
+		// We don't want to echo our own EpochChange message,
+		// as we already broadcast/rebroadcast it.
+		actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+			Type: &pb.Msg_EpochChangeAck{
+				EpochChangeAck: &pb.EpochChangeAck{
+					Originator:  uint64(source),
+					EpochChange: msg,
 				},
 			},
-		},
+		})
 	}
 
-	// TODO, I don't think we need more than one type of message, an 'EpochChange'
-	// with an 'Origin' field seems adequate.
-	// XXX, I don't think this is necessary, since replicas will ack their own
-	// messages.
-	// target := ec.target(msg.NewEpoch)
-	// actions.Append(target.applyEpochChangeAckMsg(source, source, msg))
+	// TODO, we could get away with one type of message, an 'EpochChange'
+	// with an 'Origin', but it's a little less clear reading messages on the wire.
+	target := ec.target(msg.NewEpoch)
+	actions.Append(target.applyEpochChangeAckMsg(source, source, msg))
 	return actions
 }
 
@@ -577,7 +579,7 @@ func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 // r-deliver(m)
 
 func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
-	target := ec.target(msg.Config.Number) // TODO, handle nil config
+	target := ec.target(msg.Config.Number)
 	return target.applyNewEpochEchoMsg(source, msg)
 }
 
@@ -910,19 +912,32 @@ func epochChangeHashData(epochChange *pb.EpochChange) [][]byte {
 func (ec *epochChange) status(source uint64) *EpochChangeStatus {
 	status := &EpochChangeStatus{
 		Source: source,
-		// Acks:   make([]uint64, 0, len(ec.acks)),
-		// Digest: ec.digest,
+		Msgs:   make([]*EpochChangeMsgStatus, len(ec.parsedByDigest)),
 	}
 
-	// XXX fix this, but the status model makes no sense anymore
-	/*
-		for node := range ec.acks {
-			status.Acks = append(status.Acks, uint64(node))
+	i := 0
+	for digest, parsedEpochChange := range ec.parsedByDigest {
+		status.Msgs[i] = &EpochChangeMsgStatus{
+			Digest: []byte(digest),
+			Acks:   make([]uint64, len(parsedEpochChange.acks)),
 		}
-		sort.Slice(status.Acks, func(i, j int) bool {
-			return status.Acks[i] < status.Acks[j]
+
+		j := 0
+		for acker := range parsedEpochChange.acks {
+			status.Msgs[i].Acks[j] = uint64(acker)
+			j++
+		}
+
+		sort.Slice(status.Msgs[i].Acks, func(k, l int) bool {
+			return status.Msgs[i].Acks[k] < status.Msgs[i].Acks[l]
 		})
-	*/
+
+		i++
+	}
+
+	sort.Slice(status.Msgs, func(i, j int) bool {
+		return string(status.Msgs[i].Digest) < string(status.Msgs[j].Digest)
+	})
 
 	return status
 }
