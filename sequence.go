@@ -107,7 +107,7 @@ func (s *sequence) allocate(batch []*request) *Actions {
 
 func (s *sequence) applyProcessResult(digest []byte) *Actions {
 	if s.state != Allocated {
-		s.myConfig.Logger.Panic("illegal state for digest result")
+		s.myConfig.Logger.Panic("illegal state for digest result", zap.Any("State", s.state), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
 	}
 
 	s.digest = digest

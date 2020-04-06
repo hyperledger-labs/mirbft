@@ -93,7 +93,7 @@ func (s *Status) Pretty() string {
 		buffer.WriteString(fmt.Sprintf("  EpochChanges:\n"))
 		for _, ec := range et.EpochChanges {
 			for _, ecm := range ec.Msgs {
-				buffer.WriteString(fmt.Sprintf("    Source=%d Digest=%x Acks=%v\n", ec.Source, ecm.Digest, ecm.Acks))
+				buffer.WriteString(fmt.Sprintf("    Source=%d Digest=%.4x Acks=%v\n", ec.Source, ecm.Digest, ecm.Acks))
 			}
 		}
 		buffer.WriteString(fmt.Sprintf("  Echos: %v\n", et.Echos))

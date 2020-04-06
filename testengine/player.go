@@ -139,6 +139,15 @@ func (p *Player) Step() error {
 						EpochChange: result.EpochChange.EpochChange,
 					},
 				}
+			case *tpb.HashResult_VerifyBatch:
+				actionResults.Digests[i].Request = &mirbft.HashRequest{
+					VerifyBatch: &mirbft.VerifyBatch{
+						Source:         result.VerifyBatch.Source,
+						SeqNo:          result.VerifyBatch.SeqNo,
+						Requests:       result.VerifyBatch.Requests,
+						ExpectedDigest: result.VerifyBatch.ExpectedDigest,
+					},
+				}
 			default:
 				return errors.Errorf("unimplemented hash result type: %T", hashResult.Type)
 			}

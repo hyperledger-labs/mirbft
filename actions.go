@@ -91,6 +91,17 @@ type HashRequest struct {
 
 	// EpochChange contains the epoch change message being hashed.
 	EpochChange *EpochChange
+
+	// VerifyBatch is used to confirm that a forwarded batch matches
+	// the digest we requested.
+	VerifyBatch *VerifyBatch
+}
+
+type VerifyBatch struct {
+	Source         uint64
+	SeqNo          uint64
+	Requests       []*pb.Request
+	ExpectedDigest []byte
 }
 
 // Batch is a collection of proposals which has been allocated a sequence in a given epoch.

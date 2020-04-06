@@ -103,7 +103,20 @@ message Msg {
         NewEpoch new_epoch = 9;
         NewEpochEcho new_epoch_echo = 10;
         NewEpochReady new_epoch_ready = 11;
+	FetchBatch fetch_batch = 12;
+	Batch forward_batch = 13;
     }
+}
+
+message FetchBatch {
+    uint64 seq_no = 1;
+    bytes digest = 2;
+}
+
+message Batch {
+    uint64 seq_no = 1;
+    bytes digest = 2;
+    repeated Request requests = 3;
 }
 
 message RequestData {

@@ -22,6 +22,9 @@ type stateMachine struct {
 	clientWindows *clientWindows
 
 	activeEpoch       *epoch
+	pSet              []*pb.PEntry
+	qSet              []map[uint64]*pb.QEntry
+	batchTracker      *batchTracker
 	checkpointTracker *checkpointTracker
 	epochChanger      *epochChanger
 }
@@ -45,6 +48,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	}
 
 	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
+	batchTracker := newBatchTracker()
 
 	epochChange, err := newParsedEpochChange(&pb.EpochChange{
 		Checkpoints: []*pb.Checkpoint{fakeCheckpoint},
@@ -57,6 +61,8 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		myConfig:      myConfig,
 		networkConfig: networkConfig,
 		targets:       map[uint64]*epochTarget{},
+		batchTracker:  batchTracker,
+		clientWindows: clientWindows,
 	}
 
 	target := epochChanger.target(0)
@@ -68,6 +74,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		myConfig:          myConfig,
 		networkConfig:     networkConfig,
 		epochChanger:      epochChanger,
+		batchTracker:      batchTracker,
 		checkpointTracker: checkpointTracker,
 		nodeMsgs:          nodeMsgs,
 		clientWindows:     clientWindows,
@@ -130,6 +137,12 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 			case *pb.Msg_Checkpoint:
 				msg := innerMsg.Checkpoint
 				actions.Append(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
+			case *pb.Msg_FetchBatch:
+				msg := innerMsg.FetchBatch
+				actions.Append(sm.batchTracker.replyFetchBatch(msg.SeqNo, msg.Digest))
+			case *pb.Msg_ForwardBatch:
+				msg := innerMsg.ForwardBatch
+				actions.Append(sm.batchTracker.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.Requests))
 			case *pb.Msg_Forward:
 				if source == NodeID(sm.myConfig.ID) {
 					// We've already pre-processed this
@@ -232,28 +245,30 @@ func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
 	actions := sm.epochChanger.applyNewEpochReadyMsg(source, msg)
 
-	if sm.epochChanger.pendingEpochTarget.state == ready {
-		sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.networkNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
-		for _, sequence := range sm.activeEpoch.sequences {
-			if sequence.state >= Prepared {
-				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-					Type: &pb.Msg_Commit{
-						Commit: &pb.Commit{
-							SeqNo:  sequence.seqNo,
-							Epoch:  sequence.epoch,
-							Digest: sequence.digest,
-						},
+	if sm.epochChanger.pendingEpochTarget.state != ready {
+		return actions
+	}
+
+	sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.networkNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
+	for _, sequence := range sm.activeEpoch.sequences {
+		if sequence.state >= Prepared {
+			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+				Type: &pb.Msg_Commit{
+					Commit: &pb.Commit{
+						SeqNo:  sequence.seqNo,
+						Epoch:  sequence.epoch,
+						Digest: sequence.digest,
 					},
-				})
-			}
+				},
+			})
 		}
-		actions.Append(sm.activeEpoch.advanceUncommitted())
-		actions.Append(sm.activeEpoch.drainProposer())
-		sm.epochChanger.pendingEpochTarget.state = idle
-		sm.epochChanger.lastActiveEpoch = sm.activeEpoch
-		for _, nodeMsgs := range sm.nodeMsgs {
-			nodeMsgs.setActiveEpoch(sm.activeEpoch)
-		}
+	}
+	actions.Append(sm.activeEpoch.advanceUncommitted())
+	actions.Append(sm.activeEpoch.drainProposer())
+	sm.epochChanger.pendingEpochTarget.state = idle
+	sm.epochChanger.lastActiveEpoch = sm.activeEpoch
+	for _, nodeMsgs := range sm.nodeMsgs {
+		nodeMsgs.setActiveEpoch(sm.activeEpoch)
 	}
 
 	return actions
@@ -269,6 +284,11 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 		// oldLowReqNo := cw.lowWatermark
 		cw.garbageCollect(seqNo)
 		// sm.myConfig.Logger.Debug("move client watermarks", zap.Binary("ClientID", cid), zap.Uint64("Old", oldLowReqNo), zap.Uint64("New", cw.lowWatermark))
+	}
+	if seqNo > uint64(sm.networkConfig.CheckpointInterval) {
+		// Note, we leave an extra checkpoint worth of batches around, to help
+		// during epoch change.
+		sm.batchTracker.truncate(seqNo - uint64(sm.networkConfig.CheckpointInterval))
 	}
 	actions := sm.activeEpoch.moveWatermarks()
 	actions.Append(sm.drainNodeMsgs())
@@ -287,16 +307,15 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		request := hashResult.Request
 		switch {
 		case request.Batch != nil:
-			if sm.activeEpoch == nil {
-				// TODO, this is a little heavy handed, we should probably
-				// work with the persistence so we don't redo the effort.
+			batch := request.Batch
+			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.Requests)
+
+			if sm.activeEpoch == nil || batch.Epoch != sm.activeEpoch.config.number {
 				continue
 			}
 
-			batch := request.Batch
 			// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
 			seqNo := batch.SeqNo
-			// XXX we need to verify that the epoch matches the expected one
 			// TODO, rename applyProcessResult to something better
 			actions.Append(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
 		case request.Request != nil:
@@ -307,6 +326,12 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		case request.EpochChange != nil:
 			epochChange := request.EpochChange
 			actions.Append(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
+		case request.VerifyBatch != nil:
+			verifyBatch := request.VerifyBatch
+			sm.batchTracker.applyVerifyBatchHashResult(hashResult.Digest, verifyBatch)
+			if !sm.batchTracker.hasFetchInFlight() && sm.epochChanger.pendingEpochTarget.state == fetching {
+				actions.Append(sm.epochChanger.pendingEpochTarget.fetchNewEpochState())
+			}
 		default:
 			panic("no hash result type set")
 		}

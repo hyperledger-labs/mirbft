@@ -23,6 +23,7 @@ const (
 	prepending = iota // Have sent an epoch-change, but waiting for a quorum
 	pending           // Have a quorum of epoch-change messages, waits on new-epoch
 	verifying         // Have a new view message but it references epoch changes we cannot yet verify
+	fetching          // Have received and verified a new epoch messages, and are waiting to get state
 	echoing           // Have received and validated a new-epoch, waiting for a quorum of echos
 	readying          // Have received a quorum of echos, waiting a on qourum of readies
 	ready             // New epoch is ready to begin
@@ -52,6 +53,8 @@ type epochTarget struct {
 
 	networkConfig *pb.NetworkConfig
 	myConfig      *Config
+	batchTracker  *batchTracker
+	clientWindows *clientWindows
 }
 
 func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConfig) *pb.NewEpoch {
@@ -118,6 +121,56 @@ func (et *epochTarget) updateNewEpochState() *Actions {
 
 	if !proto.Equal(newEpochConfig, et.leaderNewEpoch.Config) {
 		// TODO byzantine, log oddity
+		return &Actions{}
+	}
+
+	et.state = fetching
+
+	return et.fetchNewEpochState()
+}
+
+func (et *epochTarget) fetchNewEpochState() *Actions {
+	actions := &Actions{}
+
+	newEpochConfig := et.leaderNewEpoch.Config
+
+	fetchPending := false
+	for i, digest := range newEpochConfig.FinalPreprepares {
+		if digest == nil {
+			continue
+		}
+
+		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
+		batch, ok := et.batchTracker.getBatch(digest)
+		if !ok {
+			actions.Append(et.batchTracker.fetchBatch(seqNo, digest))
+			fetchPending = true
+			continue
+		}
+
+		batch.observedSequences[seqNo] = struct{}{}
+		_ = i
+
+		for j, request := range batch.requests {
+			cw, ok := et.clientWindows.clientWindow(request.ClientId)
+			if !ok {
+				panic("unknown client, we need state transfer to handle this")
+			}
+
+			r := cw.request(request.ReqNo)
+			if r == nil {
+				panic("unknown client request, we need state transfer to handle this")
+			}
+
+			if !bytes.Equal(r.digest, request.Digest) {
+				panic("unknown client request digest, we need state transfer to handle this")
+			}
+
+			_ = j
+		}
+	}
+
+	if fetchPending {
 		return &Actions{}
 	}
 
@@ -401,6 +454,8 @@ type epochChanger struct {
 	highestObservedCorrectEpoch uint64
 	networkConfig               *pb.NetworkConfig
 	myConfig                    *Config
+	batchTracker                *batchTracker
+	clientWindows               *clientWindows
 	targets                     map[uint64]*epochTarget
 }
 
@@ -427,6 +482,8 @@ func (ec *epochChanger) target(epoch uint64) *epochTarget {
 			isLeader:      epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.ID,
 			networkConfig: ec.networkConfig,
 			myConfig:      ec.myConfig,
+			batchTracker:  ec.batchTracker,
+			clientWindows: ec.clientWindows,
 		}
 		ec.targets[epoch] = target
 	}

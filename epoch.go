@@ -104,6 +104,17 @@ type epoch struct {
 	baseCheckpoint *pb.Checkpoint
 }
 
+type initialEpochState struct {
+	baseCheckpoint       *pb.Checkpoint
+	initializedSequences []*initializedSequence
+}
+
+type initializedSequence struct {
+	state  SequenceState // May only be one of Uninitialized, Preprepared, Prepared, Committed
+	digest []byte
+	batch  []*request
+}
+
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.

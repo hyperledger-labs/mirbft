@@ -332,6 +332,15 @@ func (r *Recording) Step() error {
 						EpochChange: hashRequest.EpochChange.EpochChange,
 					},
 				}
+			case hashRequest.VerifyBatch != nil:
+				apply.Digests[i].Type = &tpb.HashResult_VerifyBatch{
+					VerifyBatch: &tpb.VerifyBatch{
+						Source:         hashRequest.VerifyBatch.Source,
+						SeqNo:          hashRequest.VerifyBatch.SeqNo,
+						Requests:       hashRequest.VerifyBatch.Requests,
+						ExpectedDigest: hashRequest.VerifyBatch.ExpectedDigest,
+					},
+				}
 			default:
 				return errors.Errorf("unimplemented hash type in recorder")
 			}
