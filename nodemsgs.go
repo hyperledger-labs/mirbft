@@ -141,8 +141,8 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		return current // TODO, at least detect past
 	case *pb.Msg_Checkpoint:
 		return n.processCheckpoint(innerMsg.Checkpoint)
-	case *pb.Msg_Forward:
-		requestData := innerMsg.Forward
+	case *pb.Msg_ForwardRequest:
+		requestData := innerMsg.ForwardRequest.RequestData
 		clientWindow, ok := n.clientWindows.clientWindow(requestData.ClientId)
 		if !ok {
 			if requestData.ReqNo == 1 {
@@ -280,7 +280,7 @@ func (n *epochMsgs) process(outerMsg *pb.Msg) applyable {
 		return n.processPrepare(innerMsg.Prepare)
 	case *pb.Msg_Commit:
 		return n.processCommit(innerMsg.Commit)
-	case *pb.Msg_Forward:
+	case *pb.Msg_ForwardRequest:
 		return current
 	case *pb.Msg_Suspect:
 		// TODO, do we care about duplicates?

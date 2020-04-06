@@ -80,7 +80,7 @@ func (m *NetworkConfig) Reset()         { *m = NetworkConfig{} }
 func (m *NetworkConfig) String() string { return proto.CompactTextString(m) }
 func (*NetworkConfig) ProtoMessage()    {}
 func (*NetworkConfig) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{0}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{0}
 }
 func (m *NetworkConfig) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NetworkConfig.Unmarshal(m, b)
@@ -151,7 +151,7 @@ func (m *QEntry) Reset()         { *m = QEntry{} }
 func (m *QEntry) String() string { return proto.CompactTextString(m) }
 func (*QEntry) ProtoMessage()    {}
 func (*QEntry) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{1}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{1}
 }
 func (m *QEntry) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_QEntry.Unmarshal(m, b)
@@ -214,7 +214,7 @@ func (m *PEntry) Reset()         { *m = PEntry{} }
 func (m *PEntry) String() string { return proto.CompactTextString(m) }
 func (*PEntry) ProtoMessage()    {}
 func (*PEntry) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{2}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{2}
 }
 func (m *PEntry) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_PEntry.Unmarshal(m, b)
@@ -260,7 +260,6 @@ type Msg struct {
 	//	*Msg_Preprepare
 	//	*Msg_Prepare
 	//	*Msg_Commit
-	//	*Msg_Forward
 	//	*Msg_Checkpoint
 	//	*Msg_Suspect
 	//	*Msg_EpochChange
@@ -270,6 +269,8 @@ type Msg struct {
 	//	*Msg_NewEpochReady
 	//	*Msg_FetchBatch
 	//	*Msg_ForwardBatch
+	//	*Msg_FetchRequest
+	//	*Msg_ForwardRequest
 	Type                 isMsg_Type `protobuf_oneof:"type"`
 	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
 	XXX_unrecognized     []byte     `json:"-"`
@@ -280,7 +281,7 @@ func (m *Msg) Reset()         { *m = Msg{} }
 func (m *Msg) String() string { return proto.CompactTextString(m) }
 func (*Msg) ProtoMessage()    {}
 func (*Msg) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{3}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{3}
 }
 func (m *Msg) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Msg.Unmarshal(m, b)
@@ -316,44 +317,48 @@ type Msg_Commit struct {
 	Commit *Commit `protobuf:"bytes,3,opt,name=commit,proto3,oneof"`
 }
 
-type Msg_Forward struct {
-	Forward *Forward `protobuf:"bytes,4,opt,name=forward,proto3,oneof"`
-}
-
 type Msg_Checkpoint struct {
-	Checkpoint *Checkpoint `protobuf:"bytes,5,opt,name=checkpoint,proto3,oneof"`
+	Checkpoint *Checkpoint `protobuf:"bytes,4,opt,name=checkpoint,proto3,oneof"`
 }
 
 type Msg_Suspect struct {
-	Suspect *Suspect `protobuf:"bytes,6,opt,name=suspect,proto3,oneof"`
+	Suspect *Suspect `protobuf:"bytes,5,opt,name=suspect,proto3,oneof"`
 }
 
 type Msg_EpochChange struct {
-	EpochChange *EpochChange `protobuf:"bytes,7,opt,name=epoch_change,json=epochChange,proto3,oneof"`
+	EpochChange *EpochChange `protobuf:"bytes,6,opt,name=epoch_change,json=epochChange,proto3,oneof"`
 }
 
 type Msg_EpochChangeAck struct {
-	EpochChangeAck *EpochChangeAck `protobuf:"bytes,8,opt,name=epoch_change_ack,json=epochChangeAck,proto3,oneof"`
+	EpochChangeAck *EpochChangeAck `protobuf:"bytes,7,opt,name=epoch_change_ack,json=epochChangeAck,proto3,oneof"`
 }
 
 type Msg_NewEpoch struct {
-	NewEpoch *NewEpoch `protobuf:"bytes,9,opt,name=new_epoch,json=newEpoch,proto3,oneof"`
+	NewEpoch *NewEpoch `protobuf:"bytes,8,opt,name=new_epoch,json=newEpoch,proto3,oneof"`
 }
 
 type Msg_NewEpochEcho struct {
-	NewEpochEcho *NewEpochEcho `protobuf:"bytes,10,opt,name=new_epoch_echo,json=newEpochEcho,proto3,oneof"`
+	NewEpochEcho *NewEpochEcho `protobuf:"bytes,9,opt,name=new_epoch_echo,json=newEpochEcho,proto3,oneof"`
 }
 
 type Msg_NewEpochReady struct {
-	NewEpochReady *NewEpochReady `protobuf:"bytes,11,opt,name=new_epoch_ready,json=newEpochReady,proto3,oneof"`
+	NewEpochReady *NewEpochReady `protobuf:"bytes,10,opt,name=new_epoch_ready,json=newEpochReady,proto3,oneof"`
 }
 
 type Msg_FetchBatch struct {
-	FetchBatch *FetchBatch `protobuf:"bytes,12,opt,name=fetch_batch,json=fetchBatch,proto3,oneof"`
+	FetchBatch *FetchBatch `protobuf:"bytes,11,opt,name=fetch_batch,json=fetchBatch,proto3,oneof"`
 }
 
 type Msg_ForwardBatch struct {
-	ForwardBatch *Batch `protobuf:"bytes,13,opt,name=forward_batch,json=forwardBatch,proto3,oneof"`
+	ForwardBatch *ForwardBatch `protobuf:"bytes,12,opt,name=forward_batch,json=forwardBatch,proto3,oneof"`
+}
+
+type Msg_FetchRequest struct {
+	FetchRequest *FetchRequest `protobuf:"bytes,13,opt,name=fetch_request,json=fetchRequest,proto3,oneof"`
+}
+
+type Msg_ForwardRequest struct {
+	ForwardRequest *ForwardRequest `protobuf:"bytes,14,opt,name=forward_request,json=forwardRequest,proto3,oneof"`
 }
 
 func (*Msg_Preprepare) isMsg_Type() {}
@@ -361,8 +366,6 @@ func (*Msg_Preprepare) isMsg_Type() {}
 func (*Msg_Prepare) isMsg_Type() {}
 
 func (*Msg_Commit) isMsg_Type() {}
-
-func (*Msg_Forward) isMsg_Type() {}
 
 func (*Msg_Checkpoint) isMsg_Type() {}
 
@@ -381,6 +384,10 @@ func (*Msg_NewEpochReady) isMsg_Type() {}
 func (*Msg_FetchBatch) isMsg_Type() {}
 
 func (*Msg_ForwardBatch) isMsg_Type() {}
+
+func (*Msg_FetchRequest) isMsg_Type() {}
+
+func (*Msg_ForwardRequest) isMsg_Type() {}
 
 func (m *Msg) GetType() isMsg_Type {
 	if m != nil {
@@ -406,13 +413,6 @@ func (m *Msg) GetPrepare() *Prepare {
 func (m *Msg) GetCommit() *Commit {
 	if x, ok := m.GetType().(*Msg_Commit); ok {
 		return x.Commit
-	}
-	return nil
-}
-
-func (m *Msg) GetForward() *Forward {
-	if x, ok := m.GetType().(*Msg_Forward); ok {
-		return x.Forward
 	}
 	return nil
 }
@@ -473,9 +473,23 @@ func (m *Msg) GetFetchBatch() *FetchBatch {
 	return nil
 }
 
-func (m *Msg) GetForwardBatch() *Batch {
+func (m *Msg) GetForwardBatch() *ForwardBatch {
 	if x, ok := m.GetType().(*Msg_ForwardBatch); ok {
 		return x.ForwardBatch
+	}
+	return nil
+}
+
+func (m *Msg) GetFetchRequest() *FetchRequest {
+	if x, ok := m.GetType().(*Msg_FetchRequest); ok {
+		return x.FetchRequest
+	}
+	return nil
+}
+
+func (m *Msg) GetForwardRequest() *ForwardRequest {
+	if x, ok := m.GetType().(*Msg_ForwardRequest); ok {
+		return x.ForwardRequest
 	}
 	return nil
 }
@@ -486,7 +500,6 @@ func (*Msg) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, fu
 		(*Msg_Preprepare)(nil),
 		(*Msg_Prepare)(nil),
 		(*Msg_Commit)(nil),
-		(*Msg_Forward)(nil),
 		(*Msg_Checkpoint)(nil),
 		(*Msg_Suspect)(nil),
 		(*Msg_EpochChange)(nil),
@@ -496,6 +509,8 @@ func (*Msg) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, fu
 		(*Msg_NewEpochReady)(nil),
 		(*Msg_FetchBatch)(nil),
 		(*Msg_ForwardBatch)(nil),
+		(*Msg_FetchRequest)(nil),
+		(*Msg_ForwardRequest)(nil),
 	}
 }
 
@@ -518,54 +533,59 @@ func _Msg_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
 		if err := b.EncodeMessage(x.Commit); err != nil {
 			return err
 		}
-	case *Msg_Forward:
-		b.EncodeVarint(4<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.Forward); err != nil {
-			return err
-		}
 	case *Msg_Checkpoint:
-		b.EncodeVarint(5<<3 | proto.WireBytes)
+		b.EncodeVarint(4<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.Checkpoint); err != nil {
 			return err
 		}
 	case *Msg_Suspect:
-		b.EncodeVarint(6<<3 | proto.WireBytes)
+		b.EncodeVarint(5<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.Suspect); err != nil {
 			return err
 		}
 	case *Msg_EpochChange:
-		b.EncodeVarint(7<<3 | proto.WireBytes)
+		b.EncodeVarint(6<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.EpochChange); err != nil {
 			return err
 		}
 	case *Msg_EpochChangeAck:
-		b.EncodeVarint(8<<3 | proto.WireBytes)
+		b.EncodeVarint(7<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.EpochChangeAck); err != nil {
 			return err
 		}
 	case *Msg_NewEpoch:
-		b.EncodeVarint(9<<3 | proto.WireBytes)
+		b.EncodeVarint(8<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.NewEpoch); err != nil {
 			return err
 		}
 	case *Msg_NewEpochEcho:
-		b.EncodeVarint(10<<3 | proto.WireBytes)
+		b.EncodeVarint(9<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.NewEpochEcho); err != nil {
 			return err
 		}
 	case *Msg_NewEpochReady:
-		b.EncodeVarint(11<<3 | proto.WireBytes)
+		b.EncodeVarint(10<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.NewEpochReady); err != nil {
 			return err
 		}
 	case *Msg_FetchBatch:
-		b.EncodeVarint(12<<3 | proto.WireBytes)
+		b.EncodeVarint(11<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.FetchBatch); err != nil {
 			return err
 		}
 	case *Msg_ForwardBatch:
-		b.EncodeVarint(13<<3 | proto.WireBytes)
+		b.EncodeVarint(12<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.ForwardBatch); err != nil {
+			return err
+		}
+	case *Msg_FetchRequest:
+		b.EncodeVarint(13<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.FetchRequest); err != nil {
+			return err
+		}
+	case *Msg_ForwardRequest:
+		b.EncodeVarint(14<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.ForwardRequest); err != nil {
 			return err
 		}
 	case nil:
@@ -602,15 +622,7 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_Commit{msg}
 		return true, err
-	case 4: // type.forward
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(Forward)
-		err := b.DecodeMessage(msg)
-		m.Type = &Msg_Forward{msg}
-		return true, err
-	case 5: // type.checkpoint
+	case 4: // type.checkpoint
 		if wire != proto.WireBytes {
 			return true, proto.ErrInternalBadWireType
 		}
@@ -618,7 +630,7 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_Checkpoint{msg}
 		return true, err
-	case 6: // type.suspect
+	case 5: // type.suspect
 		if wire != proto.WireBytes {
 			return true, proto.ErrInternalBadWireType
 		}
@@ -626,7 +638,7 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_Suspect{msg}
 		return true, err
-	case 7: // type.epoch_change
+	case 6: // type.epoch_change
 		if wire != proto.WireBytes {
 			return true, proto.ErrInternalBadWireType
 		}
@@ -634,7 +646,7 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_EpochChange{msg}
 		return true, err
-	case 8: // type.epoch_change_ack
+	case 7: // type.epoch_change_ack
 		if wire != proto.WireBytes {
 			return true, proto.ErrInternalBadWireType
 		}
@@ -642,7 +654,7 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_EpochChangeAck{msg}
 		return true, err
-	case 9: // type.new_epoch
+	case 8: // type.new_epoch
 		if wire != proto.WireBytes {
 			return true, proto.ErrInternalBadWireType
 		}
@@ -650,7 +662,7 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_NewEpoch{msg}
 		return true, err
-	case 10: // type.new_epoch_echo
+	case 9: // type.new_epoch_echo
 		if wire != proto.WireBytes {
 			return true, proto.ErrInternalBadWireType
 		}
@@ -658,7 +670,7 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_NewEpochEcho{msg}
 		return true, err
-	case 11: // type.new_epoch_ready
+	case 10: // type.new_epoch_ready
 		if wire != proto.WireBytes {
 			return true, proto.ErrInternalBadWireType
 		}
@@ -666,7 +678,7 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_NewEpochReady{msg}
 		return true, err
-	case 12: // type.fetch_batch
+	case 11: // type.fetch_batch
 		if wire != proto.WireBytes {
 			return true, proto.ErrInternalBadWireType
 		}
@@ -674,13 +686,29 @@ func _Msg_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (b
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_FetchBatch{msg}
 		return true, err
-	case 13: // type.forward_batch
+	case 12: // type.forward_batch
 		if wire != proto.WireBytes {
 			return true, proto.ErrInternalBadWireType
 		}
-		msg := new(Batch)
+		msg := new(ForwardBatch)
 		err := b.DecodeMessage(msg)
 		m.Type = &Msg_ForwardBatch{msg}
+		return true, err
+	case 13: // type.fetch_request
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(FetchRequest)
+		err := b.DecodeMessage(msg)
+		m.Type = &Msg_FetchRequest{msg}
+		return true, err
+	case 14: // type.forward_request
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(ForwardRequest)
+		err := b.DecodeMessage(msg)
+		m.Type = &Msg_ForwardRequest{msg}
 		return true, err
 	default:
 		return false, nil
@@ -703,11 +731,6 @@ func _Msg_OneofSizer(msg proto.Message) (n int) {
 		n += s
 	case *Msg_Commit:
 		s := proto.Size(x.Commit)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case *Msg_Forward:
-		s := proto.Size(x.Forward)
 		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
@@ -756,11 +779,67 @@ func _Msg_OneofSizer(msg proto.Message) (n int) {
 		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
+	case *Msg_FetchRequest:
+		s := proto.Size(x.FetchRequest)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *Msg_ForwardRequest:
+		s := proto.Size(x.ForwardRequest)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
 	case nil:
 	default:
 		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
 	}
 	return n
+}
+
+type FetchRequest struct {
+	ReqNo                uint64   `protobuf:"varint,1,opt,name=req_no,json=reqNo,proto3" json:"req_no,omitempty"`
+	Digest               []byte   `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *FetchRequest) Reset()         { *m = FetchRequest{} }
+func (m *FetchRequest) String() string { return proto.CompactTextString(m) }
+func (*FetchRequest) ProtoMessage()    {}
+func (*FetchRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{4}
+}
+func (m *FetchRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_FetchRequest.Unmarshal(m, b)
+}
+func (m *FetchRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_FetchRequest.Marshal(b, m, deterministic)
+}
+func (dst *FetchRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_FetchRequest.Merge(dst, src)
+}
+func (m *FetchRequest) XXX_Size() int {
+	return xxx_messageInfo_FetchRequest.Size(m)
+}
+func (m *FetchRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_FetchRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_FetchRequest proto.InternalMessageInfo
+
+func (m *FetchRequest) GetReqNo() uint64 {
+	if m != nil {
+		return m.ReqNo
+	}
+	return 0
+}
+
+func (m *FetchRequest) GetDigest() []byte {
+	if m != nil {
+		return m.Digest
+	}
+	return nil
 }
 
 type FetchBatch struct {
@@ -775,7 +854,7 @@ func (m *FetchBatch) Reset()         { *m = FetchBatch{} }
 func (m *FetchBatch) String() string { return proto.CompactTextString(m) }
 func (*FetchBatch) ProtoMessage()    {}
 func (*FetchBatch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{4}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{5}
 }
 func (m *FetchBatch) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_FetchBatch.Unmarshal(m, b)
@@ -809,56 +888,102 @@ func (m *FetchBatch) GetDigest() []byte {
 	return nil
 }
 
-type Batch struct {
+type ForwardBatch struct {
 	SeqNo                uint64     `protobuf:"varint,1,opt,name=seq_no,json=seqNo,proto3" json:"seq_no,omitempty"`
-	Digest               []byte     `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
-	Requests             []*Request `protobuf:"bytes,3,rep,name=requests,proto3" json:"requests,omitempty"`
+	Requests             []*Request `protobuf:"bytes,2,rep,name=requests,proto3" json:"requests,omitempty"`
+	Digest               []byte     `protobuf:"bytes,3,opt,name=digest,proto3" json:"digest,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
 	XXX_unrecognized     []byte     `json:"-"`
 	XXX_sizecache        int32      `json:"-"`
 }
 
-func (m *Batch) Reset()         { *m = Batch{} }
-func (m *Batch) String() string { return proto.CompactTextString(m) }
-func (*Batch) ProtoMessage()    {}
-func (*Batch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{5}
+func (m *ForwardBatch) Reset()         { *m = ForwardBatch{} }
+func (m *ForwardBatch) String() string { return proto.CompactTextString(m) }
+func (*ForwardBatch) ProtoMessage()    {}
+func (*ForwardBatch) Descriptor() ([]byte, []int) {
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{6}
 }
-func (m *Batch) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Batch.Unmarshal(m, b)
+func (m *ForwardBatch) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ForwardBatch.Unmarshal(m, b)
 }
-func (m *Batch) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Batch.Marshal(b, m, deterministic)
+func (m *ForwardBatch) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ForwardBatch.Marshal(b, m, deterministic)
 }
-func (dst *Batch) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Batch.Merge(dst, src)
+func (dst *ForwardBatch) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ForwardBatch.Merge(dst, src)
 }
-func (m *Batch) XXX_Size() int {
-	return xxx_messageInfo_Batch.Size(m)
+func (m *ForwardBatch) XXX_Size() int {
+	return xxx_messageInfo_ForwardBatch.Size(m)
 }
-func (m *Batch) XXX_DiscardUnknown() {
-	xxx_messageInfo_Batch.DiscardUnknown(m)
+func (m *ForwardBatch) XXX_DiscardUnknown() {
+	xxx_messageInfo_ForwardBatch.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_Batch proto.InternalMessageInfo
+var xxx_messageInfo_ForwardBatch proto.InternalMessageInfo
 
-func (m *Batch) GetSeqNo() uint64 {
+func (m *ForwardBatch) GetSeqNo() uint64 {
 	if m != nil {
 		return m.SeqNo
 	}
 	return 0
 }
 
-func (m *Batch) GetDigest() []byte {
+func (m *ForwardBatch) GetRequests() []*Request {
+	if m != nil {
+		return m.Requests
+	}
+	return nil
+}
+
+func (m *ForwardBatch) GetDigest() []byte {
 	if m != nil {
 		return m.Digest
 	}
 	return nil
 }
 
-func (m *Batch) GetRequests() []*Request {
+type ForwardRequest struct {
+	RequestData          *RequestData `protobuf:"bytes,1,opt,name=request_data,json=requestData,proto3" json:"request_data,omitempty"`
+	Digest               []byte       `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *ForwardRequest) Reset()         { *m = ForwardRequest{} }
+func (m *ForwardRequest) String() string { return proto.CompactTextString(m) }
+func (*ForwardRequest) ProtoMessage()    {}
+func (*ForwardRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{7}
+}
+func (m *ForwardRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ForwardRequest.Unmarshal(m, b)
+}
+func (m *ForwardRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ForwardRequest.Marshal(b, m, deterministic)
+}
+func (dst *ForwardRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ForwardRequest.Merge(dst, src)
+}
+func (m *ForwardRequest) XXX_Size() int {
+	return xxx_messageInfo_ForwardRequest.Size(m)
+}
+func (m *ForwardRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_ForwardRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ForwardRequest proto.InternalMessageInfo
+
+func (m *ForwardRequest) GetRequestData() *RequestData {
 	if m != nil {
-		return m.Requests
+		return m.RequestData
+	}
+	return nil
+}
+
+func (m *ForwardRequest) GetDigest() []byte {
+	if m != nil {
+		return m.Digest
 	}
 	return nil
 }
@@ -877,7 +1002,7 @@ func (m *RequestData) Reset()         { *m = RequestData{} }
 func (m *RequestData) String() string { return proto.CompactTextString(m) }
 func (*RequestData) ProtoMessage()    {}
 func (*RequestData) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{6}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{8}
 }
 func (m *RequestData) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_RequestData.Unmarshal(m, b)
@@ -938,7 +1063,7 @@ func (m *Request) Reset()         { *m = Request{} }
 func (m *Request) String() string { return proto.CompactTextString(m) }
 func (*Request) ProtoMessage()    {}
 func (*Request) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{7}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{9}
 }
 func (m *Request) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Request.Unmarshal(m, b)
@@ -992,7 +1117,7 @@ func (m *Preprepare) Reset()         { *m = Preprepare{} }
 func (m *Preprepare) String() string { return proto.CompactTextString(m) }
 func (*Preprepare) ProtoMessage()    {}
 func (*Preprepare) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{8}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{10}
 }
 func (m *Preprepare) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Preprepare.Unmarshal(m, b)
@@ -1046,7 +1171,7 @@ func (m *Prepare) Reset()         { *m = Prepare{} }
 func (m *Prepare) String() string { return proto.CompactTextString(m) }
 func (*Prepare) ProtoMessage()    {}
 func (*Prepare) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{9}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{11}
 }
 func (m *Prepare) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Prepare.Unmarshal(m, b)
@@ -1100,7 +1225,7 @@ func (m *Commit) Reset()         { *m = Commit{} }
 func (m *Commit) String() string { return proto.CompactTextString(m) }
 func (*Commit) ProtoMessage()    {}
 func (*Commit) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{10}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{12}
 }
 func (m *Commit) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Commit.Unmarshal(m, b)
@@ -1153,7 +1278,7 @@ func (m *Checkpoint) Reset()         { *m = Checkpoint{} }
 func (m *Checkpoint) String() string { return proto.CompactTextString(m) }
 func (*Checkpoint) ProtoMessage()    {}
 func (*Checkpoint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{11}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{13}
 }
 func (m *Checkpoint) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Checkpoint.Unmarshal(m, b)
@@ -1187,76 +1312,6 @@ func (m *Checkpoint) GetValue() []byte {
 	return nil
 }
 
-type Forward struct {
-	ClientId             []byte   `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	ReqNo                uint64   `protobuf:"varint,2,opt,name=req_no,json=reqNo,proto3" json:"req_no,omitempty"`
-	Data                 []byte   `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
-	Signature            []byte   `protobuf:"bytes,4,opt,name=signature,proto3" json:"signature,omitempty"`
-	Digest               []byte   `protobuf:"bytes,5,opt,name=digest,proto3" json:"digest,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *Forward) Reset()         { *m = Forward{} }
-func (m *Forward) String() string { return proto.CompactTextString(m) }
-func (*Forward) ProtoMessage()    {}
-func (*Forward) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{12}
-}
-func (m *Forward) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Forward.Unmarshal(m, b)
-}
-func (m *Forward) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Forward.Marshal(b, m, deterministic)
-}
-func (dst *Forward) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Forward.Merge(dst, src)
-}
-func (m *Forward) XXX_Size() int {
-	return xxx_messageInfo_Forward.Size(m)
-}
-func (m *Forward) XXX_DiscardUnknown() {
-	xxx_messageInfo_Forward.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Forward proto.InternalMessageInfo
-
-func (m *Forward) GetClientId() []byte {
-	if m != nil {
-		return m.ClientId
-	}
-	return nil
-}
-
-func (m *Forward) GetReqNo() uint64 {
-	if m != nil {
-		return m.ReqNo
-	}
-	return 0
-}
-
-func (m *Forward) GetData() []byte {
-	if m != nil {
-		return m.Data
-	}
-	return nil
-}
-
-func (m *Forward) GetSignature() []byte {
-	if m != nil {
-		return m.Signature
-	}
-	return nil
-}
-
-func (m *Forward) GetDigest() []byte {
-	if m != nil {
-		return m.Digest
-	}
-	return nil
-}
-
 type Suspect struct {
 	Epoch                uint64   `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -1268,7 +1323,7 @@ func (m *Suspect) Reset()         { *m = Suspect{} }
 func (m *Suspect) String() string { return proto.CompactTextString(m) }
 func (*Suspect) ProtoMessage()    {}
 func (*Suspect) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{13}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{14}
 }
 func (m *Suspect) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Suspect.Unmarshal(m, b)
@@ -1320,7 +1375,7 @@ func (m *EpochChange) Reset()         { *m = EpochChange{} }
 func (m *EpochChange) String() string { return proto.CompactTextString(m) }
 func (*EpochChange) ProtoMessage()    {}
 func (*EpochChange) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{14}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{15}
 }
 func (m *EpochChange) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_EpochChange.Unmarshal(m, b)
@@ -1381,7 +1436,7 @@ func (m *EpochChange_SetEntry) Reset()         { *m = EpochChange_SetEntry{} }
 func (m *EpochChange_SetEntry) String() string { return proto.CompactTextString(m) }
 func (*EpochChange_SetEntry) ProtoMessage()    {}
 func (*EpochChange_SetEntry) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{14, 0}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{15, 0}
 }
 func (m *EpochChange_SetEntry) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_EpochChange_SetEntry.Unmarshal(m, b)
@@ -1442,7 +1497,7 @@ func (m *EpochChangeAck) Reset()         { *m = EpochChangeAck{} }
 func (m *EpochChangeAck) String() string { return proto.CompactTextString(m) }
 func (*EpochChangeAck) ProtoMessage()    {}
 func (*EpochChangeAck) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{15}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{16}
 }
 func (m *EpochChangeAck) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_EpochChangeAck.Unmarshal(m, b)
@@ -1495,7 +1550,7 @@ func (m *EpochConfig) Reset()         { *m = EpochConfig{} }
 func (m *EpochConfig) String() string { return proto.CompactTextString(m) }
 func (*EpochConfig) ProtoMessage()    {}
 func (*EpochConfig) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{16}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{17}
 }
 func (m *EpochConfig) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_EpochConfig.Unmarshal(m, b)
@@ -1564,7 +1619,7 @@ func (m *NewEpoch) Reset()         { *m = NewEpoch{} }
 func (m *NewEpoch) String() string { return proto.CompactTextString(m) }
 func (*NewEpoch) ProtoMessage()    {}
 func (*NewEpoch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{17}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{18}
 }
 func (m *NewEpoch) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NewEpoch.Unmarshal(m, b)
@@ -1610,7 +1665,7 @@ func (m *NewEpoch_RemoteEpochChange) Reset()         { *m = NewEpoch_RemoteEpoch
 func (m *NewEpoch_RemoteEpochChange) String() string { return proto.CompactTextString(m) }
 func (*NewEpoch_RemoteEpochChange) ProtoMessage()    {}
 func (*NewEpoch_RemoteEpochChange) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{17, 0}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{18, 0}
 }
 func (m *NewEpoch_RemoteEpochChange) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NewEpoch_RemoteEpochChange.Unmarshal(m, b)
@@ -1660,7 +1715,7 @@ func (m *NewEpochEcho) Reset()         { *m = NewEpochEcho{} }
 func (m *NewEpochEcho) String() string { return proto.CompactTextString(m) }
 func (*NewEpochEcho) ProtoMessage()    {}
 func (*NewEpochEcho) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{18}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{19}
 }
 func (m *NewEpochEcho) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NewEpochEcho.Unmarshal(m, b)
@@ -1699,7 +1754,7 @@ func (m *NewEpochReady) Reset()         { *m = NewEpochReady{} }
 func (m *NewEpochReady) String() string { return proto.CompactTextString(m) }
 func (*NewEpochReady) ProtoMessage()    {}
 func (*NewEpochReady) Descriptor() ([]byte, []int) {
-	return fileDescriptor_mirbft_1fe5d656fa09351b, []int{19}
+	return fileDescriptor_mirbft_8d2e022f18f887f8, []int{20}
 }
 func (m *NewEpochReady) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_NewEpochReady.Unmarshal(m, b)
@@ -1731,15 +1786,16 @@ func init() {
 	proto.RegisterType((*QEntry)(nil), "mirbftpb.QEntry")
 	proto.RegisterType((*PEntry)(nil), "mirbftpb.PEntry")
 	proto.RegisterType((*Msg)(nil), "mirbftpb.Msg")
+	proto.RegisterType((*FetchRequest)(nil), "mirbftpb.FetchRequest")
 	proto.RegisterType((*FetchBatch)(nil), "mirbftpb.FetchBatch")
-	proto.RegisterType((*Batch)(nil), "mirbftpb.Batch")
+	proto.RegisterType((*ForwardBatch)(nil), "mirbftpb.ForwardBatch")
+	proto.RegisterType((*ForwardRequest)(nil), "mirbftpb.ForwardRequest")
 	proto.RegisterType((*RequestData)(nil), "mirbftpb.RequestData")
 	proto.RegisterType((*Request)(nil), "mirbftpb.Request")
 	proto.RegisterType((*Preprepare)(nil), "mirbftpb.Preprepare")
 	proto.RegisterType((*Prepare)(nil), "mirbftpb.Prepare")
 	proto.RegisterType((*Commit)(nil), "mirbftpb.Commit")
 	proto.RegisterType((*Checkpoint)(nil), "mirbftpb.Checkpoint")
-	proto.RegisterType((*Forward)(nil), "mirbftpb.Forward")
 	proto.RegisterType((*Suspect)(nil), "mirbftpb.Suspect")
 	proto.RegisterType((*EpochChange)(nil), "mirbftpb.EpochChange")
 	proto.RegisterType((*EpochChange_SetEntry)(nil), "mirbftpb.EpochChange.SetEntry")
@@ -1751,73 +1807,76 @@ func init() {
 	proto.RegisterType((*NewEpochReady)(nil), "mirbftpb.NewEpochReady")
 }
 
-func init() { proto.RegisterFile("mirbft.proto", fileDescriptor_mirbft_1fe5d656fa09351b) }
+func init() { proto.RegisterFile("mirbft.proto", fileDescriptor_mirbft_8d2e022f18f887f8) }
 
-var fileDescriptor_mirbft_1fe5d656fa09351b = []byte{
-	// 1033 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x56, 0x5b, 0x6e, 0xdb, 0x56,
-	0x10, 0x15, 0x65, 0x89, 0x92, 0x47, 0xf4, 0x43, 0x37, 0x89, 0x43, 0xa4, 0x85, 0x6b, 0x10, 0x05,
-	0x2a, 0xa4, 0xb0, 0x8c, 0x3a, 0x80, 0xfb, 0x42, 0x03, 0x44, 0xb6, 0x03, 0x09, 0xa8, 0x1d, 0xf7,
-	0x1a, 0xfd, 0xe9, 0x0f, 0x41, 0x91, 0x43, 0x89, 0x95, 0x44, 0x4a, 0xe4, 0x55, 0x1c, 0x03, 0xfd,
-	0xef, 0x2a, 0xba, 0x8a, 0xfe, 0x75, 0x09, 0xdd, 0x44, 0xb7, 0x52, 0xdc, 0x07, 0x45, 0xd2, 0x92,
-	0xd2, 0xc6, 0x30, 0x02, 0xf0, 0x83, 0xf3, 0x38, 0x33, 0x73, 0x5f, 0x67, 0x06, 0x8c, 0x49, 0x10,
-	0xf7, 0x7d, 0xd6, 0x9e, 0xc6, 0x11, 0x8b, 0x48, 0x5d, 0x4a, 0xd3, 0xbe, 0xf5, 0x97, 0x06, 0x5b,
-	0x97, 0xc8, 0x6e, 0xa2, 0x78, 0x74, 0x1a, 0x85, 0x7e, 0x30, 0x20, 0x8f, 0xa1, 0x1a, 0x46, 0x1e,
-	0x26, 0xa6, 0x76, 0xb0, 0xd1, 0xaa, 0x50, 0x29, 0x90, 0x23, 0x78, 0xe4, 0x0e, 0xd1, 0x1d, 0x4d,
-	0xa3, 0x20, 0x64, 0x76, 0x10, 0x32, 0x8c, 0xdf, 0x3a, 0x63, 0xb3, 0x7c, 0xa0, 0xb5, 0xaa, 0x94,
-	0x64, 0xa6, 0x9e, 0xb2, 0x90, 0x16, 0xec, 0x4e, 0x9c, 0x77, 0x36, 0x4e, 0x23, 0x77, 0x68, 0x8f,
-	0x31, 0x1c, 0xb0, 0xa1, 0xb9, 0x71, 0xa0, 0xb5, 0x2a, 0x74, 0x7b, 0xe2, 0xbc, 0x3b, 0xe7, 0xea,
-	0x1f, 0x85, 0x96, 0x3c, 0x87, 0x66, 0x38, 0x9f, 0xf4, 0x31, 0xb6, 0x23, 0xdf, 0xee, 0xcf, 0xdd,
-	0x11, 0xb2, 0xc4, 0xac, 0x88, 0xc0, 0x3b, 0xd2, 0xf0, 0xc6, 0xef, 0x48, 0x35, 0x31, 0x40, 0xf3,
-	0xcd, 0xaa, 0xb0, 0x69, 0xbe, 0xf5, 0x1b, 0xe8, 0x3f, 0x9d, 0x87, 0x2c, 0xbe, 0xe5, 0x45, 0x8b,
-	0x4c, 0xa6, 0x26, 0x52, 0x48, 0x81, 0x3c, 0x01, 0x3d, 0xc1, 0x99, 0x1d, 0x46, 0xa2, 0xce, 0x0a,
-	0xad, 0x26, 0x38, 0xbb, 0x8c, 0xc8, 0x1e, 0xe8, 0x5e, 0x30, 0xc0, 0x84, 0x89, 0x82, 0x0c, 0xaa,
-	0x24, 0x72, 0x08, 0xf5, 0x18, 0x67, 0x73, 0x4c, 0x44, 0xfe, 0x8d, 0x56, 0xe3, 0xb8, 0xd9, 0x4e,
-	0x37, 0xaa, 0x4d, 0xa5, 0x85, 0x2e, 0x5c, 0xac, 0x0b, 0xd0, 0xaf, 0x1e, 0x2e, 0xbb, 0xf5, 0x4f,
-	0x15, 0x36, 0x2e, 0x92, 0x01, 0x39, 0x01, 0x98, 0xc6, 0xc8, 0x3f, 0x27, 0x46, 0x11, 0xb1, 0x71,
-	0xfc, 0x38, 0xab, 0xe3, 0x6a, 0x61, 0xeb, 0x96, 0x68, 0xce, 0x93, 0x1c, 0x42, 0x2d, 0x05, 0x95,
-	0x05, 0xa8, 0x59, 0x04, 0x49, 0x44, 0xea, 0x43, 0x9e, 0x83, 0xee, 0x46, 0x93, 0x49, 0x20, 0xcb,
-	0x68, 0x1c, 0xef, 0x66, 0xde, 0xa7, 0x42, 0xdf, 0x2d, 0x51, 0xe5, 0xc1, 0x43, 0xfb, 0x51, 0x7c,
-	0xe3, 0xc4, 0x9e, 0x38, 0x97, 0x42, 0xe8, 0xd7, 0xd2, 0xc0, 0x43, 0x2b, 0x1f, 0xbe, 0x82, 0xec,
-	0x42, 0x88, 0xd3, 0x2a, 0xac, 0xe0, 0x74, 0x61, 0xe3, 0x2b, 0xc8, 0x3c, 0x79, 0x9a, 0x64, 0x9e,
-	0x4c, 0xd1, 0x65, 0xa6, 0x7e, 0x37, 0xcd, 0xb5, 0x34, 0xf0, 0x34, 0xca, 0x87, 0x7c, 0x07, 0x86,
-	0xbc, 0x5d, 0xee, 0xd0, 0x09, 0x07, 0x68, 0xd6, 0x04, 0xe6, 0x49, 0x86, 0x11, 0x97, 0xec, 0x54,
-	0x18, 0xbb, 0x25, 0xda, 0xc0, 0x4c, 0x24, 0x67, 0xb0, 0x9b, 0xc7, 0xda, 0x8e, 0x3b, 0x32, 0xeb,
-	0x02, 0x6f, 0xae, 0xc4, 0xbf, 0x72, 0x47, 0xdd, 0x12, 0xdd, 0xc6, 0x82, 0x86, 0x7c, 0x05, 0x9b,
-	0x21, 0xde, 0xc8, 0x3b, 0x6e, 0x6e, 0x0a, 0x38, 0xc9, 0xe0, 0x97, 0x78, 0x23, 0x22, 0x74, 0x4b,
-	0xb4, 0x1e, 0xaa, 0x7f, 0xf2, 0x12, 0xb6, 0x17, 0x10, 0x1b, 0xdd, 0x61, 0x64, 0x82, 0xc0, 0xed,
-	0x2d, 0xe3, 0xce, 0xdd, 0x61, 0xd4, 0x2d, 0x51, 0x23, 0xcc, 0xc9, 0xe4, 0x15, 0xec, 0x64, 0xf8,
-	0x18, 0x1d, 0xef, 0xd6, 0x6c, 0x88, 0x00, 0x4f, 0x97, 0x03, 0x50, 0x6e, 0xee, 0x96, 0xe8, 0x56,
-	0x98, 0x57, 0x90, 0xaf, 0xa1, 0xe1, 0x23, 0x73, 0x87, 0x76, 0xdf, 0x61, 0xee, 0xd0, 0x34, 0xee,
-	0x9e, 0xcf, 0x6b, 0x6e, 0xec, 0x70, 0x1b, 0x3f, 0x1f, 0x7f, 0x21, 0x91, 0x13, 0xd8, 0x52, 0x47,
-	0xac, 0xa0, 0x5b, 0x02, 0xba, 0x93, 0x41, 0x53, 0x94, 0xa1, 0xfc, 0x84, 0xdc, 0xd1, 0xa1, 0xc2,
-	0x6e, 0xa7, 0x68, 0x7d, 0x0f, 0x90, 0xc5, 0xce, 0x3d, 0x0f, 0x6d, 0xf5, 0xf3, 0x28, 0x17, 0x9e,
-	0x07, 0x42, 0xf5, 0x3e, 0xb8, 0xc2, 0xa3, 0xde, 0xf8, 0xef, 0x47, 0x9d, 0x40, 0x43, 0x29, 0xcf,
-	0x1c, 0xe6, 0x90, 0x4f, 0x60, 0xd3, 0x1d, 0x07, 0xc8, 0x29, 0xcf, 0x13, 0xf9, 0x0c, 0x5a, 0x97,
-	0x8a, 0x9e, 0xc7, 0x2b, 0x89, 0x0b, 0x0f, 0x3c, 0x16, 0x95, 0x10, 0xa8, 0x78, 0x0e, 0x73, 0xd4,
-	0xf3, 0x16, 0xff, 0xe4, 0x53, 0xd8, 0x4c, 0x82, 0x41, 0xe8, 0xb0, 0x79, 0x8c, 0xe2, 0x0d, 0x19,
-	0x34, 0x53, 0x58, 0x3f, 0x43, 0x4d, 0x25, 0xbd, 0x57, 0xc2, 0x75, 0x8c, 0xd2, 0x07, 0xc8, 0xd8,
-	0x62, 0xdd, 0xbe, 0x2d, 0xb8, 0xab, 0x9c, 0xe7, 0xae, 0x2f, 0xa0, 0x2a, 0x8f, 0x78, 0xed, 0x96,
-	0x49, 0xbb, 0x75, 0x09, 0xb5, 0xab, 0xfb, 0x24, 0x58, 0x57, 0xf3, 0x05, 0xe8, 0x92, 0x7e, 0x1e,
-	0x26, 0xdc, 0xb7, 0x00, 0x19, 0xdd, 0xbc, 0x27, 0xe4, 0x5b, 0x67, 0x3c, 0x47, 0x75, 0x73, 0xa4,
-	0x60, 0xfd, 0xae, 0x41, 0x4d, 0x91, 0xdb, 0xc7, 0xb9, 0x06, 0xb9, 0x45, 0x54, 0x0b, 0x8b, 0xf8,
-	0x0c, 0x6a, 0x8a, 0xfe, 0x56, 0x77, 0x1a, 0xeb, 0x8f, 0x32, 0x34, 0x72, 0x64, 0xc5, 0xcb, 0xcd,
-	0x78, 0x49, 0x7a, 0x66, 0x0c, 0x74, 0x02, 0x8d, 0x8c, 0x73, 0x13, 0xb3, 0x2c, 0x0e, 0x78, 0x25,
-	0x3d, 0xd3, 0xbc, 0x23, 0x79, 0x01, 0xd5, 0xa9, 0x9d, 0x20, 0x53, 0x57, 0x62, 0x7f, 0x25, 0x4f,
-	0xb6, 0xaf, 0x91, 0x89, 0x9e, 0x48, 0x2b, 0xd3, 0x6b, 0x64, 0x1c, 0x34, 0x13, 0xa0, 0xca, 0xff,
-	0x03, 0xcd, 0xae, 0x91, 0x3d, 0x7b, 0x03, 0xf5, 0x54, 0xf3, 0x30, 0xad, 0xf5, 0x57, 0xd8, 0x2e,
-	0x72, 0x39, 0xd9, 0x07, 0x88, 0xe2, 0x60, 0x10, 0x84, 0x0e, 0x8b, 0x62, 0x15, 0x3b, 0xa7, 0x21,
-	0xdf, 0xdc, 0xe9, 0x2d, 0xe5, 0xf7, 0xf4, 0x96, 0x42, 0x67, 0xb1, 0xfe, 0xd4, 0xd2, 0xb3, 0x90,
-	0xe3, 0xd4, 0x1e, 0xe8, 0x72, 0x88, 0x51, 0x59, 0x94, 0x44, 0xce, 0xe1, 0x51, 0xc2, 0x9c, 0x98,
-	0x05, 0xe1, 0xc0, 0xce, 0x75, 0xcb, 0xf2, 0xfa, 0x6e, 0x49, 0x49, 0x0a, 0xc8, 0x5d, 0x69, 0x13,
-	0x6a, 0x63, 0x74, 0x3c, 0x8c, 0x25, 0xbb, 0x55, 0x68, 0x2a, 0x92, 0x2f, 0xa1, 0xe9, 0x07, 0xa1,
-	0x33, 0xb6, 0xb3, 0x19, 0x41, 0x8e, 0x35, 0x06, 0xdd, 0x15, 0x86, 0x8c, 0x1b, 0x12, 0xeb, 0x6f,
-	0x0d, 0xea, 0x69, 0xdb, 0x20, 0x87, 0x7c, 0x34, 0xe0, 0xc5, 0xab, 0xe9, 0x63, 0x69, 0xd9, 0xc2,
-	0x48, 0x95, 0x13, 0xe9, 0xc1, 0x56, 0x7e, 0xaf, 0xd2, 0x2b, 0xf5, 0xf9, 0x72, 0x43, 0x6a, 0x53,
-	0x9c, 0x44, 0x0c, 0xf3, 0x7b, 0x67, 0xe4, 0xf6, 0x2e, 0x79, 0x76, 0x06, 0xcd, 0x25, 0x17, 0xf2,
-	0x14, 0x6a, 0x7c, 0x06, 0x4d, 0x9f, 0x1e, 0xdf, 0xc2, 0xc8, 0xc3, 0x9e, 0xb7, 0xb6, 0x55, 0xfc,
-	0x00, 0x46, 0xbe, 0x87, 0x7e, 0xe0, 0x7a, 0xac, 0x97, 0x7c, 0x22, 0xce, 0x37, 0xcc, 0x0f, 0xc3,
-	0x77, 0x0e, 0x7e, 0xd9, 0x1f, 0x04, 0x6c, 0x38, 0xef, 0xb7, 0xdd, 0x68, 0x72, 0xd4, 0xeb, 0x5c,
-	0x1c, 0x49, 0xf7, 0xa3, 0x14, 0xd5, 0xd7, 0xc5, 0x14, 0xfe, 0xe2, 0xdf, 0x00, 0x00, 0x00, 0xff,
-	0xff, 0x31, 0x5a, 0x30, 0x9a, 0x95, 0x0b, 0x00, 0x00,
+var fileDescriptor_mirbft_8d2e022f18f887f8 = []byte{
+	// 1076 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x57, 0xef, 0x6e, 0xdb, 0x36,
+	0x10, 0xb7, 0x1c, 0x5b, 0x76, 0x4e, 0x8a, 0x9b, 0xb0, 0x4d, 0x2a, 0x74, 0x43, 0x16, 0x08, 0x03,
+	0x16, 0x74, 0x88, 0x83, 0xa5, 0x40, 0xf7, 0x0f, 0x29, 0xd0, 0x38, 0x29, 0x6c, 0x60, 0x49, 0x33,
+	0x06, 0xfb, 0xb2, 0x2f, 0x82, 0x2c, 0x51, 0xb6, 0x66, 0x5b, 0xb2, 0x29, 0xba, 0x69, 0x80, 0xbd,
+	0xca, 0x9e, 0x62, 0xdf, 0xb6, 0x37, 0xd8, 0x53, 0x0d, 0x24, 0x25, 0x93, 0x8a, 0xed, 0x6e, 0x2d,
+	0x02, 0xe4, 0x83, 0x8f, 0x77, 0xbf, 0xbb, 0xd3, 0x1d, 0xef, 0x77, 0x0c, 0xd8, 0x93, 0x98, 0xf6,
+	0x23, 0xd6, 0x9e, 0xd2, 0x94, 0xa5, 0xa8, 0x29, 0xa5, 0x69, 0xdf, 0xfd, 0xcb, 0x80, 0xad, 0x2b,
+	0xc2, 0x6e, 0x53, 0x3a, 0xea, 0xa4, 0x49, 0x14, 0x0f, 0xd0, 0x13, 0xa8, 0x27, 0x69, 0x48, 0x32,
+	0xc7, 0x38, 0xd8, 0x38, 0xac, 0x61, 0x29, 0xa0, 0x63, 0x78, 0x1c, 0x0c, 0x49, 0x30, 0x9a, 0xa6,
+	0x71, 0xc2, 0xbc, 0x38, 0x61, 0x84, 0xbe, 0xf3, 0xc7, 0x4e, 0xf5, 0xc0, 0x38, 0xac, 0x63, 0xa4,
+	0x54, 0xbd, 0x5c, 0x83, 0x0e, 0x61, 0x7b, 0xe2, 0xbf, 0xf7, 0xc8, 0x34, 0x0d, 0x86, 0xde, 0x98,
+	0x24, 0x03, 0x36, 0x74, 0x36, 0x0e, 0x8c, 0xc3, 0x1a, 0x6e, 0x4d, 0xfc, 0xf7, 0x17, 0xfc, 0xf8,
+	0x27, 0x71, 0x8a, 0x9e, 0xc3, 0x4e, 0x32, 0x9f, 0xf4, 0x09, 0xf5, 0xd2, 0xc8, 0xeb, 0xcf, 0x83,
+	0x11, 0x61, 0x99, 0x53, 0x13, 0x8e, 0x1f, 0x49, 0xc5, 0xdb, 0xe8, 0x4c, 0x1e, 0x23, 0x1b, 0x8c,
+	0xc8, 0xa9, 0x0b, 0x9d, 0x11, 0xb9, 0xbf, 0x83, 0xf9, 0xf3, 0x45, 0xc2, 0xe8, 0x1d, 0x4f, 0x5a,
+	0x44, 0x72, 0x0c, 0x11, 0x42, 0x0a, 0x68, 0x17, 0xcc, 0x8c, 0xcc, 0xbc, 0x24, 0x15, 0x79, 0xd6,
+	0x70, 0x3d, 0x23, 0xb3, 0xab, 0x14, 0xed, 0x81, 0x19, 0xc6, 0x03, 0x92, 0x31, 0x91, 0x90, 0x8d,
+	0x73, 0x09, 0x1d, 0x41, 0x93, 0x92, 0xd9, 0x9c, 0x64, 0x22, 0xfe, 0xc6, 0xa1, 0x75, 0xb2, 0xd3,
+	0x2e, 0x0a, 0xd5, 0xc6, 0x52, 0x83, 0x17, 0x26, 0xee, 0x25, 0x98, 0xd7, 0x0f, 0x17, 0xdd, 0xfd,
+	0xdb, 0x84, 0x8d, 0xcb, 0x6c, 0x80, 0x5e, 0x02, 0x4c, 0x29, 0xe1, 0x7f, 0x3e, 0x25, 0xc2, 0xa3,
+	0x75, 0xf2, 0x44, 0xe5, 0x71, 0xbd, 0xd0, 0x75, 0x2b, 0x58, 0xb3, 0x44, 0x47, 0xd0, 0x28, 0x40,
+	0x55, 0x01, 0xda, 0x29, 0x83, 0x24, 0xa2, 0xb0, 0x41, 0xcf, 0xc1, 0x0c, 0xd2, 0xc9, 0x24, 0x96,
+	0x69, 0x58, 0x27, 0xdb, 0xca, 0xba, 0x23, 0xce, 0xbb, 0x15, 0x9c, 0x5b, 0xf0, 0x94, 0x54, 0x87,
+	0x45, 0x6b, 0x4a, 0x29, 0x75, 0x16, 0x3a, 0x9e, 0x92, 0xb2, 0xe4, 0x29, 0x65, 0xf3, 0x6c, 0x4a,
+	0x02, 0x26, 0x7a, 0x56, 0x4a, 0xe9, 0x46, 0x2a, 0x78, 0x4a, 0xb9, 0x0d, 0xfa, 0x01, 0x6c, 0x79,
+	0x5d, 0x82, 0xa1, 0x9f, 0x0c, 0x88, 0x63, 0x0a, 0xcc, 0xae, 0xc2, 0x88, 0x5b, 0xd3, 0x11, 0xca,
+	0x6e, 0x05, 0x5b, 0x44, 0x89, 0xe8, 0x1c, 0xb6, 0x75, 0xac, 0xe7, 0x07, 0x23, 0xa7, 0x21, 0xf0,
+	0xce, 0x4a, 0xfc, 0xeb, 0x60, 0xd4, 0xad, 0xe0, 0x16, 0x29, 0x9d, 0xa0, 0x6f, 0x60, 0x33, 0x21,
+	0xb7, 0xf2, 0xd2, 0x3a, 0x4d, 0x01, 0x47, 0x0a, 0x7e, 0x45, 0x6e, 0x85, 0x87, 0x6e, 0x05, 0x37,
+	0x93, 0xfc, 0x37, 0x7a, 0x05, 0xad, 0x05, 0xc4, 0x23, 0xc1, 0x30, 0x75, 0x36, 0x05, 0x6e, 0x6f,
+	0x19, 0x77, 0x11, 0x0c, 0xd3, 0x6e, 0x05, 0xdb, 0x89, 0x26, 0xa3, 0xd7, 0xf0, 0x48, 0xe1, 0x29,
+	0xf1, 0xc3, 0x3b, 0x07, 0x84, 0x83, 0xa7, 0xcb, 0x0e, 0x30, 0x57, 0x77, 0x2b, 0x78, 0x2b, 0xd1,
+	0x0f, 0xd0, 0xb7, 0x60, 0x45, 0x84, 0x05, 0x43, 0xaf, 0xef, 0xb3, 0x60, 0xe8, 0x58, 0xf7, 0xfb,
+	0xf3, 0x86, 0x2b, 0xcf, 0xb8, 0x8e, 0xf7, 0x27, 0x5a, 0x48, 0xe8, 0x14, 0xb6, 0xa2, 0x94, 0xde,
+	0xfa, 0x34, 0xcc, 0xa1, 0xf6, 0xfd, 0xd4, 0xdf, 0x48, 0x75, 0x01, 0xb6, 0x23, 0x4d, 0x16, 0x70,
+	0x11, 0x37, 0x1f, 0x09, 0x67, 0x6b, 0x09, 0xce, 0xd5, 0xf9, 0xe4, 0x08, 0xb8, 0x26, 0xa3, 0x0e,
+	0x3c, 0x2a, 0xa2, 0x17, 0x0e, 0x5a, 0xf7, 0x3b, 0x96, 0xc7, 0x57, 0x2e, 0x5a, 0x51, 0xe9, 0xe4,
+	0xcc, 0x84, 0x1a, 0xbb, 0x9b, 0x12, 0xf7, 0x14, 0x6c, 0x3d, 0x18, 0x1f, 0x3e, 0x2a, 0x87, 0x2f,
+	0x9f, 0x49, 0x7a, 0x6f, 0xf8, 0xaa, 0xa5, 0xe1, 0xfb, 0x11, 0x40, 0x55, 0x49, 0x9b, 0x5c, 0x63,
+	0xf5, 0xe4, 0x96, 0xc1, 0x63, 0xb0, 0xf5, 0x3a, 0xad, 0x83, 0xeb, 0xf4, 0x52, 0xfd, 0x4f, 0x7a,
+	0x59, 0xcb, 0x13, 0x7d, 0x68, 0x95, 0xab, 0x82, 0xbe, 0x03, 0x3b, 0x47, 0x79, 0xa1, 0xcf, 0xfc,
+	0x9c, 0x33, 0x76, 0x97, 0x9c, 0x9f, 0xfb, 0xcc, 0xc7, 0x16, 0x55, 0xc2, 0xda, 0x2f, 0xca, 0xc0,
+	0xd2, 0x30, 0xe8, 0x33, 0xd8, 0x0c, 0xc6, 0x31, 0xe1, 0xc4, 0x1f, 0x0a, 0xef, 0x36, 0x6e, 0xca,
+	0x83, 0x5e, 0xa8, 0x55, 0xba, 0xaa, 0x57, 0x1a, 0x41, 0x4d, 0x24, 0x23, 0x93, 0x17, 0xbf, 0xd1,
+	0xe7, 0xb0, 0x99, 0xc5, 0x83, 0xc4, 0x67, 0x73, 0x4a, 0x04, 0x8d, 0xd8, 0x58, 0x1d, 0xb8, 0xbf,
+	0x40, 0xa3, 0xf8, 0xa2, 0x4f, 0x09, 0xb8, 0xbe, 0x5e, 0xa0, 0x38, 0x73, 0x5d, 0x6f, 0x16, 0x0c,
+	0x5e, 0xd5, 0x19, 0xfc, 0x2b, 0xa8, 0xcb, 0xb9, 0xd8, 0x58, 0xd7, 0x2e, 0xa9, 0x77, 0xaf, 0xa0,
+	0x71, 0xfd, 0x29, 0x01, 0xd6, 0xe5, 0x7c, 0x09, 0xa6, 0x24, 0xe1, 0x87, 0x71, 0xf7, 0x3d, 0x80,
+	0xe2, 0xe8, 0x0f, 0xb8, 0x7c, 0xe7, 0x8f, 0xe7, 0x24, 0xbf, 0x0a, 0x52, 0x70, 0xbf, 0x80, 0x46,
+	0xce, 0xd4, 0xab, 0xb7, 0x9c, 0xfb, 0x47, 0x15, 0x2c, 0x8d, 0x57, 0x79, 0xeb, 0x14, 0x85, 0x4a,
+	0x4b, 0x45, 0x96, 0x2f, 0xc1, 0x52, 0xeb, 0xa1, 0x98, 0x82, 0x95, 0x9b, 0x04, 0xeb, 0x86, 0xe8,
+	0x05, 0xd4, 0xa7, 0x5e, 0x46, 0x58, 0xde, 0x88, 0xfd, 0x95, 0x94, 0xde, 0xbe, 0x21, 0x4c, 0xec,
+	0x63, 0x5c, 0x9b, 0xde, 0x10, 0xc6, 0x41, 0x33, 0x01, 0xaa, 0xfd, 0x3f, 0xd0, 0xec, 0x86, 0xb0,
+	0x67, 0x6f, 0xa1, 0x59, 0x9c, 0x3c, 0xcc, 0x5a, 0xff, 0x0d, 0x5a, 0xe5, 0xb5, 0x83, 0xf6, 0x01,
+	0x52, 0x1a, 0x0f, 0xe2, 0xc4, 0x67, 0x29, 0xcd, 0x7d, 0x6b, 0x27, 0x7c, 0x9c, 0x4b, 0x6b, 0xb0,
+	0xfa, 0x81, 0x35, 0x58, 0x5a, 0x82, 0xee, 0x9f, 0x46, 0xd1, 0x0b, 0xf9, 0x94, 0xdb, 0x03, 0x53,
+	0x3e, 0xa0, 0xf2, 0x28, 0xb9, 0x84, 0x2e, 0xe0, 0x71, 0xc6, 0x7c, 0xca, 0xe2, 0x64, 0xe0, 0x69,
+	0x8b, 0xbd, 0xba, 0x7e, 0xb1, 0x63, 0x54, 0x00, 0xb4, 0x8b, 0xe4, 0x40, 0x63, 0x4c, 0xfc, 0x90,
+	0xd0, 0x4c, 0xf4, 0xa5, 0x86, 0x0b, 0x11, 0x7d, 0x0d, 0x3b, 0x51, 0x9c, 0xf8, 0x63, 0x4f, 0xbd,
+	0x4f, 0xe4, 0x93, 0xca, 0xc6, 0xdb, 0x42, 0xa1, 0x26, 0x32, 0x73, 0xff, 0x31, 0xa0, 0x59, 0x6c,
+	0x38, 0x74, 0xc4, 0x9f, 0x25, 0x3c, 0xf9, 0x65, 0x16, 0xd3, 0xbe, 0x0c, 0xe7, 0x46, 0xa8, 0x07,
+	0x5b, 0x7a, 0xad, 0x8a, 0x2b, 0xf5, 0xe5, 0xf2, 0xee, 0x6c, 0x63, 0x32, 0x49, 0x19, 0xd1, 0x6b,
+	0x67, 0x6b, 0xb5, 0xcb, 0x9e, 0x9d, 0xc3, 0xce, 0x92, 0x09, 0x7a, 0x0a, 0x0d, 0xfe, 0xfe, 0x2d,
+	0x68, 0x88, 0x97, 0x30, 0x0d, 0x49, 0x2f, 0x5c, 0xcb, 0x9c, 0xa7, 0x60, 0xeb, 0xeb, 0xfe, 0x23,
+	0xbf, 0xc7, 0x7d, 0xc5, 0x5f, 0xe3, 0xfa, 0x6e, 0xff, 0x38, 0xfc, 0xd9, 0xc1, 0xaf, 0xfb, 0x83,
+	0x98, 0x0d, 0xe7, 0xfd, 0x76, 0x90, 0x4e, 0x8e, 0x7b, 0x67, 0x97, 0xc7, 0xd2, 0xfc, 0xb8, 0x40,
+	0xf5, 0x4d, 0xf1, 0x1f, 0xc0, 0x8b, 0x7f, 0x03, 0x00, 0x00, 0xff, 0xff, 0x4c, 0x0a, 0xd1, 0x15,
+	0x11, 0x0c, 0x00, 0x00,
 }

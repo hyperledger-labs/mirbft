@@ -180,13 +180,15 @@ var _ = Describe("Integration", func() {
 			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{
-						Type: &pb.Msg_Forward{
-							Forward: &pb.Forward{
-								ClientId:  []byte("client-1"),
-								ReqNo:     1,
-								Data:      []byte("data"),
-								Signature: []byte("signature"),
-								Digest:    []byte("request-digest"),
+						Type: &pb.Msg_ForwardRequest{
+							ForwardRequest: &pb.ForwardRequest{
+								RequestData: &pb.RequestData{
+									ClientId:  []byte("client-1"),
+									ReqNo:     1,
+									Data:      []byte("data"),
+									Signature: []byte("signature"),
+								},
+								Digest: []byte("request-digest"),
 							},
 						},
 					},

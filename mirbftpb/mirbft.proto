@@ -95,17 +95,23 @@ message Msg {
         Preprepare preprepare = 1;
         Prepare prepare = 2;
         Commit commit = 3;
-        Forward forward = 4;
-        Checkpoint checkpoint = 5;
-        Suspect suspect = 6;
-        EpochChange epoch_change = 7;
-        EpochChangeAck epoch_change_ack = 8;
-        NewEpoch new_epoch = 9;
-        NewEpochEcho new_epoch_echo = 10;
-        NewEpochReady new_epoch_ready = 11;
-	FetchBatch fetch_batch = 12;
-	Batch forward_batch = 13;
+        Checkpoint checkpoint = 4;
+        Suspect suspect = 5;
+        EpochChange epoch_change = 6;
+        EpochChangeAck epoch_change_ack = 7;
+        NewEpoch new_epoch = 8;
+        NewEpochEcho new_epoch_echo = 9;
+        NewEpochReady new_epoch_ready = 10;
+	FetchBatch fetch_batch = 11;
+	ForwardBatch forward_batch = 12;
+	FetchRequest fetch_request = 13;
+        ForwardRequest forward_request = 14;
     }
+}
+
+message FetchRequest {
+    uint64 req_no = 1;
+    bytes digest = 2;
 }
 
 message FetchBatch {
@@ -113,10 +119,15 @@ message FetchBatch {
     bytes digest = 2;
 }
 
-message Batch {
+message ForwardBatch {
     uint64 seq_no = 1;
+    repeated Request requests = 2;
+    bytes digest = 3;
+}
+
+message ForwardRequest {
+    RequestData request_data = 1;
     bytes digest = 2;
-    repeated Request requests = 3;
 }
 
 message RequestData {
@@ -153,14 +164,6 @@ message Commit {
 message Checkpoint {
     uint64 seq_no = 1;
     bytes value = 2;
-}
-
-message Forward {
-    bytes client_id = 1;
-    uint64 req_no = 2;
-    bytes data = 3;
-    bytes signature = 4;
-    bytes digest = 5;
 }
 
 message Suspect {

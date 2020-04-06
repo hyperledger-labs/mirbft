@@ -60,12 +60,12 @@ func logBasics(source NodeID, msg *pb.Msg) []zap.Field {
 			zap.String(MsgTypeLog, "checkpoint"),
 			zap.Uint64(SeqNoLog, msg.SeqNo),
 		)
-	case *pb.Msg_Forward:
-		msg := innerMsg.Forward
+	case *pb.Msg_ForwardRequest:
+		msg := innerMsg.ForwardRequest
 		fields = append(fields,
-			zap.String(MsgTypeLog, "forward"),
-			zap.Uint64(ReqNoLog, msg.ReqNo),
-			zap.Binary(ReqNoLog, msg.ClientId),
+			zap.String(MsgTypeLog, "forwardrequest"),
+			zap.Uint64(ReqNoLog, msg.RequestData.ReqNo),
+			zap.Binary(ReqNoLog, msg.RequestData.ClientId),
 		)
 	default:
 		fields = append(fields,

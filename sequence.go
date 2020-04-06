@@ -139,13 +139,10 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 		msgs = make([]*pb.Msg, len(s.batch)+1)
 		for i, request := range s.batch {
 			msgs[i] = &pb.Msg{
-				Type: &pb.Msg_Forward{
-					Forward: &pb.Forward{
-						ClientId:  request.requestData.ClientId,
-						ReqNo:     request.requestData.ReqNo,
-						Data:      request.requestData.Data,
-						Signature: request.requestData.Signature,
-						Digest:    request.digest,
+				Type: &pb.Msg_ForwardRequest{
+					ForwardRequest: &pb.ForwardRequest{
+						RequestData: request.requestData,
+						Digest:      request.digest,
 					},
 				},
 			}

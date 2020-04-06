@@ -102,7 +102,7 @@ func (bt *batchTracker) replyFetchBatch(seqNo uint64, digest []byte) *Actions {
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_ForwardBatch{
-					ForwardBatch: &pb.Batch{
+					ForwardBatch: &pb.ForwardBatch{
 						SeqNo:    seqNo,
 						Digest:   digest,
 						Requests: batch.requests,

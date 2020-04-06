@@ -143,15 +143,15 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 			case *pb.Msg_ForwardBatch:
 				msg := innerMsg.ForwardBatch
 				actions.Append(sm.batchTracker.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.Requests))
-			case *pb.Msg_Forward:
+			case *pb.Msg_ForwardRequest:
 				if source == NodeID(sm.myConfig.ID) {
 					// We've already pre-processed this
 					continue
 				}
-				msg := innerMsg.Forward
-				cw, ok := sm.clientWindows.clientWindow(msg.ClientId)
+				msg := innerMsg.ForwardRequest
+				cw, ok := sm.clientWindows.clientWindow(msg.RequestData.ClientId)
 				if ok {
-					if request := cw.request(msg.ReqNo); request != nil {
+					if request := cw.request(msg.RequestData.ReqNo); request != nil {
 						// TODO, once we support byzantine clients, there could be more than one digest
 						if bytes.Equal(request.digest, msg.Digest) {
 							// This forwarded message is already known to us
@@ -162,18 +162,13 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 
 				actions.Hash = append(actions.Hash, &HashRequest{
 					Data: [][]byte{
-						msg.ClientId,
-						uint64ToBytes(msg.ReqNo),
-						msg.Data,
+						msg.RequestData.ClientId,
+						uint64ToBytes(msg.RequestData.ReqNo),
+						msg.RequestData.Data,
 					},
 					Request: &Request{
-						Source: uint64(source),
-						RequestData: &pb.RequestData{
-							ClientId:  msg.ClientId,
-							ReqNo:     msg.ReqNo,
-							Data:      msg.Data,
-							Signature: msg.Signature,
-						},
+						Source:      uint64(source),
+						RequestData: msg.RequestData,
 						// PurportedDigest: msg.Digest,
 					},
 				})
