@@ -184,9 +184,9 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	}
 
 	switch {
-	case n.epochMsgs.epochConfig.number < epoch:
+	case epoch < n.epochMsgs.epochConfig.number:
 		return past
-	case n.epochMsgs.epochConfig.number > epoch:
+	case epoch > n.epochMsgs.epochConfig.number:
 		return future
 	}
 
