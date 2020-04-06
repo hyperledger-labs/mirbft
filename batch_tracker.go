@@ -18,7 +18,7 @@ type batchTracker struct {
 
 type batch struct {
 	observedSequences map[uint64]struct{}
-	requests          []*pb.Request
+	requestAcks       []*pb.RequestAck
 }
 
 func newBatchTracker() *batchTracker {
@@ -41,12 +41,12 @@ func (bt *batchTracker) truncate(seqNo uint64) {
 	}
 }
 
-func (bt *batchTracker) addBatch(seqNo uint64, digest []byte, requests []*pb.Request) {
+func (bt *batchTracker) addBatch(seqNo uint64, digest []byte, requestAcks []*pb.RequestAck) {
 	b, ok := bt.batchesByDigest[string(digest)]
 	if !ok {
 		b = &batch{
 			observedSequences: map[uint64]struct{}{},
-			requests:          requests,
+			requestAcks:       requestAcks,
 		}
 		bt.batchesByDigest[string(digest)] = b
 	}
@@ -103,9 +103,9 @@ func (bt *batchTracker) replyFetchBatch(seqNo uint64, digest []byte) *Actions {
 			{
 				Type: &pb.Msg_ForwardBatch{
 					ForwardBatch: &pb.ForwardBatch{
-						SeqNo:    seqNo,
-						Digest:   digest,
-						Requests: batch.requests,
+						SeqNo:       seqNo,
+						Digest:      digest,
+						RequestAcks: batch.requestAcks,
 					},
 				},
 			},
@@ -113,7 +113,7 @@ func (bt *batchTracker) replyFetchBatch(seqNo uint64, digest []byte) *Actions {
 	}
 }
 
-func (bt *batchTracker) applyForwardBatchMsg(source NodeID, seqNo uint64, digest []byte, requests []*pb.Request) *Actions {
+func (bt *batchTracker) applyForwardBatchMsg(source NodeID, seqNo uint64, digest []byte, requestAcks []*pb.RequestAck) *Actions {
 	_, ok := bt.fetchInFlight[string(digest)]
 	if !ok {
 		// We did not request this batch digest, so we don't know if we can trust it, discard
@@ -121,9 +121,9 @@ func (bt *batchTracker) applyForwardBatchMsg(source NodeID, seqNo uint64, digest
 		return &Actions{}
 	}
 
-	data := make([][]byte, len(requests))
-	for i, request := range requests {
-		data[i] = request.Digest
+	data := make([][]byte, len(requestAcks))
+	for i, requestAck := range requestAcks {
+		data[i] = requestAck.Digest
 	}
 	return &Actions{
 		Hash: []*HashRequest{
@@ -132,7 +132,7 @@ func (bt *batchTracker) applyForwardBatchMsg(source NodeID, seqNo uint64, digest
 				VerifyBatch: &VerifyBatch{
 					Source:         uint64(source),
 					SeqNo:          seqNo,
-					Requests:       requests,
+					RequestAcks:    requestAcks,
 					ExpectedDigest: digest,
 				},
 			},
@@ -157,7 +157,7 @@ func (bt *batchTracker) applyVerifyBatchHashResult(digest []byte, verifyBatch *V
 	if !ok {
 		b = &batch{
 			observedSequences: map[uint64]struct{}{},
-			requests:          verifyBatch.Requests,
+			requestAcks:       verifyBatch.RequestAcks,
 		}
 		bt.batchesByDigest[string(digest)] = b
 	}

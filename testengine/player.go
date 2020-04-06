@@ -118,17 +118,17 @@ func (p *Player) Step() error {
 			case *tpb.HashResult_Request:
 				actionResults.Digests[i].Request = &mirbft.HashRequest{
 					Request: &mirbft.Request{
-						Source:      result.Request.Source,
-						RequestData: result.Request.RequestData,
+						Source:  result.Request.Source,
+						Request: result.Request.Request,
 					},
 				}
 			case *tpb.HashResult_Batch:
 				actionResults.Digests[i].Request = &mirbft.HashRequest{
 					Batch: &mirbft.Batch{
-						Source:   result.Batch.Source,
-						SeqNo:    result.Batch.SeqNo,
-						Epoch:    result.Batch.Epoch,
-						Requests: result.Batch.Requests,
+						Source:      result.Batch.Source,
+						SeqNo:       result.Batch.SeqNo,
+						Epoch:       result.Batch.Epoch,
+						RequestAcks: result.Batch.RequestAcks,
 					},
 				}
 			case *tpb.HashResult_EpochChange:
@@ -144,7 +144,7 @@ func (p *Player) Step() error {
 					VerifyBatch: &mirbft.VerifyBatch{
 						Source:         result.VerifyBatch.Source,
 						SeqNo:          result.VerifyBatch.SeqNo,
-						Requests:       result.VerifyBatch.Requests,
+						RequestAcks:    result.VerifyBatch.RequestAcks,
 						ExpectedDigest: result.VerifyBatch.ExpectedDigest,
 					},
 				}
@@ -152,7 +152,7 @@ func (p *Player) Step() error {
 				actionResults.Digests[i].Request = &mirbft.HashRequest{
 					VerifyRequest: &mirbft.VerifyRequest{
 						Source:         result.VerifyRequest.Source,
-						RequestData:    result.VerifyRequest.RequestData,
+						Request:        result.VerifyRequest.Request,
 						ExpectedDigest: result.VerifyRequest.ExpectedDigest,
 					},
 				}
@@ -202,7 +202,7 @@ func (p *Player) Step() error {
 		node.Actions = &mirbft.Actions{}
 		return nil
 	case *tpb.Event_Propose_:
-		request := et.Propose.RequestData
+		request := et.Propose.Request
 		err := node.Node.Propose(context.Background(), false, request)
 		if err != nil {
 			return errors.WithMessagef(err, "node %d could not propose msg from client %x with reqno %d", event.Target, request.ClientId, request.ReqNo)

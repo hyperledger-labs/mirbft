@@ -44,12 +44,12 @@ message HashResult {
 }
 message Request {
 	uint64 source = 1;
-	mirbftpb.RequestData request_data = 2;
+	mirbftpb.Request request = 2;
 }
 
 message VerifyRequest {
 	uint64 source = 1;
-	mirbftpb.RequestData request_data = 2;
+	mirbftpb.Request request = 2;
 	bytes expected_digest = 3;
 }
 
@@ -57,13 +57,13 @@ message Batch {
 	uint64 source = 1;
 	uint64 epoch = 2;
 	uint64 seq_no = 3;
-	repeated mirbftpb.Request requests = 5;
+	repeated mirbftpb.RequestAck request_acks = 5;
 }
 
 message VerifyBatch {
 	uint64 source = 1;
 	uint64 seq_no = 2;
-	repeated mirbftpb.Request requests = 3;
+	repeated mirbftpb.RequestAck request_acks = 3;
 	bytes expected_digest = 4;
 }
 
@@ -87,7 +87,7 @@ message Event {
 	message Process {}
 
 	message Propose {
-		mirbftpb.RequestData request_data = 1;
+		mirbftpb.Request request = 1;
 	}
 
 	message Receive {

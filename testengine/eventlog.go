@@ -225,13 +225,13 @@ func (l *EventLog) InsertProcess(target uint64, fromNow uint64) {
 	})
 }
 
-func (l *EventLog) InsertPropose(target uint64, requestData *pb.RequestData, fromNow uint64) {
+func (l *EventLog) InsertPropose(target uint64, request *pb.Request, fromNow uint64) {
 	l.Insert(&tpb.Event{
 		Target: target,
 		Time:   l.FakeTime + fromNow,
 		Type: &tpb.Event_Propose_{
 			Propose: &tpb.Event_Propose{
-				RequestData: requestData,
+				Request: request,
 			},
 		},
 	})

@@ -79,7 +79,7 @@ message QEntry {
         uint64 epoch = 1;
         uint64 seq_no = 2;
         bytes digest = 3;
-        repeated Request requests = 4;
+        repeated ForwardRequest requests = 4;
 }
 
 // PEntry is an entry which must be persisted before a batch is Prepared (ie,
@@ -121,23 +121,22 @@ message FetchBatch {
 
 message ForwardBatch {
     uint64 seq_no = 1;
-    repeated Request requests = 2;
+    repeated RequestAck request_acks = 2;
     bytes digest = 3;
 }
 
 message ForwardRequest {
-    RequestData request_data = 1;
+    Request request = 1;
     bytes digest = 2;
 }
 
-message RequestData {
+message Request {
     bytes client_id = 1;
     uint64 req_no = 2;
     bytes data = 3;
-    bytes signature = 4;
 }
 
-message Request {
+message RequestAck {
     bytes client_id = 1;
     uint64 req_no = 2;
     bytes digest = 3;
@@ -146,7 +145,7 @@ message Request {
 message Preprepare {
     uint64 seq_no = 1;
     uint64 epoch = 2;
-    repeated Request batch = 3;
+    repeated RequestAck batch = 3;
 }
 
 message Prepare {

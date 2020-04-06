@@ -142,7 +142,7 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	case *pb.Msg_Checkpoint:
 		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_ForwardRequest:
-		requestData := innerMsg.ForwardRequest.RequestData
+		requestData := innerMsg.ForwardRequest.Request
 		clientWindow, ok := n.clientWindows.clientWindow(requestData.ClientId)
 		if !ok {
 			if requestData.ReqNo == 1 {

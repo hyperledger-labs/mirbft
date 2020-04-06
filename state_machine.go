@@ -81,7 +81,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	}
 }
 
-func (sm *stateMachine) propose(requestData *pb.RequestData) *Actions {
+func (sm *stateMachine) propose(requestData *pb.Request) *Actions {
 	data := [][]byte{
 		requestData.ClientId,
 		uint64ToBytes(requestData.ReqNo),
@@ -93,8 +93,8 @@ func (sm *stateMachine) propose(requestData *pb.RequestData) *Actions {
 			{
 				Data: data,
 				Request: &Request{
-					Source:      sm.myConfig.ID,
-					RequestData: requestData,
+					Source:  sm.myConfig.ID,
+					Request: requestData,
 				},
 			},
 		},
@@ -142,16 +142,16 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 				actions.Append(sm.batchTracker.replyFetchBatch(msg.SeqNo, msg.Digest))
 			case *pb.Msg_ForwardBatch:
 				msg := innerMsg.ForwardBatch
-				actions.Append(sm.batchTracker.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.Requests))
+				actions.Append(sm.batchTracker.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.RequestAcks))
 			case *pb.Msg_ForwardRequest:
 				if source == NodeID(sm.myConfig.ID) {
 					// We've already pre-processed this
 					continue
 				}
 				msg := innerMsg.ForwardRequest
-				cw, ok := sm.clientWindows.clientWindow(msg.RequestData.ClientId)
+				cw, ok := sm.clientWindows.clientWindow(msg.Request.ClientId)
 				if ok {
-					if request := cw.request(msg.RequestData.ReqNo); request != nil {
+					if request := cw.request(msg.Request.ReqNo); request != nil {
 						// TODO, once we support byzantine clients, there could be more than one digest
 						if bytes.Equal(request.digest, msg.Digest) {
 							// This forwarded message is already known to us
@@ -162,13 +162,13 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 
 				actions.Hash = append(actions.Hash, &HashRequest{
 					Data: [][]byte{
-						msg.RequestData.ClientId,
-						uint64ToBytes(msg.RequestData.ReqNo),
-						msg.RequestData.Data,
+						msg.Request.ClientId,
+						uint64ToBytes(msg.Request.ReqNo),
+						msg.Request.Data,
 					},
 					VerifyRequest: &VerifyRequest{
 						Source:         uint64(source),
-						RequestData:    msg.RequestData,
+						Request:        msg.Request,
 						ExpectedDigest: msg.Digest,
 					},
 				})
@@ -303,7 +303,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		switch {
 		case request.Batch != nil:
 			batch := request.Batch
-			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.Requests)
+			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
 
 			if sm.activeEpoch == nil || batch.Epoch != sm.activeEpoch.config.number {
 				continue
@@ -316,7 +316,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		case request.Request != nil:
 			request := request.Request
 			// TODO, rename applyPreprocessResult to something better
-			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request.RequestData))
+			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request.Request))
 		case request.VerifyRequest != nil:
 			request := request.VerifyRequest
 			if !bytes.Equal(request.ExpectedDigest, hashResult.Digest) {
@@ -324,7 +324,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 				// XXX this should not panic, but put to make dev easier
 			}
 			// TODO, rename applyPreprocessResult to something better
-			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request.RequestData))
+			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request.Request))
 		case request.EpochChange != nil:
 			epochChange := request.EpochChange
 			actions.Append(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
@@ -344,7 +344,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) applyPreprocessResult(digest []byte, requestData *pb.RequestData) *Actions {
+func (sm *stateMachine) applyPreprocessResult(digest []byte, requestData *pb.Request) *Actions {
 	clientID := requestData.ClientId
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {

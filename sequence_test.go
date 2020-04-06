@@ -41,7 +41,7 @@ var _ = Describe("sequence", func() {
 				[]*request{
 					{
 						digest: []byte("msg1-digest"),
-						requestData: &pb.RequestData{
+						requestData: &pb.Request{
 							ClientId: []byte("client-id"),
 							ReqNo:    7,
 							Data:     []byte("msg1"),
@@ -49,7 +49,7 @@ var _ = Describe("sequence", func() {
 					},
 					{
 						digest: []byte("msg2-digest"),
-						requestData: &pb.RequestData{
+						requestData: &pb.Request{
 							ClientId: []byte("client-id"),
 							ReqNo:    8,
 							Data:     []byte("msg2"),
@@ -65,7 +65,7 @@ var _ = Describe("sequence", func() {
 							Source: 0,
 							SeqNo:  5,
 							Epoch:  4,
-							Requests: []*pb.Request{
+							RequestAcks: []*pb.RequestAck{
 								{
 									ClientId: []byte("client-id"),
 									ReqNo:    7,
@@ -93,7 +93,7 @@ var _ = Describe("sequence", func() {
 						state:  Allocated,
 						seqNo:  5,
 						digest: []byte("msg1-digest"),
-						requestData: &pb.RequestData{
+						requestData: &pb.Request{
 							ClientId: []byte("client-id"),
 							ReqNo:    7,
 							Data:     []byte("msg1"),
@@ -103,7 +103,7 @@ var _ = Describe("sequence", func() {
 						state:  Allocated,
 						seqNo:  5,
 						digest: []byte("msg2-digest"),
-						requestData: &pb.RequestData{
+						requestData: &pb.Request{
 							ClientId: []byte("client-id"),
 							ReqNo:    8,
 							Data:     []byte("msg2"),
@@ -124,7 +124,7 @@ var _ = Describe("sequence", func() {
 						[]*request{
 							{
 								digest: []byte("msg1-digest"),
-								requestData: &pb.RequestData{
+								requestData: &pb.Request{
 									ClientId: []byte("client-id"),
 									ReqNo:    7,
 									Data:     []byte("msg1"),
@@ -132,7 +132,7 @@ var _ = Describe("sequence", func() {
 							},
 							{
 								digest: []byte("msg2-digest"),
-								requestData: &pb.RequestData{
+								requestData: &pb.Request{
 									ClientId: []byte("client-id"),
 									ReqNo:    8,
 									Data:     []byte("msg2"),
@@ -155,7 +155,7 @@ var _ = Describe("sequence", func() {
 					state:  Allocated,
 					seqNo:  5,
 					digest: []byte("msg1-digest"),
-					requestData: &pb.RequestData{
+					requestData: &pb.Request{
 						ClientId: []byte("client-id"),
 						ReqNo:    7,
 						Data:     []byte("msg1"),
@@ -165,7 +165,7 @@ var _ = Describe("sequence", func() {
 					state:  Allocated,
 					seqNo:  5,
 					digest: []byte("msg2-digest"),
-					requestData: &pb.RequestData{
+					requestData: &pb.Request{
 						ClientId: []byte("client-id"),
 						ReqNo:    8,
 						Data:     []byte("msg2"),
@@ -193,16 +193,22 @@ var _ = Describe("sequence", func() {
 						SeqNo:  5,
 						Epoch:  4,
 						Digest: []byte("digest"),
-						Requests: []*pb.Request{
+						Requests: []*pb.ForwardRequest{
 							{
-								ClientId: []byte("client-id"),
-								ReqNo:    7,
-								Digest:   []byte("msg1-digest"),
+								Request: &pb.Request{
+									ClientId: []byte("client-id"),
+									ReqNo:    7,
+									Data:     []byte("msg1"),
+								},
+								Digest: []byte("msg1-digest"),
 							},
 							{
-								ClientId: []byte("client-id"),
-								ReqNo:    8,
-								Digest:   []byte("msg2-digest"),
+								Request: &pb.Request{
+									ClientId: []byte("client-id"),
+									ReqNo:    8,
+									Data:     []byte("msg2"),
+								},
+								Digest: []byte("msg2-digest"),
 							},
 						},
 					},
@@ -214,16 +220,22 @@ var _ = Describe("sequence", func() {
 				SeqNo:  5,
 				Epoch:  4,
 				Digest: []byte("digest"),
-				Requests: []*pb.Request{
+				Requests: []*pb.ForwardRequest{
 					{
-						ClientId: []byte("client-id"),
-						ReqNo:    7,
-						Digest:   []byte("msg1-digest"),
+						Request: &pb.Request{
+							ClientId: []byte("client-id"),
+							ReqNo:    7,
+							Data:     []byte("msg1"),
+						},
+						Digest: []byte("msg1-digest"),
 					},
 					{
-						ClientId: []byte("client-id"),
-						ReqNo:    8,
-						Digest:   []byte("msg2-digest"),
+						Request: &pb.Request{
+							ClientId: []byte("client-id"),
+							ReqNo:    8,
+							Data:     []byte("msg2"),
+						},
+						Digest: []byte("msg2-digest"),
 					},
 				},
 			}))

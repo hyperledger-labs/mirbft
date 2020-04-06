@@ -76,10 +76,10 @@ func (s *sequence) allocate(batch []*request) *Actions {
 	s.state = Allocated
 	s.batch = batch
 
-	requests := make([]*pb.Request, len(batch))
+	requestAcks := make([]*pb.RequestAck, len(batch))
 	data := make([][]byte, len(batch))
 	for i, request := range batch {
-		requests[i] = &pb.Request{
+		requestAcks[i] = &pb.RequestAck{
 			ClientId: request.requestData.ClientId,
 			ReqNo:    request.requestData.ReqNo,
 			Digest:   request.digest,
@@ -95,10 +95,10 @@ func (s *sequence) allocate(batch []*request) *Actions {
 				Data: data,
 
 				Batch: &Batch{
-					Source:   uint64(s.owner),
-					SeqNo:    s.seqNo,
-					Epoch:    s.epoch,
-					Requests: requests,
+					Source:      uint64(s.owner),
+					SeqNo:       s.seqNo,
+					Epoch:       s.epoch,
+					RequestAcks: requestAcks,
 				},
 			},
 		},
@@ -112,9 +112,14 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 
 	s.digest = digest
 
-	requests := make([]*pb.Request, len(s.batch))
+	requests := make([]*pb.ForwardRequest, len(s.batch))
+	requestAcks := make([]*pb.RequestAck, len(s.batch))
 	for i, req := range s.batch {
-		requests[i] = &pb.Request{
+		requests[i] = &pb.ForwardRequest{
+			Request: req.requestData,
+			Digest:  req.digest,
+		}
+		requestAcks[i] = &pb.RequestAck{
 			ClientId: req.requestData.ClientId,
 			ReqNo:    req.requestData.ReqNo,
 			Digest:   req.digest,
@@ -137,13 +142,10 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 	var msgs []*pb.Msg
 	if uint64(s.owner) == s.myConfig.ID {
 		msgs = make([]*pb.Msg, len(s.batch)+1)
-		for i, request := range s.batch {
+		for i, request := range requests {
 			msgs[i] = &pb.Msg{
 				Type: &pb.Msg_ForwardRequest{
-					ForwardRequest: &pb.ForwardRequest{
-						RequestData: request.requestData,
-						Digest:      request.digest,
-					},
+					ForwardRequest: request, // TODO, do we want to share this with QEntry? It causes concurrent marshalling concerns.
 				},
 			}
 		}
@@ -152,7 +154,7 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 				Preprepare: &pb.Preprepare{
 					SeqNo: s.seqNo,
 					Epoch: s.epoch,
-					Batch: requests, // TODO, do we want to share this with the qEntry? Concurrent marshaling is not threadsafe I think
+					Batch: requestAcks,
 				},
 			},
 		}

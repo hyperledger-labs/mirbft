@@ -43,7 +43,7 @@ type RecorderClient struct {
 	LastNodeReqNoSend []uint64
 }
 
-func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.RequestData {
+func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.Request {
 	if reqNo > rc.Config.Total {
 		// We've sent all we should
 		return nil
@@ -54,7 +54,7 @@ func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.RequestData {
 	buffer.Write([]byte("-"))
 	buffer.Write(uint64ToBytes(reqNo))
 
-	return &pb.RequestData{
+	return &pb.Request{
 		ClientId: rc.Config.ID,
 		ReqNo:    reqNo,
 		Data:     buffer.Bytes(),
@@ -311,17 +311,17 @@ func (r *Recording) Step() error {
 			case hashRequest.Request != nil:
 				apply.Digests[i].Type = &tpb.HashResult_Request{
 					Request: &tpb.Request{
-						Source:      hashRequest.Request.Source,
-						RequestData: hashRequest.Request.RequestData,
+						Source:  hashRequest.Request.Source,
+						Request: hashRequest.Request.Request,
 					},
 				}
 			case hashRequest.Batch != nil:
 				apply.Digests[i].Type = &tpb.HashResult_Batch{
 					Batch: &tpb.Batch{
-						Source:   hashRequest.Batch.Source,
-						Epoch:    hashRequest.Batch.Epoch,
-						SeqNo:    hashRequest.Batch.SeqNo,
-						Requests: hashRequest.Batch.Requests,
+						Source:      hashRequest.Batch.Source,
+						Epoch:       hashRequest.Batch.Epoch,
+						SeqNo:       hashRequest.Batch.SeqNo,
+						RequestAcks: hashRequest.Batch.RequestAcks,
 					},
 				}
 			case hashRequest.EpochChange != nil:
@@ -337,7 +337,7 @@ func (r *Recording) Step() error {
 					VerifyBatch: &tpb.VerifyBatch{
 						Source:         hashRequest.VerifyBatch.Source,
 						SeqNo:          hashRequest.VerifyBatch.SeqNo,
-						Requests:       hashRequest.VerifyBatch.Requests,
+						RequestAcks:    hashRequest.VerifyBatch.RequestAcks,
 						ExpectedDigest: hashRequest.VerifyBatch.ExpectedDigest,
 					},
 				}
@@ -345,7 +345,7 @@ func (r *Recording) Step() error {
 				apply.Digests[i].Type = &tpb.HashResult_VerifyRequest{
 					VerifyRequest: &tpb.VerifyRequest{
 						Source:         hashRequest.VerifyRequest.Source,
-						RequestData:    hashRequest.VerifyRequest.RequestData,
+						Request:        hashRequest.VerifyRequest.Request,
 						ExpectedDigest: hashRequest.VerifyRequest.ExpectedDigest,
 					},
 				}

@@ -199,7 +199,7 @@ var _ = Describe("StressyTest", func() {
 			proposalUint, proposalBytes := uint64(i), Uint64ToBytes(uint64(i))
 
 			for _, node := range network.nodes {
-				err := node.Propose(ctx, true, &pb.RequestData{
+				err := node.Propose(ctx, true, &pb.Request{
 					ClientId: []byte{},
 					ReqNo:    uint64(i) + 1,
 					Data:     proposalBytes,

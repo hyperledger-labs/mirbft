@@ -31,7 +31,7 @@ type serializer struct {
 	actionsC chan Actions
 	doneC    <-chan struct{}
 	clientC  chan *clientReq
-	propC    chan *pb.RequestData
+	propC    chan *pb.Request
 	resultsC chan ActionResults
 	statusC  chan chan<- *Status
 	stepC    chan step
@@ -48,7 +48,7 @@ func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serialize
 	s := &serializer{
 		actionsC:     make(chan Actions),
 		doneC:        doneC,
-		propC:        make(chan *pb.RequestData),
+		propC:        make(chan *pb.Request),
 		clientC:      make(chan *clientReq),
 		resultsC:     make(chan ActionResults),
 		statusC:      make(chan chan<- *Status),

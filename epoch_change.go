@@ -151,18 +151,18 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		batch.observedSequences[seqNo] = struct{}{}
 		_ = i
 
-		for j, request := range batch.requests {
-			cw, ok := et.clientWindows.clientWindow(request.ClientId)
+		for j, requestAck := range batch.requestAcks {
+			cw, ok := et.clientWindows.clientWindow(requestAck.ClientId)
 			if !ok {
 				panic("unknown client, we need state transfer to handle this")
 			}
 
-			r := cw.request(request.ReqNo)
+			r := cw.request(requestAck.ReqNo)
 			if r == nil {
 				panic("unknown client request, we need state transfer to handle this")
 			}
 
-			if !bytes.Equal(r.digest, request.Digest) {
+			if !bytes.Equal(r.digest, requestAck.Digest) {
 				panic("unknown client request digest, we need state transfer to handle this")
 			}
 

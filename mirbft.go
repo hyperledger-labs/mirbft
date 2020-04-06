@@ -61,7 +61,7 @@ type ClientProposer struct {
 	s            *serializer
 }
 
-func (cp *ClientProposer) Propose(ctx context.Context, blocking bool, requestData *pb.RequestData) error {
+func (cp *ClientProposer) Propose(ctx context.Context, blocking bool, requestData *pb.Request) error {
 	for {
 		if requestData.ReqNo < cp.clientWaiter.lowWatermark {
 			return errors.Errorf("request %d below watermarks, lowWatermark=%d", requestData.ReqNo, cp.clientWaiter.lowWatermark)
@@ -204,7 +204,7 @@ func (n *Node) ClientProposer(ctx context.Context, clientID []byte) (*ClientProp
 // In the case that the node is stopped gracefully it returns ErrStopped.
 // If blocking is set to true, then even if this request is outside of the watermarks,
 // call will wait for the watermarks to move (or the context to expire).
-func (n *Node) Propose(ctx context.Context, blocking bool, requestData *pb.RequestData) error {
+func (n *Node) Propose(ctx context.Context, blocking bool, requestData *pb.Request) error {
 	cp, err := n.ClientProposer(ctx, requestData.ClientId)
 	if err != nil {
 		return err

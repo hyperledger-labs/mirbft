@@ -54,7 +54,7 @@ func (cwi *clientWindowIterator) next() ([]byte, *clientWindow) {
 }
 
 type request struct {
-	requestData *pb.RequestData
+	requestData *pb.Request
 	digest      []byte
 	state       SequenceState
 	seqNo       uint64
@@ -121,7 +121,7 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	}
 }
 
-func (cw *clientWindow) allocate(requestData *pb.RequestData, digest []byte) {
+func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) {
 	reqNo := requestData.ReqNo
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
