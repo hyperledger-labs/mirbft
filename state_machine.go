@@ -166,10 +166,10 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 						uint64ToBytes(msg.RequestData.ReqNo),
 						msg.RequestData.Data,
 					},
-					Request: &Request{
-						Source:      uint64(source),
-						RequestData: msg.RequestData,
-						// PurportedDigest: msg.Digest,
+					VerifyRequest: &VerifyRequest{
+						Source:         uint64(source),
+						RequestData:    msg.RequestData,
+						ExpectedDigest: msg.Digest,
 					},
 				})
 			case *pb.Msg_Suspect:
@@ -315,9 +315,16 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			actions.Append(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
 		case request.Request != nil:
 			request := request.Request
-			// sm.myConfig.Logger.Debug("applying preprocess result", zap.Int("index", i))
 			// TODO, rename applyPreprocessResult to something better
-			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request))
+			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request.RequestData))
+		case request.VerifyRequest != nil:
+			request := request.VerifyRequest
+			if !bytes.Equal(request.ExpectedDigest, hashResult.Digest) {
+				panic("byzantine")
+				// XXX this should not panic, but put to make dev easier
+			}
+			// TODO, rename applyPreprocessResult to something better
+			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request.RequestData))
 		case request.EpochChange != nil:
 			epochChange := request.EpochChange
 			actions.Append(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
@@ -337,15 +344,15 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) applyPreprocessResult(digest []byte, request *Request) *Actions {
-	clientID := request.RequestData.ClientId
+func (sm *stateMachine) applyPreprocessResult(digest []byte, requestData *pb.RequestData) *Actions {
+	clientID := requestData.ClientId
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
 		clientWindow = newClientWindow(1, 100, sm.myConfig) // XXX this should be configurable
 		sm.clientWindows.insert(clientID, clientWindow)
 	}
 
-	clientWindow.allocate(request.RequestData, digest)
+	clientWindow.allocate(requestData, digest)
 
 	actions := &Actions{}
 

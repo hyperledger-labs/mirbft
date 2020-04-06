@@ -95,6 +95,10 @@ type HashRequest struct {
 	// VerifyBatch is used to confirm that a forwarded batch matches
 	// the digest we requested.
 	VerifyBatch *VerifyBatch
+
+	// VerifyRequest is used to confirm that a forwarded request matches
+	// the digest we requested.
+	VerifyRequest *VerifyRequest
 }
 
 type VerifyBatch struct {
@@ -110,6 +114,12 @@ type Batch struct {
 	SeqNo    uint64
 	Epoch    uint64
 	Requests []*pb.Request
+}
+
+type VerifyRequest struct {
+	Source         uint64
+	RequestData    *pb.RequestData
+	ExpectedDigest []byte
 }
 
 type Request struct {

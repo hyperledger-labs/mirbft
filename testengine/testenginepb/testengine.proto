@@ -39,11 +39,18 @@ message HashResult {
 		Batch batch = 3;
 		EpochChange epoch_change = 4;
 		VerifyBatch verify_batch = 5;
+		VerifyRequest verify_request = 6;
         }
 }
 message Request {
 	uint64 source = 1;
 	mirbftpb.RequestData request_data = 2;
+}
+
+message VerifyRequest {
+	uint64 source = 1;
+	mirbftpb.RequestData request_data = 2;
+	bytes expected_digest = 3;
 }
 
 message Batch {

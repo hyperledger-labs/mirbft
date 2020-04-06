@@ -341,6 +341,14 @@ func (r *Recording) Step() error {
 						ExpectedDigest: hashRequest.VerifyBatch.ExpectedDigest,
 					},
 				}
+			case hashRequest.VerifyRequest != nil:
+				apply.Digests[i].Type = &tpb.HashResult_VerifyRequest{
+					VerifyRequest: &tpb.VerifyRequest{
+						Source:         hashRequest.VerifyRequest.Source,
+						RequestData:    hashRequest.VerifyRequest.RequestData,
+						ExpectedDigest: hashRequest.VerifyRequest.ExpectedDigest,
+					},
+				}
 			default:
 				return errors.Errorf("unimplemented hash type in recorder")
 			}
