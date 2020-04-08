@@ -37,9 +37,17 @@ func preProcess(outerMsg *pb.Msg) error {
 		if innerMsg.Checkpoint == nil {
 			return errors.Errorf("message of type Checkpoint, but checkpoint field is nil")
 		}
+	case *pb.Msg_RequestAck:
+		if innerMsg.RequestAck == nil {
+			return errors.Errorf("message of type RequestAck, but request_ack field is nil")
+		}
 	case *pb.Msg_ForwardRequest:
 		if innerMsg.ForwardRequest == nil {
 			return errors.Errorf("message of type ForwardRequest, but forward_request field is nil")
+		}
+	case *pb.Msg_ForwardBatch:
+		if innerMsg.ForwardBatch == nil {
+			return errors.Errorf("message of type ForwardBatch, but forward_batch field is nil")
 		}
 	case *pb.Msg_EpochChange:
 		if innerMsg.EpochChange == nil {

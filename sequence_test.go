@@ -38,10 +38,10 @@ var _ = Describe("sequence", func() {
 	Describe("allocate", func() {
 		It("transitions from Unknown to Allocated", func() {
 			actions := s.allocate(
-				[]*request{
+				[]*clientRequest{
 					{
 						digest: []byte("msg1-digest"),
-						requestData: &pb.Request{
+						data: &pb.Request{
 							ClientId: []byte("client-id"),
 							ReqNo:    7,
 							Data:     []byte("msg1"),
@@ -49,7 +49,7 @@ var _ = Describe("sequence", func() {
 					},
 					{
 						digest: []byte("msg2-digest"),
-						requestData: &pb.Request{
+						data: &pb.Request{
 							ClientId: []byte("client-id"),
 							ReqNo:    8,
 							Data:     []byte("msg2"),
@@ -88,22 +88,18 @@ var _ = Describe("sequence", func() {
 
 			Expect(s.state).To(Equal(Allocated))
 			Expect(s.batch).To(Equal(
-				[]*request{
+				[]*clientRequest{
 					{
-						state:  Allocated,
-						seqNo:  5,
 						digest: []byte("msg1-digest"),
-						requestData: &pb.Request{
+						data: &pb.Request{
 							ClientId: []byte("client-id"),
 							ReqNo:    7,
 							Data:     []byte("msg1"),
 						},
 					},
 					{
-						state:  Allocated,
-						seqNo:  5,
 						digest: []byte("msg2-digest"),
-						requestData: &pb.Request{
+						data: &pb.Request{
 							ClientId: []byte("client-id"),
 							ReqNo:    8,
 							Data:     []byte("msg2"),
@@ -121,10 +117,10 @@ var _ = Describe("sequence", func() {
 			It("does not transition and instead panics", func() {
 				badTransition := func() {
 					s.allocate(
-						[]*request{
+						[]*clientRequest{
 							{
 								digest: []byte("msg1-digest"),
-								requestData: &pb.Request{
+								data: &pb.Request{
 									ClientId: []byte("client-id"),
 									ReqNo:    7,
 									Data:     []byte("msg1"),
@@ -132,7 +128,7 @@ var _ = Describe("sequence", func() {
 							},
 							{
 								digest: []byte("msg2-digest"),
-								requestData: &pb.Request{
+								data: &pb.Request{
 									ClientId: []byte("client-id"),
 									ReqNo:    8,
 									Data:     []byte("msg2"),
@@ -150,22 +146,18 @@ var _ = Describe("sequence", func() {
 	Describe("applyProcessResult", func() {
 		BeforeEach(func() {
 			s.state = Allocated
-			s.batch = []*request{
+			s.batch = []*clientRequest{
 				{
-					state:  Allocated,
-					seqNo:  5,
 					digest: []byte("msg1-digest"),
-					requestData: &pb.Request{
+					data: &pb.Request{
 						ClientId: []byte("client-id"),
 						ReqNo:    7,
 						Data:     []byte("msg1"),
 					},
 				},
 				{
-					state:  Allocated,
-					seqNo:  5,
 					digest: []byte("msg2-digest"),
-					requestData: &pb.Request{
+					data: &pb.Request{
 						ClientId: []byte("client-id"),
 						ReqNo:    8,
 						Data:     []byte("msg2"),

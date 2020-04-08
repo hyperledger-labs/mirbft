@@ -7,12 +7,10 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	"bytes"
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 )
 
 // epochConfig is the information required by the various
@@ -47,16 +45,6 @@ func intersectionQuorum(nc *pb.NetworkConfig) int {
 func someCorrectQuorum(nc *pb.NetworkConfig) int {
 	return int(nc.F) + 1
 }
-
-/*
-func (ec *epochConfig) intersectionQuorum() int {
-	return intersectionQuorum(ec.networkConfig)
-}
-
-func (ec *epochConfig) someCorrectQuorum() int {
-	return someCorrectQuorum(ec.networkConfig)
-}
-*/
 
 func (ec *epochConfig) seqToBucket(seqNo uint64) BucketID {
 	return BucketID((seqNo - uint64(ec.initialSequence)) % uint64(len(ec.buckets)))
@@ -112,13 +100,13 @@ type initialEpochState struct {
 type initializedSequence struct {
 	state  SequenceState // May only be one of Uninitialized, Preprepared, Prepared, Committed
 	digest []byte
-	batch  []*request
+	batch  []*clientRequest
 }
 
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows *clientWindows, lastEpoch *epoch, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
+func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows *clientWindows, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
 
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
@@ -167,96 +155,22 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		sequences[i] = newSequence(owner, config.number, seqNo, networkConfig, myConfig)
 	}
 
-	if lastEpoch != nil {
-		j := 0
-	outer:
-		for _, oldSeq := range lastEpoch.sequences {
-			for ; j < len(newEpochConfig.FinalPreprepares); j++ {
-				newSeq := sequences[j]
-				if newSeq.seqNo < oldSeq.seqNo {
-					continue
-				}
-
-				if newSeq.seqNo > oldSeq.seqNo {
-					break
-				}
-
-				newSeq.state = Prepared
-				newSeq.digest = newEpochConfig.FinalPreprepares[j]
-
-				if newSeq.digest == nil {
-					newSeq.qEntry = &pb.QEntry{
-						Epoch: newSeq.epoch,
-						SeqNo: newSeq.seqNo,
-					}
-				} else if bytes.Equal(oldSeq.digest, newSeq.digest) {
-					newSeq.qEntry = &pb.QEntry{
-						Epoch:    newSeq.epoch,
-						SeqNo:    newSeq.seqNo,
-						Digest:   newSeq.digest,
-						Requests: oldSeq.qEntry.Requests,
-					}
-					newSeq.batch = oldSeq.batch
-
-					if oldSeq.state == Committed {
-						for _, batchEntry := range newSeq.batch {
-							batchEntry.state = Committed
-						}
-						newSeq.state = Committed
-					}
-
-					continue outer
-				} else {
-					myConfig.Logger.Panic("we need persistence and or state transfer to handle this path", zap.Uint64("Epoch", newSeq.epoch), zap.Uint64("SeqNo", newSeq.seqNo), zap.Binary("Digest", newSeq.digest), zap.Uint64("Bucket", uint64(config.seqToBucket(newSeq.seqNo))))
-				}
-				break
-			}
-
-			if oldSeq.batch != nil && oldSeq.owner == NodeID(myConfig.ID) {
-				for _, request := range oldSeq.batch {
-					clientWindow, ok := clientWindows.clientWindow(request.requestData.ClientId)
-					if !ok {
-						panic(fmt.Sprintf("epoch tried to start with request from unknown client"))
-
-					}
-
-					reqNo := request.requestData.ReqNo
-
-					if reqNo < clientWindow.lowWatermark {
-						// This request already committed somewhere
-						continue
-					}
-
-					if reqNo > clientWindow.highWatermark {
-						panic("we should not be processing reqnos which are above the watermarks for this checkpoint")
-					}
-
-					newRequest := clientWindow.request(reqNo)
-					if request != newRequest {
-						// TODO don't lose data that we once allocated, but got dropped
-						panic(fmt.Sprintf("about to abandon a request %d %x", reqNo, request.digest))
-					}
-				}
-			}
-		}
-
-		for ; j < len(newEpochConfig.FinalPreprepares); j++ {
-			newSeq := sequences[j]
-			newSeq.state = Prepared
-			newSeq.digest = newEpochConfig.FinalPreprepares[j]
-			if newSeq.digest == nil {
-				newSeq.qEntry = &pb.QEntry{
-					Epoch: newSeq.epoch,
-					SeqNo: newSeq.seqNo,
-				}
-			} else {
-				panic(fmt.Sprintf("we need persistence and or state transfer to handle this path, epoch=%d seqno=%d digest=%v bucket=%d", newSeq.epoch, newSeq.seqNo, newSeq.digest, config.seqToBucket(newSeq.seqNo)))
-			}
-		}
+	for i := range newEpochConfig.FinalPreprepares {
+		sequences[i].state = Committed
 	}
 
 	proposer := newProposer(myConfig, clientWindows, config.buckets)
 	proposer.stepAllClientWindows()
+
+	lowestUnallocated := make([]int, len(config.buckets))
+	for i := range lowestUnallocated {
+		for j := i; true; j += len(config.buckets) {
+			lowestUnallocated[i] = j
+			if j >= len(sequences) || sequences[j].state == Uninitialized {
+				break
+			}
+		}
+	}
 
 	return &epoch{
 		baseCheckpoint:    newEpochConfig.StartingCheckpoint,
@@ -266,32 +180,43 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		checkpoints:       checkpoints,
 		proposer:          proposer,
 		sequences:         sequences,
-		lowestUnallocated: make([]int, len(config.buckets)),
+		lowestUnallocated: lowestUnallocated,
 	}
 }
 
-func (e *epoch) getSequence(seqNo uint64) (*sequence, error) {
+func (e *epoch) getSequence(seqNo uint64) (*sequence, int, error) {
 	if seqNo < e.lowWatermark() || seqNo > e.highWatermark() {
-		return nil, errors.Errorf("requested seq no (%d) is out of range [%d - %d]",
+		return nil, 0, errors.Errorf("requested seq no (%d) is out of range [%d - %d]",
 			seqNo, e.lowWatermark(), e.highWatermark())
 	}
-	return e.sequences[int(seqNo-e.lowWatermark())], nil
+	offset := int(seqNo - e.lowWatermark())
+	return e.sequences[offset], offset, nil
 }
 
-func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*request) *Actions {
-	seq, err := e.getSequence(seqNo)
+func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*clientRequest) *Actions {
+	seq, offset, err := e.getSequence(seqNo)
 	if err != nil {
 		e.myConfig.Logger.Error(err.Error())
 		return &Actions{}
 	}
+
+	bucketID := e.config.seqToBucket(seqNo)
 
 	if source == NodeID(e.myConfig.ID) {
 		// Apply our own preprepares as a prepare
 		return seq.applyPrepareMsg(source, seq.digest)
 	}
 
+	defer func() {
+		e.lowestUnallocated[int(bucketID)] += len(e.config.buckets)
+	}()
+
+	if offset != e.lowestUnallocated[int(bucketID)] {
+		panic(fmt.Sprintf("dev test, this really shouldn't happen: offset=%d e.lowestUnallocated=%d\n", offset, e.lowestUnallocated[int(bucketID)]))
+	}
+
 	for _, request := range batch {
-		if request.state == Invalid {
+		if len(request.agreements) < intersectionQuorum(e.config.networkConfig) {
 			return seq.allocateInvalid(batch)
 		}
 	}
@@ -300,7 +225,7 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*request
 }
 
 func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
-	seq, err := e.getSequence(seqNo)
+	seq, _, err := e.getSequence(seqNo)
 	if err != nil {
 		e.myConfig.Logger.Error(err.Error())
 		return &Actions{}
@@ -309,13 +234,12 @@ func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Act
 }
 
 func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
-	seq, err := e.getSequence(seqNo)
+	seq, offset, err := e.getSequence(seqNo)
 	if err != nil {
 		e.myConfig.Logger.Error(err.Error())
 		return &Actions{}
 	}
 	actions := seq.applyCommitMsg(source, digest)
-	offset := int(seqNo - e.lowWatermark())
 	if len(actions.Commits) > 0 && offset == e.lowestUncommitted {
 		actions.Append(e.advanceUncommitted())
 	}
@@ -375,31 +299,6 @@ func (e *epoch) moveWatermarks() *Actions {
 	return e.drainProposer()
 }
 
-func (e *epoch) advanceLowestUnallocated() {
-	// TODO, this could definitely be made more efficient
-
-	for bucketID, index := range e.lowestUnallocated {
-		if index < 0 {
-			// If we haven't advanced since the watermarks moved, we might
-			// not have skipped the sequences we didn't own and now be negative.
-			e.lowestUnallocated[bucketID] = 0
-		}
-		for i := e.lowestUnallocated[bucketID]; i <= len(e.sequences); i++ {
-			if i == len(e.sequences) {
-				e.lowestUnallocated[bucketID] = i
-				break
-			}
-
-			seq := e.sequences[i]
-			e.lowestUnallocated[bucketID] = i
-			if seq.state != Uninitialized || e.config.seqToBucket(seq.seqNo) != BucketID(bucketID) {
-				continue
-			}
-			break
-		}
-	}
-}
-
 func (e *epoch) drainProposer() *Actions {
 	actions := &Actions{}
 
@@ -409,8 +308,6 @@ func (e *epoch) drainProposer() *Actions {
 		}
 
 		for e.proposer.hasPending(bucketID) {
-			e.advanceLowestUnallocated()
-
 			i := e.lowestUnallocated[int(bucketID)]
 			if i >= len(e.sequences) {
 				break
@@ -426,6 +323,7 @@ func (e *epoch) drainProposer() *Actions {
 			if ownerID == NodeID(e.myConfig.ID) && e.proposer.hasPending(bucketID) {
 				proposals := e.proposer.next(bucketID)
 				actions.Append(seq.allocate(proposals))
+				e.lowestUnallocated[int(bucketID)] += len(e.config.buckets)
 			}
 		}
 	}
@@ -434,7 +332,7 @@ func (e *epoch) drainProposer() *Actions {
 }
 
 func (e *epoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
-	seq, err := e.getSequence(seqNo)
+	seq, _, err := e.getSequence(seqNo)
 	if err != nil {
 		e.myConfig.Logger.Error(err.Error())
 		return &Actions{}
@@ -475,7 +373,6 @@ func (e *epoch) tick() *Actions {
 		return actions
 	}
 
-	e.advanceLowestUnallocated()
 	for bucketID, index := range e.lowestUnallocated {
 		if index >= len(e.sequences) {
 			continue
@@ -495,6 +392,8 @@ func (e *epoch) tick() *Actions {
 		} else {
 			actions.Append(e.sequences[index].allocate(nil))
 		}
+
+		e.lowestUnallocated[int(bucketID)] += len(e.config.buckets)
 	}
 
 	return actions

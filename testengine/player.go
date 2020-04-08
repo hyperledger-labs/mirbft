@@ -16,10 +16,11 @@ import (
 )
 
 type PlaybackNode struct {
-	Node       *mirbft.Node
-	Processing *mirbft.Actions
-	Actions    *mirbft.Actions
-	Status     *mirbft.Status
+	Node            *mirbft.Node
+	Processing      *mirbft.Actions
+	Actions         *mirbft.Actions
+	Status          *mirbft.Status
+	ClientProposers map[string]*mirbft.ClientProposer
 }
 
 type Player struct {
@@ -61,9 +62,10 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 		}
 
 		nodes = append(nodes, &PlaybackNode{
-			Node:    node,
-			Actions: &mirbft.Actions{},
-			Status:  status,
+			Node:            node,
+			Actions:         &mirbft.Actions{},
+			Status:          status,
+			ClientProposers: map[string]*mirbft.ClientProposer{},
 		})
 	}
 
@@ -203,7 +205,16 @@ func (p *Player) Step() error {
 		return nil
 	case *tpb.Event_Propose_:
 		request := et.Propose.Request
-		err := node.Node.Propose(context.Background(), false, request)
+		clientProposer, ok := node.ClientProposers[string(request.ClientId)]
+		if !ok {
+			var err error
+			clientProposer, err = node.Node.ClientProposer(context.Background(), request.ClientId, mirbft.WaitForRoom(false))
+			if err != nil {
+				return errors.WithMessagef(err, "node %d could not create client proposer for client %x", event.Target, request.ClientId)
+			}
+			node.ClientProposers[string(request.ClientId)] = clientProposer
+		}
+		err := clientProposer.Propose(context.Background(), request)
 		if err != nil {
 			return errors.WithMessagef(err, "node %d could not propose msg from client %x with reqno %d", event.Target, request.ClientId, request.ReqNo)
 		}

@@ -7,7 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 
@@ -15,8 +14,10 @@ import (
 )
 
 type clientWindows struct {
-	windows map[string]*clientWindow
-	clients []string
+	windows       map[string]*clientWindow
+	clients       []string
+	networkConfig *pb.NetworkConfig
+	myConfig      *Config
 }
 
 func (cws *clientWindows) clientWindow(clientID []byte) (*clientWindow, bool) {
@@ -53,19 +54,25 @@ func (cwi *clientWindowIterator) next() ([]byte, *clientWindow) {
 	return []byte(client), clientWindow
 }
 
-type request struct {
-	requestData *pb.Request
-	digest      []byte
-	state       SequenceState
-	seqNo       uint64
+type clientReqNo struct {
+	digests       map[string]*clientRequest
+	committed     *uint64
+	strongRequest *clientRequest
+}
+
+type clientRequest struct {
+	digest     []byte
+	data       *pb.Request
+	agreements map[NodeID]struct{}
 }
 
 type clientWindow struct {
-	myConfig      *Config
-	lowWatermark  uint64
-	highWatermark uint64
-	requests      []*request
-	clientWaiter  *clientWaiter // Used to throttle clients
+	lowWatermark   uint64
+	highWatermark  uint64
+	clientRequests []*clientReqNo
+	clientWaiter   *clientWaiter // Used to throttle clients
+	myConfig       *Config
+	networkConfig  *pb.NetworkConfig
 }
 
 type clientWaiter struct {
@@ -74,12 +81,13 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newClientWindow(lowWatermark, highWatermark uint64, myConfig *Config) *clientWindow {
+func newClientWindow(lowWatermark, highWatermark uint64, networkConfig *pb.NetworkConfig, myConfig *Config) *clientWindow {
 	return &clientWindow{
-		myConfig:      myConfig,
-		lowWatermark:  lowWatermark,
-		highWatermark: highWatermark,
-		requests:      make([]*request, int(highWatermark-lowWatermark)+1),
+		myConfig:       myConfig,
+		networkConfig:  networkConfig,
+		lowWatermark:   lowWatermark,
+		highWatermark:  highWatermark,
+		clientRequests: make([]*clientReqNo, int(highWatermark-lowWatermark)+1),
 		clientWaiter: &clientWaiter{
 			lowWatermark:  lowWatermark,
 			highWatermark: highWatermark,
@@ -89,12 +97,12 @@ func newClientWindow(lowWatermark, highWatermark uint64, myConfig *Config) *clie
 }
 
 func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
-	newRequests := make([]*request, int(cw.highWatermark-cw.lowWatermark)+1)
+	newRequests := make([]*clientReqNo, int(cw.highWatermark-cw.lowWatermark)+1)
 	i := 0
 	j := uint64(0)
 	copying := false
-	for _, request := range cw.requests {
-		if request == nil || request.state != Committed || request.seqNo > maxSeqNo {
+	for _, request := range cw.clientRequests {
+		if request == nil || request.committed == nil || *request.committed > maxSeqNo {
 			copying = true
 		}
 
@@ -102,7 +110,7 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 			newRequests[i] = request
 			i++
 		} else {
-			if request.seqNo == 0 {
+			if request.committed == nil {
 				panic("this should be initialized if here")
 			}
 			j++
@@ -112,13 +120,46 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 
 	cw.lowWatermark += j
 	cw.highWatermark += j
-	cw.requests = newRequests
+	cw.clientRequests = newRequests
 	close(cw.clientWaiter.expired)
 	cw.clientWaiter = &clientWaiter{
 		lowWatermark:  cw.lowWatermark,
 		highWatermark: cw.highWatermark,
 		expired:       make(chan struct{}),
 	}
+}
+
+func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) {
+	if reqNo > cw.highWatermark {
+		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
+	}
+
+	if reqNo < cw.lowWatermark {
+		panic(fmt.Sprintf("unexpected: %d < %d", reqNo, cw.lowWatermark))
+	}
+
+	offset := int(reqNo - cw.lowWatermark)
+	if cw.clientRequests[offset] == nil {
+		cw.clientRequests[offset] = &clientReqNo{
+			digests: map[string]*clientRequest{},
+		}
+	}
+
+	cr, ok := cw.clientRequests[offset].digests[string(digest)]
+	if !ok {
+		cr = &clientRequest{
+			digest:     digest,
+			agreements: map[NodeID]struct{}{},
+		}
+		cw.clientRequests[offset].digests[string(digest)] = cr
+	}
+
+	cr.agreements[source] = struct{}{}
+
+	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
+		cw.clientRequests[offset].strongRequest = cr
+	}
+
 }
 
 func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) {
@@ -132,20 +173,28 @@ func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) {
 	}
 
 	offset := int(reqNo - cw.lowWatermark)
-	if cw.requests[offset] != nil {
-		if !bytes.Equal(cw.requests[offset].digest, digest) {
-			panic("we don't handle byzantine clients yet, but two different requests for the same reqno")
+	if cw.clientRequests[offset] == nil {
+		cw.clientRequests[offset] = &clientReqNo{
+			digests: map[string]*clientRequest{},
 		}
-		return
 	}
 
-	cw.requests[offset] = &request{
-		requestData: requestData,
-		digest:      digest,
+	cr, ok := cw.clientRequests[offset].digests[string(digest)]
+	if !ok {
+		cr = &clientRequest{
+			digest:     digest,
+			data:       requestData,
+			agreements: map[NodeID]struct{}{},
+		}
+		cw.clientRequests[offset].digests[string(digest)] = cr
+	}
+
+	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
+		cw.clientRequests[offset].strongRequest = cr
 	}
 }
 
-func (cw *clientWindow) request(reqNo uint64) *request {
+func (cw *clientWindow) request(reqNo uint64) *clientReqNo {
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
 	}
@@ -156,17 +205,17 @@ func (cw *clientWindow) request(reqNo uint64) *request {
 
 	offset := int(reqNo - cw.lowWatermark)
 
-	return cw.requests[offset]
+	return cw.clientRequests[offset]
 }
 
 func (cw *clientWindow) status() *ClientWindowStatus {
-	allocated := make([]uint64, len(cw.requests))
-	for i, request := range cw.requests {
+	allocated := make([]uint64, len(cw.clientRequests))
+	for i, request := range cw.clientRequests {
 		if request == nil {
 			continue
 		}
-		if request.state == Committed {
-			allocated[i] = 2
+		if request.committed != nil {
+			allocated[i] = 2 // TODO, actually report the seqno it committed to
 		} else {
 			allocated[i] = 1
 		}

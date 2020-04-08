@@ -65,7 +65,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig)
-			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, nil, networkConfig, consumerConfig)
+			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, networkConfig, consumerConfig)
 			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
 
 			serializer = newSerializer(stateMachineVal, doneC)
@@ -122,6 +122,26 @@ var _ = Describe("Integration", func() {
 						},
 					},
 				},
+			}
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Broadcast: []*pb.Msg{
+					{
+						Type: &pb.Msg_RequestAck{
+							RequestAck: &pb.RequestAck{
+								ClientId: []byte("client-1"),
+								ReqNo:    1,
+								Digest:   []byte("request-digest"),
+							},
+						},
+					},
+				},
+			}))
+
+			By("applying our own ack")
+			serializer.stepC <- step{
+				Source: 0,
+				Msg:    actions.Broadcast[0],
 			}
 
 			Eventually(serializer.actionsC).Should(Receive(actions))
@@ -297,7 +317,7 @@ var _ = Describe("Integration", func() {
 			}
 
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig)
-			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, nil, networkConfig, consumerConfig)
+			stateMachineVal.activeEpoch = newEpoch(epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, networkConfig, consumerConfig)
 			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
 			stateMachineVal.nodeMsgs[1].setActiveEpoch(stateMachineVal.activeEpoch)
 			stateMachineVal.nodeMsgs[2].setActiveEpoch(stateMachineVal.activeEpoch)
@@ -359,27 +379,58 @@ var _ = Describe("Integration", func() {
 					},
 				},
 			}
-
-			// TODO, we should include this, and make sure that we don't reprocess
-			// once we include the expected digest on the forward
-			/*
-				By("faking a forward from the leader")
-				serializer.stepC <- step{
-					Source: 3,
-					Msg: &pb.Msg{
-						Type: &pb.Msg_Forward{
-							Forward: &pb.Forward{
-								RequestData: &pb.RequestData{
-									ClientId:  []byte("client-1"),
-									ReqNo:     1,
-									Data:      []byte("data"),
-									Signature: []byte("signature"),
-								},
+			Eventually(serializer.actionsC).Should(Receive(actions))
+			Expect(actions).To(Equal(&Actions{
+				Broadcast: []*pb.Msg{
+					{
+						Type: &pb.Msg_RequestAck{
+							RequestAck: &pb.RequestAck{
+								ClientId: []byte("client-1"),
+								ReqNo:    1,
+								Digest:   []byte("request-digest"),
 							},
 						},
 					},
-				}
-			*/
+				},
+			}))
+
+			By("applying our own ack and receiving two acks for the request")
+			serializer.stepC <- step{
+				Source: 0,
+				Msg: &pb.Msg{
+					Type: &pb.Msg_RequestAck{
+						RequestAck: &pb.RequestAck{
+							ClientId: []byte("client-1"),
+							ReqNo:    1,
+							Digest:   []byte("request-digest"),
+						},
+					},
+				},
+			}
+			serializer.stepC <- step{
+				Source: 1,
+				Msg: &pb.Msg{
+					Type: &pb.Msg_RequestAck{
+						RequestAck: &pb.RequestAck{
+							ClientId: []byte("client-1"),
+							ReqNo:    1,
+							Digest:   []byte("request-digest"),
+						},
+					},
+				},
+			}
+			serializer.stepC <- step{
+				Source: 2,
+				Msg: &pb.Msg{
+					Type: &pb.Msg_RequestAck{
+						RequestAck: &pb.RequestAck{
+							ClientId: []byte("client-1"),
+							ReqNo:    1,
+							Digest:   []byte("request-digest"),
+						},
+					},
+				},
+			}
 
 			By("faking a preprepare from the leader")
 			serializer.stepC <- step{

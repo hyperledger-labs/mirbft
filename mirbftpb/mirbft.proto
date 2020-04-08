@@ -106,6 +106,7 @@ message Msg {
 	ForwardBatch forward_batch = 12;
 	FetchRequest fetch_request = 13;
         ForwardRequest forward_request = 14;
+	RequestAck request_ack = 15;
     }
 }
 

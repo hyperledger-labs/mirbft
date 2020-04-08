@@ -56,12 +56,14 @@ type Node struct {
 }
 
 type ClientProposer struct {
+	blocking     bool
 	clientID     []byte
 	clientWaiter *clientWaiter
 	s            *serializer
 }
 
-func (cp *ClientProposer) Propose(ctx context.Context, blocking bool, requestData *pb.Request) error {
+// TODO, change requestData to bytes
+func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.Request) error {
 	for {
 		if requestData.ReqNo < cp.clientWaiter.lowWatermark {
 			return errors.Errorf("request %d below watermarks, lowWatermark=%d", requestData.ReqNo, cp.clientWaiter.lowWatermark)
@@ -71,7 +73,7 @@ func (cp *ClientProposer) Propose(ctx context.Context, blocking bool, requestDat
 			break
 		}
 
-		if blocking {
+		if cp.blocking {
 			select {
 			case <-cp.clientWaiter.expired:
 			case <-ctx.Done():
@@ -165,10 +167,24 @@ func StartNewNode(config *Config, doneC <-chan struct{}, initialNetworkConfig *p
 	}, nil
 }
 
-// ClientProposer TODO, decide if we want this as external API.  It should be slightly less
-// expensive to retain the client proposer for clients who are submitting many txes at a time.
-// On the other hand, it's more API surface that we could always expose later.
-func (n *Node) ClientProposer(ctx context.Context, clientID []byte) (*ClientProposer, error) {
+type ClientProposerOption interface{}
+
+type clientProposerBlocking struct {
+	shouldBlock bool
+}
+
+// WaitForRoom indicates whether the client proposer should block, waiting for
+// space to become available in the client window.  If set to false, the client
+// will immediately return with an error if the window exhausts.
+func WaitForRoom(shouldBlock bool) ClientProposerOption {
+	return clientProposerBlocking{
+		shouldBlock: shouldBlock,
+	}
+}
+
+// ClientProposer returns a new ClientProposer for a given clientID.  It is the caller's
+// responsibility to ensure that this method is never invoked twice with the same clientID.
+func (n *Node) ClientProposer(ctx context.Context, clientID []byte, options ...ClientProposerOption) (*ClientProposer, error) {
 	replyC := make(chan *clientWaiter, 1)
 	select {
 	case n.s.clientC <- &clientReq{
@@ -191,26 +207,22 @@ func (n *Node) ClientProposer(ctx context.Context, clientID []byte) (*ClientProp
 		return nil, n.s.getExitErr()
 	}
 
+	blocking := true
+	for _, option := range options {
+		switch o := option.(type) {
+		case clientProposerBlocking:
+			blocking = o.shouldBlock
+		default:
+			panic("unknown option")
+		}
+	}
+
 	return &ClientProposer{
+		blocking:     blocking,
 		clientID:     clientID,
 		clientWaiter: cw,
 		s:            n.s,
 	}, nil
-}
-
-// Propose injects a new message into the system.  The message may be
-// forwarded to another node after pre-processing for ordering.  This method
-// only returns an error if the context ends, or the node is stopped.
-// In the case that the node is stopped gracefully it returns ErrStopped.
-// If blocking is set to true, then even if this request is outside of the watermarks,
-// call will wait for the watermarks to move (or the context to expire).
-func (n *Node) Propose(ctx context.Context, blocking bool, requestData *pb.Request) error {
-	cp, err := n.ClientProposer(ctx, requestData.ClientId)
-	if err != nil {
-		return err
-	}
-
-	return cp.Propose(ctx, blocking, requestData)
 }
 
 // Step takes authenticated messages from the other nodes in the network.  It

@@ -37,7 +37,7 @@ type sequence struct {
 	qEntry *pb.QEntry
 
 	// batch is not set until after state >= Allocated
-	batch []*request
+	batch []*clientRequest
 
 	// digest is not set until after state >= Digested
 	digest []byte
@@ -59,7 +59,7 @@ func newSequence(owner NodeID, epoch, seqNo uint64, networkConfig *pb.NetworkCon
 	}
 }
 
-func (s *sequence) allocateInvalid(batch []*request) *Actions {
+func (s *sequence) allocateInvalid(batch []*clientRequest) *Actions {
 	// TODO, handle this case by optionally allowing the transition from
 	// Invalid to Prepared if the network agrees that this batch is valid.
 	panic("TODO unhandled")
@@ -68,7 +68,7 @@ func (s *sequence) allocateInvalid(batch []*request) *Actions {
 // allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
 // It transitions to Preprepared and returns a ValidationRequest message.
-func (s *sequence) allocate(batch []*request) *Actions {
+func (s *sequence) allocate(batch []*clientRequest) *Actions {
 	if s.state != Uninitialized {
 		s.myConfig.Logger.Panic("illegal state for allocate", zap.Int("State", int(s.state)), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
 	}
@@ -80,13 +80,11 @@ func (s *sequence) allocate(batch []*request) *Actions {
 	data := make([][]byte, len(batch))
 	for i, request := range batch {
 		requestAcks[i] = &pb.RequestAck{
-			ClientId: request.requestData.ClientId,
-			ReqNo:    request.requestData.ReqNo,
+			ClientId: request.data.ClientId,
+			ReqNo:    request.data.ReqNo,
 			Digest:   request.digest,
 		}
 		data[i] = request.digest
-		request.state = Allocated
-		request.seqNo = s.seqNo
 	}
 
 	return &Actions{
@@ -116,12 +114,12 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 	requestAcks := make([]*pb.RequestAck, len(s.batch))
 	for i, req := range s.batch {
 		requests[i] = &pb.ForwardRequest{
-			Request: req.requestData,
+			Request: req.data,
 			Digest:  req.digest,
 		}
 		requestAcks[i] = &pb.RequestAck{
-			ClientId: req.requestData.ClientId,
-			ReqNo:    req.requestData.ReqNo,
+			ClientId: req.data.ClientId,
+			ReqNo:    req.data.ReqNo,
 			Digest:   req.digest,
 		}
 	}
@@ -131,10 +129,6 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 		Epoch:    s.epoch,
 		Digest:   digest,
 		Requests: requests,
-	}
-
-	for _, request := range s.batch {
-		request.state = Preprepared
 	}
 
 	s.state = Preprepared
@@ -205,9 +199,6 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 	}
 
 	s.state = Prepared
-	for _, request := range s.batch {
-		request.state = Prepared
-	}
 
 	return &Actions{
 		Broadcast: []*pb.Msg{
@@ -256,9 +247,6 @@ func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
 	}
 
 	s.state = Committed
-	for _, request := range s.batch {
-		request.state = Committed
-	}
 
 	return &Actions{
 		Commits: []*Commit{

@@ -36,9 +36,9 @@ type clientWindowProcessor struct {
 }
 
 type proposalBucket struct {
-	queue     []*request
+	queue     []*clientRequest
 	sizeBytes int
-	pending   [][]*request
+	pending   [][]*clientRequest
 }
 
 func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[BucketID]NodeID) *proposer {
@@ -92,8 +92,9 @@ func (p *proposer) stepClientWindow(clientID []byte) {
 	}
 
 	for rwp.lastProcessed < rwp.clientWindow.highWatermark {
-		request := rwp.clientWindow.request(rwp.lastProcessed + 1)
-		if request == nil {
+		reqNo := rwp.lastProcessed + 1
+		request := rwp.clientWindow.request(reqNo)
+		if request == nil || request.strongRequest == nil || request.strongRequest.data == nil {
 			break
 		}
 
@@ -101,20 +102,20 @@ func (p *proposer) stepClientWindow(clientID []byte) {
 
 		// TODO, maybe offset the bucket ID by something in the client ID so not all start in bucket 1?
 		// maybe some sort of client index?
-		bucket := BucketID(request.requestData.ReqNo % uint64(p.totalBuckets))
+		bucket := BucketID(reqNo % uint64(p.totalBuckets))
 		proposalBucket, ok := p.proposalBuckets[bucket]
 		if !ok {
 			// I don't lead this bucket this epoch
 			continue
 		}
 
-		if request.state != Uninitialized {
+		if request.committed != nil {
 			// Already proposed by another node in a previous epoch
 			continue
 		}
 
-		proposalBucket.queue = append(proposalBucket.queue, request)
-		proposalBucket.sizeBytes += len(request.requestData.Data)
+		proposalBucket.queue = append(proposalBucket.queue, request.strongRequest)
+		proposalBucket.sizeBytes += len(request.strongRequest.data.Data)
 		if proposalBucket.sizeBytes >= p.myConfig.BatchParameters.CutSizeBytes {
 			proposalBucket.pending = append(proposalBucket.pending, proposalBucket.queue)
 			proposalBucket.queue = nil
@@ -134,7 +135,7 @@ func (p *proposer) hasPending(bucket BucketID) bool {
 	return len(p.proposalBuckets[bucket].pending) > 0
 }
 
-func (p *proposer) next(bucket BucketID) []*request {
+func (p *proposer) next(bucket BucketID) []*clientRequest {
 	proposalBucket := p.proposalBuckets[bucket]
 
 	if len(proposalBucket.pending) > 0 {

@@ -124,7 +124,7 @@ func BytesToUint64(value []byte) uint64 {
 // as the more general single threaded testengine type tests.  Still, there
 // seems to be value in confirming that at a basic level, a concurrent network executes
 // correctly.
-var _ = Describe("StressyTest", func() {
+var _ = XDescribe("StressyTest", func() {
 	var (
 		doneC     chan struct{}
 		logger    *zap.Logger
@@ -194,12 +194,19 @@ var _ = Describe("StressyTest", func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
+		clients := make([]*mirbft.ClientProposer, len(network.nodes))
+		for i, node := range network.nodes {
+			var err error
+			clients[i], err = node.ClientProposer(ctx, []byte{})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
 		Expect(testConfig.MsgCount).NotTo(Equal(0))
 		for i := 0; i < testConfig.MsgCount; i++ {
 			proposalUint, proposalBytes := uint64(i), Uint64ToBytes(uint64(i))
 
-			for _, node := range network.nodes {
-				err := node.Propose(ctx, true, &pb.Request{
+			for _, client := range clients {
+				err := client.Propose(ctx, &pb.Request{
 					ClientId: []byte{},
 					ReqNo:    uint64(i) + 1,
 					Data:     proposalBytes,

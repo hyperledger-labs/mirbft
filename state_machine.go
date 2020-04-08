@@ -41,7 +41,9 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	clientWindows := &clientWindows{
-		windows: map[string]*clientWindow{},
+		windows:       map[string]*clientWindow{},
+		networkConfig: networkConfig,
+		myConfig:      myConfig,
 	}
 	for _, id := range networkConfig.Nodes {
 		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, clientWindows, oddities)
@@ -137,6 +139,9 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 			case *pb.Msg_Checkpoint:
 				msg := innerMsg.Checkpoint
 				actions.Append(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
+			case *pb.Msg_RequestAck:
+				msg := innerMsg.RequestAck
+				actions.Append(sm.applyRequestAckMsg(source, msg.ClientId, msg.ReqNo, msg.Digest))
 			case *pb.Msg_FetchBatch:
 				msg := innerMsg.FetchBatch
 				actions.Append(sm.batchTracker.replyFetchBatch(msg.SeqNo, msg.Digest))
@@ -151,10 +156,11 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 				msg := innerMsg.ForwardRequest
 				cw, ok := sm.clientWindows.clientWindow(msg.Request.ClientId)
 				if ok {
-					if request := cw.request(msg.Request.ReqNo); request != nil {
-						// TODO, once we support byzantine clients, there could be more than one digest
-						if bytes.Equal(request.digest, msg.Digest) {
-							// This forwarded message is already known to us
+					// TODO, make sure that we only allow one vote per replica for a reqno
+					if cr := cw.request(msg.Request.ReqNo); cr != nil {
+						req, ok := cr.digests[string(msg.Digest)]
+						req.agreements[source] = struct{}{}
+						if ok && req.data != nil {
 							continue
 						}
 					}
@@ -197,7 +203,7 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 }
 
 func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
-	requests := make([]*request, len(msg.Batch))
+	requests := make([]*clientRequest, len(msg.Batch))
 
 	for i, batchEntry := range msg.Batch {
 		clientWindow, ok := sm.clientWindows.clientWindow(batchEntry.ClientId)
@@ -209,7 +215,11 @@ func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *A
 		if request == nil {
 			panic(fmt.Sprintf("could not find reqno=%d for batch entry from %d, this should have been hackily handled by the nodemsgs stuff", batchEntry.ReqNo, source))
 		}
-		requests[i] = request
+
+		requests[i], ok = request.digests[string(batchEntry.Digest)]
+		if !ok {
+			panic("we should already have a quorum cert of this actually, this is bad")
+		}
 	}
 
 	return sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, requests)
@@ -244,20 +254,81 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 		return actions
 	}
 
-	sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.networkNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.epochChanger.lastActiveEpoch, sm.networkConfig, sm.myConfig)
-	for _, sequence := range sm.activeEpoch.sequences {
-		if sequence.state >= Prepared {
-			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-				Type: &pb.Msg_Commit{
-					Commit: &pb.Commit{
-						SeqNo:  sequence.seqNo,
-						Epoch:  sequence.epoch,
-						Digest: sequence.digest,
+	newEpochConfig := sm.epochChanger.pendingEpochTarget.networkNewEpoch
+
+	if sm.epochChanger.lastActiveEpoch != nil {
+		// TODO, this is a weird big block in an if, to cover only the first state case
+		for _, sequence := range sm.epochChanger.lastActiveEpoch.sequences {
+			if sequence.state == Committed {
+				continue
+			}
+
+			offset := int(sequence.seqNo-newEpochConfig.StartingCheckpoint.SeqNo) - 1
+			if offset < 0 {
+				panic("we need checkpoint state transfer to handle this case")
+			}
+
+			if int(offset) >= len(newEpochConfig.FinalPreprepares) {
+				continue
+			}
+
+			finalDigest := newEpochConfig.FinalPreprepares[offset]
+			if len(finalDigest) == 0 {
+				actions.Commits = append(actions.Commits, &Commit{
+					QEntry: &pb.QEntry{
+						SeqNo: sequence.seqNo,
+						Epoch: sequence.epoch,
 					},
+					Checkpoint: sequence.seqNo%uint64(sm.networkConfig.CheckpointInterval) == 0,
+				})
+				continue
+			}
+
+			batch, ok := sm.batchTracker.getBatch(finalDigest)
+			if !ok {
+				panic("we should not have gotten this far")
+			}
+
+			requests := make([]*pb.ForwardRequest, len(batch.requestAcks))
+			for i, reqAck := range batch.requestAcks {
+				cw, ok := sm.clientWindows.clientWindow(reqAck.ClientId)
+				if !ok {
+					panic("we should not have gotten this far")
+				}
+
+				crn := cw.request(reqAck.ReqNo)
+				if crn == nil {
+					panic("we should not have gotten this far")
+				}
+
+				cr, ok := crn.digests[string(reqAck.Digest)]
+				if !ok {
+					panic("we should not have gotten this far")
+				}
+
+				if cr.data == nil {
+					panic("we should not have gotten this far")
+				}
+
+				requests[i] = &pb.ForwardRequest{
+					Request: cr.data,
+					Digest:  reqAck.Digest,
+				}
+			}
+
+			actions.Commits = append(actions.Commits, &Commit{
+				QEntry: &pb.QEntry{
+					SeqNo:    sequence.seqNo,
+					Epoch:    sequence.epoch,
+					Digest:   sequence.digest,
+					Requests: requests,
 				},
+				Checkpoint: sequence.seqNo%uint64(sm.networkConfig.CheckpointInterval) == 0,
 			})
 		}
 	}
+
+	sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.networkNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.networkConfig, sm.myConfig)
 	actions.Append(sm.activeEpoch.advanceUncommitted())
 	actions.Append(sm.activeEpoch.drainProposer())
 	sm.epochChanger.pendingEpochTarget.state = idle
@@ -316,7 +387,16 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		case request.Request != nil:
 			request := request.Request
 			// TODO, rename applyPreprocessResult to something better
-			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request.Request))
+			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+				Type: &pb.Msg_RequestAck{
+					RequestAck: &pb.RequestAck{
+						ClientId: request.Request.ClientId,
+						ReqNo:    request.Request.ReqNo,
+						Digest:   hashResult.Digest,
+					},
+				},
+			})
+			actions.Append(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
 		case request.VerifyRequest != nil:
 			request := request.VerifyRequest
 			if !bytes.Equal(request.ExpectedDigest, hashResult.Digest) {
@@ -324,7 +404,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 				// XXX this should not panic, but put to make dev easier
 			}
 			// TODO, rename applyPreprocessResult to something better
-			actions.Append(sm.applyPreprocessResult(hashResult.Digest, request.Request))
+			actions.Append(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
 		case request.EpochChange != nil:
 			epochChange := request.EpochChange
 			actions.Append(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
@@ -344,30 +424,46 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) applyPreprocessResult(digest []byte, requestData *pb.Request) *Actions {
+func (sm *stateMachine) applyRequestAckMsg(source NodeID, clientID []byte, reqNo uint64, digest []byte) *Actions {
+	// TODO, we need to prevent DoS down this avenue by pre-filtering these
+	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
+	if !ok {
+		clientWindow = newClientWindow(1, 100, sm.networkConfig, sm.myConfig) // XXX this should be configurable
+		sm.clientWindows.insert(clientID, clientWindow)
+	}
+
+	clientWindow.ack(source, reqNo, digest)
+
+	if sm.activeEpoch == nil {
+		return &Actions{}
+	}
+
+	sm.activeEpoch.proposer.stepClientWindow(clientID)
+	return sm.activeEpoch.drainProposer()
+}
+
+func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb.Request) *Actions {
 	clientID := requestData.ClientId
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newClientWindow(1, 100, sm.myConfig) // XXX this should be configurable
+		clientWindow = newClientWindow(1, 100, sm.networkConfig, sm.myConfig) // XXX this should be configurable
 		sm.clientWindows.insert(clientID, clientWindow)
 	}
 
 	clientWindow.allocate(requestData, digest)
 
-	actions := &Actions{}
-
-	if sm.activeEpoch != nil {
-		sm.activeEpoch.proposer.stepClientWindow(clientID)
-		actions.Append(sm.activeEpoch.drainProposer())
+	if sm.activeEpoch == nil {
+		return &Actions{}
 	}
 
-	return actions
+	sm.activeEpoch.proposer.stepClientWindow(clientID)
+	return sm.activeEpoch.drainProposer()
 }
 
 func (sm *stateMachine) clientWaiter(clientID []byte) *clientWaiter {
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newClientWindow(1, 100, sm.myConfig) // XXX this should be configurable
+		clientWindow = newClientWindow(1, 100, sm.networkConfig, sm.myConfig) // XXX this should be configurable
 		sm.clientWindows.insert(clientID, clientWindow)
 	}
 

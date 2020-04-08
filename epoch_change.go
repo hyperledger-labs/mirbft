@@ -162,7 +162,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 				panic("unknown client request, we need state transfer to handle this")
 			}
 
-			if !bytes.Equal(r.digest, requestAck.Digest) {
+			if cr, ok := r.digests[string(requestAck.Digest)]; !ok || cr.data == nil {
 				panic("unknown client request digest, we need state transfer to handle this")
 			}
 

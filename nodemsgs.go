@@ -141,6 +141,26 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		return current // TODO, at least detect past
 	case *pb.Msg_Checkpoint:
 		return n.processCheckpoint(innerMsg.Checkpoint)
+	case *pb.Msg_RequestAck:
+		ack := innerMsg.RequestAck
+		clientWindow, ok := n.clientWindows.clientWindow(ack.ClientId)
+		if !ok {
+			return future
+		}
+		switch {
+		case clientWindow.lowWatermark > ack.ReqNo:
+			return past
+		case clientWindow.highWatermark < ack.ReqNo:
+			return future
+		default:
+			return current
+		}
+	case *pb.Msg_FetchRequest:
+		return current // TODO decide if this is actually current
+	case *pb.Msg_FetchBatch:
+		return current // TODO decide if this is actually current
+	case *pb.Msg_ForwardBatch:
+		return current // TODO decide if this is actually current
 	case *pb.Msg_ForwardRequest:
 		requestData := innerMsg.ForwardRequest.Request
 		clientWindow, ok := n.clientWindows.clientWindow(requestData.ClientId)
