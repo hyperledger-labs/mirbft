@@ -33,6 +33,8 @@ type sequence struct {
 
 	state SequenceState
 
+	persisted *persisted
+
 	// qEntry is unset until after state >= Preprepared
 	qEntry *pb.QEntry
 
@@ -46,13 +48,14 @@ type sequence struct {
 	commits  map[string]map[NodeID]struct{}
 }
 
-func newSequence(owner NodeID, epoch, seqNo uint64, networkConfig *pb.NetworkConfig, myConfig *Config) *sequence {
+func newSequence(owner NodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *pb.NetworkConfig, myConfig *Config) *sequence {
 	return &sequence{
 		owner:         owner,
 		seqNo:         seqNo,
 		epoch:         epoch,
 		myConfig:      myConfig,
 		networkConfig: networkConfig,
+		persisted:     persisted,
 		state:         Uninitialized,
 		prepares:      map[string]map[NodeID]struct{}{},
 		commits:       map[string]map[NodeID]struct{}{},
@@ -85,6 +88,11 @@ func (s *sequence) allocate(batch []*clientRequest) *Actions {
 			Digest:   request.digest,
 		}
 		data[i] = request.digest
+	}
+
+	if len(requestAcks) == 0 {
+		// This is a no-op batch, no need to compute a digest
+		return s.applyProcessResult(nil)
 	}
 
 	return &Actions{
@@ -166,6 +174,8 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 		}
 	}
 
+	s.persisted.addQEntry(s.qEntry)
+
 	return &Actions{
 		Broadcast: msgs,
 		QEntries:  []*pb.QEntry{s.qEntry},
@@ -200,6 +210,14 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 
 	s.state = Prepared
 
+	pEntry := &pb.PEntry{
+		Epoch:  s.epoch,
+		SeqNo:  s.seqNo,
+		Digest: s.digest,
+	}
+
+	s.persisted.addPEntry(pEntry)
+
 	return &Actions{
 		Broadcast: []*pb.Msg{
 			{
@@ -213,16 +231,12 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 			},
 		},
 		PEntries: []*pb.PEntry{
-			{
-				Epoch:  s.epoch,
-				SeqNo:  s.seqNo,
-				Digest: s.digest,
-			},
+			pEntry,
 		},
 	}
 }
 
-func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
+func (s *sequence) applyCommitMsg(source NodeID, digest []byte) {
 	// TODO, if the digest is known, mark a mismatch as oddity
 	agreements := s.commits[string(digest)]
 	if agreements == nil {
@@ -232,28 +246,19 @@ func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
 	agreements[source] = struct{}{}
 
 	if s.state != Prepared {
-		return &Actions{}
+		return
 	}
 
 	// Do not commit unless we have sent a commit
 	if _, ok := agreements[NodeID(s.myConfig.ID)]; !ok {
-		return &Actions{}
+		return
 	}
 
 	requiredCommits := intersectionQuorum(s.networkConfig)
 
 	if len(agreements) < requiredCommits {
-		return &Actions{}
+		return
 	}
 
 	s.state = Committed
-
-	return &Actions{
-		Commits: []*Commit{
-			{
-				QEntry:     s.qEntry,
-				Checkpoint: s.seqNo%uint64(s.networkConfig.CheckpointInterval) == 0,
-			},
-		},
-	}
 }

@@ -25,13 +25,19 @@ type checkpointTracker struct {
 	myConfig      *Config
 }
 
-func newCheckpointTracker(networkConfig *pb.NetworkConfig, myConfig *Config) *checkpointTracker {
-	return &checkpointTracker{
+func newCheckpointTracker(initialCheckpoints map[uint64]*pb.Checkpoint, networkConfig *pb.NetworkConfig, myConfig *Config) *checkpointTracker {
+	ct := &checkpointTracker{
 		highestCheckpoint: map[NodeID]*checkpoint{}, // TODO, implement
 		checkpoints:       map[uint64]*checkpoint{},
 		networkConfig:     networkConfig,
 		myConfig:          myConfig,
 	}
+
+	for seqNo, cp := range initialCheckpoints {
+		ct.checkpoint(seqNo).applyCheckpointMsg(NodeID(myConfig.ID), cp.Value)
+	}
+
+	return ct
 }
 
 func (ct *checkpointTracker) checkpoint(seqNo uint64) *checkpoint {

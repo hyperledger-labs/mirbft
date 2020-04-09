@@ -22,11 +22,10 @@ type stateMachine struct {
 	clientWindows *clientWindows
 
 	activeEpoch       *epoch
-	pSet              []*pb.PEntry
-	qSet              []map[uint64]*pb.QEntry
 	batchTracker      *batchTracker
 	checkpointTracker *checkpointTracker
 	epochChanger      *epochChanger
+	persisted         *persisted
 }
 
 func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMachine {
@@ -34,7 +33,14 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		logger: myConfig.Logger,
 	}
 
-	fakeCheckpoint := &pb.Checkpoint{
+	persisted := &persisted{
+		pSet:          map[uint64]*pb.PEntry{},
+		qSet:          map[uint64]map[uint64]*pb.QEntry{},
+		checkpoints:   map[uint64]*pb.Checkpoint{},
+		lastCommitted: 0,
+	}
+
+	persisted.checkpoints[0] = &pb.Checkpoint{
 		SeqNo: 0,
 		Value: []byte("TODO, get from state"),
 	}
@@ -44,22 +50,30 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		windows:       map[string]*clientWindow{},
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
-	}
+	} // TODO, populate client windows from persisted
 	for _, id := range networkConfig.Nodes {
 		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, clientWindows, oddities)
 	}
 
-	checkpointTracker := newCheckpointTracker(networkConfig, myConfig)
-	batchTracker := newBatchTracker()
+	checkpointTracker := newCheckpointTracker(persisted.checkpoints, networkConfig, myConfig)
+	batchTracker := newBatchTracker() // TODO, populate batch tracker from persisted
 
+	checkpoints := make([]*pb.Checkpoint, len(persisted.checkpoints))
+	i := 0
+	for _, cp := range persisted.checkpoints {
+		checkpoints[i] = cp
+		i++
+	}
+	// TODO, sort checkpoints?
 	epochChange, err := newParsedEpochChange(&pb.EpochChange{
-		Checkpoints: []*pb.Checkpoint{fakeCheckpoint},
+		Checkpoints: checkpoints,
 	})
 	if err != nil {
 		panic(err)
 	}
 
 	epochChanger := &epochChanger{
+		persisted:     persisted,
 		myConfig:      myConfig,
 		networkConfig: networkConfig,
 		targets:       map[uint64]*epochTarget{},
@@ -80,6 +94,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		checkpointTracker: checkpointTracker,
 		nodeMsgs:          nodeMsgs,
 		clientWindows:     clientWindows,
+		persisted:         persisted,
 	}
 }
 
@@ -254,82 +269,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 		return actions
 	}
 
-	newEpochConfig := sm.epochChanger.pendingEpochTarget.networkNewEpoch
-
-	if sm.epochChanger.lastActiveEpoch != nil {
-		// TODO, this is a weird big block in an if, to cover only the first state case
-		for _, sequence := range sm.epochChanger.lastActiveEpoch.sequences {
-			if sequence.state == Committed {
-				continue
-			}
-
-			offset := int(sequence.seqNo-newEpochConfig.StartingCheckpoint.SeqNo) - 1
-			if offset < 0 {
-				panic("we need checkpoint state transfer to handle this case")
-			}
-
-			if int(offset) >= len(newEpochConfig.FinalPreprepares) {
-				continue
-			}
-
-			finalDigest := newEpochConfig.FinalPreprepares[offset]
-			if len(finalDigest) == 0 {
-				actions.Commits = append(actions.Commits, &Commit{
-					QEntry: &pb.QEntry{
-						SeqNo: sequence.seqNo,
-						Epoch: sequence.epoch,
-					},
-					Checkpoint: sequence.seqNo%uint64(sm.networkConfig.CheckpointInterval) == 0,
-				})
-				continue
-			}
-
-			batch, ok := sm.batchTracker.getBatch(finalDigest)
-			if !ok {
-				panic("we should not have gotten this far")
-			}
-
-			requests := make([]*pb.ForwardRequest, len(batch.requestAcks))
-			for i, reqAck := range batch.requestAcks {
-				cw, ok := sm.clientWindows.clientWindow(reqAck.ClientId)
-				if !ok {
-					panic("we should not have gotten this far")
-				}
-
-				crn := cw.request(reqAck.ReqNo)
-				if crn == nil {
-					panic("we should not have gotten this far")
-				}
-
-				cr, ok := crn.digests[string(reqAck.Digest)]
-				if !ok {
-					panic("we should not have gotten this far")
-				}
-
-				if cr.data == nil {
-					panic("we should not have gotten this far")
-				}
-
-				requests[i] = &pb.ForwardRequest{
-					Request: cr.data,
-					Digest:  reqAck.Digest,
-				}
-			}
-
-			actions.Commits = append(actions.Commits, &Commit{
-				QEntry: &pb.QEntry{
-					SeqNo:    sequence.seqNo,
-					Epoch:    sequence.epoch,
-					Digest:   sequence.digest,
-					Requests: requests,
-				},
-				Checkpoint: sequence.seqNo%uint64(sm.networkConfig.CheckpointInterval) == 0,
-			})
-		}
-	}
-
-	sm.activeEpoch = newEpoch(sm.epochChanger.pendingEpochTarget.networkNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.networkConfig, sm.myConfig)
-	actions.Append(sm.activeEpoch.advanceUncommitted())
+	sm.activeEpoch = newEpoch(sm.persisted, sm.epochChanger.pendingEpochTarget.networkNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.networkConfig, sm.myConfig)
 	actions.Append(sm.activeEpoch.drainProposer())
 	sm.epochChanger.pendingEpochTarget.state = idle
 	sm.epochChanger.lastActiveEpoch = sm.activeEpoch

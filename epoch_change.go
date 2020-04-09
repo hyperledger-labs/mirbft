@@ -44,6 +44,7 @@ type epochTarget struct {
 	readies       map[*pb.EpochConfig]map[NodeID]struct{}
 	suspicions    map[NodeID]struct{}
 
+	persisted       *persisted
 	myNewEpoch      *pb.NewEpoch // The NewEpoch msg we computed from the epoch changes we know of
 	myEpochChange   *parsedEpochChange
 	myLeaderChoice  []uint64        // Set along with myEpochChange
@@ -89,11 +90,7 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConf
 	}
 }
 
-func (et *epochTarget) updateNewEpochState() *Actions {
-	if et.leaderNewEpoch == nil {
-		return &Actions{}
-	}
-
+func (et *epochTarget) verifyNewEpochState() *Actions {
 	epochChanges := map[NodeID]*parsedEpochChange{}
 	for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
 		if _, ok := epochChanges[NodeID(remoteEpochChange.NodeId)]; ok {
@@ -126,7 +123,7 @@ func (et *epochTarget) updateNewEpochState() *Actions {
 
 	et.state = fetching
 
-	return et.fetchNewEpochState()
+	return et.advanceState()
 }
 
 func (et *epochTarget) fetchNewEpochState() *Actions {
@@ -135,6 +132,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 	newEpochConfig := et.leaderNewEpoch.Config
 
 	fetchPending := false
+
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		if digest == nil {
 			continue
@@ -171,10 +169,40 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 	}
 
 	if fetchPending {
-		return &Actions{}
+		return actions
 	}
 
 	et.state = echoing
+
+	for i, digest := range newEpochConfig.FinalPreprepares {
+		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
+		if digest == nil {
+			et.persisted.addQEntry(&pb.QEntry{
+				SeqNo: seqNo,
+				Epoch: et.leaderNewEpoch.Config.Number,
+			})
+			continue
+		}
+
+		batch, _ := et.batchTracker.getBatch(digest)
+		requests := make([]*pb.ForwardRequest, len(batch.requestAcks))
+
+		for j, requestAck := range batch.requestAcks {
+			cw, _ := et.clientWindows.clientWindow(requestAck.ClientId)
+			r := cw.request(requestAck.ReqNo).digests[string(requestAck.Digest)]
+			requests[j] = &pb.ForwardRequest{
+				Request: r.data,
+				Digest:  requestAck.Digest,
+			}
+		}
+
+		et.persisted.addQEntry(&pb.QEntry{
+			SeqNo:    seqNo,
+			Epoch:    et.leaderNewEpoch.Config.Number,
+			Digest:   digest,
+			Requests: requests,
+		})
+	}
 
 	return &Actions{
 		Broadcast: []*pb.Msg{
@@ -315,7 +343,7 @@ func (et *epochTarget) applyEpochChangeDigest(processedChange *EpochChange, dige
 
 	et.strongChanges[originNode] = change.parsedByDigest[string(change.strongCert)]
 
-	return et.checkEpochQuorum()
+	return et.advanceState()
 }
 
 func (et *epochTarget) checkEpochQuorum() *Actions {
@@ -347,14 +375,8 @@ func (et *epochTarget) checkEpochQuorum() *Actions {
 }
 
 func (et *epochTarget) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
-	if et.state > pending {
-		// TODO log oddity? maybe ensure not possible via nodemsgs
-		return &Actions{}
-	}
-
 	et.leaderNewEpoch = msg
-	et.state = verifying
-	return et.updateNewEpochState()
+	return et.advanceState()
 }
 
 func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
@@ -374,27 +396,40 @@ func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho)
 
 	msgEchos[source] = struct{}{}
 
-	if len(msgEchos) < intersectionQuorum(et.networkConfig) {
-		return &Actions{}
-	}
+	return et.advanceState()
+}
 
-	if et.state > echoing {
-		return &Actions{}
-	}
+func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
+	for config, msgEchos := range et.echos {
+		if len(msgEchos) < intersectionQuorum(et.networkConfig) {
+			continue
+		}
 
-	et.state = readying
+		et.state = readying
 
-	return &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_NewEpochReady{
-					NewEpochReady: &pb.NewEpochReady{
-						Config: msg.Config,
+		for i, digest := range config.FinalPreprepares {
+			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
+			et.persisted.addPEntry(&pb.PEntry{
+				SeqNo:  seqNo,
+				Epoch:  et.leaderNewEpoch.Config.Number,
+				Digest: digest,
+			})
+		}
+
+		return &Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_NewEpochReady{
+						NewEpochReady: &pb.NewEpochReady{
+							Config: config,
+						},
 					},
 				},
 			},
-		},
+		}
 	}
+
+	return &Actions{}
 }
 
 func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
@@ -423,6 +458,10 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 		return &Actions{}
 	}
 
+	if et.state < echoing {
+		return et.fetchNewEpochState()
+	}
+
 	if et.state < readying {
 		et.state = readying
 
@@ -439,12 +478,74 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 		}
 	}
 
-	if len(msgReadies) >= intersectionQuorum(et.networkConfig) {
+	return et.advanceState()
+}
+
+func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
+	for config, msgReadies := range et.readies {
+		if len(msgReadies) < intersectionQuorum(et.networkConfig) {
+			continue
+		}
+
 		et.state = ready
-		et.networkNewEpoch = msg.Config
+		et.networkNewEpoch = config
+
+		commits := make([]*Commit, 0, len(config.FinalPreprepares))
+
+		for i := range config.FinalPreprepares {
+			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
+			qEntry := et.persisted.qSet[seqNo][config.Number]
+			if qEntry == nil {
+				panic("this shouldn't be possible once dev is done, but for now it's a nasty corner case")
+			}
+			if et.persisted.lastCommitted >= seqNo {
+				continue
+			}
+			commits = append(commits, &Commit{
+				Checkpoint: seqNo%uint64(et.networkConfig.CheckpointInterval) == 0,
+				QEntry:     qEntry,
+			})
+			et.persisted.setLastCommitted(seqNo)
+		}
+
+		return &Actions{
+			Commits: commits,
+		}
 	}
 
 	return &Actions{}
+}
+
+func (et *epochTarget) advanceState() *Actions {
+	actions := &Actions{}
+	for {
+		oldState := et.state
+		switch et.state {
+		case prepending: // Have sent an epoch-change, but waiting for a quorum
+			actions.Append(et.checkEpochQuorum())
+		case pending: // Have a quorum of epoch-change messages, waits on new-epoch
+			if et.leaderNewEpoch == nil {
+				return actions
+			}
+			et.state = verifying
+		case verifying: // Have a new view message but it references epoch changes we cannot yet verify
+			actions.Append(et.verifyNewEpochState())
+		case fetching: // Have received and verified a new epoch messages, and are waiting to get state
+			actions.Append(et.fetchNewEpochState())
+		case echoing: // Have received and validated a new-epoch, waiting for a quorum of echos
+			actions.Append(et.checkNewEpochEchoQuorum())
+		case readying: // Have received a quorum of echos, waiting a on qourum of readies
+			actions.Append(et.checkNewEpochReadyQuorum())
+		case ready: // New epoch is ready to begin
+		case idle: // No pending change
+		case done: // We have sent an epoch change, ending this epoch for us
+		default:
+			panic("remove me, dev only")
+		}
+		if et.state == oldState {
+			return actions
+		}
+	}
 }
 
 type epochChanger struct {
@@ -452,6 +553,7 @@ type epochChanger struct {
 	lastActiveEpoch             *epoch
 	pendingEpochTarget          *epochTarget
 	highestObservedCorrectEpoch uint64
+	persisted                   *persisted
 	networkConfig               *pb.NetworkConfig
 	myConfig                    *Config
 	batchTracker                *batchTracker
@@ -480,6 +582,7 @@ func (ec *epochChanger) target(epoch uint64) *epochTarget {
 			echos:         map[*pb.EpochConfig]map[NodeID]struct{}{},
 			readies:       map[*pb.EpochConfig]map[NodeID]struct{}{},
 			isLeader:      epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.ID,
+			persisted:     ec.persisted,
 			networkConfig: ec.networkConfig,
 			myConfig:      ec.myConfig,
 			batchTracker:  ec.batchTracker,

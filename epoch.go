@@ -75,7 +75,8 @@ type epoch struct {
 
 	ticks uint64
 
-	proposer *proposer
+	proposer  *proposer
+	persisted *persisted
 
 	sequences []*sequence
 
@@ -106,7 +107,7 @@ type initializedSequence struct {
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows *clientWindows, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
+func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows *clientWindows, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
 
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
@@ -146,31 +147,55 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		checkpoints = append(checkpoints, checkpointTracker.checkpoint(secondEnd))
 	}
 
+	lowestUnallocated := make([]int, len(config.buckets))
+	for i := range lowestUnallocated {
+		lowestUnallocated[i] = i + config.logWidth() // The first seq for the bucket beyond our watermarks
+	}
+
 	sequences := make([]*sequence, config.logWidth())
 	for i := range sequences {
 		seqNo := newEpochConfig.StartingCheckpoint.SeqNo + 1 + uint64(i)
 		bucket := config.seqToBucket(seqNo)
 		owner := config.buckets[bucket]
 
-		sequences[i] = newSequence(owner, config.number, seqNo, networkConfig, myConfig)
+		sequences[i] = newSequence(owner, config.number, seqNo, persisted, networkConfig, myConfig)
+		qEntry, ok := persisted.qSet[seqNo][newEpochConfig.Number]
+		if !ok {
+			if i < lowestUnallocated[bucket] {
+				lowestUnallocated[bucket] = i
+			}
+			continue
+		}
+
+		sequences[i].qEntry = qEntry
+		sequences[i].digest = qEntry.Digest
+		sequences[i].state = Preprepared
+
+		pEntry, ok := persisted.pSet[seqNo]
+		if !ok || pEntry.Epoch != newEpochConfig.Number {
+			continue
+		}
+
+		sequences[i].state = Prepared
+
+		if persisted.lastCommitted > seqNo {
+			continue
+		}
+
+		sequences[i].state = Committed
 	}
 
-	for i := range newEpochConfig.FinalPreprepares {
-		sequences[i].state = Committed
+	lowestUncommitted := len(sequences)
+	for i, seq := range sequences {
+		if seq.state == Committed {
+			continue
+		}
+		lowestUncommitted = i
+		break
 	}
 
 	proposer := newProposer(myConfig, clientWindows, config.buckets)
 	proposer.stepAllClientWindows()
-
-	lowestUnallocated := make([]int, len(config.buckets))
-	for i := range lowestUnallocated {
-		for j := i; true; j += len(config.buckets) {
-			lowestUnallocated[i] = j
-			if j >= len(sequences) || sequences[j].state == Uninitialized {
-				break
-			}
-		}
-	}
 
 	return &epoch{
 		baseCheckpoint:    newEpochConfig.StartingCheckpoint,
@@ -178,9 +203,11 @@ func newEpoch(newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTrack
 		config:            config,
 		checkpointTracker: checkpointTracker,
 		checkpoints:       checkpoints,
+		persisted:         persisted,
 		proposer:          proposer,
 		sequences:         sequences,
 		lowestUnallocated: lowestUnallocated,
+		lowestUncommitted: lowestUncommitted,
 	}
 }
 
@@ -239,15 +266,12 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 		e.myConfig.Logger.Error(err.Error())
 		return &Actions{}
 	}
-	actions := seq.applyCommitMsg(source, digest)
-	if len(actions.Commits) > 0 && offset == e.lowestUncommitted {
-		actions.Append(e.advanceUncommitted())
+
+	seq.applyCommitMsg(source, digest)
+	if seq.state != Committed || offset != e.lowestUncommitted {
+		return &Actions{}
 	}
 
-	return actions
-}
-
-func (e *epoch) advanceUncommitted() *Actions {
 	actions := &Actions{}
 
 	for e.lowestUncommitted < len(e.sequences) {
@@ -255,6 +279,11 @@ func (e *epoch) advanceUncommitted() *Actions {
 			break
 		}
 
+		actions.Commits = append(actions.Commits, &Commit{
+			QEntry:     e.sequences[e.lowestUncommitted].qEntry,
+			Checkpoint: e.sequences[e.lowestUncommitted].seqNo%uint64(e.config.networkConfig.CheckpointInterval) == 0,
+		})
+		e.persisted.setLastCommitted(e.sequences[e.lowestUncommitted].seqNo)
 		e.lowestUncommitted++
 	}
 
@@ -277,7 +306,7 @@ func (e *epoch) moveWatermarks() *Actions {
 			seqNo := lastCW.end + uint64(i) + 1
 			epoch := e.config.number
 			owner := e.config.buckets[e.config.seqToBucket(seqNo)]
-			e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.config.networkConfig, e.myConfig))
+			e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.persisted, e.config.networkConfig, e.myConfig))
 		}
 		e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.end+uint64(ci)))
 	}
