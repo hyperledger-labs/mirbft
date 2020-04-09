@@ -505,6 +505,11 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 				Checkpoint: seqNo%uint64(et.networkConfig.CheckpointInterval) == 0,
 				QEntry:     qEntry,
 			})
+
+			for _, reqForward := range qEntry.Requests {
+				cw, _ := et.clientWindows.clientWindow(reqForward.Request.ClientId)
+				cw.request(reqForward.Request.ReqNo).committed = &seqNo
+			}
 			et.persisted.setLastCommitted(seqNo)
 		}
 

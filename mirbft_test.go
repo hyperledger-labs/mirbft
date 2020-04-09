@@ -14,7 +14,7 @@ import (
 	"github.com/IBM/mirbft/testengine"
 )
 
-var _ = FDescribe("Mirbft", func() {
+var _ = Describe("Mirbft", func() {
 	var (
 		recorder  *testengine.Recorder
 		recording *testengine.Recording

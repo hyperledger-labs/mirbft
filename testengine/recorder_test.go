@@ -3,6 +3,8 @@ package testengine_test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -49,6 +51,18 @@ var _ = Describe("Recorder", func() {
 					fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
 				}
 			}
+
+			fmt.Printf("\nWriting EventLog to disk\n")
+			tDesc := CurrentGinkgoTestDescription()
+			tmpFile, err := ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
+			if err != nil {
+				fmt.Printf("Encountered error creating tempfile: %s\n", err)
+				return
+			}
+			defer tmpFile.Close()
+			err = recording.EventLog.Write(tmpFile)
+			Expect(err).NotTo(HaveOccurred())
+			fmt.Printf("EventLog available at '%s'\n", tmpFile.Name())
 		}
 
 	})
@@ -56,7 +70,7 @@ var _ = Describe("Recorder", func() {
 	It("Executes and produces a log", func() {
 		count, err := recording.DrainClients(10 * time.Second)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(count).To(Equal(27852))
+		Expect(count).To(Equal(37617))
 
 		fmt.Printf("Executing test required a log of %d events\n", count)
 
@@ -69,13 +83,6 @@ var _ = Describe("Recorder", func() {
 			Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
 			Expect(node.State.Length).To(Equal(totalReqs))
 			Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
-
-			// Uncomment the below lines to dump the test output to disk
-			// file, err := os.Create("eventlog.bin")
-			// Expect(err).NotTo(HaveOccurred())
-			// defer file.Close()
-			// err = recording.Player.EventLog.Write(file)
-			// Expect(err).NotTo(HaveOccurred())
 
 			// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
 			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("689567a3721c39955e37f71beee801fdf89862ac9d2b2354ee7e01e9a2839230"))
@@ -94,7 +101,7 @@ var _ = Describe("Recorder", func() {
 		It("still executes and produces a log", func() {
 			count, err := recording.DrainClients(10 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(25))
+			Expect(count).To(Equal(27))
 		})
 	})
 })

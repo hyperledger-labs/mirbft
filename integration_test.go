@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-var _ = Describe("Integration", func() {
+var _ = XDescribe("Integration", func() {
 	var (
 		serializer      *serializer
 		stateMachineVal *stateMachine

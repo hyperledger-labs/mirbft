@@ -124,7 +124,7 @@ func BytesToUint64(value []byte) uint64 {
 // as the more general single threaded testengine type tests.  Still, there
 // seems to be value in confirming that at a basic level, a concurrent network executes
 // correctly.
-var _ = XDescribe("StressyTest", func() {
+var _ = Describe("StressyTest", func() {
 	var (
 		doneC     chan struct{}
 		logger    *zap.Logger
@@ -240,12 +240,12 @@ var _ = XDescribe("StressyTest", func() {
 			MsgCount:  1000,
 		}),
 
-		Entry("FourNodeBFT greenpath", &TestConfig{
+		PEntry("FourNodeBFT greenpath", &TestConfig{
 			NodeCount: 4,
 			MsgCount:  1000,
 		}),
 
-		Entry("FourNodeBFT single bucket greenpath", &TestConfig{
+		PEntry("FourNodeBFT single bucket greenpath", &TestConfig{
 			NodeCount:   4,
 			BucketCount: 1,
 			MsgCount:    1000,

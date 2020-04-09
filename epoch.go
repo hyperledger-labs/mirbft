@@ -75,8 +75,9 @@ type epoch struct {
 
 	ticks uint64
 
-	proposer  *proposer
-	persisted *persisted
+	proposer      *proposer
+	persisted     *persisted
+	clientWindows *clientWindows
 
 	sequences []*sequence
 
@@ -203,6 +204,7 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		config:            config,
 		checkpointTracker: checkpointTracker,
 		checkpoints:       checkpoints,
+		clientWindows:     clientWindows,
 		persisted:         persisted,
 		proposer:          proposer,
 		sequences:         sequences,
@@ -283,6 +285,14 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 			QEntry:     e.sequences[e.lowestUncommitted].qEntry,
 			Checkpoint: e.sequences[e.lowestUncommitted].seqNo%uint64(e.config.networkConfig.CheckpointInterval) == 0,
 		})
+		for _, reqForward := range e.sequences[e.lowestUncommitted].qEntry.Requests {
+			cw, ok := e.clientWindows.clientWindow(reqForward.Request.ClientId)
+			if !ok {
+				panic("we never should have committed this without the client available")
+			}
+			cw.request(reqForward.Request.ReqNo).committed = &seqNo
+		}
+
 		e.persisted.setLastCommitted(e.sequences[e.lowestUncommitted].seqNo)
 		e.lowestUncommitted++
 	}
