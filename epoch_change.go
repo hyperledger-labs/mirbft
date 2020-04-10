@@ -579,7 +579,7 @@ func (et *epochTarget) advanceState() *Actions {
 
 type epochChanger struct {
 	stateTicks                  uint64
-	lastActiveEpoch             *epoch
+	lastActiveEpoch             uint64
 	pendingEpochTarget          *epochTarget
 	highestObservedCorrectEpoch uint64
 	persisted                   *persisted
@@ -587,6 +587,7 @@ type epochChanger struct {
 	myConfig                    *Config
 	batchTracker                *batchTracker
 	clientWindows               *clientWindows
+	checkpointTracker           *checkpointTracker
 	targets                     map[uint64]*epochTarget
 }
 
@@ -645,7 +646,7 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 		return nil
 	}
 
-	epochChange := ec.lastActiveEpoch.constructEpochChange(epoch + 1)
+	epochChange := ec.persisted.constructEpochChange(epoch+1, ec.checkpointTracker)
 
 	newTarget := ec.target(epoch + 1)
 	ec.pendingEpochTarget = newTarget
@@ -655,11 +656,12 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 	}
 
-	newTarget.myLeaderChoice = ec.chooseLeaders(newTarget.myEpochChange)
+	newTarget.myLeaderChoice = []uint64{ec.myConfig.ID}
 
 	return epochChange
 }
 
+/*
 func (ec *epochChanger) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 	if ec.lastActiveEpoch == nil {
 		panic("this shouldn't happen")
@@ -709,6 +711,7 @@ func (ec *epochChanger) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 	return newLeaders
 
 }
+*/
 
 func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
 	actions := &Actions{}
@@ -1177,10 +1180,7 @@ func (et *epochTarget) status() *EpochTargetStatus {
 
 func (ec *epochChanger) status() *EpochChangerStatus {
 
-	lastActiveEpoch := uint64(0)
-	if ec.lastActiveEpoch != nil {
-		lastActiveEpoch = ec.lastActiveEpoch.config.number
-	}
+	lastActiveEpoch := ec.lastActiveEpoch
 
 	targets := make([]*EpochTargetStatus, 0, len(ec.targets))
 	for number, target := range ec.targets {

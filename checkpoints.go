@@ -33,9 +33,16 @@ func newCheckpointTracker(initialCheckpoints map[uint64]*pb.Checkpoint, networkC
 		myConfig:          myConfig,
 	}
 
+	var earliestCheckpoint *checkpoint
 	for seqNo, cp := range initialCheckpoints {
-		ct.checkpoint(seqNo).applyCheckpointMsg(NodeID(myConfig.ID), cp.Value)
+		pcp := ct.checkpoint(seqNo)
+		pcp.applyCheckpointMsg(NodeID(myConfig.ID), cp.Value)
+		if earliestCheckpoint == nil || earliestCheckpoint.seqNo > seqNo {
+			earliestCheckpoint = pcp
+		}
 	}
+
+	earliestCheckpoint.stable = true
 
 	return ct
 }
@@ -61,7 +68,7 @@ func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte) *
 }
 
 func (ct *checkpointTracker) release(cp *checkpoint) {
-	delete(ct.checkpoints, cp.end)
+	delete(ct.checkpoints, cp.seqNo)
 }
 
 func (ct *checkpointTracker) status() []*CheckpointStatus {
@@ -80,7 +87,7 @@ func (ct *checkpointTracker) status() []*CheckpointStatus {
 }
 
 type checkpoint struct {
-	end           uint64
+	seqNo         uint64
 	myConfig      *Config
 	networkConfig *pb.NetworkConfig
 
@@ -91,9 +98,9 @@ type checkpoint struct {
 	obsolete       bool
 }
 
-func newCheckpoint(end uint64, config *pb.NetworkConfig, myConfig *Config) *checkpoint {
+func newCheckpoint(seqNo uint64, config *pb.NetworkConfig, myConfig *Config) *checkpoint {
 	return &checkpoint{
-		end:           end,
+		seqNo:         seqNo,
 		networkConfig: config,
 		myConfig:      myConfig,
 		values:        map[string][]NodeID{},
@@ -146,7 +153,7 @@ func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {
 			{
 				Type: &pb.Msg_Checkpoint{
 					Checkpoint: &pb.Checkpoint{
-						SeqNo: uint64(cw.end),
+						SeqNo: uint64(cw.seqNo),
 						Value: value,
 					},
 				},
@@ -163,7 +170,7 @@ func (cw *checkpoint) status() *CheckpointStatus {
 		}
 	}
 	return &CheckpointStatus{
-		SeqNo:         cw.end,
+		SeqNo:         cw.seqNo,
 		MaxAgreements: maxAgreements,
 		NetQuorum:     cw.committedValue != nil,
 		LocalDecision: cw.myValue != nil,

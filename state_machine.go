@@ -37,6 +37,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		qSet:          map[uint64]map[uint64]*pb.QEntry{},
 		checkpoints:   map[uint64]*pb.Checkpoint{},
 		lastCommitted: 0,
+		networkConfig: networkConfig,
 	}
 
 	persisted.checkpoints[0] = &pb.Checkpoint{
@@ -72,12 +73,13 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 	}
 
 	epochChanger := &epochChanger{
-		persisted:     persisted,
-		myConfig:      myConfig,
-		networkConfig: networkConfig,
-		targets:       map[uint64]*epochTarget{},
-		batchTracker:  batchTracker,
-		clientWindows: clientWindows,
+		persisted:         persisted,
+		myConfig:          myConfig,
+		networkConfig:     networkConfig,
+		targets:           map[uint64]*epochTarget{},
+		batchTracker:      batchTracker,
+		clientWindows:     clientWindows,
+		checkpointTracker: checkpointTracker,
 	}
 
 	target := epochChanger.target(0)
@@ -252,7 +254,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 	sm.activeEpoch = newEpoch(sm.persisted, sm.epochChanger.pendingEpochTarget.networkNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.networkConfig, sm.myConfig)
 	actions.Append(sm.activeEpoch.drainProposer())
 	sm.epochChanger.pendingEpochTarget.state = idle
-	sm.epochChanger.lastActiveEpoch = sm.activeEpoch
+	sm.epochChanger.lastActiveEpoch = sm.epochChanger.pendingEpochTarget.number
 	for _, nodeMsgs := range sm.nodeMsgs {
 		nodeMsgs.setActiveEpoch(sm.activeEpoch)
 	}
@@ -287,6 +289,11 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	for _, checkpointResult := range results.Checkpoints {
 		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
 		actions.Append(sm.checkpointTracker.applyCheckpointResult(checkpointResult.SeqNo, checkpointResult.Value))
+		// TODO, maybe push this into the checkpoint tracker?
+		sm.persisted.addCheckpoint(&pb.Checkpoint{
+			SeqNo: checkpointResult.SeqNo,
+			Value: checkpointResult.Value,
+		})
 	}
 
 	for _, hashResult := range results.Digests {
@@ -424,15 +431,15 @@ func (sm *stateMachine) status() *Status {
 	var buckets []*BucketStatus
 	var lowWatermark, highWatermark uint64
 
-	if sm.epochChanger.lastActiveEpoch != nil {
-		epoch := sm.epochChanger.lastActiveEpoch
+	if sm.activeEpoch != nil {
+		epoch := sm.activeEpoch
 
 		buckets = epoch.status()
 
 		lowWatermark = epoch.baseCheckpoint.SeqNo
 
 		if epoch != nil && len(epoch.checkpoints) > 0 {
-			highWatermark = epoch.checkpoints[len(epoch.checkpoints)-1].end
+			highWatermark = epoch.checkpoints[len(epoch.checkpoints)-1].seqNo
 		} else {
 			highWatermark = lowWatermark
 		}

@@ -301,23 +301,23 @@ func (e *epoch) moveWatermarks() *Actions {
 	ci := int(e.config.networkConfig.CheckpointInterval)
 
 	// If this epoch is ending, don't allocate new sequences
-	if lastCW.end == e.config.plannedExpiration {
+	if lastCW.seqNo == e.config.plannedExpiration {
 		e.ending = true
 	}
 
 	if secondToLastCW.stable && !e.ending {
 		for i := 0; i < ci; i++ {
-			seqNo := lastCW.end + uint64(i) + 1
+			seqNo := lastCW.seqNo + uint64(i) + 1
 			epoch := e.config.number
 			owner := e.config.buckets[e.config.seqToBucket(seqNo)]
 			e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.clientWindows, e.persisted, e.config.networkConfig, e.myConfig))
 		}
-		e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.end+uint64(ci)))
+		e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.seqNo+uint64(ci)))
 	}
 
 	for len(e.checkpoints) > 2 && (e.checkpoints[0].obsolete || e.checkpoints[1].stable) {
 		e.baseCheckpoint = &pb.Checkpoint{
-			SeqNo: uint64(e.checkpoints[0].end),
+			SeqNo: uint64(e.checkpoints[0].seqNo),
 			Value: e.checkpoints[0].myValue,
 		}
 		e.checkpointTracker.release(e.checkpoints[0])
@@ -452,63 +452,6 @@ func (e *epoch) lowWatermark() uint64 {
 
 func (e *epoch) highWatermark() uint64 {
 	return e.sequences[len(e.sequences)-1].seqNo
-}
-
-func (e *epoch) constructEpochChange(newEpoch uint64) *pb.EpochChange {
-	epochChange := &pb.EpochChange{
-		NewEpoch: newEpoch,
-	}
-
-	if len(e.checkpoints) == 0 ||
-		e.checkpoints[0].myValue == nil ||
-		!e.checkpoints[0].stable {
-		// We have no stable checkpoint windows which have not been
-		// garbage collected, so use the most recently garbage collected one
-
-		epochChange.Checkpoints = []*pb.Checkpoint{e.baseCheckpoint}
-	}
-
-	for _, cw := range e.checkpoints {
-		if cw.myValue == nil {
-			// Checkpoints necessarily generated in order, no further checkpoints are ready
-			break
-		}
-		epochChange.Checkpoints = append(epochChange.Checkpoints, &pb.Checkpoint{
-			SeqNo: uint64(cw.end),
-			Value: cw.myValue,
-		})
-	}
-
-	for _, seq := range e.sequences {
-		if seq.state < Preprepared {
-			continue
-		}
-
-		if seq.seqNo < epochChange.Checkpoints[0].SeqNo {
-			// We retain more sequences than the latest stable checkpoint
-			// so don't send those
-			continue
-		}
-
-		entry := &pb.EpochChange_SetEntry{
-			Epoch:  seq.epoch,
-			SeqNo:  seq.seqNo,
-			Digest: seq.digest,
-		}
-
-		epochChange.QSet = append(epochChange.QSet, entry)
-
-		if seq.state < Prepared {
-			continue
-		}
-
-		epochChange.PSet = append(epochChange.PSet, entry)
-
-	}
-
-	// XXX include the Qset from previous view-changes if it has not been garbage collected
-
-	return epochChange
 }
 
 func (e *epoch) status() []*BucketStatus {
