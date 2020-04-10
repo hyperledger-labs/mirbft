@@ -483,7 +483,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 	}
 
 	if et.state < echoing {
-		return et.fetchNewEpochState()
+		return et.advanceState()
 	}
 
 	if et.state < readying {

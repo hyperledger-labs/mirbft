@@ -73,9 +73,6 @@ var _ = Describe("Mirbft", func() {
 	It("delivers all requests", func() {
 		_, err := recording.DrainClients(5 * time.Second)
 		Expect(err).NotTo(HaveOccurred())
-
-		// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.Epoch).To(Equal(uint64(0)))
-		// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.SeqNo).To(Equal(uint64(100)))
 	})
 
 	When("the network is comprised of just one node", func() {
@@ -88,6 +85,22 @@ var _ = Describe("Mirbft", func() {
 
 		It("still delivers all requests", func() {
 			_, err := recording.DrainClients(5 * time.Second)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	When("the first node is silenced", func() {
+		BeforeEach(func() {
+			recorder.Manglers = []testengine.Mangler{
+				testengine.Drop().Messages().FromNodes(3),
+			}
+			for _, clientConfig := range recorder.ClientConfigs {
+				clientConfig.Total = 20
+			}
+		})
+
+		PIt("still delivers all requests", func() {
+			_, err := recording.DrainClients(1 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -105,9 +118,6 @@ var _ = Describe("Mirbft", func() {
 		It("still delivers all requests", func() {
 			_, err := recording.DrainClients(1 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
-
-			// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.Epoch).To(Equal(uint64(1)))
-			// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.SeqNo).To(Equal(uint64(100)))
 		})
 	})
 
@@ -118,7 +128,7 @@ var _ = Describe("Mirbft", func() {
 			}
 		})
 
-		XIt("still delivers all requests", func() {
+		PIt("still delivers all requests", func() {
 			_, err := recording.DrainClients(5 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
 		})

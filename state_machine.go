@@ -8,7 +8,6 @@ package mirbft
 
 import (
 	"bytes"
-	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 
@@ -218,26 +217,7 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 }
 
 func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
-	requests := make([]*clientRequest, len(msg.Batch))
-
-	for i, batchEntry := range msg.Batch {
-		clientWindow, ok := sm.clientWindows.clientWindow(batchEntry.ClientId)
-		if !ok {
-			panic(fmt.Sprintf("got preprepare including a client which we don't know about"))
-		}
-
-		request := clientWindow.request(batchEntry.ReqNo)
-		if request == nil {
-			panic(fmt.Sprintf("could not find reqno=%d for batch entry from %d, this should have been hackily handled by the nodemsgs stuff", batchEntry.ReqNo, source))
-		}
-
-		requests[i], ok = request.digests[string(batchEntry.Digest)]
-		if !ok {
-			panic("we should already have a quorum cert of this actually, this is bad")
-		}
-	}
-
-	return sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, requests)
+	return sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch)
 }
 
 func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {

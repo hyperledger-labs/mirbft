@@ -169,8 +169,8 @@ func (s *Status) Pretty() string {
 				buffer.WriteString("| ")
 			case Allocated:
 				buffer.WriteString("|A")
-			case Invalid:
-				buffer.WriteString("|I")
+			case PendingRequests:
+				buffer.WriteString("|F")
 			case Preprepared:
 				buffer.WriteString("|Q")
 			case Prepared:

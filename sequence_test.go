@@ -38,22 +38,16 @@ var _ = XDescribe("sequence", func() {
 	Describe("allocate", func() {
 		It("transitions from Unknown to Allocated", func() {
 			actions := s.allocate(
-				[]*clientRequest{
+				[]*pb.RequestAck{
 					{
-						digest: []byte("msg1-digest"),
-						data: &pb.Request{
-							ClientId: []byte("client-id"),
-							ReqNo:    7,
-							Data:     []byte("msg1"),
-						},
+						ClientId: []byte("client-id"),
+						ReqNo:    7,
+						Digest:   []byte("msg1-digest"),
 					},
 					{
-						digest: []byte("msg2-digest"),
-						data: &pb.Request{
-							ClientId: []byte("client-id"),
-							ReqNo:    8,
-							Data:     []byte("msg2"),
-						},
+						ClientId: []byte("client-id"),
+						ReqNo:    8,
+						Digest:   []byte("msg2-digest"),
 					},
 				},
 			)
@@ -117,22 +111,16 @@ var _ = XDescribe("sequence", func() {
 			It("does not transition and instead panics", func() {
 				badTransition := func() {
 					s.allocate(
-						[]*clientRequest{
+						[]*pb.RequestAck{
 							{
-								digest: []byte("msg1-digest"),
-								data: &pb.Request{
-									ClientId: []byte("client-id"),
-									ReqNo:    7,
-									Data:     []byte("msg1"),
-								},
+								ClientId: []byte("client-id"),
+								ReqNo:    7,
+								Digest:   []byte("msg1-digest"),
 							},
 							{
-								digest: []byte("msg2-digest"),
-								data: &pb.Request{
-									ClientId: []byte("client-id"),
-									ReqNo:    8,
-									Data:     []byte("msg2"),
-								},
+								ClientId: []byte("client-id"),
+								ReqNo:    8,
+								Digest:   []byte("msg2-digest"),
 							},
 						},
 					)
@@ -146,22 +134,16 @@ var _ = XDescribe("sequence", func() {
 	Describe("applyProcessResult", func() {
 		BeforeEach(func() {
 			s.state = Allocated
-			s.batch = []*clientRequest{
+			s.batch = []*pb.RequestAck{
 				{
-					digest: []byte("msg1-digest"),
-					data: &pb.Request{
-						ClientId: []byte("client-id"),
-						ReqNo:    7,
-						Data:     []byte("msg1"),
-					},
+					ClientId: []byte("client-id"),
+					ReqNo:    7,
+					Digest:   []byte("msg1-digest"),
 				},
 				{
-					digest: []byte("msg2-digest"),
-					data: &pb.Request{
-						ClientId: []byte("client-id"),
-						ReqNo:    8,
-						Data:     []byte("msg2"),
-					},
+					ClientId: []byte("client-id"),
+					ReqNo:    8,
+					Digest:   []byte("msg2-digest"),
 				},
 			}
 		})
@@ -261,7 +243,8 @@ var _ = XDescribe("sequence", func() {
 		})
 
 		It("transitions from Preprepared to Prepared", func() {
-			actions := s.applyPrepareMsg(0, []byte("digest"))
+			s.applyPrepareMsg(0, []byte("digest"))
+			actions := s.advanceState()
 			Expect(actions).To(Equal(&Actions{
 				Broadcast: []*pb.Msg{
 					{

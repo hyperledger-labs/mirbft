@@ -15,8 +15,8 @@ type SequenceState int
 
 const (
 	Uninitialized SequenceState = iota
-	Invalid
 	Allocated
+	PendingRequests
 	Ready
 	Preprepared
 	Prepared
@@ -30,6 +30,7 @@ type sequence struct {
 
 	myConfig      *Config
 	networkConfig *pb.NetworkConfig
+	clientWindows *clientWindows
 
 	state SequenceState
 
@@ -39,22 +40,26 @@ type sequence struct {
 	qEntry *pb.QEntry
 
 	// batch is not set until after state >= Allocated
-	batch []*clientRequest
+	batch []*pb.RequestAck
 
-	// digest is not set until after state >= Digested
+	// requestData is corresponding Requests reference in the batch, not available until state >= Ready
+	requestData []*pb.Request
+
+	// digest is the computed digest of the batch, may not be set until state > Ready
 	digest []byte
 
 	prepares map[string]map[NodeID]struct{}
 	commits  map[string]map[NodeID]struct{}
 }
 
-func newSequence(owner NodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *pb.NetworkConfig, myConfig *Config) *sequence {
+func newSequence(owner NodeID, epoch, seqNo uint64, clientWindows *clientWindows, persisted *persisted, networkConfig *pb.NetworkConfig, myConfig *Config) *sequence {
 	return &sequence{
 		owner:         owner,
 		seqNo:         seqNo,
 		epoch:         epoch,
 		myConfig:      myConfig,
 		networkConfig: networkConfig,
+		clientWindows: clientWindows,
 		persisted:     persisted,
 		state:         Uninitialized,
 		prepares:      map[string]map[NodeID]struct{}{},
@@ -62,40 +67,53 @@ func newSequence(owner NodeID, epoch, seqNo uint64, persisted *persisted, networ
 	}
 }
 
-func (s *sequence) allocateInvalid(batch []*clientRequest) *Actions {
-	// TODO, handle this case by optionally allowing the transition from
-	// Invalid to Prepared if the network agrees that this batch is valid.
-	panic("TODO unhandled")
+func (s *sequence) advanceState() *Actions {
+	actions := &Actions{}
+	for {
+		oldState := s.state
+		switch s.state {
+		case Uninitialized:
+		case Allocated:
+		case PendingRequests:
+			s.checkRequests()
+		case Ready:
+			if s.digest != nil {
+				actions.Append(s.prepare())
+			}
+		case Preprepared:
+			actions.Append(s.checkPrepareQuorum())
+		case Prepared:
+			s.checkCommitQuorum()
+		case Committed:
+		}
+		if s.state == oldState {
+			return actions
+		}
+	}
 }
 
 // allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
 // It transitions to Preprepared and returns a ValidationRequest message.
-func (s *sequence) allocate(batch []*clientRequest) *Actions {
+func (s *sequence) allocate(requestAcks []*pb.RequestAck) *Actions {
 	if s.state != Uninitialized {
 		s.myConfig.Logger.Panic("illegal state for allocate", zap.Int("State", int(s.state)), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
 	}
 
 	s.state = Allocated
-	s.batch = batch
-
-	requestAcks := make([]*pb.RequestAck, len(batch))
-	data := make([][]byte, len(batch))
-	for i, request := range batch {
-		requestAcks[i] = &pb.RequestAck{
-			ClientId: request.data.ClientId,
-			ReqNo:    request.data.ReqNo,
-			Digest:   request.digest,
-		}
-		data[i] = request.digest
-	}
+	s.batch = requestAcks
 
 	if len(requestAcks) == 0 {
 		// This is a no-op batch, no need to compute a digest
 		return s.applyProcessResult(nil)
 	}
 
-	return &Actions{
+	data := make([][]byte, len(requestAcks))
+	for i, ack := range requestAcks {
+		data[i] = ack.Digest
+	}
+
+	actions := &Actions{
 		Hash: []*HashRequest{
 			{
 				Data: data,
@@ -109,34 +127,75 @@ func (s *sequence) allocate(batch []*clientRequest) *Actions {
 			},
 		},
 	}
+
+	s.state = PendingRequests
+
+	actions.Append(s.advanceState())
+
+	return actions
+}
+
+func (s *sequence) checkRequests() {
+	requestData := make([]*pb.Request, len(s.batch))
+	someMissing := false
+	for i, requestAck := range s.batch {
+		cw, ok := s.clientWindows.clientWindow(requestAck.ClientId)
+		if !ok {
+			someMissing = true
+			continue
+		}
+
+		cr := cw.request(requestAck.ReqNo)
+		if cr == nil {
+			panic("this shouldn't happen, we should have already had a request forwarded")
+		}
+
+		clientRequest, ok := cr.digests[string(requestAck.Digest)]
+		if !ok {
+			panic("we should already have at least one ack by this point")
+		}
+
+		if len(clientRequest.agreements) < someCorrectQuorum(s.networkConfig) {
+			someMissing = true
+			continue
+		}
+
+		if clientRequest.data == nil {
+			someMissing = true
+			continue
+		}
+
+		requestData[i] = clientRequest.data
+	}
+
+	if someMissing {
+		return
+	}
+
+	s.state = Ready
+	s.requestData = requestData
 }
 
 func (s *sequence) applyProcessResult(digest []byte) *Actions {
-	if s.state != Allocated {
-		s.myConfig.Logger.Panic("illegal state for digest result", zap.Any("State", s.state), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
-	}
-
 	s.digest = digest
 
-	requests := make([]*pb.ForwardRequest, len(s.batch))
-	requestAcks := make([]*pb.RequestAck, len(s.batch))
+	return s.advanceState()
+}
+
+func (s *sequence) prepare() *Actions {
+	forwardRequests := make([]*pb.ForwardRequest, len(s.batch))
 	for i, req := range s.batch {
-		requests[i] = &pb.ForwardRequest{
-			Request: req.data,
-			Digest:  req.digest,
-		}
-		requestAcks[i] = &pb.RequestAck{
-			ClientId: req.data.ClientId,
-			ReqNo:    req.data.ReqNo,
-			Digest:   req.digest,
+		forwardRequests[i] = &pb.ForwardRequest{
+			Request: s.requestData[i],
+			Digest:  req.Digest,
 		}
 	}
 
 	s.qEntry = &pb.QEntry{
 		SeqNo:    s.seqNo,
 		Epoch:    s.epoch,
-		Digest:   digest,
-		Requests: requests,
+		Digest:   s.digest,
+		Requests: forwardRequests,
 	}
 
 	s.state = Preprepared
@@ -144,10 +203,10 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 	var msgs []*pb.Msg
 	if uint64(s.owner) == s.myConfig.ID {
 		msgs = make([]*pb.Msg, len(s.batch)+1)
-		for i, request := range requests {
+		for i, forwardRequest := range forwardRequests {
 			msgs[i] = &pb.Msg{
 				Type: &pb.Msg_ForwardRequest{
-					ForwardRequest: request, // TODO, do we want to share this with QEntry? It causes concurrent marshalling concerns.
+					ForwardRequest: forwardRequest,
 				},
 			}
 		}
@@ -156,7 +215,7 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 				Preprepare: &pb.Preprepare{
 					SeqNo: s.seqNo,
 					Epoch: s.epoch,
-					Batch: requestAcks,
+					Batch: s.batch,
 				},
 			},
 		}
@@ -176,16 +235,14 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 
 	s.persisted.addQEntry(s.qEntry)
 
-	actions := &Actions{
+	if s.owner != NodeID(s.myConfig.ID) {
+		s.applyPrepareMsg(s.owner, s.digest)
+	}
+
+	return &Actions{
 		Broadcast: msgs,
 		QEntries:  []*pb.QEntry{s.qEntry},
 	}
-
-	if s.owner != NodeID(s.myConfig.ID) {
-		actions.Append(s.applyPrepareMsg(s.owner, digest))
-	}
-
-	return actions
 }
 
 func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
@@ -196,12 +253,15 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 		s.prepares[string(digest)] = agreements
 	}
 	agreements[source] = struct{}{}
+	s.prepares[string(digest)] = agreements
 
-	if s.state != Preprepared {
-		return &Actions{}
-	}
+	return s.advanceState()
+}
 
+func (s *sequence) checkPrepareQuorum() *Actions {
+	agreements := s.prepares[string(s.digest)]
 	// Do not prepare unless we have sent our prepare as well
+	// as this ensures we've persisted our qSet
 	if _, ok := agreements[NodeID(s.myConfig.ID)]; !ok {
 		return &Actions{}
 	}
@@ -242,7 +302,7 @@ func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
 	}
 }
 
-func (s *sequence) applyCommitMsg(source NodeID, digest []byte) {
+func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
 	// TODO, if the digest is known, mark a mismatch as oddity
 	agreements := s.commits[string(digest)]
 	if agreements == nil {
@@ -251,11 +311,13 @@ func (s *sequence) applyCommitMsg(source NodeID, digest []byte) {
 	}
 	agreements[source] = struct{}{}
 
-	if s.state != Prepared {
-		return
-	}
+	return s.advanceState()
+}
 
+func (s *sequence) checkCommitQuorum() {
+	agreements := s.commits[string(s.digest)]
 	// Do not commit unless we have sent a commit
+	// and therefore already have persisted our pSet and qSet
 	if _, ok := agreements[NodeID(s.myConfig.ID)]; !ok {
 		return
 	}

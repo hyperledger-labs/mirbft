@@ -159,7 +159,7 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		bucket := config.seqToBucket(seqNo)
 		owner := config.buckets[bucket]
 
-		sequences[i] = newSequence(owner, config.number, seqNo, persisted, networkConfig, myConfig)
+		sequences[i] = newSequence(owner, config.number, seqNo, clientWindows, persisted, networkConfig, myConfig)
 		qEntry, ok := persisted.qSet[seqNo][newEpochConfig.Number]
 		if !ok {
 			if i < lowestUnallocated[bucket] {
@@ -222,7 +222,7 @@ func (e *epoch) getSequence(seqNo uint64) (*sequence, int, error) {
 	return e.sequences[offset], offset, nil
 }
 
-func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*clientRequest) *Actions {
+func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.RequestAck) *Actions {
 	seq, offset, err := e.getSequence(seqNo)
 	if err != nil {
 		e.myConfig.Logger.Error(err.Error())
@@ -242,12 +242,6 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*clientR
 
 	if offset != e.lowestUnallocated[int(bucketID)] {
 		panic(fmt.Sprintf("dev test, this really shouldn't happen: offset=%d e.lowestUnallocated=%d\n", offset, e.lowestUnallocated[int(bucketID)]))
-	}
-
-	for _, request := range batch {
-		if len(request.agreements) < intersectionQuorum(e.config.networkConfig) {
-			return seq.allocateInvalid(batch)
-		}
 	}
 
 	return seq.allocate(batch)
@@ -316,7 +310,7 @@ func (e *epoch) moveWatermarks() *Actions {
 			seqNo := lastCW.end + uint64(i) + 1
 			epoch := e.config.number
 			owner := e.config.buckets[e.config.seqToBucket(seqNo)]
-			e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.persisted, e.config.networkConfig, e.myConfig))
+			e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.clientWindows, e.persisted, e.config.networkConfig, e.myConfig))
 		}
 		e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.end+uint64(ci)))
 	}
@@ -360,8 +354,17 @@ func (e *epoch) drainProposer() *Actions {
 			}
 
 			if ownerID == NodeID(e.myConfig.ID) && e.proposer.hasPending(bucketID) {
+				// TODO, roll this back into the proposer?
 				proposals := e.proposer.next(bucketID)
-				actions.Append(seq.allocate(proposals))
+				requestAcks := make([]*pb.RequestAck, len(proposals))
+				for i, proposal := range proposals {
+					requestAcks[i] = &pb.RequestAck{
+						ClientId: proposal.data.ClientId,
+						ReqNo:    proposal.data.ReqNo,
+						Digest:   proposal.digest,
+					}
+				}
+				actions.Append(seq.allocate(requestAcks))
 				e.lowestUnallocated[int(bucketID)] += len(e.config.buckets)
 			}
 		}
@@ -422,8 +425,17 @@ func (e *epoch) tick() *Actions {
 		}
 
 		if e.proposer.hasOutstanding(BucketID(bucketID)) {
+			// TODO, roll this back into the proposer?
 			proposals := e.proposer.next(BucketID(bucketID))
-			actions.Append(e.sequences[index].allocate(proposals))
+			requestAcks := make([]*pb.RequestAck, len(proposals))
+			for i, proposal := range proposals {
+				requestAcks[i] = &pb.RequestAck{
+					ClientId: proposal.data.ClientId,
+					ReqNo:    proposal.data.ReqNo,
+					Digest:   proposal.digest,
+				}
+			}
+			actions.Append(e.sequences[index].allocate(requestAcks))
 		} else {
 			actions.Append(e.sequences[index].allocate(nil))
 		}
