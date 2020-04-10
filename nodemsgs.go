@@ -278,6 +278,9 @@ func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *epoch, myC
 			if epoch.sequences[i].state >= Prepared {
 				nm.prepare++
 			}
+			if epoch.sequences[i].state == Committed {
+				nm.commit++
+			}
 		}
 
 		next[bucketID] = nm

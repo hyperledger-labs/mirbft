@@ -134,7 +134,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 	fetchPending := false
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
-		if digest == nil {
+		if len(digest) == 0 {
 			continue
 		}
 
@@ -154,7 +154,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		}
 
 		if len(sources) < someCorrectQuorum(et.networkConfig) {
-			panic("dev only, should never be true")
+			panic(fmt.Sprintf("dev only, should never be true, we only found %d sources for seqno=%d with digest=%x", len(sources), seqNo, digest))
 		}
 
 		batch, ok := et.batchTracker.getBatch(digest)
@@ -200,7 +200,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
-		if digest == nil {
+		if len(digest) == 0 {
 			et.persisted.addQEntry(&pb.QEntry{
 				SeqNo: seqNo,
 				Epoch: et.leaderNewEpoch.Config.Number,

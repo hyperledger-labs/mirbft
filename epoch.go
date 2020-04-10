@@ -179,7 +179,7 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 
 		sequences[i].state = Prepared
 
-		if persisted.lastCommitted > seqNo {
+		if seqNo > persisted.lastCommitted {
 			continue
 		}
 
@@ -377,11 +377,7 @@ func (e *epoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
 		return &Actions{}
 	}
 
-	actions := seq.applyProcessResult(digest)
-	if seq.owner != NodeID(e.myConfig.ID) {
-		actions.Append(seq.applyPrepareMsg(seq.owner, digest))
-	}
-	return actions
+	return seq.applyProcessResult(digest)
 }
 
 func (e *epoch) tick() *Actions {
@@ -473,6 +469,12 @@ func (e *epoch) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 
 	for _, seq := range e.sequences {
 		if seq.state < Preprepared {
+			continue
+		}
+
+		if seq.seqNo < epochChange.Checkpoints[0].SeqNo {
+			// We retain more sequences than the latest stable checkpoint
+			// so don't send those
 			continue
 		}
 

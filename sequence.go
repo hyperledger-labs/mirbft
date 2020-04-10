@@ -176,10 +176,16 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 
 	s.persisted.addQEntry(s.qEntry)
 
-	return &Actions{
+	actions := &Actions{
 		Broadcast: msgs,
 		QEntries:  []*pb.QEntry{s.qEntry},
 	}
+
+	if s.owner != NodeID(s.myConfig.ID) {
+		actions.Append(s.applyPrepareMsg(s.owner, digest))
+	}
+
+	return actions
 }
 
 func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
