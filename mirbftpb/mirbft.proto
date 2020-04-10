@@ -104,15 +104,10 @@ message Msg {
         NewEpochReady new_epoch_ready = 10;
 	FetchBatch fetch_batch = 11;
 	ForwardBatch forward_batch = 12;
-	FetchRequest fetch_request = 13;
+	RequestAck fetch_request = 13;
         ForwardRequest forward_request = 14;
 	RequestAck request_ack = 15;
     }
-}
-
-message FetchRequest {
-    uint64 req_no = 1;
-    bytes digest = 2;
 }
 
 message FetchBatch {

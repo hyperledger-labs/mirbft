@@ -139,32 +139,56 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		}
 
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
+
+		var sources []uint64
+		for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
+			// Previous state verified these exist
+			change := et.changes[NodeID(remoteEpochChange.NodeId)]
+			parsedChange := change.parsedByDigest[string(remoteEpochChange.Digest)]
+			for _, qEntryDigest := range parsedChange.qSet[seqNo] {
+				if bytes.Equal(qEntryDigest, digest) {
+					sources = append(sources, remoteEpochChange.NodeId)
+					break
+				}
+			}
+		}
+
+		if len(sources) < someCorrectQuorum(et.networkConfig) {
+			panic("dev only, should never be true")
+		}
+
 		batch, ok := et.batchTracker.getBatch(digest)
 		if !ok {
+			// TODO, perhaps only ask those who have it?
 			actions.Append(et.batchTracker.fetchBatch(seqNo, digest))
 			fetchPending = true
 			continue
 		}
 
 		batch.observedSequences[seqNo] = struct{}{}
-		_ = i
 
-		for j, requestAck := range batch.requestAcks {
+		for _, requestAck := range batch.requestAcks {
 			cw, ok := et.clientWindows.clientWindow(requestAck.ClientId)
 			if !ok {
 				panic("unknown client, we need state transfer to handle this")
 			}
 
-			r := cw.request(requestAck.ReqNo)
-			if r == nil {
-				panic("unknown client request, we need state transfer to handle this")
+			for _, nodeID := range sources {
+				cw.ack(NodeID(nodeID), requestAck.ReqNo, requestAck.Digest)
 			}
 
-			if cr, ok := r.digests[string(requestAck.Digest)]; !ok || cr.data == nil {
-				panic("unknown client request digest, we need state transfer to handle this")
+			if cw.request(requestAck.ReqNo).digests[string(requestAck.Digest)].data != nil {
+				continue
 			}
 
-			_ = j
+			// We are missing this request data and must fetch before proceeding
+			fetchPending = true
+			// TODO, perhaps only ask those who have it?
+			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+				Type: &pb.Msg_FetchRequest{
+					FetchRequest: requestAck,
+				},
+			})
 		}
 	}
 

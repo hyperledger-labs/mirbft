@@ -103,7 +103,7 @@ var _ = Describe("Mirbft", func() {
 		})
 
 		XIt("still delivers all requests", func() {
-			_, err := recording.DrainClients(500 * time.Millisecond)
+			_, err := recording.DrainClients(5 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Expect(recording.Nodes[0].State.LastCommit.Commit.QEntry.Epoch).To(Equal(uint64(1)))
@@ -118,7 +118,7 @@ var _ = Describe("Mirbft", func() {
 			}
 		})
 
-		PIt("still delivers all requests", func() {
+		XIt("still delivers all requests", func() {
 			_, err := recording.DrainClients(5 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
 		})

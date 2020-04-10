@@ -316,7 +316,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			batch := request.Batch
 			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
 
-			if sm.activeEpoch == nil || batch.Epoch != sm.activeEpoch.config.number {
+			if sm.activeEpoch != nil && batch.Epoch != sm.activeEpoch.config.number {
 				continue
 			}
 
@@ -326,7 +326,6 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			actions.Append(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
 		case request.Request != nil:
 			request := request.Request
-			// TODO, rename applyPreprocessResult to something better
 			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
 				Type: &pb.Msg_RequestAck{
 					RequestAck: &pb.RequestAck{
@@ -343,8 +342,10 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 				panic("byzantine")
 				// XXX this should not panic, but put to make dev easier
 			}
-			// TODO, rename applyPreprocessResult to something better
 			actions.Append(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
+			if sm.epochChanger.pendingEpochTarget.state == fetching {
+				actions.Append(sm.epochChanger.pendingEpochTarget.fetchNewEpochState())
+			}
 		case request.EpochChange != nil:
 			epochChange := request.EpochChange
 			actions.Append(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
