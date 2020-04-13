@@ -1,6 +1,5 @@
 /*
 Copyright IBM Corp. All Rights Reserved.
-
 SPDX-License-Identifier: Apache-2.0
 */
 
@@ -20,8 +19,10 @@ var _ = Describe("NodeMsg", func() {
 		networkConfig *pb.NetworkConfig
 		myConfig      *Config
 		clientWindows *clientWindows
-		oddities      *oddities
+		o             *oddities
 		nodeMsgs      *nodeMsgs
+
+		defaultEpochConfig *epochConfig
 	)
 
 	BeforeEach(func() {
@@ -44,22 +45,47 @@ var _ = Describe("NodeMsg", func() {
 			BufferSize:           100,
 		}
 		clientWindows = nil
-		oddities = nil
+		o = &oddities{logger: zap.NewNop()}
+		defaultEpochConfig = &epochConfig{
+			number:          5,
+			initialSequence: 0,
+			networkConfig:   networkConfig,
+			leaders:         []uint64{0},
+			buckets:         map[BucketID]NodeID{0: 0},
+		}
 	})
 
 	JustBeforeEach(func() {
-		nodeMsgs = newNodeMsgs(nodeID, networkConfig, myConfig, clientWindows, oddities)
+		nodeMsgs = newNodeMsgs(nodeID, networkConfig, myConfig, clientWindows, o)
 		Expect(nodeMsgs).NotTo(BeNil())
 	})
 
-	Context("ingest", func() {
-		It("buffers messages to be consumed by next", func() {
-			Expect(nodeMsgs.buffer.Len()).To(BeZero())
-			nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 5}}})
-			Expect(nodeMsgs.buffer.Len()).To(Equal(1))
-			// set epoch, so the message above is outdated
-			nodeMsgs.setActiveEpoch(&epoch{config: &epochConfig{number: 6}})
+	Context("process", func() {
+		JustBeforeEach(func() {
+			nodeMsgs.setActiveEpoch(&epoch{config: defaultEpochConfig})
+		})
+
+		It("skips stale messages", func() {
+			nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 4}}})
+			nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 4}}})
+			nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 4}}})
 			Expect(nodeMsgs.next()).To(BeNil())
+			Expect(nodeMsgs.buffer.Len()).To(BeZero())
+		})
+
+		It("returns at first current message", func() {
+			nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 4}}})
+			nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Suspect{Suspect: &pb.Suspect{Epoch: 5}}})
+			Expect(nodeMsgs.next()).NotTo(BeNil())
+		})
+	})
+
+	Context("buffer", func() {
+		It("stores incoming messages", func() {
+			// buffer is nil
+			Expect(nodeMsgs.buffer.Len()).To(BeZero())
+			Expect(nodeMsgs.next()).To(BeNil())
+
 		})
 
 		When("buffer is overflown", func() {
@@ -73,8 +99,16 @@ var _ = Describe("NodeMsg", func() {
 				Expect(nodeMsgs.buffer.Len()).To(Equal(1))
 				nodeMsgs.setActiveEpoch(&epoch{config: &epochConfig{number: 6}})
 				Expect(nodeMsgs.next()).To(BeNil())
+				Expect(nodeMsgs.buffer.Len()).To(Equal(0))
 			})
-
 		})
 	})
+
+	Context("process", func() {
+
+	})
+})
+
+var _ = Describe("EpochMsgs", func() {
+
 })
