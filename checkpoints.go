@@ -47,6 +47,14 @@ func newCheckpointTracker(initialCheckpoints map[uint64]*pb.Checkpoint, networkC
 	return ct
 }
 
+func (ct *checkpointTracker) truncate(lowSeqNo uint64) {
+	for seqNo := range ct.checkpoints {
+		if seqNo < lowSeqNo {
+			delete(ct.checkpoints, seqNo)
+		}
+	}
+}
+
 func (ct *checkpointTracker) checkpoint(seqNo uint64) *checkpoint {
 	cp, ok := ct.checkpoints[seqNo]
 	if !ok {
@@ -65,10 +73,6 @@ func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, val
 
 func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
 	return ct.checkpoints[seqNo].applyCheckpointResult(value)
-}
-
-func (ct *checkpointTracker) release(cp *checkpoint) {
-	delete(ct.checkpoints, cp.seqNo)
 }
 
 func (ct *checkpointTracker) status() []*CheckpointStatus {

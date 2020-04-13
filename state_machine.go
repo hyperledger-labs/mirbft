@@ -38,6 +38,7 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMa
 		checkpoints:   map[uint64]*pb.Checkpoint{},
 		lastCommitted: 0,
 		networkConfig: networkConfig,
+		myConfig:      myConfig,
 	}
 
 	persisted.checkpoints[0] = &pb.Checkpoint{
@@ -278,6 +279,8 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 		// during epoch change.
 		sm.batchTracker.truncate(seqNo - uint64(sm.networkConfig.CheckpointInterval))
 	}
+	sm.persisted.truncate(seqNo)
+	sm.checkpointTracker.truncate(seqNo)
 	actions := sm.activeEpoch.moveWatermarks()
 	actions.Append(sm.drainNodeMsgs())
 	return actions
@@ -436,13 +439,8 @@ func (sm *stateMachine) status() *Status {
 
 		buckets = epoch.status()
 
-		lowWatermark = epoch.baseCheckpoint.SeqNo
-
-		if epoch != nil && len(epoch.checkpoints) > 0 {
-			highWatermark = epoch.checkpoints[len(epoch.checkpoints)-1].seqNo
-		} else {
-			highWatermark = lowWatermark
-		}
+		lowWatermark = epoch.checkpoints[0].seqNo
+		highWatermark = epoch.checkpoints[len(epoch.checkpoints)-1].seqNo
 	} else {
 		buckets = make([]*BucketStatus, sm.networkConfig.NumberOfBuckets)
 		for i := range buckets {

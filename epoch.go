@@ -65,7 +65,7 @@ func (ec *epochConfig) colBucketToSeq(column uint64, bucket BucketID) uint64 {
 */
 
 func (ec *epochConfig) logWidth() int {
-	return 2 * int(ec.networkConfig.CheckpointInterval)
+	return 3 * int(ec.networkConfig.CheckpointInterval)
 }
 
 type epoch struct {
@@ -90,13 +90,6 @@ type epoch struct {
 
 	checkpoints       []*checkpoint
 	checkpointTracker *checkpointTracker
-
-	baseCheckpoint *pb.Checkpoint
-}
-
-type initialEpochState struct {
-	baseCheckpoint       *pb.Checkpoint
-	initializedSequences []*initializedSequence
 }
 
 type initializedSequence struct {
@@ -136,28 +129,22 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		}
 	}
 
-	checkpoints := make([]*checkpoint, 0, 3)
-
-	firstEnd := newEpochConfig.StartingCheckpoint.SeqNo + uint64(config.networkConfig.CheckpointInterval)
-	if config.plannedExpiration >= firstEnd {
-		checkpoints = append(checkpoints, checkpointTracker.checkpoint(firstEnd))
-	}
-
-	secondEnd := firstEnd + uint64(config.networkConfig.CheckpointInterval)
-	if config.plannedExpiration >= secondEnd {
-		checkpoints = append(checkpoints, checkpointTracker.checkpoint(secondEnd))
-	}
-
 	lowestUnallocated := make([]int, len(config.buckets))
 	for i := range lowestUnallocated {
 		lowestUnallocated[i] = i + config.logWidth() // The first seq for the bucket beyond our watermarks
 	}
+
+	var checkpoints []*checkpoint
 
 	sequences := make([]*sequence, config.logWidth())
 	for i := range sequences {
 		seqNo := newEpochConfig.StartingCheckpoint.SeqNo + 1 + uint64(i)
 		bucket := config.seqToBucket(seqNo)
 		owner := config.buckets[bucket]
+
+		if seqNo%uint64(networkConfig.CheckpointInterval) == 0 {
+			checkpoints = append(checkpoints, checkpointTracker.checkpoint(seqNo))
+		}
 
 		sequences[i] = newSequence(owner, config.number, seqNo, clientWindows, persisted, networkConfig, myConfig)
 		qEntry, ok := persisted.qSet[seqNo][newEpochConfig.Number]
@@ -199,7 +186,6 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 	proposer.stepAllClientWindows()
 
 	return &epoch{
-		baseCheckpoint:    newEpochConfig.StartingCheckpoint,
 		myConfig:          myConfig,
 		config:            config,
 		checkpointTracker: checkpointTracker,
@@ -295,39 +281,39 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 }
 
 func (e *epoch) moveWatermarks() *Actions {
-	lastCW := e.checkpoints[len(e.checkpoints)-1]
 
-	secondToLastCW := e.checkpoints[len(e.checkpoints)-2]
 	ci := int(e.config.networkConfig.CheckpointInterval)
 
-	// If this epoch is ending, don't allocate new sequences
-	if lastCW.seqNo == e.config.plannedExpiration {
-		e.ending = true
-	}
-
-	if secondToLastCW.stable && !e.ending {
-		for i := 0; i < ci; i++ {
-			seqNo := lastCW.seqNo + uint64(i) + 1
-			epoch := e.config.number
-			owner := e.config.buckets[e.config.seqToBucket(seqNo)]
-			e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.clientWindows, e.persisted, e.config.networkConfig, e.myConfig))
-		}
-		e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.seqNo+uint64(ci)))
-	}
-
-	for len(e.checkpoints) > 2 && (e.checkpoints[0].obsolete || e.checkpoints[1].stable) {
-		e.baseCheckpoint = &pb.Checkpoint{
-			SeqNo: uint64(e.checkpoints[0].seqNo),
-			Value: e.checkpoints[0].myValue,
-		}
-		e.checkpointTracker.release(e.checkpoints[0])
+	for len(e.checkpoints) >= 4 && e.checkpoints[1].stable {
 		e.checkpoints = e.checkpoints[1:]
 		e.sequences = e.sequences[ci:]
 		e.lowestUncommitted -= ci
+		if e.lowestUncommitted < len(e.sequences) {
+		}
 		for i := range e.lowestUnallocated {
 			e.lowestUnallocated[i] -= ci
 		}
 	}
+
+	lastCW := e.checkpoints[len(e.checkpoints)-1]
+
+	// If this epoch is ending, don't allocate new sequences
+	if lastCW.seqNo == e.config.plannedExpiration {
+		e.ending = true
+		return &Actions{}
+	}
+
+	if len(e.checkpoints) > 1 {
+		return &Actions{}
+	}
+
+	for i := 0; i < ci; i++ {
+		seqNo := lastCW.seqNo + uint64(i) + 1
+		epoch := e.config.number
+		owner := e.config.buckets[e.config.seqToBucket(seqNo)]
+		e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.clientWindows, e.persisted, e.config.networkConfig, e.myConfig))
+	}
+	e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.seqNo+uint64(ci)))
 
 	return e.drainProposer()
 }

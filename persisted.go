@@ -6,6 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"fmt"
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -18,6 +19,7 @@ type persisted struct {
 	lastCommitted uint64                           // Seq
 
 	networkConfig *pb.NetworkConfig
+	myConfig      *Config
 }
 
 func (p *persisted) addPEntry(pEntry *pb.PEntry) {
@@ -55,8 +57,8 @@ func (p *persisted) addCheckpoint(cp *pb.Checkpoint) {
 }
 
 func (p *persisted) setLastCommitted(seqNo uint64) {
-	if p.lastCommitted >= seqNo {
-		panic("dev sanity test, remove me")
+	if p.lastCommitted+1 != seqNo {
+		panic(fmt.Sprintf("dev sanity test, remove me: lastCommitted=%d >= seqNo=%d", p.lastCommitted, seqNo))
 	}
 
 	p.lastCommitted = seqNo
@@ -111,7 +113,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker)
 
 	epochChange.Checkpoints = checkpoints
 
-	for seqNo := highestStableCheckpoint.SeqNo; seqNo < highestStableCheckpoint.SeqNo+uint64(p.networkConfig.CheckpointInterval)*2; seqNo++ {
+	for seqNo := highestStableCheckpoint.SeqNo; seqNo < highestStableCheckpoint.SeqNo+uint64(p.networkConfig.CheckpointInterval)*3; seqNo++ {
 		qSubSet, ok := p.qSet[seqNo]
 		if !ok {
 			continue

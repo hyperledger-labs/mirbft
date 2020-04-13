@@ -77,7 +77,7 @@ func (s *sequence) advanceState() *Actions {
 		case PendingRequests:
 			s.checkRequests()
 		case Ready:
-			if s.digest != nil {
+			if s.digest != nil || len(s.batch) == 0 {
 				actions.Append(s.prepare())
 			}
 		case Preprepared:
@@ -105,6 +105,7 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck) *Actions {
 
 	if len(requestAcks) == 0 {
 		// This is a no-op batch, no need to compute a digest
+		s.state = Ready
 		return s.applyProcessResult(nil)
 	}
 
@@ -177,6 +178,7 @@ func (s *sequence) checkRequests() {
 }
 
 func (s *sequence) applyProcessResult(digest []byte) *Actions {
+
 	s.digest = digest
 
 	return s.advanceState()

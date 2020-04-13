@@ -131,6 +131,10 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 	newEpochConfig := et.leaderNewEpoch.Config
 
+	if newEpochConfig.StartingCheckpoint.SeqNo > et.persisted.lastCommitted {
+		panic("we need checkpoint state transfer to handle this case")
+	}
+
 	fetchPending := false
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
@@ -522,7 +526,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 			if qEntry == nil {
 				panic("this shouldn't be possible once dev is done, but for now it's a nasty corner case")
 			}
-			if et.persisted.lastCommitted >= seqNo {
+			if seqNo <= et.persisted.lastCommitted {
 				continue
 			}
 			commits = append(commits, &Commit{
