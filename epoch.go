@@ -126,7 +126,7 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		lowestUnallocated[i] = i + config.logWidth() // The first seq for the bucket beyond our watermarks
 	}
 
-	var checkpoints []*checkpoint
+	checkpoints := []*checkpoint{checkpointTracker.checkpoint(newEpochConfig.StartingCheckpoint.SeqNo)}
 
 	sequences := make([]*sequence, config.logWidth())
 	for i := range sequences {
@@ -273,7 +273,6 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 }
 
 func (e *epoch) moveWatermarks() *Actions {
-
 	ci := int(e.config.networkConfig.CheckpointInterval)
 
 	for len(e.checkpoints) >= 4 && e.checkpoints[1].stable {
@@ -286,6 +285,7 @@ func (e *epoch) moveWatermarks() *Actions {
 	}
 
 	lastCW := e.checkpoints[len(e.checkpoints)-1]
+	oldLastCW := lastCW
 
 	// If this epoch is ending, don't allocate new sequences
 	if lastCW.seqNo == e.config.plannedExpiration {
@@ -293,17 +293,17 @@ func (e *epoch) moveWatermarks() *Actions {
 		return &Actions{}
 	}
 
-	if len(e.checkpoints) > 1 {
-		return &Actions{}
+	for len(e.checkpoints) < 4 {
+		e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.seqNo+uint64(ci)))
+		lastCW = e.checkpoints[len(e.checkpoints)-1]
 	}
 
-	for i := 0; i < ci; i++ {
-		seqNo := lastCW.seqNo + uint64(i) + 1
+	for i := oldLastCW.seqNo + 1; i <= lastCW.seqNo; i++ {
+		seqNo := i
 		epoch := e.config.number
 		owner := e.config.buckets[e.config.seqToBucket(seqNo)]
 		e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.clientWindows, e.persisted, e.config.networkConfig, e.myConfig))
 	}
-	e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.seqNo+uint64(ci)))
 
 	return e.drainProposer()
 }
