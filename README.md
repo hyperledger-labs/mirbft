@@ -11,11 +11,11 @@ Mir improves on traditional atomic broadcast protocols like PBFT and Raft which 
 
 The high level structure of the MirBFT library steals heavily from the architecture of [etcdraft](https://github.com/etcd-io/etcd/tree/master/raft). A single threaded state machine is mutated by short lived, non-blocking operations.  Operations which might block or which have any degree of computational complexity (like signing, hashing, etc.) are delegated to the caller.
 
-For more information, see the detailed [design document](/docs/Design.md).
+For more information, see the detailed [design document](/docs/Design.md).  Note, the documentation has fallen a bit behind based on the implementation work that has happened over the last few months.  The documentation should be taken with a grain of salt.
 
 ## Using Mir
  
-This repository is a new project and under active development and as such, is not suitable for use (yet!). Watch for releases occurring later in 2019.
+This repository is a new project and under active development and as such, is not suitable for use (yet!). Watch for releases occurring later in 2020.
 
 ### Preview
 
