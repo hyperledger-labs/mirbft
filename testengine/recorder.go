@@ -422,6 +422,7 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 			LinkLatency:          100,
 			ReadyLatency:         50,
 			ProcessLatency:       10,
+			BufferSize:           5000,
 		})
 	}
 

@@ -30,6 +30,7 @@ message NodeConfig {
 	int32 link_latency = 6;    // in fake ms
 	int32 ready_latency = 7;   // in fake ms
 	int32 process_latency = 8; // in fake ms
+	int32 buffer_size = 9;
 }
 
 message HashResult {

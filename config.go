@@ -29,6 +29,11 @@ type Config struct {
 	// it suspects the epoch leader has failed.  This value must be greater
 	// than 1, as rebroadcast ticks are computed as half this value.
 	NewEpochTimeoutTicks int
+
+	// BufferSize is the number of messages buffered waiting for this node
+	// to process. If buffer is full, oldest message will be dropped to
+	// make room for new messages
+	BufferSize int
 }
 
 type BatchParameters struct {
