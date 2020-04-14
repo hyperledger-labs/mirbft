@@ -582,17 +582,15 @@ func (et *epochTarget) advanceState() *Actions {
 }
 
 type epochChanger struct {
-	stateTicks                  uint64
-	lastActiveEpoch             uint64
-	pendingEpochTarget          *epochTarget
-	highestObservedCorrectEpoch uint64
-	persisted                   *persisted
-	networkConfig               *pb.NetworkConfig
-	myConfig                    *Config
-	batchTracker                *batchTracker
-	clientWindows               *clientWindows
-	checkpointTracker           *checkpointTracker
-	targets                     map[uint64]*epochTarget
+	lastActiveEpoch    uint64
+	pendingEpochTarget *epochTarget
+	persisted          *persisted
+	networkConfig      *pb.NetworkConfig
+	myConfig           *Config
+	batchTracker       *batchTracker
+	clientWindows      *clientWindows
+	checkpointTracker  *checkpointTracker
+	targets            map[uint64]*epochTarget
 }
 
 func (ec *epochChanger) tick() *Actions {
@@ -641,6 +639,7 @@ func (ec *epochChanger) setPendingTarget(target *epochTarget) {
 			delete(ec.targets, number)
 		}
 	}
+	ec.pendingEpochTarget = target
 }
 
 func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
@@ -653,7 +652,7 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 	epochChange := ec.persisted.constructEpochChange(epoch+1, ec.checkpointTracker)
 
 	newTarget := ec.target(epoch + 1)
-	ec.pendingEpochTarget = newTarget
+	ec.setPendingTarget(newTarget)
 	var err error
 	newTarget.myEpochChange, err = newParsedEpochChange(epochChange)
 	if err != nil {
@@ -784,8 +783,6 @@ func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 	return target.applyNewEpochReadyMsg(source, msg)
 }
 
-type epochChangeState int
-
 type epochChange struct {
 	// set at creation
 	networkConfig *pb.NetworkConfig
@@ -820,15 +817,6 @@ func (ec *epochChange) addMsg(source NodeID, msg *pb.EpochChange, digest []byte)
 	}
 
 	ec.strongCert = digest
-}
-
-func (ec *epochChange) agreementsWithDigest(digest []byte) int {
-	parsedChange, ok := ec.parsedByDigest[string(digest)]
-	if !ok {
-		return 0
-	}
-
-	return len(parsedChange.acks)
 }
 
 type parsedEpochChange struct {

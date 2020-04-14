@@ -17,10 +17,6 @@ func uint64ToBytes(value uint64) []byte {
 	return byteValue
 }
 
-func bytesToUint64(value []byte) uint64 {
-	return binary.LittleEndian.Uint64(value)
-}
-
 type proposer struct {
 	myConfig               *Config
 	clientWindowProcessors map[string]*clientWindowProcessor

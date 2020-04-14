@@ -73,8 +73,6 @@ type epoch struct {
 	config   *epochConfig
 	myConfig *Config
 
-	ticks uint64
-
 	proposer      *proposer
 	persisted     *persisted
 	clientWindows *clientWindows
@@ -90,12 +88,6 @@ type epoch struct {
 
 	checkpoints       []*checkpoint
 	checkpointTracker *checkpointTracker
-}
-
-type initializedSequence struct {
-	state  SequenceState // May only be one of Uninitialized, Preprepared, Prepared, Committed
-	digest []byte
-	batch  []*clientRequest
 }
 
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
@@ -288,8 +280,6 @@ func (e *epoch) moveWatermarks() *Actions {
 		e.checkpoints = e.checkpoints[1:]
 		e.sequences = e.sequences[ci:]
 		e.lowestUncommitted -= ci
-		if e.lowestUncommitted < len(e.sequences) {
-		}
 		for i := range e.lowestUnallocated {
 			e.lowestUnallocated[i] -= ci
 		}
