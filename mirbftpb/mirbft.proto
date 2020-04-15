@@ -8,8 +8,6 @@ syntax = "proto3";
 
 package mirbftpb;
 
-option go_package = "github.com/IBM/mirbft/mirbftpb";
-
 // To re-generate, run:
 //   protoc --go_out=. mirbft.proto
 // or simply run go generate
@@ -71,6 +69,15 @@ message NetworkConfig {
         // 16 | 7 | 7 | 6 | 6 | 5 | 5 |
         // 17 | 8 | 7 | 7 | 6 | 6 | 5 |
         int32 f = 5;
+}
+
+// Persisted contains data that should be persited by lib user
+message Persisted {
+    oneof type {
+        QEntry qentry = 1;
+        PEntry pentry = 2;
+        Checkpoint checkpoint = 3;
+    }
 }
 
 // QEntry is an entry which must be persisted before a batch is Preprepared (ie,

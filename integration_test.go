@@ -225,19 +225,23 @@ var _ = XDescribe("Integration", func() {
 						},
 					},
 				},
-				QEntries: []*pb.QEntry{
+				Persisted: []*pb.Persisted{
 					{
-						Epoch:  3,
-						SeqNo:  1,
-						Digest: []byte("batch-digest"),
-						Requests: []*pb.ForwardRequest{
-							{
-								Request: &pb.Request{
-									ClientId: []byte("client-1"),
-									ReqNo:    1,
-									Data:     []byte("data"),
+						Type: &pb.Persisted_Qentry{
+							Qentry: &pb.QEntry{
+								Epoch:  3,
+								SeqNo:  1,
+								Digest: []byte("batch-digest"),
+								Requests: []*pb.ForwardRequest{
+									{
+										Request: &pb.Request{
+											ClientId: []byte("client-1"),
+											ReqNo:    1,
+											Data:     []byte("data"),
+										},
+										Digest: []byte("request-digest"),
+									},
 								},
-								Digest: []byte("request-digest"),
 							},
 						},
 					},
@@ -262,11 +266,15 @@ var _ = XDescribe("Integration", func() {
 						},
 					},
 				},
-				PEntries: []*pb.PEntry{
+				Persisted: []*pb.Persisted{
 					{
-						Epoch:  3,
-						SeqNo:  1,
-						Digest: []byte("batch-digest"),
+						Type: &pb.Persisted_Pentry{
+							Pentry: &pb.PEntry{
+								Epoch:  3,
+								SeqNo:  1,
+								Digest: []byte("batch-digest"),
+							},
+						},
 					},
 				},
 			}))
@@ -513,19 +521,23 @@ var _ = XDescribe("Integration", func() {
 						},
 					},
 				},
-				QEntries: []*pb.QEntry{
+				Persisted: []*pb.Persisted{
 					{
-						Epoch:  2,
-						SeqNo:  2,
-						Digest: []byte("batch-digest"),
-						Requests: []*pb.ForwardRequest{
-							{
-								Request: &pb.Request{
-									ClientId: []byte("client-1"),
-									ReqNo:    1,
-									Data:     []byte("data"),
+						Type: &pb.Persisted_Qentry{
+							Qentry: &pb.QEntry{
+								Epoch:  2,
+								SeqNo:  2,
+								Digest: []byte("batch-digest"),
+								Requests: []*pb.ForwardRequest{
+									{
+										Request: &pb.Request{
+											ClientId: []byte("client-1"),
+											ReqNo:    1,
+											Data:     []byte("data"),
+										},
+										Digest: []byte("request-digest"),
+									},
 								},
-								Digest: []byte("request-digest"),
 							},
 						},
 					},
@@ -556,11 +568,15 @@ var _ = XDescribe("Integration", func() {
 						},
 					},
 				},
-				PEntries: []*pb.PEntry{
+				Persisted: []*pb.Persisted{
 					{
-						Epoch:  2,
-						SeqNo:  2,
-						Digest: []byte("batch-digest"),
+						Type: &pb.Persisted_Pentry{
+							Pentry: &pb.PEntry{
+								Epoch:  2,
+								SeqNo:  2,
+								Digest: []byte("batch-digest"),
+							},
+						},
 					},
 				},
 			}))

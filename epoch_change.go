@@ -205,10 +205,10 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
 		if len(digest) == 0 {
-			et.persisted.addQEntry(&pb.QEntry{
+			et.persisted.add(&pb.Persisted{Type: &pb.Persisted_Qentry{Qentry: &pb.QEntry{
 				SeqNo: seqNo,
 				Epoch: et.leaderNewEpoch.Config.Number,
-			})
+			}}})
 			continue
 		}
 
@@ -224,12 +224,14 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 			}
 		}
 
-		et.persisted.addQEntry(&pb.QEntry{
+		qEntry := &pb.QEntry{
 			SeqNo:    seqNo,
 			Epoch:    et.leaderNewEpoch.Config.Number,
 			Digest:   digest,
 			Requests: requests,
-		})
+		}
+
+		et.persisted.add(&pb.Persisted{Type: &pb.Persisted_Qentry{Qentry: qEntry}})
 	}
 
 	return &Actions{
@@ -437,11 +439,13 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 
 		for i, digest := range config.FinalPreprepares {
 			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
-			et.persisted.addPEntry(&pb.PEntry{
-				SeqNo:  seqNo,
-				Epoch:  et.leaderNewEpoch.Config.Number,
-				Digest: digest,
-			})
+			et.persisted.add(&pb.Persisted{Type: &pb.Persisted_Pentry{
+				Pentry: &pb.PEntry{
+					SeqNo:  seqNo,
+					Epoch:  et.leaderNewEpoch.Config.Number,
+					Digest: digest,
+				},
+			}})
 		}
 
 		return &Actions{

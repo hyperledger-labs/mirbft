@@ -235,16 +235,14 @@ func (s *sequence) prepare() *Actions {
 		}
 	}
 
-	s.persisted.addQEntry(s.qEntry)
+	actions := &Actions{Broadcast: msgs}
+	actions.Append(s.persisted.add(&pb.Persisted{Type: &pb.Persisted_Qentry{Qentry: s.qEntry}}))
 
 	if s.owner != NodeID(s.myConfig.ID) {
 		s.applyPrepareMsg(s.owner, s.digest)
 	}
 
-	return &Actions{
-		Broadcast: msgs,
-		QEntries:  []*pb.QEntry{s.qEntry},
-	}
+	return actions
 }
 
 func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
@@ -284,9 +282,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 		Digest: s.digest,
 	}
 
-	s.persisted.addPEntry(pEntry)
-
-	return &Actions{
+	actions := &Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_Commit{
@@ -298,10 +294,10 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 				},
 			},
 		},
-		PEntries: []*pb.PEntry{
-			pEntry,
-		},
 	}
+
+	actions.Append(s.persisted.add(&pb.Persisted{Type: &pb.Persisted_Pentry{Pentry: pEntry}}))
+	return actions
 }
 
 func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
