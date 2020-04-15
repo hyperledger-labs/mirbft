@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"bytes"
+	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 
@@ -162,6 +163,9 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 			case *pb.Msg_FetchBatch:
 				msg := innerMsg.FetchBatch
 				actions.Append(sm.batchTracker.replyFetchBatch(msg.SeqNo, msg.Digest))
+			case *pb.Msg_FetchRequest:
+				msg := innerMsg.FetchRequest
+				actions.Append(sm.replyFetchRequest(msg.ClientId, msg.ReqNo, msg.Digest))
 			case *pb.Msg_ForwardBatch:
 				msg := innerMsg.ForwardBatch
 				actions.Append(sm.batchTracker.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.RequestAcks))
@@ -209,7 +213,7 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 				actions.Append(sm.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
 			default:
 				// This should be unreachable, as the nodeMsgs filters based on type as well
-				panic("unexpected bad message type, should have been detected earlier")
+				panic(fmt.Sprintf("unexpected bad message type %T, should have been detected earlier", msg.Type))
 			}
 		}
 
@@ -221,6 +225,40 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 
 func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
 	return sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch)
+}
+
+func (sm *stateMachine) replyFetchRequest(clientID []byte, reqNo uint64, digest []byte) *Actions {
+	cw, ok := sm.clientWindows.clientWindow(clientID)
+	if !ok {
+		return &Actions{}
+	}
+
+	if !cw.inWatermarks(reqNo) {
+		return &Actions{}
+	}
+
+	creq := cw.request(reqNo)
+	data, ok := creq.digests[string(digest)]
+	if !ok {
+		return &Actions{}
+	}
+
+	if data.data == nil {
+		return &Actions{}
+	}
+
+	return &Actions{
+		Broadcast: []*pb.Msg{
+			{
+				Type: &pb.Msg_ForwardRequest{
+					ForwardRequest: &pb.ForwardRequest{
+						Request: data.data,
+						Digest:  digest,
+					},
+				},
+			},
+		},
+	}
 }
 
 func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {

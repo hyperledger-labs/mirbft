@@ -194,6 +194,10 @@ func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) {
 	}
 }
 
+func (cw *clientWindow) inWatermarks(reqNo uint64) bool {
+	return reqNo <= cw.highWatermark && reqNo >= cw.lowWatermark
+}
+
 func (cw *clientWindow) request(reqNo uint64) *clientReqNo {
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
