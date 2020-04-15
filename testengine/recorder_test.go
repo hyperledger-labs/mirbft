@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
-	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -68,7 +67,7 @@ var _ = Describe("Recorder", func() {
 	})
 
 	It("Executes and produces a log", func() {
-		count, err := recording.DrainClients(10 * time.Second)
+		count, err := recording.DrainClients(50000)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(count).To(Equal(36305))
 
@@ -99,7 +98,7 @@ var _ = Describe("Recorder", func() {
 		})
 
 		It("still executes and produces a log", func() {
-			count, err := recording.DrainClients(10 * time.Second)
+			count, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(count).To(Equal(27))
 		})
