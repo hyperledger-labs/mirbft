@@ -235,7 +235,7 @@ func (s *sequence) prepare() *Actions {
 		}
 	}
 
-	s.persisted.addQEntry(s.qEntry)
+	s.persisted.add(&pb.Persisted{Type: &pb.Persisted_Qentry{Qentry: s.qEntry}})
 
 	if s.owner != NodeID(s.myConfig.ID) {
 		s.applyPrepareMsg(s.owner, s.digest)
@@ -284,7 +284,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 		Digest: s.digest,
 	}
 
-	s.persisted.addPEntry(pEntry)
+	s.persisted.add(&pb.Persisted{Type: &pb.Persisted_Pentry{Pentry: pEntry}})
 
 	return &Actions{
 		Broadcast: []*pb.Msg{

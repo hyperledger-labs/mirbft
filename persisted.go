@@ -22,6 +22,19 @@ type persisted struct {
 	myConfig      *Config
 }
 
+func (p *persisted) add(data *pb.Persisted) {
+	switch d := data.Type.(type) {
+	case *pb.Persisted_Pentry:
+		p.addPEntry(d.Pentry)
+	case *pb.Persisted_Qentry:
+		p.addQEntry(d.Qentry)
+	case *pb.Persisted_Checkpoint:
+		p.addCheckpoint(d.Checkpoint)
+	default:
+		panic("unrecognized data type")
+	}
+}
+
 func (p *persisted) addPEntry(pEntry *pb.PEntry) {
 	if p.pSet == nil {
 		p.pSet = map[uint64]*pb.PEntry{}
