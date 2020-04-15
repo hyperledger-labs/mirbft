@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"hash"
 	"math/rand"
-	"time"
 
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -373,10 +372,9 @@ func (r *Recording) Step() error {
 }
 
 // DrainClients will execute the recording until all client requests have committed.
-// It will return with an error if the (real) execution time takes longer than the
-// specified timeout.  If any step returns an error, this function returns that error.
-func (r *Recording) DrainClients(timeout time.Duration) (int, error) {
-	start := time.Now()
+// It will return with an error if the number of accumulated log entries exceeds timeout.
+// If any step returns an error, this function returns that error.
+func (r *Recording) DrainClients(timeout int) (int, error) {
 	totalReqs := uint64(0)
 	for _, client := range r.Clients {
 		totalReqs += client.Config.Total
@@ -402,7 +400,7 @@ func (r *Recording) DrainClients(timeout time.Duration) (int, error) {
 			return count, nil
 		}
 
-		if time.Since(start) > timeout {
+		if r.EventLog.Count() > timeout {
 			return 0, errors.Errorf("timed out after %d entries", r.EventLog.Count())
 		}
 	}

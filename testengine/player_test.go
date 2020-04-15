@@ -2,7 +2,6 @@ package testengine_test
 
 import (
 	"bytes"
-	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -30,7 +29,7 @@ var _ = Describe("Player", func() {
 		recording, err = recorder.Recording()
 		Expect(err).NotTo(HaveOccurred())
 
-		_, err = recording.DrainClients(10 * time.Second)
+		_, err = recording.DrainClients(50000)
 		Expect(err).NotTo(HaveOccurred())
 
 		serialized = &bytes.Buffer{}
