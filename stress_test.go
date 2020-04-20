@@ -11,10 +11,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash"
+	"io"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/IBM/mirbft/mock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -280,7 +282,10 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 			BufferSize:           500,
 		}
 
-		node, err := mirbft.StartNewNode(config, doneC, networkConfig)
+		storage := &mock.Storage{}
+		storage.LoadReturns(nil, io.EOF)
+
+		node, err := mirbft.StartNewNode(config, doneC, networkConfig, storage)
 		Expect(err).NotTo(HaveOccurred())
 		nodes[i] = node
 	}

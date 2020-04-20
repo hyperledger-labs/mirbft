@@ -7,10 +7,18 @@ package mirbft
 
 import (
 	"fmt"
+	"io"
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/pkg/errors"
 )
+
+//go:generate counterfeiter -o mock/storage.go -fake-name Storage . Storage
+
+type Storage interface {
+	Load(index uint64) (*pb.Persisted, error)
+}
 
 type persisted struct {
 	pSet          map[uint64]*pb.PEntry            // Seq -> PEntry
@@ -20,6 +28,33 @@ type persisted struct {
 
 	networkConfig *pb.NetworkConfig
 	myConfig      *Config
+}
+
+func (p *persisted) load(storage Storage) error {
+	var data *pb.Persisted
+	var err error
+	var index uint64
+
+	for {
+		data, err = storage.Load(index)
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return errors.Errorf("failed to load persisted from Storage: %s", err)
+		}
+
+		p.add(data)
+		index++
+	}
+
+	p.checkpoints[0] = &pb.Checkpoint{
+		SeqNo: 0,
+		Value: []byte("TODO, get from state"),
+	}
+
+	return nil
 }
 
 func (p *persisted) add(persisted *pb.Persisted) *Actions {
