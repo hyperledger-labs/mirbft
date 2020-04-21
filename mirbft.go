@@ -146,12 +146,28 @@ func StandardInitialNetworkConfig(nodeCount int) *pb.NetworkConfig {
 // StartNewNode creates a node to join a fresh network.  Eventually, this method will either
 // be deprecated, or augmented with a RestartNode or similar.  For now, this method
 // hard codes many of the parameters, but more will be exposed in the future.
-func StartNewNode(config *Config, doneC <-chan struct{}, initialNetworkConfig *pb.NetworkConfig) (*Node, error) {
+func StartNewNode(
+	config *Config,
+	doneC <-chan struct{},
+	initialNetworkConfig *pb.NetworkConfig,
+	storage Storage,
+) (*Node, error) {
 	replicas := make([]Replica, len(initialNetworkConfig.Nodes))
 	for i, node := range initialNetworkConfig.Nodes {
 		replicas[i] = Replica{
 			ID: node,
 		}
+	}
+
+	persisted := &persisted{
+		pSet:          map[uint64]*pb.PEntry{},
+		qSet:          map[uint64]map[uint64]*pb.QEntry{},
+		checkpoints:   map[uint64]*pb.Checkpoint{},
+		networkConfig: initialNetworkConfig,
+		myConfig:      config,
+	}
+	if err := persisted.load(storage); err != nil {
+		return nil, errors.Errorf("failed to start new node: %s", err)
 	}
 
 	return &Node{
@@ -161,6 +177,7 @@ func StartNewNode(config *Config, doneC <-chan struct{}, initialNetworkConfig *p
 			newStateMachine(
 				initialNetworkConfig,
 				config,
+				persisted,
 			),
 			doneC,
 		),

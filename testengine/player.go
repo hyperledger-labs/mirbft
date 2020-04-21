@@ -9,7 +9,10 @@ package testengine
 import (
 	"context"
 	"fmt"
+	"io"
+
 	"github.com/IBM/mirbft"
+	"github.com/IBM/mirbft/mock"
 	tpb "github.com/IBM/mirbft/testengine/testenginepb"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -38,6 +41,9 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 			return nil, errors.Errorf("nodeConfig.Id did not appear in order, expected %d, got %d", i, nodeConfig.Id)
 		}
 
+		storage := &mock.Storage{}
+		storage.LoadReturns(nil, io.EOF)
+
 		node, err := mirbft.StartNewNode(
 			&mirbft.Config{
 				ID:     nodeConfig.Id,
@@ -52,6 +58,7 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 			},
 			doneC,
 			el.InitialConfig,
+			storage,
 		)
 		if err != nil {
 			return nil, errors.WithMessagef(err, "could not create mir node %d", nodeConfig.Id)

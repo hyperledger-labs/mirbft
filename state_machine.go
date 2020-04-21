@@ -27,23 +27,9 @@ type stateMachine struct {
 	persisted         *persisted
 }
 
-func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config) *stateMachine {
+func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config, persisted *persisted) *stateMachine {
 	oddities := &oddities{
 		logger: myConfig.Logger,
-	}
-
-	persisted := &persisted{
-		pSet:          map[uint64]*pb.PEntry{},
-		qSet:          map[uint64]map[uint64]*pb.QEntry{},
-		checkpoints:   map[uint64]*pb.Checkpoint{},
-		lastCommitted: 0,
-		networkConfig: networkConfig,
-		myConfig:      myConfig,
-	}
-
-	persisted.checkpoints[0] = &pb.Checkpoint{
-		SeqNo: 0,
-		Value: []byte("TODO, get from state"),
 	}
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
