@@ -169,11 +169,7 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		requestData := innerMsg.ForwardRequest.Request
 		clientWindow, ok := n.clientWindows.clientWindow(requestData.ClientId)
 		if !ok {
-			if requestData.ReqNo == 1 {
-				return current
-			} else {
-				return future
-			}
+			return future
 		}
 		switch {
 		case clientWindow.lowWatermark > requestData.ReqNo:

@@ -407,8 +407,6 @@ func (r *Recording) DrainClients(timeout int) (int, error) {
 }
 
 func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
-	networkConfig := mirbft.StandardInitialNetworkConfig(nodeCount)
-
 	var nodeConfigs []*tpb.NodeConfig
 	for i := 0; i < nodeCount; i++ {
 		nodeConfigs = append(nodeConfigs, &tpb.NodeConfig{
@@ -424,13 +422,21 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 		})
 	}
 
-	var clientConfigs []*ClientConfig
+	clientIDs := make([][]byte, clientCount)
 	for i := 0; i < clientCount; i++ {
-		clientConfigs = append(clientConfigs, &ClientConfig{
-			ID:          []byte(fmt.Sprintf("%d", i)),
+		clientIDs[i] = []byte(fmt.Sprintf("%d", i))
+	}
+
+	networkConfig := mirbft.StandardInitialNetworkConfig(nodeCount, clientIDs...)
+
+	clientConfigs := make([]*ClientConfig, clientCount)
+	for i := 0; i < clientCount; i++ {
+		clientConfigs[i] = &ClientConfig{
+			ID:          clientIDs[i],
 			MaxInFlight: int(networkConfig.CheckpointInterval / 2),
 			Total:       reqsPerClient,
-		})
+		}
+		clientIDs[i] = clientConfigs[i].ID
 	}
 
 	logger, err := zap.NewProduction()

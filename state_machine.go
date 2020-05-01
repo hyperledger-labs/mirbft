@@ -38,7 +38,13 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config, persiste
 		windows:       map[string]*clientWindow{},
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
-	} // TODO, populate client windows from persisted
+	}
+
+	for _, client := range networkConfig.Clients {
+		clientWindow := newClientWindow(1, 100, networkConfig, myConfig) // XXX this should be configurable
+		clientWindows.insert(client.Id, clientWindow)
+	}
+
 	for _, id := range networkConfig.Nodes {
 		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, clientWindows, oddities)
 	}
@@ -382,13 +388,12 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 }
 
 func (sm *stateMachine) applyRequestAckMsg(source NodeID, clientID []byte, reqNo uint64, digest []byte) *Actions {
-	// TODO, we need to prevent DoS down this avenue by pre-filtering these
+	// TODO, make sure nodeMsgs ignores this if client is not defined
+
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newClientWindow(1, 100, sm.networkConfig, sm.myConfig) // XXX this should be configurable
-		sm.clientWindows.insert(clientID, clientWindow)
+		panic("unexpected unknown client")
 	}
-
 	clientWindow.ack(source, reqNo, digest)
 
 	if sm.activeEpoch == nil {
@@ -403,8 +408,7 @@ func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb
 	clientID := requestData.ClientId
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newClientWindow(1, 100, sm.networkConfig, sm.myConfig) // XXX this should be configurable
-		sm.clientWindows.insert(clientID, clientWindow)
+		panic("unexpected unknown client")
 	}
 
 	clientWindow.allocate(requestData, digest)
@@ -420,8 +424,7 @@ func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb
 func (sm *stateMachine) clientWaiter(clientID []byte) *clientWaiter {
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
-		clientWindow = newClientWindow(1, 100, sm.networkConfig, sm.myConfig) // XXX this should be configurable
-		sm.clientWindows.insert(clientID, clientWindow)
+		return nil
 	}
 
 	return clientWindow.clientWaiter

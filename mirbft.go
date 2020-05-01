@@ -124,7 +124,7 @@ func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.Request) 
 	}
 }
 
-func StandardInitialNetworkConfig(nodeCount int) *pb.NetworkConfig {
+func StandardInitialNetworkConfig(nodeCount int, clientIDs ...[]byte) *pb.NetworkConfig {
 	nodes := []uint64{}
 	for i := 0; i < nodeCount; i++ {
 		nodes = append(nodes, uint64(i))
@@ -134,12 +134,21 @@ func StandardInitialNetworkConfig(nodeCount int) *pb.NetworkConfig {
 	checkpointInterval := numberOfBuckets * 5
 	maxEpochLength := checkpointInterval * 10
 
+	clients := make([]*pb.NetworkConfig_Client, len(clientIDs))
+	for i, clientID := range clientIDs {
+		clients[i] = &pb.NetworkConfig_Client{
+			Id:     clientID,
+			Number: uint64(i),
+		}
+	}
+
 	return &pb.NetworkConfig{
 		Nodes:              nodes,
 		F:                  int32((nodeCount - 1) / 3),
 		NumberOfBuckets:    numberOfBuckets,
 		CheckpointInterval: checkpointInterval,
 		MaxEpochLength:     uint64(maxEpochLength),
+		Clients:            clients,
 	}
 }
 
@@ -222,6 +231,10 @@ func (n *Node) ClientProposer(ctx context.Context, clientID []byte, options ...C
 		return nil, ctx.Err()
 	case <-n.s.errC:
 		return nil, n.s.getExitErr()
+	}
+
+	if cw == nil {
+		return nil, errors.Errorf("client ID not found to be registered")
 	}
 
 	blocking := true

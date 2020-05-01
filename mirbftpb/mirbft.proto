@@ -69,6 +69,14 @@ message NetworkConfig {
     // 16 | 7 | 7 | 6 | 6 | 5 | 5 |
     // 17 | 8 | 7 | 7 | 6 | 6 | 5 |
     int32 f = 5;
+
+    message Client {
+        bytes id = 1;
+        uint64 number = 2;
+        uint64 low_watermark = 3;
+    }
+
+    repeated Client clients = 6;
 }
 
 // Persisted contains data that should be persited by lib user

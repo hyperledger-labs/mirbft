@@ -264,7 +264,7 @@ type Network struct {
 func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
 	nodes := make([]*mirbft.Node, testConfig.NodeCount)
 
-	networkConfig := mirbft.StandardInitialNetworkConfig(testConfig.NodeCount)
+	networkConfig := mirbft.StandardInitialNetworkConfig(testConfig.NodeCount, []byte{})
 
 	if testConfig.BucketCount != 0 {
 		networkConfig.NumberOfBuckets = int32(testConfig.BucketCount)
