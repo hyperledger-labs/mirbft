@@ -49,13 +49,16 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config, persiste
 		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, clientWindows, oddities)
 	}
 
-	checkpointTracker := newCheckpointTracker(persisted.checkpoints, networkConfig, myConfig)
+	checkpointTracker := newCheckpointTracker(networkConfig, persisted, myConfig)
 	batchTracker := newBatchTracker() // TODO, populate batch tracker from persisted
 
-	checkpoints := make([]*pb.Checkpoint, len(persisted.checkpoints))
+	checkpoints := make([]*pb.Checkpoint, len(persisted.cSet))
 	i := 0
-	for _, cp := range persisted.checkpoints {
-		checkpoints[i] = cp
+	for seqNo, cEntry := range persisted.cSet {
+		checkpoints[i] = &pb.Checkpoint{
+			SeqNo: seqNo,
+			Value: cEntry.CheckpointValue,
+		}
 		i++
 	}
 	// TODO, sort checkpoints?
@@ -323,10 +326,10 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
 		actions.Append(sm.checkpointTracker.applyCheckpointResult(checkpointResult.SeqNo, checkpointResult.Value))
 		// TODO, maybe push this into the checkpoint tracker?
-		sm.persisted.add(&pb.Persisted{Type: &pb.Persisted_Checkpoint{
-			Checkpoint: &pb.Checkpoint{
-				SeqNo: checkpointResult.SeqNo,
-				Value: checkpointResult.Value,
+		sm.persisted.add(&pb.Persisted{Type: &pb.Persisted_Centry{
+			Centry: &pb.CEntry{
+				SeqNo:           checkpointResult.SeqNo,
+				CheckpointValue: checkpointResult.Value,
 			},
 		}})
 	}

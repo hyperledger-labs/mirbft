@@ -71,7 +71,7 @@ message NetworkConfig {
     int32 f = 5;
 
     message Client {
-        bytes id = 1;
+        bytes id = 1; // TODO, remove me
         uint64 number = 2;
         uint64 low_watermark = 3;
     }
@@ -84,7 +84,7 @@ message Persisted {
     oneof type {
         QEntry qentry = 1;
         PEntry pentry = 2;
-        Checkpoint checkpoint = 3;
+        CEntry centry = 3; // TODO, proto style
     }
 }
 
@@ -103,6 +103,13 @@ message PEntry {
     uint64 epoch = 1;
     uint64 seq_no = 2;
     bytes digest = 3;
+}
+
+// CEntry is an entry which must be persisted before a Checkpoint message is sent.
+message CEntry {
+    uint64 seq_no = 1;
+    bytes checkpoint_value = 2;
+    NetworkConfig network_config = 3;
 }
 
 message Msg {

@@ -23,7 +23,7 @@ type Storage interface {
 type persisted struct {
 	pSet          map[uint64]*pb.PEntry            // Seq -> PEntry
 	qSet          map[uint64]map[uint64]*pb.QEntry // Seq -> Epoch -> QEntry
-	checkpoints   map[uint64]*pb.Checkpoint        // Seq -> Checkpoint
+	cSet          map[uint64]*pb.CEntry            // Seq -> CEntry
 	lastCommitted uint64                           // Seq
 
 	networkConfig *pb.NetworkConfig
@@ -49,9 +49,10 @@ func (p *persisted) load(storage Storage) error {
 		index++
 	}
 
-	p.checkpoints[0] = &pb.Checkpoint{
-		SeqNo: 0,
-		Value: []byte("TODO, get from state"),
+	p.cSet[0] = &pb.CEntry{
+		SeqNo:           0,
+		CheckpointValue: []byte("TODO, get from state"),
+		NetworkConfig:   p.networkConfig,
 	}
 
 	return nil
@@ -63,8 +64,8 @@ func (p *persisted) add(persisted *pb.Persisted) *Actions {
 		p.addPEntry(d.Pentry)
 	case *pb.Persisted_Qentry:
 		p.addQEntry(d.Qentry)
-	case *pb.Persisted_Checkpoint:
-		p.addCheckpoint(d.Checkpoint)
+	case *pb.Persisted_Centry:
+		p.addCEntry(d.Centry)
 	default:
 		panic("unrecognized data type")
 	}
@@ -100,12 +101,12 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) {
 	qSeqMap[qEntry.Epoch] = qEntry
 }
 
-func (p *persisted) addCheckpoint(cp *pb.Checkpoint) {
-	if p.checkpoints == nil {
-		p.checkpoints = map[uint64]*pb.Checkpoint{}
+func (p *persisted) addCEntry(cp *pb.CEntry) {
+	if p.cSet == nil {
+		p.cSet = map[uint64]*pb.CEntry{}
 	}
 
-	p.checkpoints[cp.SeqNo] = cp
+	p.cSet[cp.SeqNo] = cp
 }
 
 func (p *persisted) setLastCommitted(seqNo uint64) {
@@ -130,9 +131,9 @@ func (p *persisted) truncate(lowWatermark uint64) {
 		}
 	}
 
-	for seqNo := range p.checkpoints {
+	for seqNo := range p.cSet {
 		if seqNo < lowWatermark {
-			delete(p.checkpoints, seqNo)
+			delete(p.cSet, seqNo)
 		}
 	}
 }
@@ -144,8 +145,12 @@ func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker)
 
 	var highestStableCheckpoint *pb.Checkpoint
 	var checkpoints []*pb.Checkpoint
-	for seqNo, cp := range p.checkpoints {
+	for seqNo, cEntry := range p.cSet {
 		pcp := ct.checkpoint(seqNo)
+		cp := &pb.Checkpoint{
+			SeqNo: seqNo,
+			Value: cEntry.CheckpointValue,
+		}
 		if pcp.stable && (highestStableCheckpoint == nil || highestStableCheckpoint.SeqNo < seqNo) {
 			highestStableCheckpoint = cp
 		} else {

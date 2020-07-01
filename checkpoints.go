@@ -22,21 +22,23 @@ type checkpointTracker struct {
 	checkpoints map[uint64]*checkpoint
 
 	networkConfig *pb.NetworkConfig
+	persisted     *persisted
 	myConfig      *Config
 }
 
-func newCheckpointTracker(initialCheckpoints map[uint64]*pb.Checkpoint, networkConfig *pb.NetworkConfig, myConfig *Config) *checkpointTracker {
+func newCheckpointTracker(networkConfig *pb.NetworkConfig, persisted *persisted, myConfig *Config) *checkpointTracker {
 	ct := &checkpointTracker{
 		highestCheckpoint: map[NodeID]*checkpoint{}, // TODO, implement
 		checkpoints:       map[uint64]*checkpoint{},
 		networkConfig:     networkConfig,
 		myConfig:          myConfig,
+		persisted:         persisted,
 	}
 
 	var earliestCheckpoint *checkpoint
-	for seqNo, cp := range initialCheckpoints {
+	for seqNo, cp := range persisted.cSet {
 		pcp := ct.checkpoint(seqNo)
-		pcp.applyCheckpointMsg(NodeID(myConfig.ID), cp.Value)
+		pcp.applyCheckpointMsg(NodeID(myConfig.ID), cp.CheckpointValue)
 		if earliestCheckpoint == nil || earliestCheckpoint.seqNo > seqNo {
 			earliestCheckpoint = pcp
 		}
@@ -58,7 +60,7 @@ func (ct *checkpointTracker) truncate(lowSeqNo uint64) {
 func (ct *checkpointTracker) checkpoint(seqNo uint64) *checkpoint {
 	cp, ok := ct.checkpoints[seqNo]
 	if !ok {
-		cp = newCheckpoint(seqNo, ct.networkConfig, ct.myConfig)
+		cp = newCheckpoint(seqNo, ct.networkConfig, ct.persisted, ct.myConfig)
 		ct.checkpoints[seqNo] = cp
 	}
 
@@ -94,6 +96,7 @@ type checkpoint struct {
 	seqNo         uint64
 	myConfig      *Config
 	networkConfig *pb.NetworkConfig
+	persisted     *persisted
 
 	values         map[string][]NodeID
 	committedValue []byte
@@ -102,11 +105,12 @@ type checkpoint struct {
 	obsolete       bool
 }
 
-func newCheckpoint(seqNo uint64, config *pb.NetworkConfig, myConfig *Config) *checkpoint {
+func newCheckpoint(seqNo uint64, config *pb.NetworkConfig, persisted *persisted, myConfig *Config) *checkpoint {
 	return &checkpoint{
 		seqNo:         seqNo,
 		networkConfig: config,
 		myConfig:      myConfig,
+		persisted:     persisted,
 		values:        map[string][]NodeID{},
 	}
 }
@@ -152,7 +156,18 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
 }
 
 func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {
-	return &Actions{
+	actions := cw.persisted.add(
+		&pb.Persisted{
+			Type: &pb.Persisted_Centry{
+				Centry: &pb.CEntry{
+					SeqNo:           uint64(cw.seqNo),
+					CheckpointValue: value,
+					NetworkConfig:   cw.networkConfig,
+				},
+			},
+		},
+	)
+	actions.Append(&Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_Checkpoint{
@@ -163,7 +178,8 @@ func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {
 				},
 			},
 		},
-	}
+	})
+	return actions
 }
 
 func (cw *checkpoint) status() *CheckpointStatus {

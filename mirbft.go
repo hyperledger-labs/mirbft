@@ -171,7 +171,7 @@ func StartNewNode(
 	persisted := &persisted{
 		pSet:          map[uint64]*pb.PEntry{},
 		qSet:          map[uint64]map[uint64]*pb.QEntry{},
-		checkpoints:   map[uint64]*pb.Checkpoint{},
+		cSet:          map[uint64]*pb.CEntry{},
 		networkConfig: initialNetworkConfig,
 		myConfig:      config,
 	}

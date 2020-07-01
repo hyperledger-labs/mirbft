@@ -68,15 +68,15 @@ var _ = XDescribe("Integration", func() {
 			persisted := &persisted{
 				pSet:          map[uint64]*pb.PEntry{},
 				qSet:          map[uint64]map[uint64]*pb.QEntry{},
-				checkpoints:   map[uint64]*pb.Checkpoint{},
+				cSet:          map[uint64]*pb.CEntry{},
 				lastCommitted: 0,
 				networkConfig: networkConfig,
 				myConfig:      consumerConfig,
 			}
 
-			persisted.checkpoints[0] = &pb.Checkpoint{
-				SeqNo: 0,
-				Value: []byte("TODO, get from state"),
+			persisted.cSet[0] = &pb.CEntry{
+				SeqNo:           0,
+				CheckpointValue: []byte("TODO, get from state"),
 			}
 
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig, persisted)
@@ -342,15 +342,15 @@ var _ = XDescribe("Integration", func() {
 			persisted := &persisted{
 				pSet:          map[uint64]*pb.PEntry{},
 				qSet:          map[uint64]map[uint64]*pb.QEntry{},
-				checkpoints:   map[uint64]*pb.Checkpoint{},
+				cSet:          map[uint64]*pb.CEntry{},
 				lastCommitted: 0,
 				networkConfig: networkConfig,
 				myConfig:      consumerConfig,
 			}
 
-			persisted.checkpoints[0] = &pb.Checkpoint{
-				SeqNo: 0,
-				Value: []byte("TODO, get from state"),
+			persisted.cSet[0] = &pb.CEntry{
+				SeqNo:           0,
+				CheckpointValue: []byte("TODO, get from state"),
 			}
 			stateMachineVal = newStateMachine(networkConfig, consumerConfig, persisted)
 			stateMachineVal.activeEpoch = newEpoch(nil, epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, networkConfig, consumerConfig)
