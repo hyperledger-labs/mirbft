@@ -164,8 +164,8 @@ var _ = XDescribe("sequence", func() {
 				},
 				Persisted: []*pb.Persisted{
 					{
-						Type: &pb.Persisted_Qentry{
-							Qentry: &pb.QEntry{
+						Type: &pb.Persisted_QEntry{
+							QEntry: &pb.QEntry{
 								SeqNo:  5,
 								Epoch:  4,
 								Digest: []byte("digest"),
@@ -263,8 +263,8 @@ var _ = XDescribe("sequence", func() {
 				},
 				Persisted: []*pb.Persisted{
 					{
-						Type: &pb.Persisted_Pentry{
-							Pentry: &pb.PEntry{
+						Type: &pb.Persisted_PEntry{
+							PEntry: &pb.PEntry{
 								SeqNo:  5,
 								Epoch:  4,
 								Digest: []byte("digest"),

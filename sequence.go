@@ -236,7 +236,7 @@ func (s *sequence) prepare() *Actions {
 	}
 
 	actions := &Actions{Broadcast: msgs}
-	actions.Append(s.persisted.add(&pb.Persisted{Type: &pb.Persisted_Qentry{Qentry: s.qEntry}}))
+	actions.Append(s.persisted.add(&pb.Persisted{Type: &pb.Persisted_QEntry{QEntry: s.qEntry}}))
 
 	if s.owner != NodeID(s.myConfig.ID) {
 		s.applyPrepareMsg(s.owner, s.digest)
@@ -296,7 +296,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 		},
 	}
 
-	actions.Append(s.persisted.add(&pb.Persisted{Type: &pb.Persisted_Pentry{Pentry: pEntry}}))
+	actions.Append(s.persisted.add(&pb.Persisted{Type: &pb.Persisted_PEntry{PEntry: pEntry}}))
 	return actions
 }
 

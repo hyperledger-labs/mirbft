@@ -82,9 +82,9 @@ message NetworkConfig {
 // Persisted contains data that should be persited by lib user
 message Persisted {
     oneof type {
-        QEntry qentry = 1;
-        PEntry pentry = 2;
-        CEntry centry = 3; // TODO, proto style
+        QEntry q_entry = 1;
+        PEntry p_entry = 2;
+        CEntry c_entry = 3;
     }
 }
 

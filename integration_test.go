@@ -241,8 +241,8 @@ var _ = XDescribe("Integration", func() {
 				},
 				Persisted: []*pb.Persisted{
 					{
-						Type: &pb.Persisted_Qentry{
-							Qentry: &pb.QEntry{
+						Type: &pb.Persisted_QEntry{
+							QEntry: &pb.QEntry{
 								Epoch:  3,
 								SeqNo:  1,
 								Digest: []byte("batch-digest"),
@@ -282,8 +282,8 @@ var _ = XDescribe("Integration", func() {
 				},
 				Persisted: []*pb.Persisted{
 					{
-						Type: &pb.Persisted_Pentry{
-							Pentry: &pb.PEntry{
+						Type: &pb.Persisted_PEntry{
+							PEntry: &pb.PEntry{
 								Epoch:  3,
 								SeqNo:  1,
 								Digest: []byte("batch-digest"),
@@ -550,8 +550,8 @@ var _ = XDescribe("Integration", func() {
 				},
 				Persisted: []*pb.Persisted{
 					{
-						Type: &pb.Persisted_Qentry{
-							Qentry: &pb.QEntry{
+						Type: &pb.Persisted_QEntry{
+							QEntry: &pb.QEntry{
 								Epoch:  2,
 								SeqNo:  2,
 								Digest: []byte("batch-digest"),
@@ -597,8 +597,8 @@ var _ = XDescribe("Integration", func() {
 				},
 				Persisted: []*pb.Persisted{
 					{
-						Type: &pb.Persisted_Pentry{
-							Pentry: &pb.PEntry{
+						Type: &pb.Persisted_PEntry{
+							PEntry: &pb.PEntry{
 								Epoch:  2,
 								SeqNo:  2,
 								Digest: []byte("batch-digest"),

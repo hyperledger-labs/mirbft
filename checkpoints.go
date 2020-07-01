@@ -158,8 +158,8 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
 func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {
 	actions := cw.persisted.add(
 		&pb.Persisted{
-			Type: &pb.Persisted_Centry{
-				Centry: &pb.CEntry{
+			Type: &pb.Persisted_CEntry{
+				CEntry: &pb.CEntry{
 					SeqNo:           uint64(cw.seqNo),
 					CheckpointValue: value,
 					NetworkConfig:   cw.networkConfig,

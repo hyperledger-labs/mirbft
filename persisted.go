@@ -60,12 +60,12 @@ func (p *persisted) load(storage Storage) error {
 
 func (p *persisted) add(persisted *pb.Persisted) *Actions {
 	switch d := persisted.Type.(type) {
-	case *pb.Persisted_Pentry:
-		p.addPEntry(d.Pentry)
-	case *pb.Persisted_Qentry:
-		p.addQEntry(d.Qentry)
-	case *pb.Persisted_Centry:
-		p.addCEntry(d.Centry)
+	case *pb.Persisted_PEntry:
+		p.addPEntry(d.PEntry)
+	case *pb.Persisted_QEntry:
+		p.addQEntry(d.QEntry)
+	case *pb.Persisted_CEntry:
+		p.addCEntry(d.CEntry)
 	default:
 		panic("unrecognized data type")
 	}
