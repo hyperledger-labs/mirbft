@@ -49,12 +49,6 @@ func (p *persisted) load(storage Storage) error {
 		index++
 	}
 
-	p.cSet[0] = &pb.CEntry{
-		SeqNo:           0,
-		CheckpointValue: []byte("TODO, get from state"),
-		NetworkConfig:   p.networkConfig,
-	}
-
 	return nil
 }
 
@@ -106,6 +100,10 @@ func (p *persisted) addCEntry(cp *pb.CEntry) {
 		p.cSet = map[uint64]*pb.CEntry{}
 	}
 
+	if cp.NetworkConfig == nil {
+		panic("network config must be set")
+	}
+
 	p.cSet[cp.SeqNo] = cp
 }
 
@@ -145,6 +143,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker)
 
 	var highestStableCheckpoint *pb.Checkpoint
 	var checkpoints []*pb.Checkpoint
+	var networkConfig *pb.NetworkConfig
 	for seqNo, cEntry := range p.cSet {
 		pcp := ct.checkpoint(seqNo)
 		cp := &pb.Checkpoint{
@@ -153,6 +152,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker)
 		}
 		if pcp.stable && (highestStableCheckpoint == nil || highestStableCheckpoint.SeqNo < seqNo) {
 			highestStableCheckpoint = cp
+			networkConfig = cEntry.NetworkConfig
 		} else {
 			checkpoints = append(checkpoints, cp)
 		}
@@ -162,6 +162,9 @@ func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker)
 	if highestStableCheckpoint == nil {
 		panic("this should never happen")
 	}
+	if highestStableCheckpoint != nil && networkConfig == nil {
+		panic("this should really never happen")
+	}
 
 	// Note, this is so that our order is deterministic, across restarts
 	sort.Slice(checkpoints, func(i, j int) bool {
@@ -170,7 +173,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker)
 
 	epochChange.Checkpoints = checkpoints
 
-	for seqNo := highestStableCheckpoint.SeqNo; seqNo < highestStableCheckpoint.SeqNo+uint64(p.networkConfig.CheckpointInterval)*3; seqNo++ {
+	for seqNo := highestStableCheckpoint.SeqNo; seqNo < highestStableCheckpoint.SeqNo+uint64(networkConfig.CheckpointInterval)*3; seqNo++ {
 		qSubSet, ok := p.qSet[seqNo]
 		if !ok {
 			continue

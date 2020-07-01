@@ -16,6 +16,9 @@ import (
 // ActionResults to the *Node.AddResults call.
 // TODO add details about concurrency
 type Actions struct {
+	// Replicas are the set of active replicas for these actions
+	Replicas []Replica
+
 	// Broadcast messages should be sent to every node in the cluster (including yourself).
 	Broadcast []*pb.Msg
 

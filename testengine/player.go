@@ -12,6 +12,7 @@ import (
 	"io"
 
 	"github.com/IBM/mirbft"
+	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/mock"
 	tpb "github.com/IBM/mirbft/testengine/testenginepb"
 	"github.com/pkg/errors"
@@ -42,9 +43,18 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 		}
 
 		storage := &mock.Storage{}
-		storage.LoadReturns(nil, io.EOF)
+		storage.LoadReturnsOnCall(0, &pb.Persisted{
+			Type: &pb.Persisted_CEntry{
+				CEntry: &pb.CEntry{
+					SeqNo:           0,
+					CheckpointValue: []byte("fake-initial-value"),
+					NetworkConfig:   el.InitialConfig,
+				},
+			},
+		}, nil)
+		storage.LoadReturnsOnCall(1, nil, io.EOF)
 
-		node, err := mirbft.StartNewNode(
+		node, err := mirbft.StartNode(
 			&mirbft.Config{
 				ID:     nodeConfig.Id,
 				Logger: logger.Named(fmt.Sprintf("node%d", nodeConfig.Id)),
@@ -57,7 +67,6 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 				BufferSize:           int(nodeConfig.BufferSize),
 			},
 			doneC,
-			el.InitialConfig,
 			storage,
 		)
 		if err != nil {

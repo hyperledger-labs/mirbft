@@ -50,9 +50,8 @@ type Replica struct {
 // The methods exposed on Node are all thread safe, though typically, a single loop handles
 // reading Actions, writing results, and writing ticks, while other go routines Propose and Step.
 type Node struct {
-	Config   *Config
-	s        *serializer
-	Replicas []Replica
+	Config *Config
+	s      *serializer
 }
 
 type ClientProposer struct {
@@ -155,36 +154,25 @@ func StandardInitialNetworkConfig(nodeCount int, clientIDs ...[]byte) *pb.Networ
 // StartNewNode creates a node to join a fresh network.  Eventually, this method will either
 // be deprecated, or augmented with a RestartNode or similar.  For now, this method
 // hard codes many of the parameters, but more will be exposed in the future.
-func StartNewNode(
+func StartNode(
 	config *Config,
 	doneC <-chan struct{},
-	initialNetworkConfig *pb.NetworkConfig,
 	storage Storage,
 ) (*Node, error) {
-	replicas := make([]Replica, len(initialNetworkConfig.Nodes))
-	for i, node := range initialNetworkConfig.Nodes {
-		replicas[i] = Replica{
-			ID: node,
-		}
-	}
-
 	persisted := &persisted{
-		pSet:          map[uint64]*pb.PEntry{},
-		qSet:          map[uint64]map[uint64]*pb.QEntry{},
-		cSet:          map[uint64]*pb.CEntry{},
-		networkConfig: initialNetworkConfig,
-		myConfig:      config,
+		pSet:     map[uint64]*pb.PEntry{},
+		qSet:     map[uint64]map[uint64]*pb.QEntry{},
+		cSet:     map[uint64]*pb.CEntry{},
+		myConfig: config,
 	}
 	if err := persisted.load(storage); err != nil {
 		return nil, errors.Errorf("failed to start new node: %s", err)
-	}
+	} // TODO, have load return a persisted instance
 
 	return &Node{
-		Config:   config,
-		Replicas: replicas,
+		Config: config,
 		s: newSerializer(
 			newStateMachine(
-				initialNetworkConfig,
 				config,
 				persisted,
 			),

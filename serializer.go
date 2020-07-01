@@ -86,7 +86,17 @@ func (s *serializer) run() {
 		s.exitStatus = s.stateMachine.status()
 	}()
 
-	actions := &Actions{}
+	// TODO, at some point, these can change, need to be recalculated
+	replicas := make([]Replica, len(s.stateMachine.networkConfig.Nodes))
+	for i, node := range s.stateMachine.networkConfig.Nodes {
+		replicas[i] = Replica{
+			ID: node,
+		}
+	}
+
+	actions := &Actions{
+		Replicas: replicas,
+	}
 	var actionsC chan<- Actions
 	for {
 		select {

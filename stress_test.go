@@ -283,9 +283,20 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 		}
 
 		storage := &mock.Storage{}
+		storage.LoadReturnsOnCall(0, &pb.Persisted{
+			Type: &pb.Persisted_CEntry{
+				CEntry: &pb.CEntry{
+					SeqNo:           0,
+					CheckpointValue: []byte("fake-initial-value"),
+					NetworkConfig:   networkConfig,
+				},
+			},
+		}, nil)
+		storage.LoadReturnsOnCall(1, nil, io.EOF)
+
 		storage.LoadReturns(nil, io.EOF)
 
-		node, err := mirbft.StartNewNode(config, doneC, networkConfig, storage)
+		node, err := mirbft.StartNode(config, doneC, storage)
 		Expect(err).NotTo(HaveOccurred())
 		nodes[i] = node
 	}

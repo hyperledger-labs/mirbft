@@ -76,7 +76,7 @@ func (c *SerialProcessor) Persist(actions *mirbft.Actions) {
 
 func (c *SerialProcessor) Transmit(actions *mirbft.Actions) {
 	for _, broadcast := range actions.Broadcast {
-		for _, replica := range c.Node.Replicas {
+		for _, replica := range actions.Replicas {
 			if replica.ID == c.Node.Config.ID {
 				c.Node.Step(context.TODO(), replica.ID, broadcast)
 			} else {

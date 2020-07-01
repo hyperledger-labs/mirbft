@@ -28,10 +28,12 @@ type stateMachine struct {
 	persisted         *persisted
 }
 
-func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config, persisted *persisted) *stateMachine {
+func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 	oddities := &oddities{
 		logger: myConfig.Logger,
 	}
+
+	networkConfig := persisted.cSet[0].NetworkConfig // TODO, obviously wrong
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	clientWindows := &clientWindows{
@@ -39,7 +41,6 @@ func newStateMachine(networkConfig *pb.NetworkConfig, myConfig *Config, persiste
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
 	}
-
 	for _, client := range networkConfig.Clients {
 		clientWindow := newClientWindow(1, 100, networkConfig, myConfig) // XXX this should be configurable
 		clientWindows.insert(client.Id, clientWindow)
@@ -330,6 +331,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			CEntry: &pb.CEntry{
 				SeqNo:           checkpointResult.SeqNo,
 				CheckpointValue: checkpointResult.Value,
+				NetworkConfig:   sm.networkConfig, // TODO, ensure it's correct
 			},
 		}})
 	}

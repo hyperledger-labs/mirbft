@@ -77,9 +77,10 @@ var _ = XDescribe("Integration", func() {
 			persisted.cSet[0] = &pb.CEntry{
 				SeqNo:           0,
 				CheckpointValue: []byte("TODO, get from state"),
+				NetworkConfig:   networkConfig,
 			}
 
-			stateMachineVal = newStateMachine(networkConfig, consumerConfig, persisted)
+			stateMachineVal = newStateMachine(consumerConfig, persisted)
 			stateMachineVal.activeEpoch = newEpoch(nil, epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, networkConfig, consumerConfig)
 			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
 
@@ -351,8 +352,9 @@ var _ = XDescribe("Integration", func() {
 			persisted.cSet[0] = &pb.CEntry{
 				SeqNo:           0,
 				CheckpointValue: []byte("TODO, get from state"),
+				NetworkConfig:   networkConfig,
 			}
-			stateMachineVal = newStateMachine(networkConfig, consumerConfig, persisted)
+			stateMachineVal = newStateMachine(consumerConfig, persisted)
 			stateMachineVal.activeEpoch = newEpoch(nil, epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, networkConfig, consumerConfig)
 			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
 			stateMachineVal.nodeMsgs[1].setActiveEpoch(stateMachineVal.activeEpoch)
