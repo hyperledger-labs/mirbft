@@ -71,9 +71,8 @@ message NetworkConfig {
     int32 f = 5;
 
     message Client {
-        bytes id = 1; // TODO, remove me
-        uint64 number = 2;
-        uint64 low_watermark = 3;
+        uint64 id = 1;
+        uint64 low_watermark = 2;
     }
 
     repeated Client clients = 6;
@@ -149,13 +148,13 @@ message ForwardRequest {
 }
 
 message Request {
-    bytes client_id = 1;
+    uint64 client_id = 1;
     uint64 req_no = 2;
     bytes data = 3;
 }
 
 message RequestAck {
-    bytes client_id = 1;
+    uint64 client_id = 1;
     uint64 req_no = 2;
     bytes digest = 3;
 }

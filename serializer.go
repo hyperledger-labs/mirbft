@@ -21,7 +21,7 @@ type step struct {
 }
 
 type clientReq struct {
-	clientID []byte
+	clientID uint64
 	replyC   chan *clientWaiter
 }
 

@@ -199,7 +199,7 @@ var _ = Describe("StressyTest", func() {
 		clients := make([]*mirbft.ClientProposer, len(network.nodes))
 		for i, node := range network.nodes {
 			var err error
-			clients[i], err = node.ClientProposer(ctx, []byte{})
+			clients[i], err = node.ClientProposer(ctx, 0)
 			Expect(err).NotTo(HaveOccurred())
 		}
 
@@ -209,14 +209,14 @@ var _ = Describe("StressyTest", func() {
 
 			for _, client := range clients {
 				err := client.Propose(ctx, &pb.Request{
-					ClientId: []byte{},
+					ClientId: 0,
 					ReqNo:    uint64(i) + 1,
 					Data:     proposalBytes,
 				})
 				Expect(err).NotTo(HaveOccurred())
 			}
 
-			proposalKey := append(Uint64ToBytes(uint64(i)+1), proposalBytes...)
+			proposalKey := append(Uint64ToBytes(0), append(Uint64ToBytes(uint64(i)+1), proposalBytes...)...)
 			Expect(proposals).NotTo(ContainElement(proposalKey))
 			proposals[string(proposalKey)] = proposalUint
 		}
@@ -264,7 +264,7 @@ type Network struct {
 func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
 	nodes := make([]*mirbft.Node, testConfig.NodeCount)
 
-	networkConfig := mirbft.StandardInitialNetworkConfig(testConfig.NodeCount, []byte{})
+	networkConfig := mirbft.StandardInitialNetworkConfig(testConfig.NodeCount, 0)
 
 	if testConfig.BucketCount != 0 {
 		networkConfig.NumberOfBuckets = int32(testConfig.BucketCount)

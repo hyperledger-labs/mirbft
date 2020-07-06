@@ -90,7 +90,7 @@ var _ = XDescribe("Integration", func() {
 		It("works from proposal through commit", func() {
 			By("proposing a message")
 			serializer.propC <- &pb.Request{
-				ClientId: []byte("client-1"),
+				ClientId: 9,
 				ReqNo:    1,
 				Data:     []byte("data"),
 			}
@@ -100,14 +100,14 @@ var _ = XDescribe("Integration", func() {
 				Hash: []*HashRequest{
 					{
 						Data: [][]byte{
-							[]byte("client-1"),
+							uint64ToBytes(9),
 							uint64ToBytes(1),
 							[]byte("data"),
 						},
 						Request: &Request{
 							Source: 0,
 							Request: &pb.Request{
-								ClientId: []byte("client-1"),
+								ClientId: 9,
 								ReqNo:    1,
 								Data:     []byte("data"),
 							},
@@ -123,14 +123,14 @@ var _ = XDescribe("Integration", func() {
 						Digest: []byte("request-digest"),
 						Request: &HashRequest{
 							Data: [][]byte{
-								[]byte("client-1"),
+								uint64ToBytes(9),
 								uint64ToBytes(1),
 								[]byte("data"),
 							},
 							Request: &Request{
 								Source: 0,
 								Request: &pb.Request{
-									ClientId: []byte("client-1"),
+									ClientId: 9,
 									ReqNo:    1,
 									Data:     []byte("data"),
 								},
@@ -145,7 +145,7 @@ var _ = XDescribe("Integration", func() {
 					{
 						Type: &pb.Msg_RequestAck{
 							RequestAck: &pb.RequestAck{
-								ClientId: []byte("client-1"),
+								ClientId: 9,
 								ReqNo:    1,
 								Digest:   []byte("request-digest"),
 							},
@@ -173,7 +173,7 @@ var _ = XDescribe("Integration", func() {
 							SeqNo:  1,
 							RequestAcks: []*pb.RequestAck{
 								{
-									ClientId: []byte("client-1"),
+									ClientId: 9,
 									ReqNo:    1,
 									Digest:   []byte("request-digest"),
 								},
@@ -197,7 +197,7 @@ var _ = XDescribe("Integration", func() {
 								SeqNo:  1,
 								RequestAcks: []*pb.RequestAck{
 									{
-										ClientId: []byte("client-1"),
+										ClientId: 9,
 										ReqNo:    1,
 										Digest:   []byte("request-digest"),
 									},
@@ -216,7 +216,7 @@ var _ = XDescribe("Integration", func() {
 						Type: &pb.Msg_ForwardRequest{
 							ForwardRequest: &pb.ForwardRequest{
 								Request: &pb.Request{
-									ClientId: []byte("client-1"),
+									ClientId: 9,
 									ReqNo:    1,
 									Data:     []byte("data"),
 								},
@@ -231,7 +231,7 @@ var _ = XDescribe("Integration", func() {
 								SeqNo: 1,
 								Batch: []*pb.RequestAck{
 									{
-										ClientId: []byte("client-1"),
+										ClientId: 9,
 										ReqNo:    1,
 										Digest:   []byte("request-digest"),
 									},
@@ -250,7 +250,7 @@ var _ = XDescribe("Integration", func() {
 								Requests: []*pb.ForwardRequest{
 									{
 										Request: &pb.Request{
-											ClientId: []byte("client-1"),
+											ClientId: 9,
 											ReqNo:    1,
 											Data:     []byte("data"),
 										},
@@ -310,7 +310,7 @@ var _ = XDescribe("Integration", func() {
 							Requests: []*pb.ForwardRequest{
 								{
 									Request: &pb.Request{
-										ClientId: []byte("client-1"),
+										ClientId: 9,
 										ReqNo:    1,
 										Data:     []byte("data"),
 									},
@@ -368,7 +368,7 @@ var _ = XDescribe("Integration", func() {
 		It("works from proposal through commit", func() {
 			By("proposing a message")
 			serializer.propC <- &pb.Request{
-				ClientId: []byte("client-1"),
+				ClientId: 9,
 				ReqNo:    1,
 				Data:     []byte("data"),
 			}
@@ -378,14 +378,14 @@ var _ = XDescribe("Integration", func() {
 				Hash: []*HashRequest{
 					{
 						Data: [][]byte{
-							[]byte("client-1"),
+							uint64ToBytes(9),
 							uint64ToBytes(1),
 							[]byte("data"),
 						},
 						Request: &Request{
 							Source: 0,
 							Request: &pb.Request{
-								ClientId: []byte("client-1"),
+								ClientId: 9,
 								ReqNo:    1,
 								Data:     []byte("data"),
 							},
@@ -408,7 +408,7 @@ var _ = XDescribe("Integration", func() {
 							Request: &Request{
 								Source: 0,
 								Request: &pb.Request{
-									ClientId: []byte("client-1"),
+									ClientId: 9,
 									ReqNo:    1,
 									Data:     []byte("data"),
 								},
@@ -423,7 +423,7 @@ var _ = XDescribe("Integration", func() {
 					{
 						Type: &pb.Msg_RequestAck{
 							RequestAck: &pb.RequestAck{
-								ClientId: []byte("client-1"),
+								ClientId: 9,
 								ReqNo:    1,
 								Digest:   []byte("request-digest"),
 							},
@@ -438,7 +438,7 @@ var _ = XDescribe("Integration", func() {
 				Msg: &pb.Msg{
 					Type: &pb.Msg_RequestAck{
 						RequestAck: &pb.RequestAck{
-							ClientId: []byte("client-1"),
+							ClientId: 9,
 							ReqNo:    1,
 							Digest:   []byte("request-digest"),
 						},
@@ -450,7 +450,7 @@ var _ = XDescribe("Integration", func() {
 				Msg: &pb.Msg{
 					Type: &pb.Msg_RequestAck{
 						RequestAck: &pb.RequestAck{
-							ClientId: []byte("client-1"),
+							ClientId: 9,
 							ReqNo:    1,
 							Digest:   []byte("request-digest"),
 						},
@@ -462,7 +462,7 @@ var _ = XDescribe("Integration", func() {
 				Msg: &pb.Msg{
 					Type: &pb.Msg_RequestAck{
 						RequestAck: &pb.RequestAck{
-							ClientId: []byte("client-1"),
+							ClientId: 9,
 							ReqNo:    1,
 							Digest:   []byte("request-digest"),
 						},
@@ -480,7 +480,7 @@ var _ = XDescribe("Integration", func() {
 							SeqNo: 2,
 							Batch: []*pb.RequestAck{
 								{
-									ClientId: []byte("client-1"),
+									ClientId: 9,
 									ReqNo:    1,
 									Digest:   []byte("request-digest"),
 								},
@@ -499,7 +499,7 @@ var _ = XDescribe("Integration", func() {
 							SeqNo:  2,
 							RequestAcks: []*pb.RequestAck{
 								{
-									ClientId: []byte("client-1"),
+									ClientId: 9,
 									ReqNo:    1,
 									Digest:   []byte("request-digest"),
 								},
@@ -523,7 +523,7 @@ var _ = XDescribe("Integration", func() {
 								SeqNo:  2,
 								RequestAcks: []*pb.RequestAck{
 									{
-										ClientId: []byte("client-1"),
+										ClientId: 9,
 										ReqNo:    1,
 										Digest:   uint64ToBytes(7),
 									},
@@ -560,7 +560,7 @@ var _ = XDescribe("Integration", func() {
 								Requests: []*pb.ForwardRequest{
 									{
 										Request: &pb.Request{
-											ClientId: []byte("client-1"),
+											ClientId: 9,
 											ReqNo:    1,
 											Data:     []byte("data"),
 										},
@@ -637,7 +637,7 @@ var _ = XDescribe("Integration", func() {
 							Requests: []*pb.ForwardRequest{
 								{
 									Request: &pb.Request{
-										ClientId: []byte("client-1"),
+										ClientId: 9,
 										ReqNo:    1,
 										Data:     []byte("data"),
 									},

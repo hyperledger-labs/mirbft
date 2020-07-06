@@ -56,7 +56,7 @@ type Node struct {
 
 type ClientProposer struct {
 	blocking     bool
-	clientID     []byte
+	clientID     uint64
 	clientWaiter *clientWaiter
 	s            *serializer
 }
@@ -123,7 +123,7 @@ func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.Request) 
 	}
 }
 
-func StandardInitialNetworkConfig(nodeCount int, clientIDs ...[]byte) *pb.NetworkConfig {
+func StandardInitialNetworkConfig(nodeCount int, clientIDs ...uint64) *pb.NetworkConfig {
 	nodes := []uint64{}
 	for i := 0; i < nodeCount; i++ {
 		nodes = append(nodes, uint64(i))
@@ -136,8 +136,7 @@ func StandardInitialNetworkConfig(nodeCount int, clientIDs ...[]byte) *pb.Networ
 	clients := make([]*pb.NetworkConfig_Client, len(clientIDs))
 	for i, clientID := range clientIDs {
 		clients[i] = &pb.NetworkConfig_Client{
-			Id:     clientID,
-			Number: uint64(i),
+			Id: clientID,
 		}
 	}
 
@@ -198,7 +197,7 @@ func WaitForRoom(shouldBlock bool) ClientProposerOption {
 
 // ClientProposer returns a new ClientProposer for a given clientID.  It is the caller's
 // responsibility to ensure that this method is never invoked twice with the same clientID.
-func (n *Node) ClientProposer(ctx context.Context, clientID []byte, options ...ClientProposerOption) (*ClientProposer, error) {
+func (n *Node) ClientProposer(ctx context.Context, clientID uint64, options ...ClientProposerOption) (*ClientProposer, error) {
 	replyC := make(chan *clientWaiter, 1)
 	select {
 	case n.s.clientC <- &clientReq{

@@ -19,7 +19,7 @@ func uint64ToBytes(value uint64) []byte {
 
 type proposer struct {
 	myConfig               *Config
-	clientWindowProcessors map[string]*clientWindowProcessor
+	clientWindowProcessors map[uint64]*clientWindowProcessor
 	clientWindows          *clientWindows
 
 	totalBuckets    int
@@ -46,7 +46,7 @@ func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[Buc
 		proposalBuckets[bucketID] = &proposalBucket{}
 	}
 
-	clientWindowProcessors := map[string]*clientWindowProcessor{}
+	clientWindowProcessors := map[uint64]*clientWindowProcessor{}
 	for clientID, clientWindow := range clientWindows.windows {
 		rwp := &clientWindowProcessor{
 			lastProcessed: clientWindow.lowWatermark - 1,
@@ -68,23 +68,23 @@ func (p *proposer) stepAllClientWindows() {
 	for _, clientID := range p.clientWindows.clients {
 		// TODO, this logic favors clients with lower IDs, we really should
 		// remember where we last left off to prevent starvation
-		p.stepClientWindow([]byte(clientID))
+		p.stepClientWindow(clientID)
 	}
 }
 
-func (p *proposer) stepClientWindow(clientID []byte) {
-	rwp, ok := p.clientWindowProcessors[string(clientID)]
+func (p *proposer) stepClientWindow(clientID uint64) {
+	rwp, ok := p.clientWindowProcessors[clientID]
 	if !ok {
 		rw, ok := p.clientWindows.clientWindow(clientID)
 		if !ok {
-			panic(fmt.Sprintf("unexpected, missing client %x", []byte(clientID)))
+			panic(fmt.Sprintf("unexpected, missing client %d", clientID))
 		}
 
 		rwp = &clientWindowProcessor{
 			lastProcessed: rw.lowWatermark - 1,
 			clientWindow:  rw,
 		}
-		p.clientWindowProcessors[string(clientID)] = rwp
+		p.clientWindowProcessors[clientID] = rwp
 	}
 
 	for rwp.lastProcessed < rwp.clientWindow.highWatermark {

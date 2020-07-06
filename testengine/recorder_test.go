@@ -84,7 +84,7 @@ var _ = Describe("Recorder", func() {
 			Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
 
 			// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
-			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("689567a3721c39955e37f71beee801fdf89862ac9d2b2354ee7e01e9a2839230"))
+			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("d5db5b90ab78ab82512ecc4264ec5c0e0ebc84d967d078bc65a681def884f7a1"))
 		}
 	})
 

@@ -40,12 +40,12 @@ var _ = XDescribe("sequence", func() {
 			actions := s.allocate(
 				[]*pb.RequestAck{
 					{
-						ClientId: []byte("client-id"),
+						ClientId: 9,
 						ReqNo:    7,
 						Digest:   []byte("msg1-digest"),
 					},
 					{
-						ClientId: []byte("client-id"),
+						ClientId: 9,
 						ReqNo:    8,
 						Digest:   []byte("msg2-digest"),
 					},
@@ -61,12 +61,12 @@ var _ = XDescribe("sequence", func() {
 							Epoch:  4,
 							RequestAcks: []*pb.RequestAck{
 								{
-									ClientId: []byte("client-id"),
+									ClientId: 9,
 									ReqNo:    7,
 									Digest:   []byte("msg1-digest"),
 								},
 								{
-									ClientId: []byte("client-id"),
+									ClientId: 9,
 									ReqNo:    8,
 									Digest:   []byte("msg2-digest"),
 								},
@@ -86,7 +86,7 @@ var _ = XDescribe("sequence", func() {
 					{
 						digest: []byte("msg1-digest"),
 						data: &pb.Request{
-							ClientId: []byte("client-id"),
+							ClientId: 9,
 							ReqNo:    7,
 							Data:     []byte("msg1"),
 						},
@@ -94,7 +94,7 @@ var _ = XDescribe("sequence", func() {
 					{
 						digest: []byte("msg2-digest"),
 						data: &pb.Request{
-							ClientId: []byte("client-id"),
+							ClientId: 9,
 							ReqNo:    8,
 							Data:     []byte("msg2"),
 						},
@@ -113,12 +113,12 @@ var _ = XDescribe("sequence", func() {
 					s.allocate(
 						[]*pb.RequestAck{
 							{
-								ClientId: []byte("client-id"),
+								ClientId: 9,
 								ReqNo:    7,
 								Digest:   []byte("msg1-digest"),
 							},
 							{
-								ClientId: []byte("client-id"),
+								ClientId: 9,
 								ReqNo:    8,
 								Digest:   []byte("msg2-digest"),
 							},
@@ -136,12 +136,12 @@ var _ = XDescribe("sequence", func() {
 			s.state = Allocated
 			s.batch = []*pb.RequestAck{
 				{
-					ClientId: []byte("client-id"),
+					ClientId: 9,
 					ReqNo:    7,
 					Digest:   []byte("msg1-digest"),
 				},
 				{
-					ClientId: []byte("client-id"),
+					ClientId: 9,
 					ReqNo:    8,
 					Digest:   []byte("msg2-digest"),
 				},
@@ -172,7 +172,7 @@ var _ = XDescribe("sequence", func() {
 								Requests: []*pb.ForwardRequest{
 									{
 										Request: &pb.Request{
-											ClientId: []byte("client-id"),
+											ClientId: 9,
 											ReqNo:    7,
 											Data:     []byte("msg1"),
 										},
@@ -180,7 +180,7 @@ var _ = XDescribe("sequence", func() {
 									},
 									{
 										Request: &pb.Request{
-											ClientId: []byte("client-id"),
+											ClientId: 9,
 											ReqNo:    8,
 											Data:     []byte("msg2"),
 										},
@@ -201,7 +201,7 @@ var _ = XDescribe("sequence", func() {
 				Requests: []*pb.ForwardRequest{
 					{
 						Request: &pb.Request{
-							ClientId: []byte("client-id"),
+							ClientId: 9,
 							ReqNo:    7,
 							Data:     []byte("msg1"),
 						},
@@ -209,7 +209,7 @@ var _ = XDescribe("sequence", func() {
 					},
 					{
 						Request: &pb.Request{
-							ClientId: []byte("client-id"),
+							ClientId: 9,
 							ReqNo:    8,
 							Data:     []byte("msg2"),
 						},

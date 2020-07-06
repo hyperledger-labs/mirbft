@@ -74,7 +74,7 @@ type NodeBucketStatus struct {
 }
 
 type ClientWindowStatus struct {
-	ClientID      []byte   `json:"client_id"`
+	ClientID      uint64   `json:"client_id"`
 	LowWatermark  uint64   `json:"low_watermark"`
 	HighWatermark uint64   `json:"high_watermark"`
 	Allocated     []uint64 `json:"allocated"`

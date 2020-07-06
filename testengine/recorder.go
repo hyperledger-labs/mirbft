@@ -49,7 +49,7 @@ func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.Request {
 	}
 
 	var buffer bytes.Buffer
-	buffer.Write(rc.Config.ID)
+	buffer.Write(uint64ToBytes(rc.Config.ID))
 	buffer.Write([]byte("-"))
 	buffer.Write(uint64ToBytes(reqNo))
 
@@ -137,7 +137,7 @@ func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*tpb.Checkp
 }
 
 type ClientConfig struct {
-	ID          []byte
+	ID          uint64
 	TxLatency   uint64
 	MaxInFlight int
 	Total       uint64
@@ -252,7 +252,7 @@ func (r *Recording) Step() error {
 		nodeStatus := node.PlaybackNode.Status
 		for _, rw := range nodeStatus.ClientWindows {
 			for _, client := range r.Clients {
-				if !bytes.Equal(client.Config.ID, rw.ClientID) {
+				if client.Config.ID != rw.ClientID {
 					continue
 				}
 
@@ -422,9 +422,9 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 		})
 	}
 
-	clientIDs := make([][]byte, clientCount)
+	clientIDs := make([]uint64, clientCount)
 	for i := 0; i < clientCount; i++ {
-		clientIDs[i] = []byte(fmt.Sprintf("%d", i))
+		clientIDs[i] = uint64(i)
 	}
 
 	networkConfig := mirbft.StandardInitialNetworkConfig(nodeCount, clientIDs...)

@@ -14,20 +14,20 @@ import (
 )
 
 type clientWindows struct {
-	windows       map[string]*clientWindow
-	clients       []string
+	windows       map[uint64]*clientWindow
+	clients       []uint64
 	networkConfig *pb.NetworkConfig
 	myConfig      *Config
 }
 
-func (cws *clientWindows) clientWindow(clientID []byte) (*clientWindow, bool) {
-	cw, ok := cws.windows[string(clientID)]
+func (cws *clientWindows) clientWindow(clientID uint64) (*clientWindow, bool) {
+	cw, ok := cws.windows[clientID]
 	return cw, ok
 }
 
-func (cws *clientWindows) insert(clientID []byte, cw *clientWindow) {
-	cws.windows[string(clientID)] = cw
-	cws.clients = append(cws.clients, string(clientID))
+func (cws *clientWindows) insert(clientID uint64, cw *clientWindow) {
+	cws.windows[clientID] = cw
+	cws.clients = append(cws.clients, clientID)
 	sort.Slice(cws.clients, func(i, j int) bool {
 		return cws.clients[i] < cws.clients[j]
 	})
@@ -44,14 +44,14 @@ type clientWindowIterator struct {
 	clientWindows *clientWindows
 }
 
-func (cwi *clientWindowIterator) next() ([]byte, *clientWindow) {
+func (cwi *clientWindowIterator) next() (uint64, *clientWindow) {
 	if cwi.index >= len(cwi.clientWindows.clients) {
-		return nil, nil
+		return 0, nil
 	}
 	client := cwi.clientWindows.clients[cwi.index]
 	clientWindow := cwi.clientWindows.windows[client]
 	cwi.index++
-	return []byte(client), clientWindow
+	return client, clientWindow
 }
 
 type clientReqNo struct {

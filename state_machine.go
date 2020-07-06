@@ -37,7 +37,7 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	clientWindows := &clientWindows{
-		windows:       map[string]*clientWindow{},
+		windows:       map[uint64]*clientWindow{},
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
 	}
@@ -99,7 +99,7 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 
 func (sm *stateMachine) propose(requestData *pb.Request) *Actions {
 	data := [][]byte{
-		requestData.ClientId,
+		uint64ToBytes(requestData.ClientId),
 		uint64ToBytes(requestData.ReqNo),
 		requestData.Data,
 	}
@@ -185,7 +185,7 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 
 				actions.Hash = append(actions.Hash, &HashRequest{
 					Data: [][]byte{
-						msg.Request.ClientId,
+						uint64ToBytes(msg.Request.ClientId),
 						uint64ToBytes(msg.Request.ReqNo),
 						msg.Request.Data,
 					},
@@ -223,7 +223,7 @@ func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *A
 	return sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch)
 }
 
-func (sm *stateMachine) replyFetchRequest(clientID []byte, reqNo uint64, digest []byte) *Actions {
+func (sm *stateMachine) replyFetchRequest(clientID uint64, reqNo uint64, digest []byte) *Actions {
 	cw, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
 		return &Actions{}
@@ -392,7 +392,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) applyRequestAckMsg(source NodeID, clientID []byte, reqNo uint64, digest []byte) *Actions {
+func (sm *stateMachine) applyRequestAckMsg(source NodeID, clientID uint64, reqNo uint64, digest []byte) *Actions {
 	// TODO, make sure nodeMsgs ignores this if client is not defined
 
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
@@ -426,7 +426,7 @@ func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb
 	return sm.activeEpoch.drainProposer()
 }
 
-func (sm *stateMachine) clientWaiter(clientID []byte) *clientWaiter {
+func (sm *stateMachine) clientWaiter(clientID uint64) *clientWaiter {
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
 		return nil
@@ -453,7 +453,7 @@ func (sm *stateMachine) status() *Status {
 	for i, id := range sm.clientWindows.clients {
 		clientWindow := sm.clientWindows.windows[id]
 		rws := clientWindow.status()
-		rws.ClientID = []byte(id)
+		rws.ClientID = id
 		clientWindowsStatus[i] = rws
 	}
 
