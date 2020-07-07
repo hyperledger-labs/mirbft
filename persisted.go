@@ -52,7 +52,16 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 			return nil, errors.Errorf("failed to load persisted from Storage: %s", err)
 		}
 
-		persisted.add(data)
+		switch d := data.Type.(type) {
+		case *pb.Persisted_PEntry:
+			persisted.addPEntry(d.PEntry)
+		case *pb.Persisted_QEntry:
+			persisted.addQEntry(d.QEntry)
+		case *pb.Persisted_CEntry:
+			persisted.addCEntry(d.CEntry)
+		default:
+			panic("unrecognized data type")
+		}
 		index++
 	}
 
@@ -77,24 +86,7 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 	return persisted, nil
 }
 
-func (p *persisted) add(persisted *pb.Persisted) *Actions {
-	switch d := persisted.Type.(type) {
-	case *pb.Persisted_PEntry:
-		p.addPEntry(d.PEntry)
-	case *pb.Persisted_QEntry:
-		p.addQEntry(d.QEntry)
-	case *pb.Persisted_CEntry:
-		p.addCEntry(d.CEntry)
-	default:
-		panic("unrecognized data type")
-	}
-
-	return &Actions{
-		Persisted: []*pb.Persisted{persisted},
-	}
-}
-
-func (p *persisted) addPEntry(pEntry *pb.PEntry) {
+func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
 	if p.pSet == nil {
 		p.pSet = map[uint64]*pb.PEntry{}
 	}
@@ -104,9 +96,20 @@ func (p *persisted) addPEntry(pEntry *pb.PEntry) {
 	}
 
 	p.pSet[pEntry.SeqNo] = pEntry
+
+	return &Actions{
+		Persisted: []*pb.Persisted{
+			{
+				Type: &pb.Persisted_PEntry{
+					PEntry: pEntry,
+				},
+			},
+		},
+	}
+
 }
 
-func (p *persisted) addQEntry(qEntry *pb.QEntry) {
+func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
 	if p.qSet == nil {
 		p.qSet = map[uint64]map[uint64]*pb.QEntry{}
 	}
@@ -118,18 +121,38 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) {
 	}
 
 	qSeqMap[qEntry.Epoch] = qEntry
+
+	return &Actions{
+		Persisted: []*pb.Persisted{
+			{
+				Type: &pb.Persisted_QEntry{
+					QEntry: qEntry,
+				},
+			},
+		},
+	}
 }
 
-func (p *persisted) addCEntry(cp *pb.CEntry) {
+func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 	if p.cSet == nil {
 		p.cSet = map[uint64]*pb.CEntry{}
 	}
 
-	if cp.NetworkConfig == nil {
+	if cEntry.NetworkConfig == nil {
 		panic("network config must be set")
 	}
 
-	p.cSet[cp.SeqNo] = cp
+	p.cSet[cEntry.SeqNo] = cEntry
+
+	return &Actions{
+		Persisted: []*pb.Persisted{
+			{
+				Type: &pb.Persisted_CEntry{
+					CEntry: cEntry,
+				},
+			},
+		},
+	}
 }
 
 func (p *persisted) setLastCommitted(seqNo uint64) {

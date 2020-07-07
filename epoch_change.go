@@ -205,10 +205,10 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
 		if len(digest) == 0 {
-			et.persisted.add(&pb.Persisted{Type: &pb.Persisted_QEntry{QEntry: &pb.QEntry{
+			actions.Append(et.persisted.addQEntry(&pb.QEntry{
 				SeqNo: seqNo,
 				Epoch: et.leaderNewEpoch.Config.Number,
-			}}})
+			}))
 			continue
 		}
 
@@ -231,10 +231,10 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 			Requests: requests,
 		}
 
-		et.persisted.add(&pb.Persisted{Type: &pb.Persisted_QEntry{QEntry: qEntry}})
+		actions.Append(et.persisted.addQEntry(qEntry))
 	}
 
-	return &Actions{
+	actions.Append(&Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_NewEpochEcho{
@@ -244,7 +244,9 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 				},
 			},
 		},
-	}
+	})
+
+	return actions
 }
 
 func (et *epochTarget) tick() *Actions {
@@ -430,6 +432,7 @@ func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho)
 }
 
 func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
+	actions := &Actions{}
 	for config, msgEchos := range et.echos {
 		if len(msgEchos) < intersectionQuorum(et.networkConfig) {
 			continue
@@ -439,16 +442,14 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 
 		for i, digest := range config.FinalPreprepares {
 			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
-			et.persisted.add(&pb.Persisted{Type: &pb.Persisted_PEntry{
-				PEntry: &pb.PEntry{
-					SeqNo:  seqNo,
-					Epoch:  et.leaderNewEpoch.Config.Number,
-					Digest: digest,
-				},
-			}})
+			actions.Append(et.persisted.addPEntry(&pb.PEntry{
+				SeqNo:  seqNo,
+				Epoch:  et.leaderNewEpoch.Config.Number,
+				Digest: digest,
+			}))
 		}
 
-		return &Actions{
+		actions.Append(&Actions{
 			Broadcast: []*pb.Msg{
 				{
 					Type: &pb.Msg_NewEpochReady{
@@ -458,10 +459,12 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 					},
 				},
 			},
-		}
+		})
+
+		break
 	}
 
-	return &Actions{}
+	return actions
 }
 
 func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {

@@ -330,13 +330,11 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
 		actions.Append(sm.checkpointTracker.applyCheckpointResult(checkpointResult.SeqNo, checkpointResult.Value))
 		// TODO, maybe push this into the checkpoint tracker?
-		sm.persisted.add(&pb.Persisted{Type: &pb.Persisted_CEntry{
-			CEntry: &pb.CEntry{
-				SeqNo:           checkpointResult.SeqNo,
-				CheckpointValue: checkpointResult.Value,
-				NetworkConfig:   sm.networkConfig, // TODO, ensure it's correct
-			},
-		}})
+		sm.persisted.addCEntry(&pb.CEntry{
+			SeqNo:           checkpointResult.SeqNo,
+			CheckpointValue: checkpointResult.Value,
+			NetworkConfig:   sm.networkConfig, // TODO, ensure it's correct
+		})
 	}
 
 	for _, hashResult := range results.Digests {
