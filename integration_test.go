@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -15,14 +17,14 @@ import (
 	"go.uber.org/zap"
 )
 
-var _ = XDescribe("Integration", func() {
+var _ = Describe("Integration", func() {
 	var (
-		serializer      *serializer
-		stateMachineVal *stateMachine
-		epochConfig     *pb.EpochConfig
-		networkConfig   *pb.NetworkConfig
-		consumerConfig  *Config
-		logger          *zap.Logger
+		serializer     *serializer
+		stateMachine   *stateMachine
+		epochConfig    *pb.EpochConfig
+		networkConfig  *pb.NetworkConfig
+		consumerConfig *Config
+		logger         *zap.Logger
 
 		doneC chan struct{}
 	)
@@ -47,6 +49,17 @@ var _ = XDescribe("Integration", func() {
 	AfterEach(func() {
 		logger.Sync()
 		close(doneC)
+
+		tDesc := CurrentGinkgoTestDescription()
+		if tDesc.Failed {
+			fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
+			fmt.Printf("\nStatus of statemachine:\n%s\n", stateMachine.status().Pretty())
+			exitErr := serializer.getExitErr()
+			if exitErr != nil {
+				fmt.Printf("Serializer had exit error: %s\n", exitErr)
+			}
+		}
+
 	})
 
 	Describe("F=0,N=1", func() {
@@ -63,6 +76,12 @@ var _ = XDescribe("Integration", func() {
 				Nodes:              []uint64{0},
 				NumberOfBuckets:    1,
 				MaxEpochLength:     10,
+				Clients: []*pb.NetworkConfig_Client{
+					{
+						Id:           9,
+						LowWatermark: 0,
+					},
+				},
 			}
 
 			persisted := &persisted{
@@ -80,11 +99,11 @@ var _ = XDescribe("Integration", func() {
 				NetworkConfig:   networkConfig,
 			}
 
-			stateMachineVal = newStateMachine(consumerConfig, persisted)
-			stateMachineVal.activeEpoch = newEpoch(nil, epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, networkConfig, consumerConfig)
-			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
+			stateMachine = newStateMachine(consumerConfig, persisted)
+			stateMachine.activeEpoch = newEpoch(persisted, epochConfig, stateMachine.checkpointTracker, stateMachine.clientWindows, networkConfig, consumerConfig)
+			stateMachine.nodeMsgs[0].setActiveEpoch(stateMachine.activeEpoch)
 
-			serializer = newSerializer(stateMachineVal, doneC)
+			serializer = newSerializer(stateMachine, doneC)
 		})
 
 		It("works from proposal through commit", func() {
@@ -97,6 +116,7 @@ var _ = XDescribe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}},
 				Hash: []*HashRequest{
 					{
 						Data: [][]byte{
@@ -141,6 +161,7 @@ var _ = XDescribe("Integration", func() {
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}},
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_RequestAck{
@@ -162,6 +183,7 @@ var _ = XDescribe("Integration", func() {
 
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}},
 				Hash: []*HashRequest{
 					{
 						Data: [][]byte{
@@ -211,6 +233,7 @@ var _ = XDescribe("Integration", func() {
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}},
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_ForwardRequest{
@@ -270,6 +293,7 @@ var _ = XDescribe("Integration", func() {
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}},
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Commit{
@@ -301,6 +325,7 @@ var _ = XDescribe("Integration", func() {
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}},
 				Commits: []*Commit{
 					{
 						QEntry: &pb.QEntry{
@@ -338,13 +363,19 @@ var _ = XDescribe("Integration", func() {
 				Nodes:              []uint64{0, 1, 2, 3},
 				NumberOfBuckets:    4,
 				MaxEpochLength:     10,
+				Clients: []*pb.NetworkConfig_Client{
+					{
+						Id:           9,
+						LowWatermark: 0,
+					},
+				},
 			}
 
 			persisted := &persisted{
 				pSet:          map[uint64]*pb.PEntry{},
 				qSet:          map[uint64]map[uint64]*pb.QEntry{},
 				cSet:          map[uint64]*pb.CEntry{},
-				lastCommitted: 0,
+				lastCommitted: 1,
 				networkConfig: networkConfig,
 				myConfig:      consumerConfig,
 			}
@@ -354,14 +385,16 @@ var _ = XDescribe("Integration", func() {
 				CheckpointValue: []byte("TODO, get from state"),
 				NetworkConfig:   networkConfig,
 			}
-			stateMachineVal = newStateMachine(consumerConfig, persisted)
-			stateMachineVal.activeEpoch = newEpoch(nil, epochConfig, stateMachineVal.checkpointTracker, stateMachineVal.clientWindows, networkConfig, consumerConfig)
-			stateMachineVal.nodeMsgs[0].setActiveEpoch(stateMachineVal.activeEpoch)
-			stateMachineVal.nodeMsgs[1].setActiveEpoch(stateMachineVal.activeEpoch)
-			stateMachineVal.nodeMsgs[2].setActiveEpoch(stateMachineVal.activeEpoch)
-			stateMachineVal.nodeMsgs[3].setActiveEpoch(stateMachineVal.activeEpoch)
+			stateMachine = newStateMachine(consumerConfig, persisted)
+			stateMachine.activeEpoch = newEpoch(persisted, epochConfig, stateMachine.checkpointTracker, stateMachine.clientWindows, networkConfig, consumerConfig)
+			stateMachine.activeEpoch.sequences[0].state = Committed
+			stateMachine.activeEpoch.lowestUncommitted = 1
+			stateMachine.nodeMsgs[0].setActiveEpoch(stateMachine.activeEpoch)
+			stateMachine.nodeMsgs[1].setActiveEpoch(stateMachine.activeEpoch)
+			stateMachine.nodeMsgs[2].setActiveEpoch(stateMachine.activeEpoch)
+			stateMachine.nodeMsgs[3].setActiveEpoch(stateMachine.activeEpoch)
 
-			serializer = newSerializer(stateMachineVal, doneC)
+			serializer = newSerializer(stateMachine, doneC)
 
 		})
 
@@ -375,6 +408,7 @@ var _ = XDescribe("Integration", func() {
 			actions := &Actions{}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Hash: []*HashRequest{
 					{
 						Data: [][]byte{
@@ -419,6 +453,7 @@ var _ = XDescribe("Integration", func() {
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_RequestAck{
@@ -491,6 +526,7 @@ var _ = XDescribe("Integration", func() {
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Hash: []*HashRequest{
 					{
 						Batch: &Batch{
@@ -539,6 +575,7 @@ var _ = XDescribe("Integration", func() {
 			}
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Prepare{
@@ -586,6 +623,7 @@ var _ = XDescribe("Integration", func() {
 
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Commit{
@@ -628,6 +666,7 @@ var _ = XDescribe("Integration", func() {
 
 			Eventually(serializer.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
+				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Commits: []*Commit{
 					{
 						QEntry: &pb.QEntry{
