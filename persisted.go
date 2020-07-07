@@ -30,7 +30,14 @@ type persisted struct {
 	myConfig      *Config
 }
 
-func (p *persisted) load(storage Storage) error {
+func loadPersisted(config *Config, storage Storage) (*persisted, error) {
+	persisted := &persisted{
+		pSet:     map[uint64]*pb.PEntry{},
+		qSet:     map[uint64]map[uint64]*pb.QEntry{},
+		cSet:     map[uint64]*pb.CEntry{},
+		myConfig: config,
+	}
+
 	var data *pb.Persisted
 	var err error
 	var index uint64
@@ -42,14 +49,14 @@ func (p *persisted) load(storage Storage) error {
 		}
 
 		if err != nil {
-			return errors.Errorf("failed to load persisted from Storage: %s", err)
+			return nil, errors.Errorf("failed to load persisted from Storage: %s", err)
 		}
 
-		p.add(data)
+		persisted.add(data)
 		index++
 	}
 
-	return nil
+	return persisted, nil
 }
 
 func (p *persisted) add(persisted *pb.Persisted) *Actions {

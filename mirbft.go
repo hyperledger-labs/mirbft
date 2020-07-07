@@ -158,15 +158,10 @@ func StartNode(
 	doneC <-chan struct{},
 	storage Storage,
 ) (*Node, error) {
-	persisted := &persisted{
-		pSet:     map[uint64]*pb.PEntry{},
-		qSet:     map[uint64]map[uint64]*pb.QEntry{},
-		cSet:     map[uint64]*pb.CEntry{},
-		myConfig: config,
-	}
-	if err := persisted.load(storage); err != nil {
+	persisted, err := loadPersisted(config, storage)
+	if err != nil {
 		return nil, errors.Errorf("failed to start new node: %s", err)
-	} // TODO, have load return a persisted instance
+	}
 
 	return &Node{
 		Config: config,
