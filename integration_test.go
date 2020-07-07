@@ -79,7 +79,7 @@ var _ = Describe("Integration", func() {
 				Clients: []*pb.NetworkConfig_Client{
 					{
 						Id:           9,
-						LowWatermark: 0,
+						LowWatermark: 50,
 					},
 				},
 			}
@@ -110,7 +110,7 @@ var _ = Describe("Integration", func() {
 			By("proposing a message")
 			serializer.propC <- &pb.Request{
 				ClientId: 9,
-				ReqNo:    1,
+				ReqNo:    51,
 				Data:     []byte("data"),
 			}
 			actions := &Actions{}
@@ -121,14 +121,14 @@ var _ = Describe("Integration", func() {
 					{
 						Data: [][]byte{
 							uint64ToBytes(9),
-							uint64ToBytes(1),
+							uint64ToBytes(51),
 							[]byte("data"),
 						},
 						Request: &Request{
 							Source: 0,
 							Request: &pb.Request{
 								ClientId: 9,
-								ReqNo:    1,
+								ReqNo:    51,
 								Data:     []byte("data"),
 							},
 						},
@@ -151,7 +151,7 @@ var _ = Describe("Integration", func() {
 								Source: 0,
 								Request: &pb.Request{
 									ClientId: 9,
-									ReqNo:    1,
+									ReqNo:    51,
 									Data:     []byte("data"),
 								},
 							},
@@ -167,7 +167,7 @@ var _ = Describe("Integration", func() {
 						Type: &pb.Msg_RequestAck{
 							RequestAck: &pb.RequestAck{
 								ClientId: 9,
-								ReqNo:    1,
+								ReqNo:    51,
 								Digest:   []byte("request-digest"),
 							},
 						},
@@ -196,7 +196,7 @@ var _ = Describe("Integration", func() {
 							RequestAcks: []*pb.RequestAck{
 								{
 									ClientId: 9,
-									ReqNo:    1,
+									ReqNo:    51,
 									Digest:   []byte("request-digest"),
 								},
 							},
@@ -220,7 +220,7 @@ var _ = Describe("Integration", func() {
 								RequestAcks: []*pb.RequestAck{
 									{
 										ClientId: 9,
-										ReqNo:    1,
+										ReqNo:    51,
 										Digest:   []byte("request-digest"),
 									},
 								},
@@ -240,7 +240,7 @@ var _ = Describe("Integration", func() {
 							ForwardRequest: &pb.ForwardRequest{
 								Request: &pb.Request{
 									ClientId: 9,
-									ReqNo:    1,
+									ReqNo:    51,
 									Data:     []byte("data"),
 								},
 								Digest: []byte("request-digest"),
@@ -255,7 +255,7 @@ var _ = Describe("Integration", func() {
 								Batch: []*pb.RequestAck{
 									{
 										ClientId: 9,
-										ReqNo:    1,
+										ReqNo:    51,
 										Digest:   []byte("request-digest"),
 									},
 								},
@@ -274,7 +274,7 @@ var _ = Describe("Integration", func() {
 									{
 										Request: &pb.Request{
 											ClientId: 9,
-											ReqNo:    1,
+											ReqNo:    51,
 											Data:     []byte("data"),
 										},
 										Digest: []byte("request-digest"),
@@ -336,7 +336,7 @@ var _ = Describe("Integration", func() {
 								{
 									Request: &pb.Request{
 										ClientId: 9,
-										ReqNo:    1,
+										ReqNo:    51,
 										Data:     []byte("data"),
 									},
 									Digest: []byte("request-digest"),
