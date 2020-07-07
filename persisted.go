@@ -56,6 +56,24 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 		index++
 	}
 
+	checkpoints := make([]*pb.CEntry, len(persisted.cSet))
+	i := 0
+	for _, cEntry := range persisted.cSet {
+		checkpoints[i] = cEntry
+		i++
+	}
+	sort.Slice(checkpoints, func(i, j int) bool {
+		return checkpoints[i].SeqNo < checkpoints[j].SeqNo
+	})
+
+	if len(checkpoints) >= 3 {
+		persisted.truncate(checkpoints[len(checkpoints)-3].SeqNo)
+	} else {
+		persisted.truncate(checkpoints[0].SeqNo)
+	}
+
+	persisted.lastCommitted = checkpoints[len(checkpoints)-1].SeqNo
+
 	return persisted, nil
 }
 
@@ -124,14 +142,14 @@ func (p *persisted) setLastCommitted(seqNo uint64) {
 
 func (p *persisted) truncate(lowWatermark uint64) {
 	for seqNo := range p.pSet {
-		if seqNo < lowWatermark {
+		if seqNo <= lowWatermark {
 			delete(p.pSet, seqNo)
 			delete(p.qSet, seqNo)
 		}
 	}
 
 	for seqNo := range p.qSet {
-		if seqNo < lowWatermark {
+		if seqNo <= lowWatermark {
 			delete(p.qSet, seqNo)
 		}
 	}
