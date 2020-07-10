@@ -40,16 +40,16 @@ type epochTarget struct {
 	number        uint64
 	changes       map[NodeID]*epochChange
 	strongChanges map[NodeID]*parsedEpochChange
-	echos         map[*pb.EpochConfig]map[NodeID]struct{}
-	readies       map[*pb.EpochConfig]map[NodeID]struct{}
+	echos         map[*pb.NewEpochConfig]map[NodeID]struct{}
+	readies       map[*pb.NewEpochConfig]map[NodeID]struct{}
 	suspicions    map[NodeID]struct{}
 
 	persisted       *persisted
 	myNewEpoch      *pb.NewEpoch // The NewEpoch msg we computed from the epoch changes we know of
 	myEpochChange   *parsedEpochChange
-	myLeaderChoice  []uint64        // Set along with myEpochChange
-	leaderNewEpoch  *pb.NewEpoch    // The NewEpoch msg we received directly from the leader
-	networkNewEpoch *pb.EpochConfig // The NewEpoch msg as received via the bracha broadcast
+	myLeaderChoice  []uint64           // Set along with myEpochChange
+	leaderNewEpoch  *pb.NewEpoch       // The NewEpoch msg we received directly from the leader
+	networkNewEpoch *pb.NewEpochConfig // The NewEpoch msg as received via the bracha broadcast
 	isLeader        bool
 
 	networkConfig *pb.NetworkConfig
@@ -71,8 +71,8 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConf
 		return nil
 	}
 
-	config := constructNewEpochConfig(nc, newLeaders, filteredStrongChanges)
-	if config == nil {
+	newConfig := constructNewEpochConfig(nc, newLeaders, filteredStrongChanges)
+	if newConfig == nil {
 		return nil
 	}
 
@@ -85,7 +85,7 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConf
 	}
 
 	return &pb.NewEpoch{
-		Config:       config,
+		NewConfig:    newConfig,
 		EpochChanges: remoteChanges,
 	}
 }
@@ -114,9 +114,9 @@ func (et *epochTarget) verifyNewEpochState() *Actions {
 
 	// TODO, do we need to try to validate the leader set?
 
-	newEpochConfig := constructNewEpochConfig(et.networkConfig, et.leaderNewEpoch.Config.Leaders, epochChanges)
+	newEpochConfig := constructNewEpochConfig(et.networkConfig, et.leaderNewEpoch.NewConfig.Config.Leaders, epochChanges)
 
-	if !proto.Equal(newEpochConfig, et.leaderNewEpoch.Config) {
+	if !proto.Equal(newEpochConfig, et.leaderNewEpoch.NewConfig) {
 		// TODO byzantine, log oddity
 		return &Actions{}
 	}
@@ -129,7 +129,7 @@ func (et *epochTarget) verifyNewEpochState() *Actions {
 func (et *epochTarget) fetchNewEpochState() *Actions {
 	actions := &Actions{}
 
-	newEpochConfig := et.leaderNewEpoch.Config
+	newEpochConfig := et.leaderNewEpoch.NewConfig
 
 	if newEpochConfig.StartingCheckpoint.SeqNo > et.persisted.lastCommitted {
 		panic("we need checkpoint state transfer to handle this case")
@@ -207,7 +207,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		if len(digest) == 0 {
 			actions.Append(et.persisted.addQEntry(&pb.QEntry{
 				SeqNo: seqNo,
-				Epoch: et.leaderNewEpoch.Config.Number,
+				Epoch: et.leaderNewEpoch.NewConfig.Config.Number,
 			}))
 			continue
 		}
@@ -226,7 +226,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 		qEntry := &pb.QEntry{
 			SeqNo:    seqNo,
-			Epoch:    et.leaderNewEpoch.Config.Number,
+			Epoch:    et.leaderNewEpoch.NewConfig.Config.Number,
 			Digest:   digest,
 			Requests: requests,
 		}
@@ -234,13 +234,15 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		actions.Append(et.persisted.addQEntry(qEntry))
 	}
 
+	echoMsg := &pb.NewEpochEcho{
+		NewConfig: et.leaderNewEpoch.NewConfig,
+	}
+
 	actions.Append(&Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_NewEpochEcho{
-					NewEpochEcho: &pb.NewEpochEcho{
-						Config: et.leaderNewEpoch.Config,
-					},
+					NewEpochEcho: echoMsg,
 				},
 			},
 		},
@@ -321,7 +323,7 @@ func (et *epochTarget) tickPending() *Actions {
 					{
 						Type: &pb.Msg_Suspect{
 							Suspect: &pb.Suspect{
-								Epoch: et.myNewEpoch.Config.Number,
+								Epoch: et.myNewEpoch.NewConfig.Config.Number,
 							},
 						},
 					},
@@ -415,7 +417,7 @@ func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho)
 	var msgEchos map[NodeID]struct{}
 
 	for config, echos := range et.echos {
-		if proto.Equal(config, msg.Config) {
+		if proto.Equal(config, msg.NewConfig) {
 			msgEchos = echos
 			break
 		}
@@ -423,7 +425,7 @@ func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho)
 
 	if msgEchos == nil {
 		msgEchos = map[NodeID]struct{}{}
-		et.echos[msg.Config] = msgEchos
+		et.echos[msg.NewConfig] = msgEchos
 	}
 
 	msgEchos[source] = struct{}{}
@@ -444,7 +446,7 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
 			actions.Append(et.persisted.addPEntry(&pb.PEntry{
 				SeqNo:  seqNo,
-				Epoch:  et.leaderNewEpoch.Config.Number,
+				Epoch:  et.leaderNewEpoch.NewConfig.Config.Number,
 				Digest: digest,
 			}))
 		}
@@ -454,7 +456,7 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 				{
 					Type: &pb.Msg_NewEpochReady{
 						NewEpochReady: &pb.NewEpochReady{
-							Config: config,
+							NewConfig: config,
 						},
 					},
 				},
@@ -476,7 +478,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 	var msgReadies map[NodeID]struct{}
 
 	for config, readies := range et.readies {
-		if proto.Equal(config, msg.Config) {
+		if proto.Equal(config, msg.NewConfig) {
 			msgReadies = readies
 			break
 		}
@@ -484,7 +486,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 
 	if msgReadies == nil {
 		msgReadies = map[NodeID]struct{}{}
-		et.readies[msg.Config] = msgReadies
+		et.readies[msg.NewConfig] = msgReadies
 	}
 
 	msgReadies[source] = struct{}{}
@@ -505,7 +507,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 				{
 					Type: &pb.Msg_NewEpochReady{
 						NewEpochReady: &pb.NewEpochReady{
-							Config: msg.Config,
+							NewConfig: msg.NewConfig,
 						},
 					},
 				},
@@ -529,7 +531,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 
 		for i := range config.FinalPreprepares {
 			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
-			qEntry := et.persisted.qSet[seqNo][config.Number]
+			qEntry := et.persisted.qSet[seqNo][config.Config.Number]
 			if qEntry == nil {
 				panic("this shouldn't be possible once dev is done, but for now it's a nasty corner case")
 			}
@@ -618,8 +620,8 @@ func (ec *epochChanger) target(epoch uint64) *epochTarget {
 			suspicions:    map[NodeID]struct{}{},
 			changes:       map[NodeID]*epochChange{},
 			strongChanges: map[NodeID]*parsedEpochChange{},
-			echos:         map[*pb.EpochConfig]map[NodeID]struct{}{},
-			readies:       map[*pb.EpochConfig]map[NodeID]struct{}{},
+			echos:         map[*pb.NewEpochConfig]map[NodeID]struct{}{},
+			readies:       map[*pb.NewEpochConfig]map[NodeID]struct{}{},
 			isLeader:      epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.ID,
 			persisted:     ec.persisted,
 			networkConfig: ec.networkConfig,
@@ -757,7 +759,7 @@ func (ec *epochChanger) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChang
 }
 
 func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
-	target := ec.target(msg.Config.Number)
+	target := ec.target(msg.NewConfig.Config.Number)
 	return target.applyNewEpochMsg(msg)
 }
 
@@ -781,12 +783,12 @@ func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 // r-deliver(m)
 
 func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
-	target := ec.target(msg.Config.Number)
+	target := ec.target(msg.NewConfig.Config.Number)
 	return target.applyNewEpochEchoMsg(source, msg)
 }
 
 func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
-	target := ec.target(msg.Config.Number)
+	target := ec.target(msg.NewConfig.Config.Number)
 	return target.applyNewEpochReadyMsg(source, msg)
 }
 
@@ -890,7 +892,7 @@ func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error
 	}, nil
 }
 
-func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epochChanges map[NodeID]*parsedEpochChange) *pb.EpochConfig {
+func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epochChanges map[NodeID]*parsedEpochChange) *pb.NewEpochConfig {
 	type checkpointKey struct {
 		SeqNo uint64
 		Value string
@@ -952,9 +954,11 @@ func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epoc
 		return nil
 	}
 
-	newEpochConfig := &pb.EpochConfig{
-		Number:  newEpochNumber,
-		Leaders: newLeaders,
+	newEpochConfig := &pb.NewEpochConfig{
+		Config: &pb.EpochConfig{
+			Number:  newEpochNumber,
+			Leaders: newLeaders,
+		},
 		StartingCheckpoint: &pb.Checkpoint{
 			SeqNo: maxCheckpoint.SeqNo,
 			Value: []byte(maxCheckpoint.Value),

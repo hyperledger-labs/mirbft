@@ -65,9 +65,8 @@ var _ = Describe("Integration", func() {
 	Describe("F=0,N=1", func() {
 		BeforeEach(func() {
 			epochConfig = &pb.EpochConfig{
-				Number:             3,
-				Leaders:            []uint64{0},
-				StartingCheckpoint: &pb.Checkpoint{},
+				Number:  3,
+				Leaders: []uint64{0},
 			}
 
 			networkConfig = &pb.NetworkConfig{
@@ -85,9 +84,11 @@ var _ = Describe("Integration", func() {
 			}
 
 			persisted := &persisted{
-				pSet:          map[uint64]*pb.PEntry{},
-				qSet:          map[uint64]map[uint64]*pb.QEntry{},
-				cSet:          map[uint64]*pb.CEntry{},
+				pSet: map[uint64]*pb.PEntry{},
+				qSet: map[uint64]map[uint64]*pb.QEntry{},
+				cSet: map[uint64]*pb.CEntry{
+					0: {},
+				},
 				lastCommitted: 0,
 				networkConfig: networkConfig,
 				myConfig:      consumerConfig,
@@ -352,9 +353,8 @@ var _ = Describe("Integration", func() {
 	Describe("F=1,N=4", func() {
 		BeforeEach(func() {
 			epochConfig = &pb.EpochConfig{
-				Number:             2,
-				Leaders:            []uint64{0, 1, 2, 3},
-				StartingCheckpoint: &pb.Checkpoint{},
+				Number:  2,
+				Leaders: []uint64{0, 1, 2, 3},
 			}
 
 			networkConfig = &pb.NetworkConfig{
@@ -372,9 +372,11 @@ var _ = Describe("Integration", func() {
 			}
 
 			persisted := &persisted{
-				pSet:          map[uint64]*pb.PEntry{},
-				qSet:          map[uint64]map[uint64]*pb.QEntry{},
-				cSet:          map[uint64]*pb.CEntry{},
+				pSet: map[uint64]*pb.PEntry{},
+				qSet: map[uint64]map[uint64]*pb.QEntry{},
+				cSet: map[uint64]*pb.CEntry{
+					0: {},
+				},
 				lastCommitted: 1,
 				networkConfig: networkConfig,
 				myConfig:      consumerConfig,

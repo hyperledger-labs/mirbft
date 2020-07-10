@@ -95,10 +95,19 @@ type epoch struct {
 // windows may be empty, of length 1, or length 2.
 func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows *clientWindows, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
 
+	var maxCheckpoint *pb.CEntry
+	for _, cEntry := range persisted.cSet {
+		if maxCheckpoint != nil && maxCheckpoint.SeqNo > cEntry.SeqNo {
+			continue
+		}
+
+		maxCheckpoint = cEntry
+	}
+
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
-		initialSequence:   newEpochConfig.StartingCheckpoint.SeqNo + 1,
-		plannedExpiration: newEpochConfig.StartingCheckpoint.SeqNo + networkConfig.MaxEpochLength,
+		initialSequence:   maxCheckpoint.SeqNo + 1,
+		plannedExpiration: maxCheckpoint.SeqNo + networkConfig.MaxEpochLength,
 		networkConfig:     networkConfig,
 		buckets:           map[BucketID]NodeID{},
 		leaders:           newEpochConfig.Leaders,
@@ -126,11 +135,11 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		lowestUnallocated[i] = i + config.logWidth() // The first seq for the bucket beyond our watermarks
 	}
 
-	checkpoints := []*checkpoint{checkpointTracker.checkpoint(newEpochConfig.StartingCheckpoint.SeqNo)}
+	checkpoints := []*checkpoint{checkpointTracker.checkpoint(maxCheckpoint.SeqNo)}
 
 	sequences := make([]*sequence, config.logWidth())
 	for i := range sequences {
-		seqNo := newEpochConfig.StartingCheckpoint.SeqNo + 1 + uint64(i)
+		seqNo := maxCheckpoint.SeqNo + 1 + uint64(i)
 		bucket := config.seqToBucket(seqNo)
 		owner := config.buckets[bucket]
 

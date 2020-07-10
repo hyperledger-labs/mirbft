@@ -289,7 +289,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 		return actions
 	}
 
-	sm.activeEpoch = newEpoch(sm.persisted, sm.epochChanger.pendingEpochTarget.networkNewEpoch, sm.checkpointTracker, sm.clientWindows, sm.networkConfig, sm.myConfig)
+	sm.activeEpoch = newEpoch(sm.persisted, sm.epochChanger.pendingEpochTarget.networkNewEpoch.Config, sm.checkpointTracker, sm.clientWindows, sm.networkConfig, sm.myConfig)
 	actions.Append(sm.activeEpoch.drainProposer())
 	sm.epochChanger.pendingEpochTarget.state = idle
 	sm.epochChanger.lastActiveEpoch = sm.epochChanger.pendingEpochTarget.number

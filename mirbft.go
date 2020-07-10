@@ -123,6 +123,7 @@ func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.Request) 
 	}
 }
 
+// TODO, maybe get rid of the varargs and go with a simple count?
 func StandardInitialNetworkConfig(nodeCount int, clientIDs ...uint64) *pb.NetworkConfig {
 	nodes := []uint64{}
 	for i := 0; i < nodeCount; i++ {

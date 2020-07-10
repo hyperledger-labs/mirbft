@@ -184,7 +184,7 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	case *pb.Msg_EpochChangeAck:
 		return current // TODO, decide if this is actually current
 	case *pb.Msg_NewEpoch:
-		if innerMsg.NewEpoch.Config.Number%uint64(len(n.networkConfig.Nodes)) != uint64(n.id) {
+		if innerMsg.NewEpoch.NewConfig.Config.Number%uint64(len(n.networkConfig.Nodes)) != uint64(n.id) {
 			return invalid
 		}
 		return current // TODO, decide if this is actually current
