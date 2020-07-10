@@ -344,6 +344,8 @@ var _ = Describe("Integration", func() {
 								},
 							},
 						},
+						NetworkConfig: networkConfig,
+						EpochConfig:   epochConfig,
 					},
 				},
 			}))
@@ -686,6 +688,8 @@ var _ = Describe("Integration", func() {
 								},
 							},
 						},
+						NetworkConfig: networkConfig,
+						EpochConfig:   epochConfig,
 					},
 				},
 			}))

@@ -263,8 +263,14 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 		}
 
 		actions.Commits = append(actions.Commits, &Commit{
-			QEntry:     e.sequences[e.lowestUncommitted].qEntry,
-			Checkpoint: e.sequences[e.lowestUncommitted].seqNo%uint64(e.config.networkConfig.CheckpointInterval) == 0,
+			QEntry:        e.sequences[e.lowestUncommitted].qEntry,
+			Checkpoint:    e.sequences[e.lowestUncommitted].seqNo%uint64(e.config.networkConfig.CheckpointInterval) == 0,
+			NetworkConfig: e.config.networkConfig,
+			EpochConfig: &pb.EpochConfig{
+				Number:            e.config.number,
+				PlannedExpiration: e.config.plannedExpiration,
+				Leaders:           e.config.leaders,
+			},
 		})
 		for _, reqForward := range e.sequences[e.lowestUncommitted].qEntry.Requests {
 			cw, ok := e.clientWindows.clientWindow(reqForward.Request.ClientId)

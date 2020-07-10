@@ -150,8 +150,10 @@ type Unicast struct {
 }
 
 type Commit struct {
-	QEntry     *pb.QEntry
-	Checkpoint bool
+	QEntry        *pb.QEntry
+	Checkpoint    bool
+	NetworkConfig *pb.NetworkConfig
+	EpochConfig   *pb.EpochConfig
 }
 
 // ActionResults should be populated by the caller as a result of
@@ -164,8 +166,8 @@ type ActionResults struct {
 // CheckpointResult gives the state machine a verifiable checkpoint for the network
 // to return to, and allows it to prune previous entries from its state.
 type CheckpointResult struct {
-	// SeqNo is the sequence number of this checkpoint.
-	SeqNo uint64
+	// Commit is the *Commit which generated this checkpoint
+	Commit *Commit
 
 	// Value is a concise representation of the state of the application when
 	// all entries less than or equal to (but not greater than) the sequence

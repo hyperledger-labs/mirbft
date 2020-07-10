@@ -115,8 +115,10 @@ func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*tpb.Checkp
 
 		if commit.Checkpoint {
 			results = append(results, &tpb.Checkpoint{
-				SeqNo: commit.QEntry.SeqNo,
-				Value: ns.Hasher.Sum(nil),
+				QEntry:        commit.QEntry,
+				NetworkConfig: commit.NetworkConfig,
+				EpochConfig:   commit.EpochConfig,
+				Value:         ns.Hasher.Sum(nil),
 			})
 		}
 

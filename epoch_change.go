@@ -541,8 +541,10 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 				continue
 			}
 			commits = append(commits, &Commit{
-				Checkpoint: seqNo%uint64(et.networkConfig.CheckpointInterval) == 0,
-				QEntry:     qEntry,
+				Checkpoint:    seqNo%uint64(et.networkConfig.CheckpointInterval) == 0,
+				QEntry:        qEntry,
+				NetworkConfig: et.networkConfig,
+				EpochConfig:   config.Config,
 			})
 
 			for _, reqForward := range qEntry.Requests {

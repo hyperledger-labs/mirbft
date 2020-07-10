@@ -54,8 +54,8 @@ func (sc *SerialCommitter) Commit(commits []*mirbft.Commit) []*mirbft.Checkpoint
 		if entry.Checkpoint {
 			value := sc.Log.Snap()
 			results = append(results, &mirbft.CheckpointResult{
-				SeqNo: sc.LastCommittedSeqNo,
-				Value: value,
+				Commit: entry,
+				Value:  value,
 			})
 		}
 	}

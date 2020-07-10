@@ -75,8 +75,10 @@ message EpochChange {
 }
 
 message Checkpoint {
-	uint64 seq_no = 1;
-	bytes value = 2;
+	mirbftpb.QEntry q_entry = 1;
+	mirbftpb.NetworkConfig network_config = 2;
+	mirbftpb.EpochConfig epoch_config = 3;
+	bytes value = 4;
 }
 
 message Event {
