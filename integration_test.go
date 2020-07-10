@@ -83,21 +83,12 @@ var _ = Describe("Integration", func() {
 				},
 			}
 
-			persisted := &persisted{
-				pSet: map[uint64]*pb.PEntry{},
-				qSet: map[uint64]map[uint64]*pb.QEntry{},
-				cSet: map[uint64]*pb.CEntry{
-					0: {},
-				},
-				lastCommitted: 0,
-				networkConfig: networkConfig,
-				myConfig:      consumerConfig,
-			}
-
+			persisted := newPersisted(consumerConfig)
 			persisted.cSet[0] = &pb.CEntry{
 				SeqNo:           0,
 				CheckpointValue: []byte("TODO, get from state"),
 				NetworkConfig:   networkConfig,
+				EpochConfig:     epochConfig,
 			}
 
 			stateMachine = newStateMachine(consumerConfig, persisted)
@@ -373,21 +364,13 @@ var _ = Describe("Integration", func() {
 				},
 			}
 
-			persisted := &persisted{
-				pSet: map[uint64]*pb.PEntry{},
-				qSet: map[uint64]map[uint64]*pb.QEntry{},
-				cSet: map[uint64]*pb.CEntry{
-					0: {},
-				},
-				lastCommitted: 1,
-				networkConfig: networkConfig,
-				myConfig:      consumerConfig,
-			}
-
+			persisted := newPersisted(consumerConfig)
+			persisted.lastCommitted = 1
 			persisted.cSet[0] = &pb.CEntry{
 				SeqNo:           0,
 				CheckpointValue: []byte("TODO, get from state"),
 				NetworkConfig:   networkConfig,
+				EpochConfig:     epochConfig,
 			}
 			stateMachine = newStateMachine(consumerConfig, persisted)
 			stateMachine.activeEpoch = newEpoch(persisted, epochConfig, stateMachine.checkpointTracker, stateMachine.clientWindows, networkConfig, consumerConfig)

@@ -20,23 +20,49 @@ type Storage interface {
 	Load(index uint64) (*pb.Persisted, error)
 }
 
+type logEntry struct {
+	entry *pb.Persisted
+	next  *logEntry
+}
+
 type persisted struct {
+	offset  uint64
+	logHead *logEntry
+	logTail *logEntry
+
 	pSet          map[uint64]*pb.PEntry            // Seq -> PEntry
 	qSet          map[uint64]map[uint64]*pb.QEntry // Seq -> Epoch -> QEntry
 	cSet          map[uint64]*pb.CEntry            // Seq -> CEntry
 	lastCommitted uint64                           // Seq
 
-	networkConfig *pb.NetworkConfig
-	myConfig      *Config
+	myConfig *Config
 }
 
-func loadPersisted(config *Config, storage Storage) (*persisted, error) {
-	persisted := &persisted{
+func newPersisted(myConfig *Config) *persisted {
+	return &persisted{
 		pSet:     map[uint64]*pb.PEntry{},
 		qSet:     map[uint64]map[uint64]*pb.QEntry{},
 		cSet:     map[uint64]*pb.CEntry{},
-		myConfig: config,
+		myConfig: myConfig,
 	}
+}
+
+func (p *persisted) appendLogEntry(entry *pb.Persisted) {
+	if p.logHead == nil {
+		p.logHead = &logEntry{
+			entry: entry,
+		}
+		p.logTail = p.logHead
+	} else {
+		p.logHead.next = &logEntry{
+			entry: entry,
+		}
+		p.logTail = p.logHead.next
+	}
+}
+
+func loadPersisted(config *Config, storage Storage) (*persisted, error) {
+	persisted := newPersisted(config)
 
 	var data *pb.Persisted
 	var err error
@@ -87,33 +113,27 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 }
 
 func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
-	if p.pSet == nil {
-		p.pSet = map[uint64]*pb.PEntry{}
-	}
-
 	if oldEntry, ok := p.pSet[pEntry.SeqNo]; ok && oldEntry.Epoch >= pEntry.Epoch {
 		panic("dev sanity test, remove me")
 	}
 
 	p.pSet[pEntry.SeqNo] = pEntry
 
-	return &Actions{
-		Persisted: []*pb.Persisted{
-			{
-				Type: &pb.Persisted_PEntry{
-					PEntry: pEntry,
-				},
-			},
+	d := &pb.Persisted{
+		Type: &pb.Persisted_PEntry{
+			PEntry: pEntry,
 		},
+	}
+
+	p.appendLogEntry(d)
+
+	return &Actions{
+		Persisted: []*pb.Persisted{d},
 	}
 
 }
 
 func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
-	if p.qSet == nil {
-		p.qSet = map[uint64]map[uint64]*pb.QEntry{}
-	}
-
 	qSeqMap, ok := p.qSet[qEntry.SeqNo]
 	if !ok {
 		qSeqMap = map[uint64]*pb.QEntry{}
@@ -122,36 +142,36 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
 
 	qSeqMap[qEntry.Epoch] = qEntry
 
-	return &Actions{
-		Persisted: []*pb.Persisted{
-			{
-				Type: &pb.Persisted_QEntry{
-					QEntry: qEntry,
-				},
-			},
+	d := &pb.Persisted{
+		Type: &pb.Persisted_QEntry{
+			QEntry: qEntry,
 		},
+	}
+
+	p.appendLogEntry(d)
+
+	return &Actions{
+		Persisted: []*pb.Persisted{d},
 	}
 }
 
 func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
-	if p.cSet == nil {
-		p.cSet = map[uint64]*pb.CEntry{}
-	}
-
 	if cEntry.NetworkConfig == nil {
 		panic("network config must be set")
 	}
 
 	p.cSet[cEntry.SeqNo] = cEntry
 
-	return &Actions{
-		Persisted: []*pb.Persisted{
-			{
-				Type: &pb.Persisted_CEntry{
-					CEntry: cEntry,
-				},
-			},
+	d := &pb.Persisted{
+		Type: &pb.Persisted_CEntry{
+			CEntry: cEntry,
 		},
+	}
+
+	p.appendLogEntry(d)
+
+	return &Actions{
+		Persisted: []*pb.Persisted{d},
 	}
 }
 
@@ -182,6 +202,28 @@ func (p *persisted) truncate(lowWatermark uint64) {
 			delete(p.cSet, seqNo)
 		}
 	}
+
+	lowest := p.logHead
+
+outer:
+	for head := p.logHead; head != nil; head = head.next {
+		switch d := head.entry.Type.(type) {
+		case *pb.Persisted_PEntry:
+			if d.PEntry.SeqNo > lowWatermark {
+				break outer
+			}
+		case *pb.Persisted_QEntry:
+			if d.QEntry.SeqNo > lowWatermark {
+				break outer
+			}
+		case *pb.Persisted_CEntry:
+			lowest = head
+		default:
+			panic("unrecognized data type")
+		}
+	}
+
+	p.logHead = lowest
 }
 
 func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker) *pb.EpochChange {
