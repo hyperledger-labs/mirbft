@@ -232,6 +232,8 @@ message EpochConfig {
     uint64 number = 1;
 
     repeated uint64 leaders = 2;
+
+    uint64 planned_expiration = 3;
 }
 
 message NewEpochConfig {

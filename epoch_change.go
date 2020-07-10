@@ -112,6 +112,8 @@ func (et *epochTarget) verifyNewEpochState() *Actions {
 		epochChanges[NodeID(remoteEpochChange.NodeId)] = parsedChange
 	}
 
+	// TODO, validate the planned expiration makes sense
+
 	// TODO, do we need to try to validate the leader set?
 
 	newEpochConfig := constructNewEpochConfig(et.networkConfig, et.leaderNewEpoch.NewConfig.Config.Leaders, epochChanges)
@@ -956,8 +958,9 @@ func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epoc
 
 	newEpochConfig := &pb.NewEpochConfig{
 		Config: &pb.EpochConfig{
-			Number:  newEpochNumber,
-			Leaders: newLeaders,
+			Number:            newEpochNumber,
+			Leaders:           newLeaders,
+			PlannedExpiration: maxCheckpoint.SeqNo + config.MaxEpochLength,
 		},
 		StartingCheckpoint: &pb.Checkpoint{
 			SeqNo: maxCheckpoint.SeqNo,

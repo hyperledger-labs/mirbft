@@ -107,7 +107,7 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 	config := &epochConfig{
 		number:            newEpochConfig.Number,
 		initialSequence:   maxCheckpoint.SeqNo + 1,
-		plannedExpiration: maxCheckpoint.SeqNo + networkConfig.MaxEpochLength,
+		plannedExpiration: newEpochConfig.PlannedExpiration,
 		networkConfig:     networkConfig,
 		buckets:           map[BucketID]NodeID{},
 		leaders:           newEpochConfig.Leaders,
