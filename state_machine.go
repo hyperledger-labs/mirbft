@@ -33,11 +33,8 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 		logger: myConfig.Logger,
 	}
 
-	_, _, cSet := persisted.sets() // TODO, overkill, fix initialization
+	networkConfig := persisted.checkpoints[0].NetworkConfig
 
-	networkConfig := cSet[0].NetworkConfig // TODO, obviously wrong
-
-	nodeMsgs := map[NodeID]*nodeMsgs{}
 	clientWindows := &clientWindows{
 		windows:       map[uint64]*clientWindow{},
 		networkConfig: networkConfig,
@@ -51,6 +48,7 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 		clientWindows.insert(client.Id, clientWindow)
 	}
 
+	nodeMsgs := map[NodeID]*nodeMsgs{}
 	for _, id := range networkConfig.Nodes {
 		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, clientWindows, oddities)
 	}
@@ -58,16 +56,16 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 	checkpointTracker := newCheckpointTracker(networkConfig, persisted, myConfig)
 	batchTracker := newBatchTracker() // TODO, populate batch tracker from persisted
 
-	checkpoints := make([]*pb.Checkpoint, len(cSet))
-	i := 0
-	for seqNo, cEntry := range cSet {
-		checkpoints[i] = &pb.Checkpoint{
-			SeqNo: seqNo,
-			Value: cEntry.CheckpointValue,
+	checkpoints := []*pb.Checkpoint{}
+	for _, cEntry := range persisted.checkpoints {
+		if cEntry == nil {
+			break
 		}
-		i++
+		checkpoints = append(checkpoints, &pb.Checkpoint{
+			SeqNo: cEntry.SeqNo,
+			Value: cEntry.CheckpointValue,
+		})
 	}
-	// TODO, sort checkpoints?
 	epochChange, err := newParsedEpochChange(&pb.EpochChange{
 		Checkpoints: checkpoints,
 	})

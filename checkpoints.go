@@ -35,18 +35,16 @@ func newCheckpointTracker(networkConfig *pb.NetworkConfig, persisted *persisted,
 		persisted:         persisted,
 	}
 
-	_, _, cSet := persisted.sets() // TODO, overkill, fix in initialization rework
-
-	var earliestCheckpoint *checkpoint
-	for seqNo, cp := range cSet {
-		pcp := ct.checkpoint(seqNo)
+	for i, cp := range persisted.checkpoints {
+		if cp == nil {
+			break
+		}
+		pcp := ct.checkpoint(cp.SeqNo)
 		pcp.applyCheckpointMsg(NodeID(myConfig.ID), cp.CheckpointValue)
-		if earliestCheckpoint == nil || earliestCheckpoint.seqNo > seqNo {
-			earliestCheckpoint = pcp
+		if i == 0 {
+			pcp.stable = true
 		}
 	}
-
-	earliestCheckpoint.stable = true
 
 	return ct
 }

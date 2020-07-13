@@ -30,6 +30,7 @@ type persisted struct {
 	logHead *logEntry
 	logTail *logEntry
 
+	checkpoints   []*pb.CEntry
 	lastCommitted uint64 // Seq
 
 	myConfig *Config
@@ -37,11 +38,13 @@ type persisted struct {
 
 func newPersisted(myConfig *Config) *persisted {
 	return &persisted{
-		myConfig: myConfig,
+		myConfig:    myConfig,
+		checkpoints: make([]*pb.CEntry, 3),
 	}
 }
 
 func (p *persisted) appendLogEntry(entry *pb.Persisted) {
+	p.offset++
 	if p.logHead == nil {
 		p.logHead = &logEntry{
 			entry: entry,
@@ -61,7 +64,6 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 	var data *pb.Persisted
 	var err error
 	var index uint64
-	checkpoints := make([]*pb.CEntry, 3)
 
 	for {
 		data, err = storage.Load(index)
@@ -79,18 +81,6 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 		case *pb.Persisted_QEntry:
 			persisted.addQEntry(d.QEntry)
 		case *pb.Persisted_CEntry:
-			switch {
-			case checkpoints[0] == nil:
-				checkpoints[0] = d.CEntry
-			case checkpoints[1] == nil:
-				checkpoints[1] = d.CEntry
-			case checkpoints[2] == nil:
-				checkpoints[2] = d.CEntry
-			default:
-				checkpoints[0] = checkpoints[1]
-				checkpoints[1] = checkpoints[2]
-				checkpoints[2] = d.CEntry
-			}
 			persisted.lastCommitted = d.CEntry.SeqNo
 			persisted.addCEntry(d.CEntry)
 		default:
@@ -99,11 +89,11 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 		index++
 	}
 
-	if checkpoints[0] == nil {
+	if persisted.checkpoints[0] == nil {
 		panic("no checkpoints in log")
 	}
 
-	persisted.truncate(checkpoints[0].SeqNo)
+	persisted.truncate(persisted.checkpoints[0].SeqNo)
 
 	return persisted, nil
 }
@@ -140,6 +130,19 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
 func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 	if cEntry.NetworkConfig == nil {
 		panic("network config must be set")
+	}
+
+	switch {
+	case p.checkpoints[0] == nil:
+		p.checkpoints[0] = cEntry
+	case p.checkpoints[1] == nil:
+		p.checkpoints[1] = cEntry
+	case p.checkpoints[2] == nil:
+		p.checkpoints[2] = cEntry
+	default:
+		p.checkpoints[0] = p.checkpoints[1]
+		p.checkpoints[1] = p.checkpoints[2]
+		p.checkpoints[2] = cEntry
 	}
 
 	d := &pb.Persisted{
