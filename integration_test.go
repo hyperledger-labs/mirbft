@@ -84,12 +84,18 @@ var _ = Describe("Integration", func() {
 			}
 
 			persisted := newPersisted(consumerConfig)
-			persisted.cSet[0] = &pb.CEntry{
-				SeqNo:           0,
-				CheckpointValue: []byte("TODO, get from state"),
-				NetworkConfig:   networkConfig,
-				EpochConfig:     epochConfig,
-			}
+			persisted.appendLogEntry(
+				&pb.Persisted{
+					Type: &pb.Persisted_CEntry{
+						CEntry: &pb.CEntry{
+							SeqNo:           0,
+							CheckpointValue: []byte("TODO, get from state"),
+							NetworkConfig:   networkConfig,
+							EpochConfig:     epochConfig,
+						},
+					},
+				},
+			)
 
 			stateMachine = newStateMachine(consumerConfig, persisted)
 			stateMachine.activeEpoch = newEpoch(persisted, epochConfig, stateMachine.checkpointTracker, stateMachine.clientWindows, networkConfig, consumerConfig)
@@ -366,12 +372,18 @@ var _ = Describe("Integration", func() {
 
 			persisted := newPersisted(consumerConfig)
 			persisted.lastCommitted = 1
-			persisted.cSet[0] = &pb.CEntry{
-				SeqNo:           0,
-				CheckpointValue: []byte("TODO, get from state"),
-				NetworkConfig:   networkConfig,
-				EpochConfig:     epochConfig,
-			}
+			persisted.appendLogEntry(
+				&pb.Persisted{
+					Type: &pb.Persisted_CEntry{
+						CEntry: &pb.CEntry{
+							SeqNo:           0,
+							CheckpointValue: []byte("TODO, get from state"),
+							NetworkConfig:   networkConfig,
+							EpochConfig:     epochConfig,
+						},
+					},
+				},
+			)
 			stateMachine = newStateMachine(consumerConfig, persisted)
 			stateMachine.activeEpoch = newEpoch(persisted, epochConfig, stateMachine.checkpointTracker, stateMachine.clientWindows, networkConfig, consumerConfig)
 			stateMachine.activeEpoch.sequences[0].state = Committed

@@ -33,7 +33,9 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 		logger: myConfig.Logger,
 	}
 
-	networkConfig := persisted.cSet[0].NetworkConfig // TODO, obviously wrong
+	_, _, cSet := persisted.sets() // TODO, overkill, fix initialization
+
+	networkConfig := cSet[0].NetworkConfig // TODO, obviously wrong
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	clientWindows := &clientWindows{
@@ -56,9 +58,9 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 	checkpointTracker := newCheckpointTracker(networkConfig, persisted, myConfig)
 	batchTracker := newBatchTracker() // TODO, populate batch tracker from persisted
 
-	checkpoints := make([]*pb.Checkpoint, len(persisted.cSet))
+	checkpoints := make([]*pb.Checkpoint, len(cSet))
 	i := 0
-	for seqNo, cEntry := range persisted.cSet {
+	for seqNo, cEntry := range cSet {
 		checkpoints[i] = &pb.Checkpoint{
 			SeqNo: seqNo,
 			Value: cEntry.CheckpointValue,

@@ -531,9 +531,11 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 
 		commits := make([]*Commit, 0, len(config.FinalPreprepares))
 
+		_, qSet, _ := et.persisted.sets() // TODO, overkill, fix
+
 		for i := range config.FinalPreprepares {
 			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
-			qEntry := et.persisted.qSet[seqNo][config.Config.Number]
+			qEntry := qSet[seqNo][config.Config.Number]
 			if qEntry == nil {
 				panic("this shouldn't be possible once dev is done, but for now it's a nasty corner case")
 			}

@@ -30,19 +30,13 @@ type persisted struct {
 	logHead *logEntry
 	logTail *logEntry
 
-	pSet          map[uint64]*pb.PEntry            // Seq -> PEntry
-	qSet          map[uint64]map[uint64]*pb.QEntry // Seq -> Epoch -> QEntry
-	cSet          map[uint64]*pb.CEntry            // Seq -> CEntry
-	lastCommitted uint64                           // Seq
+	lastCommitted uint64 // Seq
 
 	myConfig *Config
 }
 
 func newPersisted(myConfig *Config) *persisted {
 	return &persisted{
-		pSet:     map[uint64]*pb.PEntry{},
-		qSet:     map[uint64]map[uint64]*pb.QEntry{},
-		cSet:     map[uint64]*pb.CEntry{},
 		myConfig: myConfig,
 	}
 }
@@ -54,10 +48,10 @@ func (p *persisted) appendLogEntry(entry *pb.Persisted) {
 		}
 		p.logTail = p.logHead
 	} else {
-		p.logHead.next = &logEntry{
+		p.logTail.next = &logEntry{
 			entry: entry,
 		}
-		p.logTail = p.logHead.next
+		p.logTail = p.logTail.next
 	}
 }
 
@@ -67,6 +61,7 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 	var data *pb.Persisted
 	var err error
 	var index uint64
+	checkpoints := make([]*pb.CEntry, 3)
 
 	for {
 		data, err = storage.Load(index)
@@ -84,6 +79,19 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 		case *pb.Persisted_QEntry:
 			persisted.addQEntry(d.QEntry)
 		case *pb.Persisted_CEntry:
+			switch {
+			case checkpoints[0] == nil:
+				checkpoints[0] = d.CEntry
+			case checkpoints[1] == nil:
+				checkpoints[1] = d.CEntry
+			case checkpoints[2] == nil:
+				checkpoints[2] = d.CEntry
+			default:
+				checkpoints[0] = checkpoints[1]
+				checkpoints[1] = checkpoints[2]
+				checkpoints[2] = d.CEntry
+			}
+			persisted.lastCommitted = d.CEntry.SeqNo
 			persisted.addCEntry(d.CEntry)
 		default:
 			panic("unrecognized data type")
@@ -91,34 +99,16 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 		index++
 	}
 
-	checkpoints := make([]*pb.CEntry, len(persisted.cSet))
-	i := 0
-	for _, cEntry := range persisted.cSet {
-		checkpoints[i] = cEntry
-		i++
-	}
-	sort.Slice(checkpoints, func(i, j int) bool {
-		return checkpoints[i].SeqNo < checkpoints[j].SeqNo
-	})
-
-	if len(checkpoints) >= 3 {
-		persisted.truncate(checkpoints[len(checkpoints)-3].SeqNo)
-	} else {
-		persisted.truncate(checkpoints[0].SeqNo)
+	if checkpoints[0] == nil {
+		panic("no checkpoints in log")
 	}
 
-	persisted.lastCommitted = checkpoints[len(checkpoints)-1].SeqNo
+	persisted.truncate(checkpoints[0].SeqNo)
 
 	return persisted, nil
 }
 
 func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
-	if oldEntry, ok := p.pSet[pEntry.SeqNo]; ok && oldEntry.Epoch >= pEntry.Epoch {
-		panic("dev sanity test, remove me")
-	}
-
-	p.pSet[pEntry.SeqNo] = pEntry
-
 	d := &pb.Persisted{
 		Type: &pb.Persisted_PEntry{
 			PEntry: pEntry,
@@ -134,14 +124,6 @@ func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
 }
 
 func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
-	qSeqMap, ok := p.qSet[qEntry.SeqNo]
-	if !ok {
-		qSeqMap = map[uint64]*pb.QEntry{}
-		p.qSet[qEntry.SeqNo] = qSeqMap
-	}
-
-	qSeqMap[qEntry.Epoch] = qEntry
-
 	d := &pb.Persisted{
 		Type: &pb.Persisted_QEntry{
 			QEntry: qEntry,
@@ -159,8 +141,6 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 	if cEntry.NetworkConfig == nil {
 		panic("network config must be set")
 	}
-
-	p.cSet[cEntry.SeqNo] = cEntry
 
 	d := &pb.Persisted{
 		Type: &pb.Persisted_CEntry{
@@ -184,49 +164,56 @@ func (p *persisted) setLastCommitted(seqNo uint64) {
 }
 
 func (p *persisted) truncate(lowWatermark uint64) {
-	for seqNo := range p.pSet {
-		if seqNo <= lowWatermark {
-			delete(p.pSet, seqNo)
-			delete(p.qSet, seqNo)
-		}
-	}
-
-	for seqNo := range p.qSet {
-		if seqNo <= lowWatermark {
-			delete(p.qSet, seqNo)
-		}
-	}
-
-	for seqNo := range p.cSet {
-		if seqNo < lowWatermark {
-			delete(p.cSet, seqNo)
-		}
-	}
-
-	lowest := p.logHead
-
-outer:
 	for head := p.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
 		case *pb.Persisted_PEntry:
 			if d.PEntry.SeqNo > lowWatermark {
-				break outer
+				return
 			}
 		case *pb.Persisted_QEntry:
 			if d.QEntry.SeqNo > lowWatermark {
-				break outer
+				return
 			}
 		case *pb.Persisted_CEntry:
-			lowest = head
+			p.logHead = head
+			if d.CEntry.SeqNo >= lowWatermark {
+				return
+			}
+		default:
+			panic("unrecognized data type")
+		}
+	}
+}
+
+func (p *persisted) sets() (pSet map[uint64]*pb.PEntry, qSet map[uint64]map[uint64]*pb.QEntry, cSet map[uint64]*pb.CEntry) {
+	pSet = map[uint64]*pb.PEntry{}            // Seq -> PEntry
+	qSet = map[uint64]map[uint64]*pb.QEntry{} // Seq -> Epoch -> QEntry
+	cSet = map[uint64]*pb.CEntry{}            // Seq -> CEntry
+
+	for head := p.logHead; head != nil; head = head.next {
+		switch d := head.entry.Type.(type) {
+		case *pb.Persisted_PEntry:
+			pSet[d.PEntry.SeqNo] = d.PEntry
+		case *pb.Persisted_QEntry:
+			qSeqMap, ok := qSet[d.QEntry.SeqNo]
+			if !ok {
+				qSeqMap = map[uint64]*pb.QEntry{}
+				qSet[d.QEntry.SeqNo] = qSeqMap
+			}
+			qSeqMap[d.QEntry.Epoch] = d.QEntry
+		case *pb.Persisted_CEntry:
+			cSet[d.CEntry.SeqNo] = d.CEntry
 		default:
 			panic("unrecognized data type")
 		}
 	}
 
-	p.logHead = lowest
+	return pSet, qSet, cSet
 }
 
 func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker) *pb.EpochChange {
+	pSet, qSet, cSet := p.sets()
+
 	epochChange := &pb.EpochChange{
 		NewEpoch: newEpoch,
 	}
@@ -234,7 +221,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker)
 	var highestStableCheckpoint *pb.Checkpoint
 	var checkpoints []*pb.Checkpoint
 	var networkConfig *pb.NetworkConfig
-	for seqNo, cEntry := range p.cSet {
+	for seqNo, cEntry := range cSet {
 		pcp := ct.checkpoint(seqNo)
 		cp := &pb.Checkpoint{
 			SeqNo: seqNo,
@@ -264,7 +251,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker)
 	epochChange.Checkpoints = checkpoints
 
 	for seqNo := highestStableCheckpoint.SeqNo; seqNo < highestStableCheckpoint.SeqNo+uint64(networkConfig.CheckpointInterval)*3; seqNo++ {
-		qSubSet, ok := p.qSet[seqNo]
+		qSubSet, ok := qSet[seqNo]
 		if !ok {
 			continue
 		}
@@ -288,7 +275,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker)
 			})
 		}
 
-		pEntry, ok := p.pSet[seqNo]
+		pEntry, ok := pSet[seqNo]
 		if !ok {
 			continue
 		}

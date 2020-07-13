@@ -91,7 +91,7 @@ var _ = Describe("Mirbft", func() {
 	When("the first node is silenced", func() {
 		BeforeEach(func() {
 			recorder.Manglers = []testengine.Mangler{
-				testengine.Drop().Messages().FromNodes(3),
+				testengine.Drop().Messages().FromNodes(0),
 			}
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20

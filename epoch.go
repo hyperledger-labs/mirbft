@@ -95,8 +95,10 @@ type epoch struct {
 // windows may be empty, of length 1, or length 2.
 func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows *clientWindows, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
 
+	pSet, qSet, cSet := persisted.sets() // TODO, overkill, fix in initialization rework
+
 	var maxCheckpoint *pb.CEntry
-	for _, cEntry := range persisted.cSet {
+	for _, cEntry := range cSet {
 		if maxCheckpoint != nil && maxCheckpoint.SeqNo > cEntry.SeqNo {
 			continue
 		}
@@ -148,7 +150,7 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		}
 
 		sequences[i] = newSequence(owner, config.number, seqNo, clientWindows, persisted, networkConfig, myConfig)
-		qEntry, ok := persisted.qSet[seqNo][newEpochConfig.Number]
+		qEntry, ok := qSet[seqNo][newEpochConfig.Number]
 		if !ok {
 			if i < lowestUnallocated[bucket] {
 				lowestUnallocated[bucket] = i
@@ -160,7 +162,7 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		sequences[i].digest = qEntry.Digest
 		sequences[i].state = Preprepared
 
-		pEntry, ok := persisted.pSet[seqNo]
+		pEntry, ok := pSet[seqNo]
 		if !ok || pEntry.Epoch != newEpochConfig.Number {
 			continue
 		}
