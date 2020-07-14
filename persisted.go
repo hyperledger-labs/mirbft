@@ -158,6 +158,76 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 	}
 }
 
+func (p *persisted) addSuspect(suspect *pb.Suspect) *Actions {
+	d := &pb.Persisted{
+		Type: &pb.Persisted_Suspect{
+			Suspect: suspect,
+		},
+	}
+
+	p.appendLogEntry(d)
+
+	return &Actions{
+		Persisted: []*pb.Persisted{d},
+	}
+}
+
+func (p *persisted) addEpochChange(epochChange *pb.EpochChange) *Actions {
+	d := &pb.Persisted{
+		Type: &pb.Persisted_EpochChange{
+			EpochChange: epochChange,
+		},
+	}
+
+	p.appendLogEntry(d)
+
+	return &Actions{
+		Persisted: []*pb.Persisted{d},
+	}
+}
+
+func (p *persisted) addNewEpochEcho(newEpochConfig *pb.NewEpochConfig) *Actions {
+	d := &pb.Persisted{
+		Type: &pb.Persisted_NewEpochEcho{
+			NewEpochEcho: newEpochConfig,
+		},
+	}
+
+	p.appendLogEntry(d)
+
+	return &Actions{
+		Persisted: []*pb.Persisted{d},
+	}
+}
+
+func (p *persisted) addNewEpochReady(newEpochConfig *pb.NewEpochConfig) *Actions {
+	d := &pb.Persisted{
+		Type: &pb.Persisted_NewEpochReady{
+			NewEpochReady: newEpochConfig,
+		},
+	}
+
+	p.appendLogEntry(d)
+
+	return &Actions{
+		Persisted: []*pb.Persisted{d},
+	}
+}
+
+func (p *persisted) addNewEpochStart(epochConfig *pb.EpochConfig) *Actions {
+	d := &pb.Persisted{
+		Type: &pb.Persisted_NewEpochStart{
+			NewEpochStart: epochConfig,
+		},
+	}
+
+	p.appendLogEntry(d)
+
+	return &Actions{
+		Persisted: []*pb.Persisted{d},
+	}
+}
+
 func (p *persisted) setLastCommitted(seqNo uint64) {
 	if p.lastCommitted+1 != seqNo {
 		panic(fmt.Sprintf("dev sanity test, remove me: lastCommitted=%d >= seqNo=%d", p.lastCommitted, seqNo))
@@ -183,7 +253,7 @@ func (p *persisted) truncate(lowWatermark uint64) {
 				return
 			}
 		default:
-			panic("unrecognized data type")
+			// panic("unrecognized data type")
 		}
 	}
 }
@@ -207,7 +277,7 @@ func (p *persisted) sets() (pSet map[uint64]*pb.PEntry, qSet map[uint64]map[uint
 		case *pb.Persisted_CEntry:
 			cSet[d.CEntry.SeqNo] = d.CEntry
 		default:
-			panic("unrecognized data type")
+			// panic("unrecognized data type")
 		}
 	}
 

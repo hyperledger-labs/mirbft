@@ -236,15 +236,15 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		actions.Append(et.persisted.addQEntry(qEntry))
 	}
 
-	echoMsg := &pb.NewEpochEcho{
-		NewConfig: et.leaderNewEpoch.NewConfig,
-	}
+	actions.Append(et.persisted.addNewEpochEcho(et.leaderNewEpoch.NewConfig))
 
 	actions.Append(&Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_NewEpochEcho{
-					NewEpochEcho: echoMsg,
+					NewEpochEcho: &pb.NewEpochEcho{
+						NewConfig: et.leaderNewEpoch.NewConfig,
+					},
 				},
 			},
 		},
@@ -453,6 +453,8 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 			}))
 		}
 
+		actions.Append(et.persisted.addNewEpochReady(config))
+
 		actions.Append(&Actions{
 			Broadcast: []*pb.Msg{
 				{
@@ -504,7 +506,10 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 	if et.state < readying {
 		et.state = readying
 
-		return &Actions{
+		actions := et.persisted.addNewEpochReady(msg.NewConfig)
+		// TODO Pset?
+
+		actions.Append(&Actions{
 			Broadcast: []*pb.Msg{
 				{
 					Type: &pb.Msg_NewEpochReady{
@@ -514,7 +519,9 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 					},
 				},
 			},
-		}
+		})
+
+		return actions
 	}
 
 	return et.advanceState()
@@ -527,6 +534,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 		}
 
 		et.state = ready
+
 		et.networkNewEpoch = config
 
 		commits := make([]*Commit, 0, len(config.FinalPreprepares))
@@ -556,9 +564,13 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 			et.persisted.setLastCommitted(seqNo)
 		}
 
-		return &Actions{
+		actions := et.persisted.addNewEpochStart(config.Config)
+
+		actions.Append(&Actions{
 			Commits: commits,
-		}
+		})
+
+		return actions
 	}
 
 	return &Actions{}

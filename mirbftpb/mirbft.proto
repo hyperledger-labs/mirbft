@@ -84,6 +84,12 @@ message Persisted {
         QEntry q_entry = 1;
         PEntry p_entry = 2;
         CEntry c_entry = 3;
+	EpochChange epoch_change = 4;
+	NewEpochConfig new_epoch_echo = 5;
+	NewEpochConfig new_epoch_ready = 6;
+	EpochConfig new_epoch_start = 7; // XXX Probably overkill? See refactoring with a uint64
+	Suspect suspect = 8;
+	// TODO, suspect_ready
     }
 }
 
