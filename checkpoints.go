@@ -74,7 +74,7 @@ func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, val
 }
 
 func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
-	return ct.checkpoints[seqNo].applyCheckpointResult(value)
+	return ct.checkpoint(seqNo).applyCheckpointResult(value)
 }
 
 func (ct *checkpointTracker) status() []*CheckpointStatus {

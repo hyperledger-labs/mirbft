@@ -83,15 +83,9 @@ type epoch struct {
 
 	lastCommittedAtTick uint64
 	ticksSinceProgress  int
-
-	checkpoints       []*checkpoint
-	checkpointTracker *checkpointTracker
 }
 
-// newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
-// new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
-// windows may be empty, of length 1, or length 2.
-func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows *clientWindows, myConfig *Config) *epoch {
+func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Config) *epoch {
 	var startingEntry *logEntry
 	var maxCheckpoint *pb.CEntry
 	var epochConfig *pb.EpochConfig
@@ -112,16 +106,16 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 	buckets := map[BucketID]NodeID{}
 
 	leaders := map[uint64]struct{}{}
-	for _, leader := range newEpochConfig.Leaders {
+	for _, leader := range epochConfig.Leaders {
 		leaders[leader] = struct{}{}
 	}
 
 	overflowIndex := 0 // TODO, this should probably start after the last assigned node
 	for i := 0; i < int(networkConfig.NumberOfBuckets); i++ {
 		bucketID := BucketID(i)
-		leader := networkConfig.Nodes[(uint64(i)+newEpochConfig.Number)%uint64(len(networkConfig.Nodes))]
+		leader := networkConfig.Nodes[(uint64(i)+epochConfig.Number)%uint64(len(networkConfig.Nodes))]
 		if _, ok := leaders[leader]; !ok {
-			buckets[bucketID] = NodeID(newEpochConfig.Leaders[overflowIndex%len(newEpochConfig.Leaders)])
+			buckets[bucketID] = NodeID(epochConfig.Leaders[overflowIndex%len(epochConfig.Leaders)])
 			overflowIndex++
 		} else {
 			buckets[bucketID] = NodeID(leader)
@@ -133,17 +127,12 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		lowestUnallocated[int(seqToBucket(maxCheckpoint.SeqNo+uint64(i+1), epochConfig, networkConfig))] = i
 	}
 
-	checkpoints := []*checkpoint{checkpointTracker.checkpoint(maxCheckpoint.SeqNo)}
-
 	sequences := make([]*sequence, logWidth(networkConfig))
 	for i := range sequences {
 		seqNo := maxCheckpoint.SeqNo + uint64(i+1)
 		bucket := seqToBucket(seqNo, epochConfig, networkConfig)
 		owner := buckets[bucket]
 		sequences[i] = newSequence(owner, epochConfig.Number, seqNo, clientWindows, persisted, networkConfig, myConfig)
-		if seqNo%uint64(networkConfig.CheckpointInterval) == 0 {
-			checkpoints = append(checkpoints, checkpointTracker.checkpoint(seqNo))
-		}
 	}
 
 	for logEntry := startingEntry; logEntry != nil; logEntry = logEntry.next {
@@ -182,8 +171,6 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		myConfig:          myConfig,
 		epochConfig:       epochConfig,
 		networkConfig:     networkConfig,
-		checkpointTracker: checkpointTracker,
-		checkpoints:       checkpoints,
 		clientWindows:     clientWindows,
 		persisted:         persisted,
 		proposer:          proposer,
@@ -199,6 +186,9 @@ func (e *epoch) getSequence(seqNo uint64) (*sequence, int, error) {
 			seqNo, e.lowWatermark(), e.highWatermark())
 	}
 	offset := int(seqNo - e.lowWatermark())
+	if offset > len(e.sequences) {
+		panic(fmt.Sprintf("dev error: low=%d high=%d seqno=%d offset=%d len(sequences)=%d", e.lowWatermark(), e.highWatermark(), seqNo, offset, len(e.sequences)))
+	}
 	return e.sequences[offset], offset, nil
 }
 
@@ -276,37 +266,34 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 	return actions
 }
 
-func (e *epoch) moveWatermarks() *Actions {
+func (e *epoch) moveWatermarks(seqNo uint64) *Actions {
 	ci := int(e.networkConfig.CheckpointInterval)
-
-	for len(e.checkpoints) >= 4 && e.checkpoints[1].stable {
-		e.checkpoints = e.checkpoints[1:]
-		e.sequences = e.sequences[ci:]
-		e.lowestUncommitted -= ci
-		for i := range e.lowestUnallocated {
-			e.lowestUnallocated[i] -= ci
-		}
+	if seqNo+1 < e.lowWatermark()+uint64(ci) {
+		return &Actions{}
+	} else if seqNo+1 > e.lowWatermark()+uint64(ci) {
+		panic(fmt.Sprintf("dev sanity test: expected seqNo=%d, got seqNo=%d", e.lowWatermark()+uint64(ci), seqNo+1))
 	}
 
-	lastCW := e.checkpoints[len(e.checkpoints)-1]
-	oldLastCW := lastCW
+	e.sequences = e.sequences[ci:]
+	e.lowestUncommitted -= ci
+	for i := range e.lowestUnallocated {
+		e.lowestUnallocated[i] -= ci
+	}
 
-	// If this epoch is ending, don't allocate new sequences
-	if lastCW.seqNo == e.epochConfig.PlannedExpiration {
+	if seqNo+3*uint64(ci)-1 == e.epochConfig.PlannedExpiration {
 		e.ending = true
 		return &Actions{}
 	}
 
-	for len(e.checkpoints) < 4 {
-		e.checkpoints = append(e.checkpoints, e.checkpointTracker.checkpoint(lastCW.seqNo+uint64(ci)))
-		lastCW = e.checkpoints[len(e.checkpoints)-1]
-	}
-
-	for i := oldLastCW.seqNo + 1; i <= lastCW.seqNo; i++ {
-		seqNo := i
+	for i := 0; i < ci; i++ {
+		seqNo := seqNo + uint64(2*ci+i+1)
 		epoch := e.epochConfig.Number
 		owner := e.buckets[e.seqToBucket(seqNo)]
 		e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.clientWindows, e.persisted, e.networkConfig, e.myConfig))
+	}
+
+	if e.highWatermark()-e.lowWatermark() != uint64(ci)*3-1 {
+		panic(fmt.Sprintf("dev sanity test: low=%d high=%d width=%d", e.lowWatermark(), e.highWatermark(), ci*3))
 	}
 
 	return e.drainProposer()

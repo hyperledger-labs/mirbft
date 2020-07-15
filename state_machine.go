@@ -288,7 +288,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 		return actions
 	}
 
-	sm.activeEpoch = newEpoch(sm.persisted, sm.epochChanger.pendingEpochTarget.networkNewEpoch.Config, sm.checkpointTracker, sm.clientWindows, sm.myConfig)
+	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig)
 	actions.Append(sm.activeEpoch.drainProposer())
 	sm.epochChanger.pendingEpochTarget.state = idle
 	sm.epochChanger.lastActiveEpoch = sm.epochChanger.pendingEpochTarget.number
@@ -317,7 +317,7 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 	}
 	sm.persisted.truncate(seqNo)
 	sm.checkpointTracker.truncate(seqNo)
-	actions := sm.activeEpoch.moveWatermarks()
+	actions := sm.activeEpoch.moveWatermarks(seqNo)
 	actions.Append(sm.drainNodeMsgs())
 	return actions
 }
@@ -474,8 +474,8 @@ func (sm *stateMachine) status() *Status {
 
 		buckets = epoch.status()
 
-		lowWatermark = epoch.checkpoints[0].seqNo
-		highWatermark = epoch.checkpoints[len(epoch.checkpoints)-1].seqNo
+		lowWatermark = epoch.lowWatermark() - 1
+		highWatermark = epoch.highWatermark()
 	} else {
 		buckets = make([]*BucketStatus, sm.networkConfig.NumberOfBuckets)
 		for i := range buckets {
