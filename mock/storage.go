@@ -9,24 +9,24 @@ import (
 )
 
 type Storage struct {
-	LoadStub        func(uint64) (*mirbftpb.Persisted, error)
+	LoadStub        func(uint64) (*mirbftpb.Persistent, error)
 	loadMutex       sync.RWMutex
 	loadArgsForCall []struct {
 		arg1 uint64
 	}
 	loadReturns struct {
-		result1 *mirbftpb.Persisted
+		result1 *mirbftpb.Persistent
 		result2 error
 	}
 	loadReturnsOnCall map[int]struct {
-		result1 *mirbftpb.Persisted
+		result1 *mirbftpb.Persistent
 		result2 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *Storage) Load(arg1 uint64) (*mirbftpb.Persisted, error) {
+func (fake *Storage) Load(arg1 uint64) (*mirbftpb.Persistent, error) {
 	fake.loadMutex.Lock()
 	ret, specificReturn := fake.loadReturnsOnCall[len(fake.loadArgsForCall)]
 	fake.loadArgsForCall = append(fake.loadArgsForCall, struct {
@@ -50,7 +50,7 @@ func (fake *Storage) LoadCallCount() int {
 	return len(fake.loadArgsForCall)
 }
 
-func (fake *Storage) LoadCalls(stub func(uint64) (*mirbftpb.Persisted, error)) {
+func (fake *Storage) LoadCalls(stub func(uint64) (*mirbftpb.Persistent, error)) {
 	fake.loadMutex.Lock()
 	defer fake.loadMutex.Unlock()
 	fake.LoadStub = stub
@@ -63,28 +63,28 @@ func (fake *Storage) LoadArgsForCall(i int) uint64 {
 	return argsForCall.arg1
 }
 
-func (fake *Storage) LoadReturns(result1 *mirbftpb.Persisted, result2 error) {
+func (fake *Storage) LoadReturns(result1 *mirbftpb.Persistent, result2 error) {
 	fake.loadMutex.Lock()
 	defer fake.loadMutex.Unlock()
 	fake.LoadStub = nil
 	fake.loadReturns = struct {
-		result1 *mirbftpb.Persisted
+		result1 *mirbftpb.Persistent
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *Storage) LoadReturnsOnCall(i int, result1 *mirbftpb.Persisted, result2 error) {
+func (fake *Storage) LoadReturnsOnCall(i int, result1 *mirbftpb.Persistent, result2 error) {
 	fake.loadMutex.Lock()
 	defer fake.loadMutex.Unlock()
 	fake.LoadStub = nil
 	if fake.loadReturnsOnCall == nil {
 		fake.loadReturnsOnCall = make(map[int]struct {
-			result1 *mirbftpb.Persisted
+			result1 *mirbftpb.Persistent
 			result2 error
 		})
 	}
 	fake.loadReturnsOnCall[i] = struct {
-		result1 *mirbftpb.Persisted
+		result1 *mirbftpb.Persistent
 		result2 error
 	}{result1, result2}
 }

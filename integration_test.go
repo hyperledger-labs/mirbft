@@ -257,9 +257,9 @@ var _ = Describe("Integration", func() {
 						},
 					},
 				},
-				Persisted: []*pb.Persisted{
+				Persist: []*pb.Persistent{
 					{
-						Type: &pb.Persisted_QEntry{
+						Type: &pb.Persistent_QEntry{
 							QEntry: &pb.QEntry{
 								Epoch:  3,
 								SeqNo:  1,
@@ -299,9 +299,9 @@ var _ = Describe("Integration", func() {
 						},
 					},
 				},
-				Persisted: []*pb.Persisted{
+				Persist: []*pb.Persistent{
 					{
-						Type: &pb.Persisted_PEntry{
+						Type: &pb.Persistent_PEntry{
 							PEntry: &pb.PEntry{
 								Epoch:  3,
 								SeqNo:  1,
@@ -578,9 +578,9 @@ var _ = Describe("Integration", func() {
 						},
 					},
 				},
-				Persisted: []*pb.Persisted{
+				Persist: []*pb.Persistent{
 					{
-						Type: &pb.Persisted_QEntry{
+						Type: &pb.Persistent_QEntry{
 							QEntry: &pb.QEntry{
 								Epoch:  2,
 								SeqNo:  2,
@@ -626,9 +626,9 @@ var _ = Describe("Integration", func() {
 						},
 					},
 				},
-				Persisted: []*pb.Persisted{
+				Persist: []*pb.Persistent{
 					{
-						Type: &pb.Persisted_PEntry{
+						Type: &pb.Persistent_PEntry{
 							PEntry: &pb.PEntry{
 								Epoch:  2,
 								SeqNo:  2,

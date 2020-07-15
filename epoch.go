@@ -98,9 +98,9 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 
 	for head := persisted.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
-		case *pb.Persisted_NewEpochStart:
+		case *pb.Persistent_NewEpochStart:
 			epochConfig = d.NewEpochStart
-		case *pb.Persisted_CEntry:
+		case *pb.Persistent_CEntry:
 			startingEntry = head.next
 			maxCheckpoint = d.CEntry
 			epochConfig = d.CEntry.EpochConfig
@@ -148,7 +148,7 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 
 	for logEntry := startingEntry; logEntry != nil; logEntry = logEntry.next {
 		switch d := logEntry.entry.Type.(type) {
-		case *pb.Persisted_QEntry:
+		case *pb.Persistent_QEntry:
 			offset := int(d.QEntry.SeqNo-maxCheckpoint.SeqNo) - 1
 			if offset < 0 || offset >= len(sequences) {
 				panic("should never be possible") // TODO, improve
@@ -158,7 +158,7 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 			sequences[offset].qEntry = d.QEntry
 			sequences[offset].digest = d.QEntry.Digest
 			sequences[offset].state = Preprepared
-		case *pb.Persisted_PEntry:
+		case *pb.Persistent_PEntry:
 			offset := int(d.PEntry.SeqNo-maxCheckpoint.SeqNo) - 1
 			if offset < 0 || offset >= len(sequences) {
 				panic("should never be possible") // TODO, improve

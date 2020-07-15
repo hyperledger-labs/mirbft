@@ -17,11 +17,11 @@ import (
 //go:generate counterfeiter -o mock/storage.go -fake-name Storage . Storage
 
 type Storage interface {
-	Load(index uint64) (*pb.Persisted, error)
+	Load(index uint64) (*pb.Persistent, error)
 }
 
 type logEntry struct {
-	entry *pb.Persisted
+	entry *pb.Persistent
 	next  *logEntry
 }
 
@@ -43,7 +43,7 @@ func newPersisted(myConfig *Config) *persisted {
 	}
 }
 
-func (p *persisted) appendLogEntry(entry *pb.Persisted) {
+func (p *persisted) appendLogEntry(entry *pb.Persistent) {
 	p.offset++
 	if p.logHead == nil {
 		p.logHead = &logEntry{
@@ -61,7 +61,7 @@ func (p *persisted) appendLogEntry(entry *pb.Persisted) {
 func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 	persisted := newPersisted(config)
 
-	var data *pb.Persisted
+	var data *pb.Persistent
 	var err error
 	var index uint64
 
@@ -76,11 +76,11 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 		}
 
 		switch d := data.Type.(type) {
-		case *pb.Persisted_PEntry:
+		case *pb.Persistent_PEntry:
 			persisted.addPEntry(d.PEntry)
-		case *pb.Persisted_QEntry:
+		case *pb.Persistent_QEntry:
 			persisted.addQEntry(d.QEntry)
-		case *pb.Persisted_CEntry:
+		case *pb.Persistent_CEntry:
 			persisted.lastCommitted = d.CEntry.SeqNo
 			persisted.addCEntry(d.CEntry)
 		default:
@@ -99,8 +99,8 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 }
 
 func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
-	d := &pb.Persisted{
-		Type: &pb.Persisted_PEntry{
+	d := &pb.Persistent{
+		Type: &pb.Persistent_PEntry{
 			PEntry: pEntry,
 		},
 	}
@@ -108,14 +108,14 @@ func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
 	p.appendLogEntry(d)
 
 	return &Actions{
-		Persisted: []*pb.Persisted{d},
+		Persist: []*pb.Persistent{d},
 	}
 
 }
 
 func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
-	d := &pb.Persisted{
-		Type: &pb.Persisted_QEntry{
+	d := &pb.Persistent{
+		Type: &pb.Persistent_QEntry{
 			QEntry: qEntry,
 		},
 	}
@@ -123,7 +123,7 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
 	p.appendLogEntry(d)
 
 	return &Actions{
-		Persisted: []*pb.Persisted{d},
+		Persist: []*pb.Persistent{d},
 	}
 }
 
@@ -149,8 +149,8 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 		p.checkpoints[2] = cEntry
 	}
 
-	d := &pb.Persisted{
-		Type: &pb.Persisted_CEntry{
+	d := &pb.Persistent{
+		Type: &pb.Persistent_CEntry{
 			CEntry: cEntry,
 		},
 	}
@@ -158,13 +158,13 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 	p.appendLogEntry(d)
 
 	return &Actions{
-		Persisted: []*pb.Persisted{d},
+		Persist: []*pb.Persistent{d},
 	}
 }
 
 func (p *persisted) addSuspect(suspect *pb.Suspect) *Actions {
-	d := &pb.Persisted{
-		Type: &pb.Persisted_Suspect{
+	d := &pb.Persistent{
+		Type: &pb.Persistent_Suspect{
 			Suspect: suspect,
 		},
 	}
@@ -172,13 +172,13 @@ func (p *persisted) addSuspect(suspect *pb.Suspect) *Actions {
 	p.appendLogEntry(d)
 
 	return &Actions{
-		Persisted: []*pb.Persisted{d},
+		Persist: []*pb.Persistent{d},
 	}
 }
 
 func (p *persisted) addEpochChange(epochChange *pb.EpochChange) *Actions {
-	d := &pb.Persisted{
-		Type: &pb.Persisted_EpochChange{
+	d := &pb.Persistent{
+		Type: &pb.Persistent_EpochChange{
 			EpochChange: epochChange,
 		},
 	}
@@ -186,13 +186,13 @@ func (p *persisted) addEpochChange(epochChange *pb.EpochChange) *Actions {
 	p.appendLogEntry(d)
 
 	return &Actions{
-		Persisted: []*pb.Persisted{d},
+		Persist: []*pb.Persistent{d},
 	}
 }
 
 func (p *persisted) addNewEpochEcho(newEpochConfig *pb.NewEpochConfig) *Actions {
-	d := &pb.Persisted{
-		Type: &pb.Persisted_NewEpochEcho{
+	d := &pb.Persistent{
+		Type: &pb.Persistent_NewEpochEcho{
 			NewEpochEcho: newEpochConfig,
 		},
 	}
@@ -200,13 +200,13 @@ func (p *persisted) addNewEpochEcho(newEpochConfig *pb.NewEpochConfig) *Actions 
 	p.appendLogEntry(d)
 
 	return &Actions{
-		Persisted: []*pb.Persisted{d},
+		Persist: []*pb.Persistent{d},
 	}
 }
 
 func (p *persisted) addNewEpochReady(newEpochConfig *pb.NewEpochConfig) *Actions {
-	d := &pb.Persisted{
-		Type: &pb.Persisted_NewEpochReady{
+	d := &pb.Persistent{
+		Type: &pb.Persistent_NewEpochReady{
 			NewEpochReady: newEpochConfig,
 		},
 	}
@@ -214,13 +214,13 @@ func (p *persisted) addNewEpochReady(newEpochConfig *pb.NewEpochConfig) *Actions
 	p.appendLogEntry(d)
 
 	return &Actions{
-		Persisted: []*pb.Persisted{d},
+		Persist: []*pb.Persistent{d},
 	}
 }
 
 func (p *persisted) addNewEpochStart(epochConfig *pb.EpochConfig) *Actions {
-	d := &pb.Persisted{
-		Type: &pb.Persisted_NewEpochStart{
+	d := &pb.Persistent{
+		Type: &pb.Persistent_NewEpochStart{
 			NewEpochStart: epochConfig,
 		},
 	}
@@ -228,7 +228,7 @@ func (p *persisted) addNewEpochStart(epochConfig *pb.EpochConfig) *Actions {
 	p.appendLogEntry(d)
 
 	return &Actions{
-		Persisted: []*pb.Persisted{d},
+		Persist: []*pb.Persistent{d},
 	}
 }
 
@@ -243,15 +243,15 @@ func (p *persisted) setLastCommitted(seqNo uint64) {
 func (p *persisted) truncate(lowWatermark uint64) {
 	for head := p.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
-		case *pb.Persisted_PEntry:
+		case *pb.Persistent_PEntry:
 			if d.PEntry.SeqNo > lowWatermark {
 				return
 			}
-		case *pb.Persisted_QEntry:
+		case *pb.Persistent_QEntry:
 			if d.QEntry.SeqNo > lowWatermark {
 				return
 			}
-		case *pb.Persisted_CEntry:
+		case *pb.Persistent_CEntry:
 			p.logHead = head
 			if d.CEntry.SeqNo >= lowWatermark {
 				return
@@ -269,16 +269,16 @@ func (p *persisted) sets() (pSet map[uint64]*pb.PEntry, qSet map[uint64]map[uint
 
 	for head := p.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
-		case *pb.Persisted_PEntry:
+		case *pb.Persistent_PEntry:
 			pSet[d.PEntry.SeqNo] = d.PEntry
-		case *pb.Persisted_QEntry:
+		case *pb.Persistent_QEntry:
 			qSeqMap, ok := qSet[d.QEntry.SeqNo]
 			if !ok {
 				qSeqMap = map[uint64]*pb.QEntry{}
 				qSet[d.QEntry.SeqNo] = qSeqMap
 			}
 			qSeqMap[d.QEntry.Epoch] = d.QEntry
-		case *pb.Persisted_CEntry:
+		case *pb.Persistent_CEntry:
 			cSet[d.CEntry.SeqNo] = d.CEntry
 		default:
 			// panic("unrecognized data type")

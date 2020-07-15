@@ -29,12 +29,12 @@ type Actions struct {
 	// in parallel with persisting to disk and performing network sends.
 	Hash []*HashRequest
 
-	// Persisted contains data that should be persisted to persistent storage. It could
+	// Persist contains data that should be persisted to persistent storage. It could
 	// be of following types:
 	// QEntry: Multiple QEntries may be persisted for the same SeqNo, but for different
 	//         epochs and all must be retained.
 	// PEntry: Any PEntry already in storage but with an older epoch may be discarded.
-	Persisted []*pb.Persisted
+	Persist []*pb.Persistent
 
 	// Commits is a set of batches which have achieved final order and are ready to commit.
 	// They will have previously persisted via QEntries.  When the user processes a commit,
@@ -48,7 +48,7 @@ func (a *Actions) Clear() {
 	a.Broadcast = nil
 	a.Unicast = nil
 	a.Hash = nil
-	a.Persisted = nil
+	a.Persist = nil
 	a.Commits = nil
 }
 
@@ -58,7 +58,7 @@ func (a *Actions) IsEmpty() bool {
 		len(a.Unicast) == 0 &&
 		len(a.Commits) == 0 &&
 		len(a.Hash) == 0 &&
-		len(a.Persisted) == 0
+		len(a.Persist) == 0
 }
 
 // Append takes a set of actions and for each field, appends it to
@@ -68,7 +68,7 @@ func (a *Actions) Append(o *Actions) {
 	a.Unicast = append(a.Unicast, o.Unicast...)
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
-	a.Persisted = append(a.Persisted, o.Persisted...)
+	a.Persist = append(a.Persist, o.Persist...)
 }
 
 // HashRequest is a request from the state machine to the consumer to hash some data.

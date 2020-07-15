@@ -78,8 +78,8 @@ message NetworkConfig {
     repeated Client clients = 6;
 }
 
-// Persisted contains data that should be persited by lib user
-message Persisted {
+// Persistent contains data that should be persited by lib user
+message Persistent {
     oneof type {
         QEntry q_entry = 1;
         PEntry p_entry = 2;

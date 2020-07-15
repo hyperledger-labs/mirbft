@@ -283,8 +283,8 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 		}
 
 		storage := &mock.Storage{}
-		storage.LoadReturnsOnCall(0, &pb.Persisted{
-			Type: &pb.Persisted_CEntry{
+		storage.LoadReturnsOnCall(0, &pb.Persistent{
+			Type: &pb.Persistent_CEntry{
 				CEntry: &pb.CEntry{
 					SeqNo:           0,
 					CheckpointValue: []byte("fake-initial-value"),
