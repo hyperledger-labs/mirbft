@@ -261,7 +261,7 @@ func (p *persisted) truncate(lowWatermark uint64) {
 	}
 }
 
-func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker) *pb.EpochChange {
+func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 	epochChange := &pb.EpochChange{
 		NewEpoch: newEpoch,
 	}

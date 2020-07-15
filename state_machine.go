@@ -74,13 +74,12 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 	}
 
 	epochChanger := &epochChanger{
-		persisted:         persisted,
-		myConfig:          myConfig,
-		networkConfig:     networkConfig,
-		targets:           map[uint64]*epochTarget{},
-		batchTracker:      batchTracker,
-		clientWindows:     clientWindows,
-		checkpointTracker: checkpointTracker,
+		persisted:     persisted,
+		myConfig:      myConfig,
+		networkConfig: networkConfig,
+		targets:       map[uint64]*epochTarget{},
+		batchTracker:  batchTracker,
+		clientWindows: clientWindows,
 	}
 
 	target := epochChanger.target(0)

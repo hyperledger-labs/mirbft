@@ -621,7 +621,6 @@ type epochChanger struct {
 	myConfig           *Config
 	batchTracker       *batchTracker
 	clientWindows      *clientWindows
-	checkpointTracker  *checkpointTracker
 	targets            map[uint64]*epochTarget
 }
 
@@ -681,7 +680,7 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 		return nil
 	}
 
-	epochChange := ec.persisted.constructEpochChange(epoch+1, ec.checkpointTracker)
+	epochChange := ec.persisted.constructEpochChange(epoch + 1)
 
 	newTarget := ec.target(epoch + 1)
 	ec.setPendingTarget(newTarget)
