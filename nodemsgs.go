@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"container/list"
+	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
@@ -82,7 +83,8 @@ type nodeMsgs struct {
 
 type epochMsgs struct {
 	myConfig      *Config
-	epochConfig   *epochConfig
+	epochConfig   *pb.EpochConfig
+	networkConfig *pb.NetworkConfig
 	epoch         *epoch
 	clientWindows *clientWindows
 
@@ -204,9 +206,9 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 	}
 
 	switch {
-	case epoch < n.epochMsgs.epochConfig.number:
+	case epoch < n.epochMsgs.epochConfig.Number:
 		return past
-	case epoch > n.epochMsgs.epochConfig.number:
+	case epoch > n.epochMsgs.epochConfig.Number:
 		return future
 	}
 
@@ -251,7 +253,7 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 			return future
 		}
 		for _, next := range n.epochMsgs.next {
-			if next.commit < n.epochMsgs.epochConfig.seqToColumn(msg.SeqNo) {
+			if next.commit < n.epochMsgs.seqToColumn(msg.SeqNo) {
 				return future
 			}
 		}
@@ -265,16 +267,14 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 
 func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *epoch, myConfig *Config) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
-	for bucketID, leaderID := range epoch.config.buckets {
+	for bucketID, leaderID := range epoch.buckets {
 		nm := &nextMsg{
 			leader:  nodeID == leaderID,
 			prepare: 1,
 			commit:  1,
 		}
 
-		ec := epoch.config
-
-		for i := int(bucketID); i < len(epoch.sequences); i += len(ec.buckets) {
+		for i := int(bucketID); i < len(epoch.sequences); i += len(epoch.buckets) {
 			if epoch.sequences[i].state >= Prepared {
 				nm.prepare++
 			}
@@ -289,7 +289,8 @@ func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *epoch, myC
 	return &epochMsgs{
 		clientWindows: clientWindows,
 		myConfig:      myConfig,
-		epochConfig:   epoch.config,
+		epochConfig:   epoch.epochConfig,
+		networkConfig: epoch.networkConfig,
 		epoch:         epoch,
 		next:          next,
 	}
@@ -316,8 +317,16 @@ func (n *epochMsgs) process(outerMsg *pb.Msg) applyable {
 	panic("programming error, unreachable")
 }
 
+func (em *epochMsgs) seqToBucket(seqNo uint64) BucketID {
+	return seqToBucket(seqNo, em.epochConfig, em.networkConfig)
+}
+
+func (em *epochMsgs) seqToColumn(seqNo uint64) uint64 {
+	return seqToColumn(seqNo, em.epochConfig, em.networkConfig)
+}
+
 func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
-	next, ok := n.next[n.epochConfig.seqToBucket(msg.SeqNo)]
+	next, ok := n.next[n.seqToBucket(msg.SeqNo)]
 	if !ok {
 		return invalid
 	}
@@ -347,13 +356,15 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 			return future
 		}
 	}
+	// fmt.Printf("  PROCESSING ASDF: next.Preprepare=%d and n.seqToColumn(%d)=%d initialSequence=%d maxEpochLength=%d, plannedExpiration=%d epoch=%d\n", next.prepare, msg.SeqNo, n.seqToColumn(msg.SeqNo), initialSequence(n.epochConfig, n.networkConfig), n.networkConfig.MaxEpochLength, n.epochConfig.PlannedExpiration, n.epochConfig.Number)
+	_ = fmt.Printf
 
 	switch {
 	case !next.leader:
 		return invalid
-	case next.prepare > n.epochConfig.seqToColumn(msg.SeqNo):
+	case next.prepare > n.seqToColumn(msg.SeqNo):
 		return past
-	case next.prepare == n.epochConfig.seqToColumn(msg.SeqNo):
+	case next.prepare == n.seqToColumn(msg.SeqNo):
 		next.prepare++
 		return current
 	default:
@@ -362,7 +373,7 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 }
 
 func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
-	next, ok := n.next[n.epochConfig.seqToBucket(msg.SeqNo)]
+	next, ok := n.next[n.seqToBucket(msg.SeqNo)]
 	if !ok {
 		return invalid
 	}
@@ -374,9 +385,9 @@ func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
 	switch {
 	case next.leader:
 		return invalid
-	case next.prepare > n.epochConfig.seqToColumn(msg.SeqNo):
+	case next.prepare > n.seqToColumn(msg.SeqNo):
 		return past
-	case next.prepare == n.epochConfig.seqToColumn(msg.SeqNo):
+	case next.prepare == n.seqToColumn(msg.SeqNo):
 		next.prepare++
 		return current
 	default:
@@ -385,7 +396,7 @@ func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
 }
 
 func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
-	next, ok := n.next[n.epochConfig.seqToBucket(msg.SeqNo)]
+	next, ok := n.next[n.seqToBucket(msg.SeqNo)]
 	if !ok {
 		return invalid
 	}
@@ -395,9 +406,9 @@ func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
 	}
 
 	switch {
-	case next.commit > n.epochConfig.seqToColumn(msg.SeqNo):
+	case next.commit > n.seqToColumn(msg.SeqNo):
 		return past
-	case next.commit == n.epochConfig.seqToColumn(msg.SeqNo) && next.prepare > next.commit:
+	case next.commit == n.seqToColumn(msg.SeqNo) && next.prepare > next.commit:
 		next.commit++
 		return current
 	default:

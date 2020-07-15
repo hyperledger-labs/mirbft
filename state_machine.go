@@ -289,7 +289,7 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 		return actions
 	}
 
-	sm.activeEpoch = newEpoch(sm.persisted, sm.epochChanger.pendingEpochTarget.networkNewEpoch.Config, sm.checkpointTracker, sm.clientWindows, sm.networkConfig, sm.myConfig)
+	sm.activeEpoch = newEpoch(sm.persisted, sm.epochChanger.pendingEpochTarget.networkNewEpoch.Config, sm.checkpointTracker, sm.clientWindows, sm.myConfig)
 	actions.Append(sm.activeEpoch.drainProposer())
 	sm.epochChanger.pendingEpochTarget.state = idle
 	sm.epochChanger.lastActiveEpoch = sm.epochChanger.pendingEpochTarget.number
@@ -345,7 +345,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			batch := request.Batch
 			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
 
-			if sm.activeEpoch != nil && batch.Epoch != sm.activeEpoch.config.number {
+			if sm.activeEpoch != nil && batch.Epoch != sm.activeEpoch.epochConfig.Number {
 				continue
 			}
 

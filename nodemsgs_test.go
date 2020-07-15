@@ -22,7 +22,7 @@ var _ = Describe("NodeMsg", func() {
 		o             *oddities
 		nodeMsgs      *nodeMsgs
 
-		defaultEpochConfig *epochConfig
+		defaultEpochConfig *pb.EpochConfig
 	)
 
 	BeforeEach(func() {
@@ -46,12 +46,9 @@ var _ = Describe("NodeMsg", func() {
 		}
 		clientWindows = nil
 		o = &oddities{logger: zap.NewNop()}
-		defaultEpochConfig = &epochConfig{
-			number:          5,
-			initialSequence: 0,
-			networkConfig:   networkConfig,
-			leaders:         []uint64{0},
-			buckets:         map[BucketID]NodeID{0: 0},
+		defaultEpochConfig = &pb.EpochConfig{
+			Number:  5,
+			Leaders: []uint64{0},
 		}
 	})
 
@@ -62,7 +59,10 @@ var _ = Describe("NodeMsg", func() {
 
 	Context("process", func() {
 		JustBeforeEach(func() {
-			nodeMsgs.setActiveEpoch(&epoch{config: defaultEpochConfig})
+			nodeMsgs.setActiveEpoch(&epoch{
+				epochConfig:   defaultEpochConfig,
+				networkConfig: networkConfig,
+			})
 		})
 
 		It("skips stale messages", func() {
@@ -97,7 +97,10 @@ var _ = Describe("NodeMsg", func() {
 				nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Preprepare{}})
 				nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 5}}})
 				Expect(nodeMsgs.buffer.Len()).To(Equal(1))
-				nodeMsgs.setActiveEpoch(&epoch{config: &epochConfig{number: 6}})
+				nodeMsgs.setActiveEpoch(&epoch{
+					epochConfig:   &pb.EpochConfig{Number: 6},
+					networkConfig: networkConfig,
+				})
 				Expect(nodeMsgs.next()).To(BeNil())
 				Expect(nodeMsgs.buffer.Len()).To(Equal(0))
 			})

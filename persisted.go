@@ -132,6 +132,10 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 		panic("network config must be set")
 	}
 
+	if cEntry.EpochConfig == nil {
+		panic("epoch config must be set")
+	}
+
 	switch {
 	case p.checkpoints[0] == nil:
 		p.checkpoints[0] = cEntry

@@ -94,7 +94,7 @@ var _ = Describe("Integration", func() {
 			)
 
 			stateMachine = newStateMachine(consumerConfig, persisted)
-			stateMachine.activeEpoch = newEpoch(persisted, epochConfig, stateMachine.checkpointTracker, stateMachine.clientWindows, networkConfig, consumerConfig)
+			stateMachine.activeEpoch = newEpoch(persisted, epochConfig, stateMachine.checkpointTracker, stateMachine.clientWindows, consumerConfig)
 			stateMachine.nodeMsgs[0].setActiveEpoch(stateMachine.activeEpoch)
 
 			serializer = newSerializer(stateMachine, doneC)
@@ -377,7 +377,7 @@ var _ = Describe("Integration", func() {
 				},
 			)
 			stateMachine = newStateMachine(consumerConfig, persisted)
-			stateMachine.activeEpoch = newEpoch(persisted, epochConfig, stateMachine.checkpointTracker, stateMachine.clientWindows, networkConfig, consumerConfig)
+			stateMachine.activeEpoch = newEpoch(persisted, epochConfig, stateMachine.checkpointTracker, stateMachine.clientWindows, consumerConfig)
 			stateMachine.activeEpoch.sequences[0].state = Committed
 			stateMachine.activeEpoch.lowestUncommitted = 1
 			stateMachine.nodeMsgs[0].setActiveEpoch(stateMachine.activeEpoch)

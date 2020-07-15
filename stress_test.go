@@ -289,6 +289,11 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 					SeqNo:           0,
 					CheckpointValue: []byte("fake-initial-value"),
 					NetworkConfig:   networkConfig,
+					EpochConfig: &pb.EpochConfig{
+						Number:            0,
+						Leaders:           networkConfig.Nodes,
+						PlannedExpiration: networkConfig.MaxEpochLength,
+					},
 				},
 			},
 		}, nil)

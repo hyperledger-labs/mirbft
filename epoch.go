@@ -13,26 +13,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// epochConfig is the information required by the various
-// state machines whose state is scoped to an epoch
-type epochConfig struct {
-	// number is the epoch number this config applies to
-	number uint64
-
-	initialSequence uint64
-
-	// plannedExpiration is when this epoch ends, if it ends gracefully
-	plannedExpiration uint64
-
-	networkConfig *pb.NetworkConfig
-
-	// leaders is the set of nodes which will act as leaders in this epoch
-	leaders []uint64
-
-	// buckets is a map from bucket ID to leader ID
-	buckets map[BucketID]NodeID
-}
-
 // intersectionQuorum is the number of nodes required to agree
 // such that any two sets intersected will each contain some same
 // correct node.  This is ceil((n+f+1)/2), which is equivalent to
@@ -46,12 +26,32 @@ func someCorrectQuorum(nc *pb.NetworkConfig) int {
 	return int(nc.F) + 1
 }
 
-func (ec *epochConfig) seqToBucket(seqNo uint64) BucketID {
-	return BucketID((seqNo - uint64(ec.initialSequence)) % uint64(len(ec.buckets)))
+// logWidth is the number of sequence numbers in the sliding window
+func logWidth(nc *pb.NetworkConfig) int {
+	return 3 * int(nc.CheckpointInterval)
 }
 
-func (ec *epochConfig) seqToColumn(seqNo uint64) uint64 {
-	return (seqNo-uint64(ec.initialSequence))/uint64(len(ec.buckets)) + 1
+func initialSequence(epochConfig *pb.EpochConfig, networkConfig *pb.NetworkConfig) uint64 {
+	if epochConfig.PlannedExpiration > networkConfig.MaxEpochLength {
+		return epochConfig.PlannedExpiration - networkConfig.MaxEpochLength + 1
+	}
+	return 1
+}
+
+func seqToBucket(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkConfig) BucketID {
+	return BucketID((seqNo - initialSequence(ec, nc)) % uint64(nc.NumberOfBuckets))
+}
+
+func (e *epoch) seqToBucket(seqNo uint64) BucketID {
+	return seqToBucket(seqNo, e.epochConfig, e.networkConfig)
+}
+
+func seqToColumn(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkConfig) uint64 {
+	return (seqNo-initialSequence(ec, nc))/uint64(nc.NumberOfBuckets) + 1
+}
+
+func (e *epoch) seqToColumn(seqNo uint64) uint64 {
+	return seqToColumn(seqNo, e.epochConfig, e.networkConfig)
 }
 
 /*
@@ -64,19 +64,17 @@ func (ec *epochConfig) colBucketToSeq(column uint64, bucket BucketID) uint64 {
 }
 */
 
-func (ec *epochConfig) logWidth() int {
-	return 3 * int(ec.networkConfig.CheckpointInterval)
-}
-
 type epoch struct {
 	// config contains the static components of the epoch
-	config   *epochConfig
-	myConfig *Config
+	epochConfig   *pb.EpochConfig
+	networkConfig *pb.NetworkConfig
+	myConfig      *Config
 
 	proposer      *proposer
 	persisted     *persisted
 	clientWindows *clientWindows
 
+	buckets   map[BucketID]NodeID
 	sequences []*sequence
 
 	ending            bool // set when this epoch about to end gracefully
@@ -93,27 +91,25 @@ type epoch struct {
 // newEpoch creates a new epoch.  It uses the supplied initial checkpoints until
 // new checkpoint windows are created using the given epochConfig.  The initialCheckpoint
 // windows may be empty, of length 1, or length 2.
-func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows *clientWindows, networkConfig *pb.NetworkConfig, myConfig *Config) *epoch {
-
-	pSet, qSet, cSet := persisted.sets() // TODO, overkill, fix in initialization rework
-
+func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTracker *checkpointTracker, clientWindows *clientWindows, myConfig *Config) *epoch {
+	var startingEntry *logEntry
 	var maxCheckpoint *pb.CEntry
-	for _, cEntry := range cSet {
-		if maxCheckpoint != nil && maxCheckpoint.SeqNo > cEntry.SeqNo {
-			continue
+	var epochConfig *pb.EpochConfig
+
+	for head := persisted.logHead; head != nil; head = head.next {
+		switch d := head.entry.Type.(type) {
+		case *pb.Persisted_NewEpochStart:
+			epochConfig = d.NewEpochStart
+		case *pb.Persisted_CEntry:
+			startingEntry = head.next
+			maxCheckpoint = d.CEntry
+			epochConfig = d.CEntry.EpochConfig
 		}
-
-		maxCheckpoint = cEntry
 	}
 
-	config := &epochConfig{
-		number:            newEpochConfig.Number,
-		initialSequence:   maxCheckpoint.SeqNo + 1,
-		plannedExpiration: newEpochConfig.PlannedExpiration,
-		networkConfig:     networkConfig,
-		buckets:           map[BucketID]NodeID{},
-		leaders:           newEpochConfig.Leaders,
-	}
+	networkConfig := maxCheckpoint.NetworkConfig
+
+	buckets := map[BucketID]NodeID{}
 
 	leaders := map[uint64]struct{}{}
 	for _, leader := range newEpochConfig.Leaders {
@@ -125,72 +121,67 @@ func newEpoch(persisted *persisted, newEpochConfig *pb.EpochConfig, checkpointTr
 		bucketID := BucketID(i)
 		leader := networkConfig.Nodes[(uint64(i)+newEpochConfig.Number)%uint64(len(networkConfig.Nodes))]
 		if _, ok := leaders[leader]; !ok {
-			config.buckets[bucketID] = NodeID(newEpochConfig.Leaders[overflowIndex%len(newEpochConfig.Leaders)])
+			buckets[bucketID] = NodeID(newEpochConfig.Leaders[overflowIndex%len(newEpochConfig.Leaders)])
 			overflowIndex++
 		} else {
-			config.buckets[bucketID] = NodeID(leader)
+			buckets[bucketID] = NodeID(leader)
 		}
 	}
 
-	lowestUnallocated := make([]int, len(config.buckets))
+	lowestUnallocated := make([]int, len(buckets))
 	for i := range lowestUnallocated {
-		lowestUnallocated[i] = i + config.logWidth() // The first seq for the bucket beyond our watermarks
+		lowestUnallocated[int(seqToBucket(maxCheckpoint.SeqNo+uint64(i+1), epochConfig, networkConfig))] = i
 	}
 
 	checkpoints := []*checkpoint{checkpointTracker.checkpoint(maxCheckpoint.SeqNo)}
 
-	sequences := make([]*sequence, config.logWidth())
+	sequences := make([]*sequence, logWidth(networkConfig))
 	for i := range sequences {
-		seqNo := maxCheckpoint.SeqNo + 1 + uint64(i)
-		bucket := config.seqToBucket(seqNo)
-		owner := config.buckets[bucket]
-
+		seqNo := maxCheckpoint.SeqNo + uint64(i+1)
+		bucket := seqToBucket(seqNo, epochConfig, networkConfig)
+		owner := buckets[bucket]
+		sequences[i] = newSequence(owner, epochConfig.Number, seqNo, clientWindows, persisted, networkConfig, myConfig)
 		if seqNo%uint64(networkConfig.CheckpointInterval) == 0 {
 			checkpoints = append(checkpoints, checkpointTracker.checkpoint(seqNo))
 		}
+	}
 
-		sequences[i] = newSequence(owner, config.number, seqNo, clientWindows, persisted, networkConfig, myConfig)
-		qEntry, ok := qSet[seqNo][newEpochConfig.Number]
-		if !ok {
-			if i < lowestUnallocated[bucket] {
-				lowestUnallocated[bucket] = i
+	for logEntry := startingEntry; logEntry != nil; logEntry = logEntry.next {
+		switch d := logEntry.entry.Type.(type) {
+		case *pb.Persisted_QEntry:
+			offset := int(d.QEntry.SeqNo-maxCheckpoint.SeqNo) - 1
+			if offset < 0 || offset >= len(sequences) {
+				panic("should never be possible") // TODO, improve
 			}
-			continue
+			bucket := seqToBucket(d.QEntry.SeqNo, epochConfig, networkConfig)
+			lowestUnallocated[bucket] = offset + len(buckets)
+			sequences[offset].qEntry = d.QEntry
+			sequences[offset].digest = d.QEntry.Digest
+			sequences[offset].state = Preprepared
+		case *pb.Persisted_PEntry:
+			offset := int(d.PEntry.SeqNo-maxCheckpoint.SeqNo) - 1
+			if offset < 0 || offset >= len(sequences) {
+				panic("should never be possible") // TODO, improve
+			}
+
+			if persisted.lastCommitted >= d.PEntry.SeqNo {
+				sequences[offset].state = Committed
+			} else {
+				sequences[offset].state = Prepared
+			}
 		}
-
-		sequences[i].qEntry = qEntry
-		sequences[i].digest = qEntry.Digest
-		sequences[i].state = Preprepared
-
-		pEntry, ok := pSet[seqNo]
-		if !ok || pEntry.Epoch != newEpochConfig.Number {
-			continue
-		}
-
-		sequences[i].state = Prepared
-
-		if seqNo > persisted.lastCommitted {
-			continue
-		}
-
-		sequences[i].state = Committed
 	}
 
-	lowestUncommitted := len(sequences)
-	for i, seq := range sequences {
-		if seq.state == Committed {
-			continue
-		}
-		lowestUncommitted = i
-		break
-	}
+	lowestUncommitted := int(persisted.lastCommitted - maxCheckpoint.SeqNo)
 
-	proposer := newProposer(myConfig, clientWindows, config.buckets)
+	proposer := newProposer(myConfig, clientWindows, buckets)
 	proposer.stepAllClientWindows()
 
 	return &epoch{
+		buckets:           buckets,
 		myConfig:          myConfig,
-		config:            config,
+		epochConfig:       epochConfig,
+		networkConfig:     networkConfig,
 		checkpointTracker: checkpointTracker,
 		checkpoints:       checkpoints,
 		clientWindows:     clientWindows,
@@ -218,7 +209,7 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 		return &Actions{}
 	}
 
-	bucketID := e.config.seqToBucket(seqNo)
+	bucketID := e.seqToBucket(seqNo)
 
 	if source == NodeID(e.myConfig.ID) {
 		// Apply our own preprepares as a prepare
@@ -226,7 +217,7 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 	}
 
 	defer func() {
-		e.lowestUnallocated[int(bucketID)] += len(e.config.buckets)
+		e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 	}()
 
 	if offset != e.lowestUnallocated[int(bucketID)] {
@@ -266,13 +257,9 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 
 		actions.Commits = append(actions.Commits, &Commit{
 			QEntry:        e.sequences[e.lowestUncommitted].qEntry,
-			Checkpoint:    e.sequences[e.lowestUncommitted].seqNo%uint64(e.config.networkConfig.CheckpointInterval) == 0,
-			NetworkConfig: e.config.networkConfig,
-			EpochConfig: &pb.EpochConfig{
-				Number:            e.config.number,
-				PlannedExpiration: e.config.plannedExpiration,
-				Leaders:           e.config.leaders,
-			},
+			Checkpoint:    e.sequences[e.lowestUncommitted].seqNo%uint64(e.networkConfig.CheckpointInterval) == 0,
+			NetworkConfig: e.networkConfig,
+			EpochConfig:   e.epochConfig,
 		})
 		for _, reqForward := range e.sequences[e.lowestUncommitted].qEntry.Requests {
 			cw, ok := e.clientWindows.clientWindow(reqForward.Request.ClientId)
@@ -290,7 +277,7 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 }
 
 func (e *epoch) moveWatermarks() *Actions {
-	ci := int(e.config.networkConfig.CheckpointInterval)
+	ci := int(e.networkConfig.CheckpointInterval)
 
 	for len(e.checkpoints) >= 4 && e.checkpoints[1].stable {
 		e.checkpoints = e.checkpoints[1:]
@@ -305,7 +292,7 @@ func (e *epoch) moveWatermarks() *Actions {
 	oldLastCW := lastCW
 
 	// If this epoch is ending, don't allocate new sequences
-	if lastCW.seqNo == e.config.plannedExpiration {
+	if lastCW.seqNo == e.epochConfig.PlannedExpiration {
 		e.ending = true
 		return &Actions{}
 	}
@@ -317,9 +304,9 @@ func (e *epoch) moveWatermarks() *Actions {
 
 	for i := oldLastCW.seqNo + 1; i <= lastCW.seqNo; i++ {
 		seqNo := i
-		epoch := e.config.number
-		owner := e.config.buckets[e.config.seqToBucket(seqNo)]
-		e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.clientWindows, e.persisted, e.config.networkConfig, e.myConfig))
+		epoch := e.epochConfig.Number
+		owner := e.buckets[e.seqToBucket(seqNo)]
+		e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.clientWindows, e.persisted, e.networkConfig, e.myConfig))
 	}
 
 	return e.drainProposer()
@@ -328,7 +315,7 @@ func (e *epoch) moveWatermarks() *Actions {
 func (e *epoch) drainProposer() *Actions {
 	actions := &Actions{}
 
-	for bucketID, ownerID := range e.config.buckets {
+	for bucketID, ownerID := range e.buckets {
 		if ownerID != NodeID(e.myConfig.ID) {
 			continue
 		}
@@ -340,7 +327,7 @@ func (e *epoch) drainProposer() *Actions {
 			}
 			seq := e.sequences[i]
 
-			if len(e.sequences)-i <= int(e.config.networkConfig.CheckpointInterval) && !e.ending {
+			if len(e.sequences)-i <= int(e.networkConfig.CheckpointInterval) && !e.ending {
 				// let the network move watermarks before filling up the last checkpoint
 				// interval
 				break
@@ -358,7 +345,7 @@ func (e *epoch) drainProposer() *Actions {
 					}
 				}
 				actions.Append(seq.allocate(requestAcks))
-				e.lowestUnallocated[int(bucketID)] += len(e.config.buckets)
+				e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 			}
 		}
 	}
@@ -392,7 +379,7 @@ func (e *epoch) tick() *Actions {
 				{
 					Type: &pb.Msg_Suspect{
 						Suspect: &pb.Suspect{
-							Epoch: e.config.number,
+							Epoch: e.epochConfig.Number,
 						},
 					},
 				},
@@ -409,11 +396,11 @@ func (e *epoch) tick() *Actions {
 			continue
 		}
 
-		if e.config.buckets[BucketID(bucketID)] != NodeID(e.myConfig.ID) {
+		if e.buckets[BucketID(bucketID)] != NodeID(e.myConfig.ID) {
 			continue
 		}
 
-		if len(e.sequences)-index <= int(e.config.networkConfig.CheckpointInterval) && !e.ending {
+		if len(e.sequences)-index <= int(e.networkConfig.CheckpointInterval) && !e.ending {
 			continue
 		}
 
@@ -433,7 +420,7 @@ func (e *epoch) tick() *Actions {
 			actions.Append(e.sequences[index].allocate(nil))
 		}
 
-		e.lowestUnallocated[int(bucketID)] += len(e.config.buckets)
+		e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 	}
 
 	return actions
@@ -448,11 +435,11 @@ func (e *epoch) highWatermark() uint64 {
 }
 
 func (e *epoch) status() []*BucketStatus {
-	buckets := make([]*BucketStatus, len(e.config.buckets))
+	buckets := make([]*BucketStatus, len(e.buckets))
 	for i := range buckets {
 		bucket := &BucketStatus{
 			ID:        uint64(i),
-			Leader:    e.config.buckets[BucketID(i)] == NodeID(e.myConfig.ID),
+			Leader:    e.buckets[BucketID(i)] == NodeID(e.myConfig.ID),
 			Sequences: make([]SequenceState, 0, len(e.sequences)/len(buckets)),
 		}
 
