@@ -537,31 +537,36 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 
 		et.networkNewEpoch = config
 
-		commits := make([]*Commit, 0, len(config.FinalPreprepares))
+		commits := make([]*Commit, 0, len(config.FinalPreprepares)-int(et.persisted.lastCommitted-config.StartingCheckpoint.SeqNo))
 
-		_, qSet, _ := et.persisted.sets() // TODO, overkill, fix
+		for logEntry := et.persisted.logHead; logEntry != nil; logEntry = logEntry.next {
+			switch d := logEntry.entry.Type.(type) {
+			case *pb.Persistent_QEntry:
+				if d.QEntry.Epoch < config.Config.Number {
+					continue
+				} else if d.QEntry.Epoch > config.Config.Number {
+					panic("dev sanity test")
+				}
 
-		for i := range config.FinalPreprepares {
-			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
-			qEntry := qSet[seqNo][config.Config.Number]
-			if qEntry == nil {
-				panic("this shouldn't be possible once dev is done, but for now it's a nasty corner case")
-			}
-			if seqNo <= et.persisted.lastCommitted {
-				continue
-			}
-			commits = append(commits, &Commit{
-				Checkpoint:    seqNo%uint64(et.networkConfig.CheckpointInterval) == 0,
-				QEntry:        qEntry,
-				NetworkConfig: et.networkConfig,
-				EpochConfig:   config.Config,
-			})
+				seqNo := d.QEntry.SeqNo
+				if seqNo <= et.persisted.lastCommitted {
+					continue
+				}
 
-			for _, reqForward := range qEntry.Requests {
-				cw, _ := et.clientWindows.clientWindow(reqForward.Request.ClientId)
-				cw.request(reqForward.Request.ReqNo).committed = &seqNo
+				commits = append(commits, &Commit{
+					Checkpoint:    seqNo%uint64(et.networkConfig.CheckpointInterval) == 0,
+					QEntry:        d.QEntry,
+					NetworkConfig: et.networkConfig,
+					EpochConfig:   config.Config,
+				})
+
+				for _, reqForward := range d.QEntry.Requests {
+					cw, _ := et.clientWindows.clientWindow(reqForward.Request.ClientId)
+					cw.request(reqForward.Request.ReqNo).committed = &seqNo
+				}
+				et.persisted.setLastCommitted(seqNo)
 			}
-			et.persisted.setLastCommitted(seqNo)
+
 		}
 
 		actions := et.persisted.addNewEpochStart(config.Config)
