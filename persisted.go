@@ -8,7 +8,6 @@ package mirbft
 import (
 	"fmt"
 	"io"
-	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/pkg/errors"
@@ -262,107 +261,31 @@ func (p *persisted) truncate(lowWatermark uint64) {
 	}
 }
 
-func (p *persisted) sets() (pSet map[uint64]*pb.PEntry, qSet map[uint64]map[uint64]*pb.QEntry, cSet map[uint64]*pb.CEntry) {
-	pSet = map[uint64]*pb.PEntry{}            // Seq -> PEntry
-	qSet = map[uint64]map[uint64]*pb.QEntry{} // Seq -> Epoch -> QEntry
-	cSet = map[uint64]*pb.CEntry{}            // Seq -> CEntry
-
-	for head := p.logHead; head != nil; head = head.next {
-		switch d := head.entry.Type.(type) {
-		case *pb.Persistent_PEntry:
-			pSet[d.PEntry.SeqNo] = d.PEntry
-		case *pb.Persistent_QEntry:
-			qSeqMap, ok := qSet[d.QEntry.SeqNo]
-			if !ok {
-				qSeqMap = map[uint64]*pb.QEntry{}
-				qSet[d.QEntry.SeqNo] = qSeqMap
-			}
-			qSeqMap[d.QEntry.Epoch] = d.QEntry
-		case *pb.Persistent_CEntry:
-			cSet[d.CEntry.SeqNo] = d.CEntry
-		default:
-			// panic("unrecognized data type")
-		}
-	}
-
-	return pSet, qSet, cSet
-}
-
 func (p *persisted) constructEpochChange(newEpoch uint64, ct *checkpointTracker) *pb.EpochChange {
-	pSet, qSet, cSet := p.sets()
-
 	epochChange := &pb.EpochChange{
 		NewEpoch: newEpoch,
 	}
 
-	var highestStableCheckpoint *pb.Checkpoint
-	var checkpoints []*pb.Checkpoint
-	var networkConfig *pb.NetworkConfig
-	for seqNo, cEntry := range cSet {
-		pcp := ct.checkpoint(seqNo)
-		cp := &pb.Checkpoint{
-			SeqNo: seqNo,
-			Value: cEntry.CheckpointValue,
-		}
-		if pcp.stable && (highestStableCheckpoint == nil || highestStableCheckpoint.SeqNo < seqNo) {
-			highestStableCheckpoint = cp
-			networkConfig = cEntry.NetworkConfig
-		} else {
-			checkpoints = append(checkpoints, cp)
-		}
-	}
-	checkpoints = append(checkpoints, highestStableCheckpoint)
-
-	if highestStableCheckpoint == nil {
-		panic("this should never happen")
-	}
-	if highestStableCheckpoint != nil && networkConfig == nil {
-		panic("this should really never happen")
-	}
-
-	// Note, this is so that our order is deterministic, across restarts
-	sort.Slice(checkpoints, func(i, j int) bool {
-		return checkpoints[i].SeqNo < checkpoints[j].SeqNo
-	})
-
-	epochChange.Checkpoints = checkpoints
-
-	for seqNo := highestStableCheckpoint.SeqNo; seqNo < highestStableCheckpoint.SeqNo+uint64(networkConfig.CheckpointInterval)*3; seqNo++ {
-		qSubSet, ok := qSet[seqNo]
-		if !ok {
-			continue
-		}
-
-		qEntries := make([]*pb.QEntry, len(qSubSet))
-		i := 0
-		for _, qEntry := range qSubSet {
-			qEntries[i] = qEntry
-			i++
-		}
-		// Note, this is so that our order is deterministic, across restarts
-		sort.Slice(qEntries, func(i, j int) bool {
-			return qEntries[i].Epoch < qEntries[j].Epoch
-		})
-
-		for _, qEntry := range qEntries {
+	for head := p.logHead; head != nil; head = head.next {
+		switch d := head.entry.Type.(type) {
+		case *pb.Persistent_PEntry:
+			epochChange.PSet = append(epochChange.PSet, &pb.EpochChange_SetEntry{
+				Epoch:  d.PEntry.Epoch,
+				SeqNo:  d.PEntry.SeqNo,
+				Digest: d.PEntry.Digest,
+			})
+		case *pb.Persistent_QEntry:
 			epochChange.QSet = append(epochChange.QSet, &pb.EpochChange_SetEntry{
-				SeqNo:  qEntry.SeqNo,
-				Epoch:  qEntry.Epoch,
-				Digest: qEntry.Digest,
+				Epoch:  d.QEntry.Epoch,
+				SeqNo:  d.QEntry.SeqNo,
+				Digest: d.QEntry.Digest,
+			})
+		case *pb.Persistent_CEntry:
+			epochChange.Checkpoints = append(epochChange.Checkpoints, &pb.Checkpoint{
+				SeqNo: d.CEntry.SeqNo,
+				Value: d.CEntry.CheckpointValue,
 			})
 		}
-
-		pEntry, ok := pSet[seqNo]
-		if !ok {
-			continue
-		}
-
-		epochChange.PSet = append(epochChange.PSet, &pb.EpochChange_SetEntry{
-			SeqNo:  pEntry.SeqNo,
-			Epoch:  pEntry.Epoch,
-			Digest: pEntry.Digest,
-		})
-
 	}
 
 	return epochChange
