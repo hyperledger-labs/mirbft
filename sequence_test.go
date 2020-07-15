@@ -167,7 +167,6 @@ var _ = XDescribe("sequence", func() {
 						Type: &pb.Persistent_QEntry{
 							QEntry: &pb.QEntry{
 								SeqNo:  5,
-								Epoch:  4,
 								Digest: []byte("digest"),
 								Requests: []*pb.ForwardRequest{
 									{
@@ -196,7 +195,6 @@ var _ = XDescribe("sequence", func() {
 			Expect(s.state).To(Equal(Preprepared))
 			Expect(s.qEntry).To(Equal(&pb.QEntry{
 				SeqNo:  5,
-				Epoch:  4,
 				Digest: []byte("digest"),
 				Requests: []*pb.ForwardRequest{
 					{
@@ -266,7 +264,6 @@ var _ = XDescribe("sequence", func() {
 						Type: &pb.Persistent_PEntry{
 							PEntry: &pb.PEntry{
 								SeqNo:  5,
-								Epoch:  4,
 								Digest: []byte("digest"),
 							},
 						},

@@ -270,7 +270,9 @@ func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 	}
 	sm.activeEpoch = nil
 
-	return &Actions{
+	actions := sm.persisted.addEpochChange(epochChange) // TODO, this is an awkward spot
+
+	actions.Append(&Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_EpochChange{
@@ -278,7 +280,9 @@ func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 				},
 			},
 		},
-	}
+	})
+
+	return actions
 }
 
 func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {

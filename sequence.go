@@ -195,7 +195,6 @@ func (s *sequence) prepare() *Actions {
 
 	s.qEntry = &pb.QEntry{
 		SeqNo:    s.seqNo,
-		Epoch:    s.epoch,
 		Digest:   s.digest,
 		Requests: forwardRequests,
 	}
@@ -277,7 +276,6 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 	s.state = Prepared
 
 	pEntry := &pb.PEntry{
-		Epoch:  s.epoch,
 		SeqNo:  s.seqNo,
 		Digest: s.digest,
 	}
@@ -295,7 +293,6 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 			},
 		},
 	}
-
 	actions.Append(s.persisted.addPEntry(pEntry))
 	return actions
 }

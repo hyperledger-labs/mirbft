@@ -96,7 +96,6 @@ message Persistent {
 // QEntry is an entry which must be persisted before a batch is Preprepared (ie,
 // before a Preprepare or Prepare message is sent).
 message QEntry {
-    uint64 epoch = 1;
     uint64 seq_no = 2;
     bytes digest = 3;
     repeated ForwardRequest requests = 4;
@@ -105,7 +104,6 @@ message QEntry {
 // PEntry is an entry which must be persisted before a batch is Prepared (ie,
 // before a Commit message is sent).
 message PEntry {
-    uint64 epoch = 1;
     uint64 seq_no = 2;
     bytes digest = 3;
 }

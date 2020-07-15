@@ -261,7 +261,6 @@ var _ = Describe("Integration", func() {
 					{
 						Type: &pb.Persistent_QEntry{
 							QEntry: &pb.QEntry{
-								Epoch:  3,
 								SeqNo:  1,
 								Digest: []byte("batch-digest"),
 								Requests: []*pb.ForwardRequest{
@@ -303,7 +302,6 @@ var _ = Describe("Integration", func() {
 					{
 						Type: &pb.Persistent_PEntry{
 							PEntry: &pb.PEntry{
-								Epoch:  3,
 								SeqNo:  1,
 								Digest: []byte("batch-digest"),
 							},
@@ -323,7 +321,6 @@ var _ = Describe("Integration", func() {
 				Commits: []*Commit{
 					{
 						QEntry: &pb.QEntry{
-							Epoch:  3,
 							SeqNo:  1,
 							Digest: []byte("batch-digest"),
 							Requests: []*pb.ForwardRequest{
@@ -582,7 +579,6 @@ var _ = Describe("Integration", func() {
 					{
 						Type: &pb.Persistent_QEntry{
 							QEntry: &pb.QEntry{
-								Epoch:  2,
 								SeqNo:  2,
 								Digest: []byte("batch-digest"),
 								Requests: []*pb.ForwardRequest{
@@ -630,7 +626,6 @@ var _ = Describe("Integration", func() {
 					{
 						Type: &pb.Persistent_PEntry{
 							PEntry: &pb.PEntry{
-								Epoch:  2,
 								SeqNo:  2,
 								Digest: []byte("batch-digest"),
 							},
@@ -661,7 +656,6 @@ var _ = Describe("Integration", func() {
 				Commits: []*Commit{
 					{
 						QEntry: &pb.QEntry{
-							Epoch:  2,
 							SeqNo:  2,
 							Digest: []byte("batch-digest"),
 							Requests: []*pb.ForwardRequest{

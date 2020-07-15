@@ -209,7 +209,6 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		if len(digest) == 0 {
 			actions.Append(et.persisted.addQEntry(&pb.QEntry{
 				SeqNo: seqNo,
-				Epoch: et.leaderNewEpoch.NewConfig.Config.Number,
 			}))
 			continue
 		}
@@ -228,7 +227,6 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 		qEntry := &pb.QEntry{
 			SeqNo:    seqNo,
-			Epoch:    et.leaderNewEpoch.NewConfig.Config.Number,
 			Digest:   digest,
 			Requests: requests,
 		}
@@ -448,7 +446,6 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
 			actions.Append(et.persisted.addPEntry(&pb.PEntry{
 				SeqNo:  seqNo,
-				Epoch:  et.leaderNewEpoch.NewConfig.Config.Number,
 				Digest: digest,
 			}))
 		}
@@ -539,13 +536,12 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 
 		commits := make([]*Commit, 0, len(config.FinalPreprepares)-int(et.persisted.lastCommitted-config.StartingCheckpoint.SeqNo))
 
+		currentEpoch := false
 		for logEntry := et.persisted.logHead; logEntry != nil; logEntry = logEntry.next {
 			switch d := logEntry.entry.Type.(type) {
 			case *pb.Persistent_QEntry:
-				if d.QEntry.Epoch < config.Config.Number {
+				if !currentEpoch {
 					continue
-				} else if d.QEntry.Epoch > config.Config.Number {
-					panic("dev sanity test")
 				}
 
 				seqNo := d.QEntry.SeqNo
@@ -565,6 +561,16 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 					cw.request(reqForward.Request.ReqNo).committed = &seqNo
 				}
 				et.persisted.setLastCommitted(seqNo)
+			case *pb.Persistent_EpochChange:
+				if d.EpochChange.NewEpoch < config.Config.Number {
+					continue
+				}
+
+				if d.EpochChange.NewEpoch > config.Config.Number {
+					panic("dev sanity test")
+				}
+
+				currentEpoch = true
 			}
 
 		}

@@ -266,17 +266,18 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 		NewEpoch: newEpoch,
 	}
 
+	var logEpoch uint64
 	for head := p.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_PEntry:
 			epochChange.PSet = append(epochChange.PSet, &pb.EpochChange_SetEntry{
-				Epoch:  d.PEntry.Epoch,
+				Epoch:  logEpoch,
 				SeqNo:  d.PEntry.SeqNo,
 				Digest: d.PEntry.Digest,
 			})
 		case *pb.Persistent_QEntry:
 			epochChange.QSet = append(epochChange.QSet, &pb.EpochChange_SetEntry{
-				Epoch:  d.QEntry.Epoch,
+				Epoch:  logEpoch,
 				SeqNo:  d.QEntry.SeqNo,
 				Digest: d.QEntry.Digest,
 			})
@@ -285,6 +286,11 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 				SeqNo: d.CEntry.SeqNo,
 				Value: d.CEntry.CheckpointValue,
 			})
+		case *pb.Persistent_EpochChange:
+			if logEpoch+1 != d.EpochChange.NewEpoch {
+				panic("dev sanity test")
+			}
+			logEpoch = d.EpochChange.NewEpoch
 		}
 	}
 
