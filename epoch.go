@@ -50,10 +50,6 @@ func seqToColumn(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkConfig) uint64 
 	return (seqNo-initialSequence(ec, nc))/uint64(nc.NumberOfBuckets) + 1
 }
 
-func (e *epoch) seqToColumn(seqNo uint64) uint64 {
-	return seqToColumn(seqNo, e.epochConfig, e.networkConfig)
-}
-
 /*
 func (ec *epochConfig) seqToBucketColumn(seqNo uint64) (BucketID, uint64) {
 	return ec.seqToBucket(seqNo), ec.seqToColumn(seqNo)
@@ -351,9 +347,9 @@ func (e *epoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
 }
 
 func (e *epoch) tick() *Actions {
-	if e.lowestUncommitted < len(e.sequences) && e.sequences[e.lowestUncommitted].seqNo != e.lastCommittedAtTick+1 {
+	if e.lastCommittedAtTick < e.persisted.lastCommitted {
+		e.lastCommittedAtTick = e.persisted.lastCommitted
 		e.ticksSinceProgress = 0
-		e.lastCommittedAtTick = e.sequences[e.lowestUncommitted].seqNo - 1
 		return &Actions{}
 	}
 

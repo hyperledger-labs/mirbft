@@ -611,7 +611,7 @@ func (et *epochTarget) advanceState() *Actions {
 		case idle: // No pending change
 		case done: // We have sent an epoch change, ending this epoch for us
 		default:
-			panic("remove me, dev only")
+			panic("dev sanity test")
 		}
 		if et.state == oldState {
 			return actions
