@@ -72,7 +72,7 @@ message NetworkConfig {
 
     message Client {
         uint64 id = 1;
-        uint64 low_watermark = 2;
+        repeated uint64 bucket_low_watermarks = 2; // TODO, probably can optimize by base low watermark, plus offsets from it, since these will always be small, but add when we address holes in the windows
     }
 
     repeated Client clients = 6;

@@ -77,8 +77,8 @@ var _ = Describe("Integration", func() {
 				MaxEpochLength:     10,
 				Clients: []*pb.NetworkConfig_Client{
 					{
-						Id:           9,
-						LowWatermark: 50,
+						Id:                  9,
+						BucketLowWatermarks: []uint64{51},
 					},
 				},
 			}
@@ -357,8 +357,8 @@ var _ = Describe("Integration", func() {
 				MaxEpochLength:     10,
 				Clients: []*pb.NetworkConfig_Client{
 					{
-						Id:           9,
-						LowWatermark: 0,
+						Id:                  9,
+						BucketLowWatermarks: []uint64{0, 1, 2, 3},
 					},
 				},
 			}

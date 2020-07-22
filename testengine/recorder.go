@@ -188,7 +188,7 @@ func (r *Recorder) Recording() (*Recording, error) {
 
 		clients[i] = client
 
-		for i := 1; i <= clientConfig.MaxInFlight; i++ {
+		for i := 0; i < clientConfig.MaxInFlight; i++ {
 			req := client.RequestByReqNo(uint64(i))
 			if req == nil {
 				continue

@@ -44,7 +44,14 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 	clientWindowWidth := uint64(100) // XXX this should be configurable
 
 	for _, client := range networkConfig.Clients {
-		clientWindow := newClientWindow(client.LowWatermark+1, client.LowWatermark+clientWindowWidth, networkConfig, myConfig)
+		lowWatermark := client.BucketLowWatermarks[0]
+		for _, blw := range client.BucketLowWatermarks {
+			if blw < lowWatermark {
+				lowWatermark = blw
+			}
+		}
+
+		clientWindow := newClientWindow(lowWatermark, lowWatermark+clientWindowWidth, networkConfig, myConfig)
 		clientWindows.insert(client.Id, clientWindow)
 	}
 

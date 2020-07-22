@@ -134,10 +134,16 @@ func StandardInitialNetworkConfig(nodeCount int, clientIDs ...uint64) *pb.Networ
 	checkpointInterval := numberOfBuckets * 5
 	maxEpochLength := checkpointInterval * 10
 
+	blw := make([]uint64, numberOfBuckets)
+	for i := range blw {
+		blw[i] = uint64(i)
+	}
+
 	clients := make([]*pb.NetworkConfig_Client, len(clientIDs))
 	for i, clientID := range clientIDs {
 		clients[i] = &pb.NetworkConfig_Client{
-			Id: clientID,
+			Id:                  clientID,
+			BucketLowWatermarks: blw,
 		}
 	}
 

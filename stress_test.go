@@ -210,13 +210,13 @@ var _ = Describe("StressyTest", func() {
 			for _, client := range clients {
 				err := client.Propose(ctx, &pb.Request{
 					ClientId: 0,
-					ReqNo:    uint64(i) + 1,
+					ReqNo:    uint64(i),
 					Data:     proposalBytes,
 				})
 				Expect(err).NotTo(HaveOccurred())
 			}
 
-			proposalKey := append(Uint64ToBytes(0), append(Uint64ToBytes(uint64(i)+1), proposalBytes...)...)
+			proposalKey := append(Uint64ToBytes(0), append(Uint64ToBytes(uint64(i)), proposalBytes...)...)
 			Expect(proposals).NotTo(ContainElement(proposalKey))
 			proposals[string(proposalKey)] = proposalUint
 		}

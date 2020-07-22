@@ -27,7 +27,7 @@ type proposer struct {
 }
 
 type clientWindowProcessor struct {
-	lastProcessed uint64
+	nextToProcess uint64
 	clientWindow  *clientWindow
 }
 
@@ -49,7 +49,7 @@ func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[Buc
 	clientWindowProcessors := map[uint64]*clientWindowProcessor{}
 	for clientID, clientWindow := range clientWindows.windows {
 		rwp := &clientWindowProcessor{
-			lastProcessed: clientWindow.lowWatermark - 1,
+			nextToProcess: clientWindow.lowWatermark,
 			clientWindow:  clientWindow,
 		}
 		clientWindowProcessors[clientID] = rwp
@@ -81,20 +81,20 @@ func (p *proposer) stepClientWindow(clientID uint64) {
 		}
 
 		rwp = &clientWindowProcessor{
-			lastProcessed: rw.lowWatermark - 1,
+			nextToProcess: rw.lowWatermark,
 			clientWindow:  rw,
 		}
 		p.clientWindowProcessors[clientID] = rwp
 	}
 
-	for rwp.lastProcessed < rwp.clientWindow.highWatermark {
-		reqNo := rwp.lastProcessed + 1
+	for rwp.nextToProcess <= rwp.clientWindow.highWatermark {
+		reqNo := rwp.nextToProcess
 		request := rwp.clientWindow.request(reqNo)
 		if request == nil || request.strongRequest == nil || request.strongRequest.data == nil {
 			break
 		}
 
-		rwp.lastProcessed++
+		rwp.nextToProcess++
 
 		// TODO, maybe offset the bucket ID by something in the client ID so not all start in bucket 1?
 		// maybe some sort of client index?
