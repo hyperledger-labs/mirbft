@@ -77,6 +77,8 @@ type epoch struct {
 	lowestUncommitted int
 	lowestUnallocated []int // index by bucket
 
+	outstandingReqs *allOutstandingReqs
+
 	lastCommittedAtTick uint64
 	ticksSinceProgress  int
 }
@@ -90,6 +92,8 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_NewEpochStart:
 			epochConfig = d.NewEpochStart
+		case *pb.Persistent_EpochChange:
+			startingEntry = head.next
 		case *pb.Persistent_CEntry:
 			startingEntry = head.next
 			maxCheckpoint = d.CEntry
@@ -98,6 +102,8 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 	}
 
 	networkConfig := maxCheckpoint.NetworkConfig
+
+	outstandingReqs := newOutstandingReqs(networkConfig)
 
 	buckets := map[BucketID]NodeID{}
 
@@ -139,6 +145,11 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 				panic("should never be possible") // TODO, improve
 			}
 			bucket := seqToBucket(d.QEntry.SeqNo, epochConfig, networkConfig)
+			err := outstandingReqs.applyBatch(bucket, d.QEntry.Requests)
+			if err != nil {
+				panic(fmt.Sprintf("need to handle holes: %s", err))
+			}
+
 			lowestUnallocated[bucket] = offset + len(buckets)
 			sequences[offset].qEntry = d.QEntry
 			sequences[offset].digest = d.QEntry.Digest
@@ -173,6 +184,7 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 		sequences:         sequences,
 		lowestUnallocated: lowestUnallocated,
 		lowestUncommitted: lowestUncommitted,
+		outstandingReqs:   outstandingReqs,
 	}
 }
 
@@ -210,6 +222,10 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 		panic(fmt.Sprintf("dev test, this really shouldn't happen: offset=%d e.lowestUnallocated=%d\n", offset, e.lowestUnallocated[int(bucketID)]))
 	}
 
+	err = e.outstandingReqs.applyAcks(bucketID, batch)
+	if err != nil {
+		panic("handle me, we need to stop the bucket and suspect")
+	}
 	return seq.allocate(batch)
 }
 
@@ -327,6 +343,10 @@ func (e *epoch) drainProposer() *Actions {
 						Digest:   proposal.digest,
 					}
 				}
+				err := e.outstandingReqs.applyAcks(bucketID, requestAcks)
+				if err != nil {
+					panic("we're being byzantine, stop that!")
+				}
 				actions.Append(seq.allocate(requestAcks))
 				e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 			}
@@ -397,6 +417,10 @@ func (e *epoch) tick() *Actions {
 					ReqNo:    proposal.data.ReqNo,
 					Digest:   proposal.digest,
 				}
+			}
+			err := e.outstandingReqs.applyAcks(BucketID(bucketID), requestAcks)
+			if err != nil {
+				panic("we're being byzantine, stop that!")
 			}
 			actions.Append(e.sequences[index].allocate(requestAcks))
 		} else {
