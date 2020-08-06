@@ -109,6 +109,8 @@ var _ = Describe("Eventlog", func() {
 		eventLog.InsertTick(1, 10)
 		eventLog.InsertTick(2, 20)
 
+		Expect(eventLog.ConsumeAndAdvance()).NotTo(BeNil())
+		Expect(eventLog.ConsumeAndAdvance()).NotTo(BeNil())
 	})
 
 	It("can roundtrip a log", func() {

@@ -70,7 +70,7 @@ func (l *EventLog) Write(dest io.Writer) error {
 		return errors.WithMessage(err, "could not serialize scenario")
 	}
 
-	for logEntry := l.FirstEventLogEntry; logEntry != nil; logEntry = logEntry.Next {
+	for logEntry := l.FirstEventLogEntry; logEntry != nil && logEntry != l.NextEventLogEntry; logEntry = logEntry.Next {
 		if logEntry.Event == nil {
 			panic(fmt.Sprintf("log-entry has nil event %v", logEntry))
 		}
