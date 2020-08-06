@@ -69,7 +69,7 @@ var _ = Describe("Recorder", func() {
 	It("Executes and produces a log", func() {
 		count, err := recording.DrainClients(50000)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(count).To(Equal(36305))
+		Expect(count).To(Equal(36377))
 
 		fmt.Printf("Executing test required a log of %d events\n", count)
 
@@ -84,7 +84,7 @@ var _ = Describe("Recorder", func() {
 			Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
 
 			// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
-			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("d5db5b90ab78ab82512ecc4264ec5c0e0ebc84d967d078bc65a681def884f7a1"))
+			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("280c3b21b48993c723a118f70b52b14a96b0ea423ed56a9d0905ec5deefbdd33"))
 		}
 	})
 
@@ -100,7 +100,7 @@ var _ = Describe("Recorder", func() {
 		It("still executes and produces a log", func() {
 			count, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(27))
+			Expect(count).To(Equal(28))
 		})
 	})
 })
