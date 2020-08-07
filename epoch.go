@@ -73,9 +73,10 @@ type epoch struct {
 	buckets   map[BucketID]NodeID
 	sequences []*sequence
 
-	ending            bool // set when this epoch about to end gracefully
-	lowestUncommitted int
-	lowestUnallocated []int // index by bucket
+	ending                 bool // set when this epoch about to end gracefully
+	lowestUncommitted      int
+	lowestUnallocated      []int // index by bucket
+	lowestOwnedUnallocated []int // index by bucket
 
 	outstandingReqs *allOutstandingReqs
 
@@ -125,8 +126,10 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 	}
 
 	lowestUnallocated := make([]int, len(buckets))
+	lowestOwnedUnallocated := make([]int, len(buckets))
 	for i := range lowestUnallocated {
 		lowestUnallocated[int(seqToBucket(maxCheckpoint.SeqNo+uint64(i+1), epochConfig, networkConfig))] = i
+		lowestOwnedUnallocated[int(seqToBucket(maxCheckpoint.SeqNo+uint64(i+1), epochConfig, networkConfig))] = i
 	}
 
 	sequences := make([]*sequence, logWidth(networkConfig))
@@ -151,6 +154,7 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 			}
 
 			lowestUnallocated[bucket] = offset + len(buckets)
+			lowestOwnedUnallocated[bucket] = offset + len(buckets)
 			sequences[offset].qEntry = d.QEntry
 			sequences[offset].digest = d.QEntry.Digest
 			sequences[offset].state = Preprepared
@@ -174,17 +178,18 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 	proposer.stepAllClientWindows()
 
 	return &epoch{
-		buckets:           buckets,
-		myConfig:          myConfig,
-		epochConfig:       epochConfig,
-		networkConfig:     networkConfig,
-		clientWindows:     clientWindows,
-		persisted:         persisted,
-		proposer:          proposer,
-		sequences:         sequences,
-		lowestUnallocated: lowestUnallocated,
-		lowestUncommitted: lowestUncommitted,
-		outstandingReqs:   outstandingReqs,
+		buckets:                buckets,
+		myConfig:               myConfig,
+		epochConfig:            epochConfig,
+		networkConfig:          networkConfig,
+		clientWindows:          clientWindows,
+		persisted:              persisted,
+		proposer:               proposer,
+		sequences:              sequences,
+		lowestUnallocated:      lowestUnallocated,
+		lowestOwnedUnallocated: lowestOwnedUnallocated,
+		lowestUncommitted:      lowestUncommitted,
+		outstandingReqs:        outstandingReqs,
 	}
 }
 
@@ -209,18 +214,11 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 
 	bucketID := e.seqToBucket(seqNo)
 
-	if source == NodeID(e.myConfig.ID) {
-		// Apply our own preprepares as a prepare
-		return seq.applyPrepareMsg(source, seq.digest)
-	}
-
-	defer func() {
-		e.lowestUnallocated[int(bucketID)] += len(e.buckets)
-	}()
-
 	if offset != e.lowestUnallocated[int(bucketID)] {
 		panic(fmt.Sprintf("dev test, this really shouldn't happen: offset=%d e.lowestUnallocated=%d\n", offset, e.lowestUnallocated[int(bucketID)]))
 	}
+
+	e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 
 	err = e.outstandingReqs.applyAcks(bucketID, batch)
 	if err != nil {
@@ -290,6 +288,7 @@ func (e *epoch) moveWatermarks(seqNo uint64) *Actions {
 	e.lowestUncommitted -= ci
 	for i := range e.lowestUnallocated {
 		e.lowestUnallocated[i] -= ci
+		e.lowestOwnedUnallocated[i] -= ci
 	}
 
 	if seqNo+3*uint64(ci)-1 == e.epochConfig.PlannedExpiration {
@@ -320,7 +319,7 @@ func (e *epoch) drainProposer() *Actions {
 		}
 
 		for e.proposer.hasPending(bucketID) {
-			i := e.lowestUnallocated[int(bucketID)]
+			i := e.lowestOwnedUnallocated[int(bucketID)]
 			if i >= len(e.sequences) {
 				break
 			}
@@ -336,19 +335,39 @@ func (e *epoch) drainProposer() *Actions {
 				// TODO, roll this back into the proposer?
 				proposals := e.proposer.next(bucketID)
 				requestAcks := make([]*pb.RequestAck, len(proposals))
+				forwardRequests := make([]*pb.ForwardRequest, len(proposals))
 				for i, proposal := range proposals {
 					requestAcks[i] = &pb.RequestAck{
 						ClientId: proposal.data.ClientId,
 						ReqNo:    proposal.data.ReqNo,
 						Digest:   proposal.digest,
 					}
+
+					forwardRequests[i] = &pb.ForwardRequest{
+						Request: proposal.data,
+						Digest:  proposal.digest,
+					}
+
+					actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+						Type: &pb.Msg_ForwardRequest{
+							ForwardRequest: forwardRequests[i],
+						},
+					})
 				}
-				err := e.outstandingReqs.applyAcks(bucketID, requestAcks)
-				if err != nil {
-					panic("we're being byzantine, stop that!")
-				}
-				actions.Append(seq.allocate(requestAcks))
-				e.lowestUnallocated[int(bucketID)] += len(e.buckets)
+
+				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+					Type: &pb.Msg_Preprepare{
+						Preprepare: &pb.Preprepare{
+							SeqNo: seq.seqNo,
+							Epoch: seq.epoch,
+							Batch: requestAcks,
+						},
+					},
+				})
+
+				// XXX Missing QEntry
+
+				e.lowestOwnedUnallocated[int(bucketID)] += len(e.buckets)
 			}
 		}
 	}
@@ -394,7 +413,7 @@ func (e *epoch) tick() *Actions {
 		return actions
 	}
 
-	for bucketID, index := range e.lowestUnallocated {
+	for bucketID, index := range e.lowestOwnedUnallocated {
 		if index >= len(e.sequences) {
 			continue
 		}
@@ -407,27 +426,43 @@ func (e *epoch) tick() *Actions {
 			continue
 		}
 
+		var batch []*pb.RequestAck
+
 		if e.proposer.hasOutstanding(BucketID(bucketID)) {
 			// TODO, roll this back into the proposer?
 			proposals := e.proposer.next(BucketID(bucketID))
-			requestAcks := make([]*pb.RequestAck, len(proposals))
+			batch = make([]*pb.RequestAck, len(proposals))
 			for i, proposal := range proposals {
-				requestAcks[i] = &pb.RequestAck{
+				batch[i] = &pb.RequestAck{
 					ClientId: proposal.data.ClientId,
 					ReqNo:    proposal.data.ReqNo,
 					Digest:   proposal.digest,
 				}
+
+				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+					Type: &pb.Msg_ForwardRequest{
+						ForwardRequest: &pb.ForwardRequest{
+							Request: proposal.data,
+							Digest:  proposal.digest,
+						},
+					},
+				})
 			}
-			err := e.outstandingReqs.applyAcks(BucketID(bucketID), requestAcks)
-			if err != nil {
-				panic("we're being byzantine, stop that!")
-			}
-			actions.Append(e.sequences[index].allocate(requestAcks))
-		} else {
-			actions.Append(e.sequences[index].allocate(nil))
 		}
 
-		e.lowestUnallocated[int(bucketID)] += len(e.buckets)
+		actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+			Type: &pb.Msg_Preprepare{
+				Preprepare: &pb.Preprepare{
+					SeqNo: e.sequences[index].seqNo,
+					Epoch: e.sequences[index].epoch,
+					Batch: batch,
+				},
+			},
+		})
+
+		// XXX Missing QEntry
+
+		e.lowestOwnedUnallocated[int(bucketID)] += len(e.buckets)
 	}
 
 	return actions

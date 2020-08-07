@@ -181,7 +181,7 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 
 	s.digest = digest
 
-	return s.advanceState()
+	return s.applyPrepareMsg(s.owner, digest)
 }
 
 func (s *sequence) prepare() *Actions {
@@ -201,27 +201,12 @@ func (s *sequence) prepare() *Actions {
 
 	s.state = Preprepared
 
-	var msgs []*pb.Msg
 	if uint64(s.owner) == s.myConfig.ID {
-		msgs = make([]*pb.Msg, len(s.batch)+1)
-		for i, forwardRequest := range forwardRequests {
-			msgs[i] = &pb.Msg{
-				Type: &pb.Msg_ForwardRequest{
-					ForwardRequest: forwardRequest,
-				},
-			}
-		}
-		msgs[len(s.batch)] = &pb.Msg{
-			Type: &pb.Msg_Preprepare{
-				Preprepare: &pb.Preprepare{
-					SeqNo: s.seqNo,
-					Epoch: s.epoch,
-					Batch: s.batch,
-				},
-			},
-		}
-	} else {
-		msgs = []*pb.Msg{
+		return &Actions{}
+	}
+
+	actions := &Actions{
+		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_Prepare{
 					Prepare: &pb.Prepare{
@@ -231,15 +216,9 @@ func (s *sequence) prepare() *Actions {
 					},
 				},
 			},
-		}
+		},
 	}
-
-	actions := &Actions{Broadcast: msgs}
 	actions.Append(s.persisted.addQEntry(s.qEntry))
-
-	if s.owner != NodeID(s.myConfig.ID) {
-		s.applyPrepareMsg(s.owner, s.digest)
-	}
 
 	return actions
 }
