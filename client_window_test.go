@@ -43,8 +43,8 @@ var _ = Describe("clientWindow", func() {
 
 	It("stores requests", func() {
 		cw.allocate(&pb.Request{ReqNo: 10}, []byte("digest"))
-		Expect(cw.request(10)).NotTo(BeNil())
-		Expect(cw.request(20)).To(BeNil())
+		Expect(cw.request(10).digests).NotTo(BeEmpty())
+		Expect(cw.request(20).digests).To(BeEmpty())
 		status := cw.status()
 		Expect(status.LowWatermark).To(Equal(lwm))
 		Expect(status.HighWatermark).To(Equal(hwm))
@@ -55,7 +55,7 @@ var _ = Describe("clientWindow", func() {
 		When("older requests are not committed", func() {
 			It("purges comitted requests while preserving uncommitted ones", func() {
 				cw.allocate(&pb.Request{ReqNo: 10}, []byte("digest"))
-				cw.clientRequests[0].committed = Uint64ToPtr(12)
+				cw.reqNoList.Front().Value.(*clientReqNo).committed = Uint64ToPtr(12)
 				cw.allocate(&pb.Request{ReqNo: 11}, []byte("digest"))
 				cw.allocate(&pb.Request{ReqNo: 12}, []byte("digest"))
 				cw.allocate(&pb.Request{ReqNo: 13}, []byte("digest"))
@@ -75,15 +75,15 @@ var _ = Describe("clientWindow", func() {
 		When("all requests are committed", func() {
 			It("purges all non-nil requests", func() {
 				cw.allocate(&pb.Request{ReqNo: 10}, []byte("digest"))
-				cw.clientRequests[0].committed = Uint64ToPtr(10)
+				cw.reqNoMap[10].Value.(*clientReqNo).committed = Uint64ToPtr(10)
 				cw.allocate(&pb.Request{ReqNo: 11}, []byte("digest"))
-				cw.clientRequests[1].committed = Uint64ToPtr(11)
+				cw.reqNoMap[11].Value.(*clientReqNo).committed = Uint64ToPtr(11)
 				cw.allocate(&pb.Request{ReqNo: 12}, []byte("digest"))
-				cw.clientRequests[2].committed = Uint64ToPtr(12)
+				cw.reqNoMap[12].Value.(*clientReqNo).committed = Uint64ToPtr(12)
 				cw.allocate(&pb.Request{ReqNo: 13}, []byte("digest"))
-				cw.clientRequests[3].committed = Uint64ToPtr(13)
+				cw.reqNoMap[13].Value.(*clientReqNo).committed = Uint64ToPtr(13)
 				cw.allocate(&pb.Request{ReqNo: 14}, []byte("digest"))
-				cw.clientRequests[4].committed = Uint64ToPtr(14)
+				cw.reqNoMap[14].Value.(*clientReqNo).committed = Uint64ToPtr(14)
 
 				cw.garbageCollect(13)
 				Expect(cw.lowWatermark).To(Equal(lwm + 4))
@@ -99,7 +99,7 @@ var _ = Describe("clientWindow", func() {
 	Context("allocate", func() {
 		It("stores request", func() {
 			cw.allocate(&pb.Request{ReqNo: 10}, []byte("digest"))
-			Expect(cw.clientRequests[0]).NotTo(BeNil())
+			Expect(cw.reqNoMap[10]).NotTo(BeNil())
 		})
 
 		When("reqno is out of watermarks", func() {
