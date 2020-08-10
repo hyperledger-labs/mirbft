@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"container/list"
 	"fmt"
 	"sort"
 
@@ -18,6 +19,72 @@ type clientWindows struct {
 	clients       []uint64
 	networkConfig *pb.NetworkConfig
 	myConfig      *Config
+	readyList     *list.List
+	readyMap      map[*clientReqNo]*list.Element
+}
+
+func newClientWindows(networkConfig *pb.NetworkConfig, myConfig *Config) *clientWindows {
+	cws := &clientWindows{
+		myConfig:      myConfig,
+		networkConfig: networkConfig,
+		windows:       map[uint64]*clientWindow{},
+		readyList:     list.New(),
+		readyMap:      map[*clientReqNo]*list.Element{},
+	}
+
+	clientWindowWidth := uint64(100) // XXX this should be configurable
+
+	for _, client := range networkConfig.Clients {
+		lowWatermark := client.BucketLowWatermarks[0]
+		for _, blw := range client.BucketLowWatermarks {
+			if blw < lowWatermark {
+				lowWatermark = blw
+			}
+		}
+
+		clientWindow := newClientWindow(lowWatermark, lowWatermark+clientWindowWidth, networkConfig, myConfig)
+		cws.insert(client.Id, clientWindow)
+	}
+
+	return cws
+}
+
+func (cws *clientWindows) ack(source NodeID, clientID, reqNo uint64, digest []byte) {
+	cw, ok := cws.windows[clientID]
+	if !ok {
+		panic("dev sanity test")
+	}
+
+	clientReqNo := cw.ack(source, reqNo, digest)
+	if clientReqNo.strongRequest == nil {
+		return
+	}
+
+	_, ok = cws.readyMap[clientReqNo]
+	if ok {
+		return
+	}
+
+	el := cws.readyList.PushBack(clientReqNo)
+
+	cws.readyMap[clientReqNo] = el
+}
+
+func (cws *clientWindows) garbageCollect(seqNo uint64) {
+	cwi := cws.iterator()
+	for _, cw := cwi.next(); cw != nil; _, cw = cwi.next() {
+		cw.garbageCollect(seqNo)
+	}
+
+	for el := cws.readyList.Front(); el != nil; el = el.Next() {
+		c := el.Value.(*clientReqNo).committed
+		if c == nil || *c > seqNo {
+			continue
+		}
+
+		cws.readyList.Remove(el)
+		delete(cws.readyMap, el.Value.(*clientReqNo))
+	}
 }
 
 func (cws *clientWindows) clientWindow(clientID uint64) (*clientWindow, bool) {
@@ -129,7 +196,7 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	}
 }
 
-func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) {
+func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) *clientReqNo {
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
 	}
@@ -139,27 +206,30 @@ func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) {
 	}
 
 	offset := int(reqNo - cw.lowWatermark)
-	if cw.clientRequests[offset] == nil {
-		cw.clientRequests[offset] = &clientReqNo{
+	crn := cw.clientRequests[offset]
+	if crn == nil {
+		crn = &clientReqNo{
 			digests: map[string]*clientRequest{},
 		}
+		cw.clientRequests[offset] = crn
 	}
 
-	cr, ok := cw.clientRequests[offset].digests[string(digest)]
+	cr, ok := crn.digests[string(digest)]
 	if !ok {
 		cr = &clientRequest{
 			digest:     digest,
 			agreements: map[NodeID]struct{}{},
 		}
-		cw.clientRequests[offset].digests[string(digest)] = cr
+		crn.digests[string(digest)] = cr
 	}
 
 	cr.agreements[source] = struct{}{}
 
 	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
-		cw.clientRequests[offset].strongRequest = cr
+		crn.strongRequest = cr
 	}
 
+	return crn
 }
 
 func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) {

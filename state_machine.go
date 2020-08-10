@@ -35,25 +35,7 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 
 	networkConfig := persisted.checkpoints[0].NetworkConfig
 
-	clientWindows := &clientWindows{
-		windows:       map[uint64]*clientWindow{},
-		networkConfig: networkConfig,
-		myConfig:      myConfig,
-	}
-
-	clientWindowWidth := uint64(100) // XXX this should be configurable
-
-	for _, client := range networkConfig.Clients {
-		lowWatermark := client.BucketLowWatermarks[0]
-		for _, blw := range client.BucketLowWatermarks {
-			if blw < lowWatermark {
-				lowWatermark = blw
-			}
-		}
-
-		clientWindow := newClientWindow(lowWatermark, lowWatermark+clientWindowWidth, networkConfig, myConfig)
-		clientWindows.insert(client.Id, clientWindow)
-	}
+	clientWindows := newClientWindows(networkConfig, myConfig)
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	for _, id := range networkConfig.Nodes {
@@ -315,12 +297,8 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 		return &Actions{}
 	}
 
-	cwi := sm.clientWindows.iterator()
-	for _, cw := cwi.next(); cw != nil; _, cw = cwi.next() {
-		// oldLowReqNo := cw.lowWatermark
-		cw.garbageCollect(seqNo)
-		// sm.myConfig.Logger.Debug("move client watermarks", zap.Binary("ClientID", cid), zap.Uint64("Old", oldLowReqNo), zap.Uint64("New", cw.lowWatermark))
-	}
+	sm.clientWindows.garbageCollect(seqNo)
+
 	if seqNo > uint64(sm.networkConfig.CheckpointInterval) {
 		// Note, we leave an extra checkpoint worth of batches around, to help
 		// during epoch change.
@@ -407,11 +385,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 func (sm *stateMachine) applyRequestAckMsg(source NodeID, clientID uint64, reqNo uint64, digest []byte) *Actions {
 	// TODO, make sure nodeMsgs ignores this if client is not defined
 
-	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
-	if !ok {
-		panic("unexpected unknown client")
-	}
-	clientWindow.ack(source, reqNo, digest)
+	sm.clientWindows.ack(source, clientID, reqNo, digest)
 
 	if sm.activeEpoch == nil {
 		return &Actions{}
