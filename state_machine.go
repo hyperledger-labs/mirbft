@@ -397,12 +397,8 @@ func (sm *stateMachine) applyRequestAckMsg(source NodeID, clientID uint64, reqNo
 
 func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb.Request) *Actions {
 	clientID := requestData.ClientId
-	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
-	if !ok {
-		panic("unexpected unknown client")
-	}
 
-	clientWindow.allocate(requestData, digest)
+	sm.clientWindows.allocate(requestData, digest)
 
 	if sm.activeEpoch == nil {
 		return &Actions{}

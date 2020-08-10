@@ -56,6 +56,7 @@ var _ = Describe("clientWindow", func() {
 			It("purges comitted requests while preserving uncommitted ones", func() {
 				cw.allocate(&pb.Request{ReqNo: 10}, []byte("digest"))
 				cw.reqNoList.Front().Value.(*clientReqNo).committed = Uint64ToPtr(12)
+				cw.nextReadyMark = 11
 				cw.allocate(&pb.Request{ReqNo: 11}, []byte("digest"))
 				cw.allocate(&pb.Request{ReqNo: 12}, []byte("digest"))
 				cw.allocate(&pb.Request{ReqNo: 13}, []byte("digest"))
@@ -84,6 +85,7 @@ var _ = Describe("clientWindow", func() {
 				cw.reqNoMap[13].Value.(*clientReqNo).committed = Uint64ToPtr(13)
 				cw.allocate(&pb.Request{ReqNo: 14}, []byte("digest"))
 				cw.reqNoMap[14].Value.(*clientReqNo).committed = Uint64ToPtr(14)
+				cw.nextReadyMark = 15
 
 				cw.garbageCollect(13)
 				Expect(cw.lowWatermark).To(Equal(lwm + 4))

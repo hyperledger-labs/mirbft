@@ -56,18 +56,44 @@ func (cws *clientWindows) ack(source NodeID, clientID, reqNo uint64, digest []by
 	}
 
 	clientReqNo := cw.ack(source, reqNo, digest)
-	if clientReqNo.strongRequest == nil {
+
+	cws.checkReady(cw, clientReqNo)
+}
+
+func (cws *clientWindows) allocate(requestData *pb.Request, digest []byte) {
+	cw, ok := cws.windows[requestData.ClientId]
+	if !ok {
+		panic("dev sanity test")
+	}
+
+	clientReqNo := cw.allocate(requestData, digest)
+
+	cws.checkReady(cw, clientReqNo)
+}
+
+func (cws *clientWindows) checkReady(clientWindow *clientWindow, ocrn *clientReqNo) {
+	if ocrn.reqNo != clientWindow.nextReadyMark {
 		return
 	}
 
-	_, ok = cws.readyMap[clientReqNo]
-	if ok {
+	if ocrn.strongRequest == nil {
 		return
 	}
 
-	el := cws.readyList.PushBack(clientReqNo)
+	for i := clientWindow.nextReadyMark; i <= clientWindow.highWatermark; i++ {
+		crne, ok := clientWindow.reqNoMap[i]
+		if !ok {
+			panic("dev sanity test")
+		}
 
-	cws.readyMap[clientReqNo] = el
+		crn := crne.Value.(*clientReqNo)
+
+		if crn.strongRequest != nil {
+			el := cws.readyList.PushBack(crn)
+			cws.readyMap[crn] = el
+			clientWindow.nextReadyMark = i + 1
+		}
+	}
 }
 
 func (cws *clientWindows) garbageCollect(seqNo uint64) {
@@ -138,6 +164,7 @@ type clientRequest struct {
 }
 
 type clientWindow struct {
+	nextReadyMark uint64
 	lowWatermark  uint64
 	highWatermark uint64
 	reqNoList     *list.List
@@ -158,6 +185,7 @@ func newClientWindow(lowWatermark, highWatermark uint64, networkConfig *pb.Netwo
 		myConfig:      myConfig,
 		networkConfig: networkConfig,
 		lowWatermark:  lowWatermark,
+		nextReadyMark: lowWatermark,
 		highWatermark: highWatermark,
 		reqNoList:     list.New(),
 		reqNoMap:      map[uint64]*list.Element{},
@@ -184,6 +212,10 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 
 		oel := el
 		el = el.Next()
+
+		if crn.reqNo >= cw.nextReadyMark {
+			panic("dev sanity test")
+		}
 
 		cw.reqNoList.Remove(oel)
 		delete(cw.reqNoMap, crn.reqNo)
@@ -243,7 +275,7 @@ func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) *clientR
 	return crn
 }
 
-func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) {
+func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) *clientReqNo {
 	reqNo := requestData.ReqNo
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
@@ -274,7 +306,7 @@ func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) {
 		crn.strongRequest = cr
 	}
 
-	// TODO, this could trigger readiness
+	return crn
 }
 
 func (cw *clientWindow) inWatermarks(reqNo uint64) bool {
