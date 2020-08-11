@@ -42,7 +42,7 @@ func newClientWindows(networkConfig *pb.NetworkConfig, myConfig *Config) *client
 			}
 		}
 
-		clientWindow := newClientWindow(lowWatermark, lowWatermark+clientWindowWidth, networkConfig, myConfig)
+		clientWindow := newClientWindow(client.Id, lowWatermark, lowWatermark+clientWindowWidth, networkConfig, myConfig)
 		cws.insert(client.Id, clientWindow)
 	}
 
@@ -88,11 +88,13 @@ func (cws *clientWindows) checkReady(clientWindow *clientWindow, ocrn *clientReq
 
 		crn := crne.Value.(*clientReqNo)
 
-		if crn.strongRequest != nil {
-			el := cws.readyList.PushBack(crn)
-			cws.readyMap[crn] = el
-			clientWindow.nextReadyMark = i + 1
+		if crn.strongRequest == nil {
+			break
 		}
+
+		el := cws.readyList.PushBack(crn)
+		cws.readyMap[crn] = el
+		clientWindow.nextReadyMark = i + 1
 	}
 }
 
@@ -151,6 +153,7 @@ func (cwi *clientWindowIterator) next() (uint64, *clientWindow) {
 }
 
 type clientReqNo struct {
+	clientID      uint64
 	reqNo         uint64
 	digests       map[string]*clientRequest
 	committed     *uint64
@@ -164,6 +167,7 @@ type clientRequest struct {
 }
 
 type clientWindow struct {
+	clientID      uint64
 	nextReadyMark uint64
 	lowWatermark  uint64
 	highWatermark uint64
@@ -180,8 +184,9 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newClientWindow(lowWatermark, highWatermark uint64, networkConfig *pb.NetworkConfig, myConfig *Config) *clientWindow {
+func newClientWindow(clientID, lowWatermark, highWatermark uint64, networkConfig *pb.NetworkConfig, myConfig *Config) *clientWindow {
 	cw := &clientWindow{
+		clientID:      clientID,
 		myConfig:      myConfig,
 		networkConfig: networkConfig,
 		lowWatermark:  lowWatermark,
@@ -226,8 +231,9 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	}
 	for i := cw.lowWatermark + uint64(cw.reqNoList.Len()); i <= cw.lowWatermark+logWidth; i++ {
 		el := cw.reqNoList.PushBack(&clientReqNo{
-			reqNo:   i,
-			digests: map[string]*clientRequest{},
+			clientID: cw.clientID,
+			reqNo:    i,
+			digests:  map[string]*clientRequest{},
 		})
 		cw.reqNoMap[i] = el
 	}

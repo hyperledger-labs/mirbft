@@ -60,7 +60,7 @@ func (ao *allOutstandingReqs) applyBatch(bucket BucketID, batch []*pb.ForwardReq
 		}
 
 		if co.nextReqNo != req.Request.ReqNo {
-			return fmt.Errorf("expected ClientId=%d next request to have ReqNo=%d but got ReqNo=%d", req.Request.ClientId, co.nextReqNo, req.Request.ReqNo)
+			return fmt.Errorf("expected ClientId=%d next request for Bucket=%d to have ReqNo=%d but got ReqNo=%d", req.Request.ClientId, bucket, co.nextReqNo, req.Request.ReqNo)
 		}
 
 		co.nextReqNo += ao.numBuckets
@@ -82,7 +82,7 @@ func (ao *allOutstandingReqs) applyAcks(bucket BucketID, batch []*pb.RequestAck)
 		}
 
 		if co.nextReqNo != req.ReqNo {
-			return fmt.Errorf("expected ClientId=%d next request to have ReqNo=%d but got ReqNo=%d", req.ClientId, co.nextReqNo, req.ReqNo)
+			return fmt.Errorf("expected ClientId=%d next request for Bucket=%d to have ReqNo=%d but got ReqNo=%d", req.ClientId, bucket, co.nextReqNo, req.ReqNo)
 		}
 
 		co.nextReqNo += ao.numBuckets

@@ -391,20 +391,18 @@ func (sm *stateMachine) applyRequestAckMsg(source NodeID, clientID uint64, reqNo
 		return &Actions{}
 	}
 
-	sm.activeEpoch.proposer.stepClientWindow(clientID)
+	sm.activeEpoch.proposer.stepAllClientWindows()
 	return sm.activeEpoch.drainProposer()
 }
 
 func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb.Request) *Actions {
-	clientID := requestData.ClientId
-
 	sm.clientWindows.allocate(requestData, digest)
 
 	if sm.activeEpoch == nil {
 		return &Actions{}
 	}
 
-	sm.activeEpoch.proposer.stepClientWindow(clientID)
+	sm.activeEpoch.proposer.stepAllClientWindows()
 	return sm.activeEpoch.drainProposer()
 }
 

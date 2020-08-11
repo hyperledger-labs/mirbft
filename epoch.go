@@ -222,7 +222,7 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 
 	err = e.outstandingReqs.applyAcks(bucketID, batch)
 	if err != nil {
-		panic("handle me, we need to stop the bucket and suspect")
+		panic(fmt.Sprintf("handle me, we need to stop the bucket and suspect: %s", err))
 	}
 	return seq.allocate(batch)
 }

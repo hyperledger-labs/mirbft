@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"container/list"
 	"encoding/binary"
 	"fmt"
 )
@@ -18,17 +19,12 @@ func uint64ToBytes(value uint64) []byte {
 }
 
 type proposer struct {
-	myConfig               *Config
-	clientWindowProcessors map[uint64]*clientWindowProcessor
-	clientWindows          *clientWindows
+	myConfig      *Config
+	clientWindows *clientWindows
+	lastReadyReq  *list.Element
 
 	totalBuckets    int
 	proposalBuckets map[BucketID]*proposalBucket
-}
-
-type clientWindowProcessor struct {
-	nextToProcess uint64
-	clientWindow  *clientWindow
 }
 
 type proposalBucket struct {
@@ -46,79 +42,55 @@ func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[Buc
 		proposalBuckets[bucketID] = &proposalBucket{}
 	}
 
-	clientWindowProcessors := map[uint64]*clientWindowProcessor{}
-	for clientID, clientWindow := range clientWindows.windows {
-		rwp := &clientWindowProcessor{
-			nextToProcess: clientWindow.lowWatermark,
-			clientWindow:  clientWindow,
-		}
-		clientWindowProcessors[clientID] = rwp
-	}
-
 	return &proposer{
-		myConfig:               myConfig,
-		clientWindowProcessors: clientWindowProcessors,
-		clientWindows:          clientWindows,
-		proposalBuckets:        proposalBuckets,
-		totalBuckets:           len(buckets),
+		myConfig:        myConfig,
+		clientWindows:   clientWindows,
+		proposalBuckets: proposalBuckets,
+		totalBuckets:    len(buckets),
 	}
 }
 
 func (p *proposer) stepAllClientWindows() {
-	for _, clientID := range p.clientWindows.clients {
-		// TODO, this logic favors clients with lower IDs, we really should
-		// remember where we last left off to prevent starvation
-		p.stepClientWindow(clientID)
-	}
-}
-
-func (p *proposer) stepClientWindow(clientID uint64) {
-	rwp, ok := p.clientWindowProcessors[clientID]
-	if !ok {
-		rw, ok := p.clientWindows.clientWindow(clientID)
-		if !ok {
-			panic(fmt.Sprintf("unexpected, missing client %d", clientID))
+	for {
+		var nextReadyReq *list.Element
+		if p.lastReadyReq == nil {
+			fmt.Printf("JKY: Node %d Looping through ready requests -- initializing\n", p.myConfig.ID)
+			nextReadyReq = p.clientWindows.readyList.Front()
+		} else {
+			fmt.Printf("JKY: Node %d Looping through ready requests -- iterating\n", p.myConfig.ID)
+			nextReadyReq = p.lastReadyReq.Next()
 		}
 
-		rwp = &clientWindowProcessor{
-			nextToProcess: rw.lowWatermark,
-			clientWindow:  rw,
-		}
-		p.clientWindowProcessors[clientID] = rwp
-	}
-
-	for rwp.nextToProcess <= rwp.clientWindow.highWatermark {
-		reqNo := rwp.nextToProcess
-		request := rwp.clientWindow.request(reqNo)
-		if request == nil || request.strongRequest == nil || request.strongRequest.data == nil {
+		if nextReadyReq == nil {
 			break
 		}
+		p.lastReadyReq = nextReadyReq
 
-		rwp.nextToProcess++
+		crn := nextReadyReq.Value.(*clientReqNo)
+		bucket := BucketID((crn.reqNo + crn.clientID) % uint64(p.totalBuckets))
 
-		// TODO, maybe offset the bucket ID by something in the client ID so not all start in bucket 1?
-		// maybe some sort of client index?
-		bucket := BucketID(reqNo % uint64(p.totalBuckets))
+		fmt.Printf("JKY: Node %d Identified reqNo=%d clientID=%d belonging to bucket %d as ready\n", p.myConfig.ID, crn.reqNo, crn.clientID, bucket)
+
 		proposalBucket, ok := p.proposalBuckets[bucket]
 		if !ok {
 			// I don't lead this bucket this epoch
+			fmt.Printf("  JKY: Node %d Skipping, due to not leading the bucket\n", p.myConfig.ID)
 			continue
 		}
 
-		if request.committed != nil {
-			// Already proposed by another node in a previous epoch
+		if crn.committed != nil {
+			fmt.Printf("  JKY: Node %d Skipping, due to already being committed", p.myConfig.ID)
 			continue
 		}
 
-		proposalBucket.queue = append(proposalBucket.queue, request.strongRequest)
-		proposalBucket.sizeBytes += len(request.strongRequest.data.Data)
+		proposalBucket.queue = append(proposalBucket.queue, crn.strongRequest)
+		proposalBucket.sizeBytes += len(crn.strongRequest.data.Data)
 		if proposalBucket.sizeBytes >= p.myConfig.BatchParameters.CutSizeBytes {
 			proposalBucket.pending = append(proposalBucket.pending, proposalBucket.queue)
 			proposalBucket.queue = nil
 			proposalBucket.sizeBytes = 0
 		}
 	}
-
 }
 
 func (p *proposer) hasOutstanding(bucket BucketID) bool {
@@ -136,6 +108,7 @@ func (p *proposer) next(bucket BucketID) []*clientRequest {
 
 	if len(proposalBucket.pending) > 0 {
 		n := proposalBucket.pending[0]
+		fmt.Printf("JKY: Node %d proposing clientID=%d reqNo=%d for bucket %d\n", p.myConfig.ID, n[0].data.ClientId, n[0].data.ReqNo, bucket)
 		proposalBucket.pending = proposalBucket.pending[1:]
 		return n
 	}

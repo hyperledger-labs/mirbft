@@ -38,7 +38,7 @@ var _ = Describe("clientWindow", func() {
 	})
 
 	JustBeforeEach(func() {
-		cw = newClientWindow(lwm, hwm, networkConfig, myConfig)
+		cw = newClientWindow(0, lwm, hwm, networkConfig, myConfig)
 	})
 
 	It("stores requests", func() {
