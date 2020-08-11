@@ -49,6 +49,41 @@ func newClientWindows(networkConfig *pb.NetworkConfig, myConfig *Config) *client
 	return cws
 }
 
+func (cws *clientWindows) clientConfigs() []*pb.NetworkConfig_Client {
+	clients := make([]*pb.NetworkConfig_Client, len(cws.clients))
+	for i, clientID := range cws.clients {
+		blws := make([]uint64, cws.networkConfig.NumberOfBuckets)
+		cw, ok := cws.windows[clientID]
+		if !ok {
+			panic("dev sanity test")
+		}
+		for i := range blws {
+			firstOutOfWindowBucket := (cw.highWatermark + 1 + clientID) % uint64(len(blws))
+			blws[int((firstOutOfWindowBucket+uint64(i))%uint64(len(blws)))] = cw.highWatermark + 1 + uint64(i)
+		}
+		for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
+			crn := el.Value.(*clientReqNo)
+			if crn.committed != nil {
+				continue
+			}
+
+			bucket := int((crn.reqNo + crn.clientID) % uint64(cws.networkConfig.NumberOfBuckets))
+			if blws[bucket] <= crn.reqNo {
+				continue
+			}
+
+			blws[bucket] = crn.reqNo
+		}
+
+		clients[i] = &pb.NetworkConfig_Client{
+			Id:                  clientID,
+			BucketLowWatermarks: blws,
+		}
+	}
+
+	return clients
+}
+
 func (cws *clientWindows) ack(source NodeID, clientID, reqNo uint64, digest []byte) {
 	cw, ok := cws.windows[clientID]
 	if !ok {
@@ -80,6 +115,10 @@ func (cws *clientWindows) checkReady(clientWindow *clientWindow, ocrn *clientReq
 		return
 	}
 
+	if ocrn.strongRequest.data == nil {
+		return
+	}
+
 	for i := clientWindow.nextReadyMark; i <= clientWindow.highWatermark; i++ {
 		crne, ok := clientWindow.reqNoMap[i]
 		if !ok {
@@ -99,9 +138,8 @@ func (cws *clientWindows) checkReady(clientWindow *clientWindow, ocrn *clientReq
 }
 
 func (cws *clientWindows) garbageCollect(seqNo uint64) {
-	cwi := cws.iterator()
-	for _, cw := cwi.next(); cw != nil; _, cw = cwi.next() {
-		cw.garbageCollect(seqNo)
+	for _, id := range cws.clients {
+		cws.windows[id].garbageCollect(seqNo)
 	}
 
 	for el := cws.readyList.Front(); el != nil; {
@@ -129,27 +167,6 @@ func (cws *clientWindows) insert(clientID uint64, cw *clientWindow) {
 	sort.Slice(cws.clients, func(i, j int) bool {
 		return cws.clients[i] < cws.clients[j]
 	})
-}
-
-func (cws *clientWindows) iterator() *clientWindowIterator {
-	return &clientWindowIterator{
-		clientWindows: cws,
-	}
-}
-
-type clientWindowIterator struct {
-	index         int
-	clientWindows *clientWindows
-}
-
-func (cwi *clientWindowIterator) next() (uint64, *clientWindow) {
-	if cwi.index >= len(cwi.clientWindows.clients) {
-		return 0, nil
-	}
-	client := cwi.clientWindows.clients[cwi.index]
-	clientWindow := cwi.clientWindows.windows[client]
-	cwi.index++
-	return client, clientWindow
 }
 
 type clientReqNo struct {

@@ -255,18 +255,28 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 			break
 		}
 
-		actions.Commits = append(actions.Commits, &Commit{
-			QEntry:        e.sequences[e.lowestUncommitted].qEntry,
-			Checkpoint:    e.sequences[e.lowestUncommitted].seqNo%uint64(e.networkConfig.CheckpointInterval) == 0,
-			NetworkConfig: e.networkConfig,
-			EpochConfig:   e.epochConfig,
-		})
 		for _, reqForward := range e.sequences[e.lowestUncommitted].qEntry.Requests {
 			cw, ok := e.clientWindows.clientWindow(reqForward.Request.ClientId)
 			if !ok {
 				panic("we never should have committed this without the client available")
 			}
 			cw.request(reqForward.Request.ReqNo).committed = &seqNo
+		}
+
+		checkpoint := e.sequences[e.lowestUncommitted].seqNo%uint64(e.networkConfig.CheckpointInterval) == 0
+
+		if checkpoint {
+			e.networkConfig.Clients = e.clientWindows.clientConfigs()
+			actions.Commits = append(actions.Commits, &Commit{
+				QEntry:        e.sequences[e.lowestUncommitted].qEntry,
+				Checkpoint:    checkpoint,
+				NetworkConfig: e.networkConfig,
+				EpochConfig:   e.epochConfig,
+			})
+		} else {
+			actions.Commits = append(actions.Commits, &Commit{
+				QEntry: e.sequences[e.lowestUncommitted].qEntry,
+			})
 		}
 
 		e.persisted.setLastCommitted(e.sequences[e.lowestUncommitted].seqNo)

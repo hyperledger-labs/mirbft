@@ -9,7 +9,6 @@ package mirbft
 import (
 	"container/list"
 	"encoding/binary"
-	"fmt"
 )
 
 func uint64ToBytes(value uint64) []byte {
@@ -54,10 +53,8 @@ func (p *proposer) stepAllClientWindows() {
 	for {
 		var nextReadyReq *list.Element
 		if p.lastReadyReq == nil {
-			fmt.Printf("JKY: Node %d Looping through ready requests -- initializing\n", p.myConfig.ID)
 			nextReadyReq = p.clientWindows.readyList.Front()
 		} else {
-			fmt.Printf("JKY: Node %d Looping through ready requests -- iterating\n", p.myConfig.ID)
 			nextReadyReq = p.lastReadyReq.Next()
 		}
 
@@ -69,17 +66,13 @@ func (p *proposer) stepAllClientWindows() {
 		crn := nextReadyReq.Value.(*clientReqNo)
 		bucket := BucketID((crn.reqNo + crn.clientID) % uint64(p.totalBuckets))
 
-		fmt.Printf("JKY: Node %d Identified reqNo=%d clientID=%d belonging to bucket %d as ready\n", p.myConfig.ID, crn.reqNo, crn.clientID, bucket)
-
 		proposalBucket, ok := p.proposalBuckets[bucket]
 		if !ok {
 			// I don't lead this bucket this epoch
-			fmt.Printf("  JKY: Node %d Skipping, due to not leading the bucket\n", p.myConfig.ID)
 			continue
 		}
 
 		if crn.committed != nil {
-			fmt.Printf("  JKY: Node %d Skipping, due to already being committed", p.myConfig.ID)
 			continue
 		}
 
@@ -108,7 +101,6 @@ func (p *proposer) next(bucket BucketID) []*clientRequest {
 
 	if len(proposalBucket.pending) > 0 {
 		n := proposalBucket.pending[0]
-		fmt.Printf("JKY: Node %d proposing clientID=%d reqNo=%d for bucket %d\n", p.myConfig.ID, n[0].data.ClientId, n[0].data.ReqNo, bucket)
 		proposalBucket.pending = proposalBucket.pending[1:]
 		return n
 	}
