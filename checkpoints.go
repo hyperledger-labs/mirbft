@@ -38,8 +38,11 @@ func newCheckpointTracker(persisted *persisted, myConfig *Config) *checkpointTra
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_CEntry:
 			cEntry := d.CEntry
-			ct.networkConfig = cEntry.NetworkConfig
+			if ct.networkConfig == nil {
+				ct.networkConfig = cEntry.NetworkConfig
+			}
 			pcp := ct.checkpoint(cEntry.SeqNo)
+			pcp.nextConfig = cEntry.NetworkConfig
 			pcp.applyCheckpointMsg(NodeID(myConfig.ID), cEntry.CheckpointValue)
 			if len(ct.checkpoints) == 1 {
 				pcp.stable = true
@@ -78,8 +81,8 @@ func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, val
 	return cp.applyCheckpointMsg(source, value)
 }
 
-func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte) *Actions {
-	return ct.checkpoint(seqNo).applyCheckpointResult(value)
+func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte, epochConfig *pb.EpochConfig, nextConfig *pb.NetworkConfig) *Actions {
+	return ct.checkpoint(seqNo).applyCheckpointResult(value, epochConfig, nextConfig)
 }
 
 func (ct *checkpointTracker) status() []*CheckpointStatus {
@@ -98,10 +101,11 @@ func (ct *checkpointTracker) status() []*CheckpointStatus {
 }
 
 type checkpoint struct {
-	seqNo         uint64
-	myConfig      *Config
-	networkConfig *pb.NetworkConfig
-	persisted     *persisted
+	seqNo           uint64
+	myConfig        *Config
+	verifyingConfig *pb.NetworkConfig
+	nextConfig      *pb.NetworkConfig
+	persisted       *persisted
 
 	values         map[string][]NodeID
 	committedValue []byte
@@ -112,11 +116,11 @@ type checkpoint struct {
 
 func newCheckpoint(seqNo uint64, config *pb.NetworkConfig, persisted *persisted, myConfig *Config) *checkpoint {
 	return &checkpoint{
-		seqNo:         seqNo,
-		networkConfig: config,
-		myConfig:      myConfig,
-		persisted:     persisted,
-		values:        map[string][]NodeID{},
+		seqNo:           seqNo,
+		verifyingConfig: config,
+		myConfig:        myConfig,
+		persisted:       persisted,
+		values:          map[string][]NodeID{},
 	}
 }
 
@@ -128,7 +132,7 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
 
 	agreements := len(checkpointValueNodes)
 
-	if agreements == someCorrectQuorum(cw.networkConfig) {
+	if agreements == someCorrectQuorum(cw.verifyingConfig) {
 		cw.committedValue = value
 	}
 
@@ -146,13 +150,13 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
 
 		// This checkpoint has enough agreements, including my own, it may now be garbage collectable
 		// Note, this must be >= (not ==) because my agreement could come after 2f+1 from the network.
-		if agreements >= intersectionQuorum(cw.networkConfig) {
+		if agreements >= intersectionQuorum(cw.verifyingConfig) {
 			cw.stable = true
 			stateChange = true
 		}
 	}
 
-	if len(checkpointValueNodes) == len(cw.networkConfig.Nodes) {
+	if len(checkpointValueNodes) == len(cw.verifyingConfig.Nodes) {
 		cw.obsolete = true
 		stateChange = true
 	}
@@ -160,8 +164,9 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
 	return stateChange
 }
 
-func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {
-	return &Actions{
+func (cw *checkpoint) applyCheckpointResult(value []byte, epochConfig *pb.EpochConfig, nextConfig *pb.NetworkConfig) *Actions {
+	cw.nextConfig = nextConfig
+	actions := &Actions{
 		Broadcast: []*pb.Msg{
 			{
 				Type: &pb.Msg_Checkpoint{
@@ -173,6 +178,14 @@ func (cw *checkpoint) applyCheckpointResult(value []byte) *Actions {
 			},
 		},
 	}
+	actions.Append(cw.persisted.addCEntry(&pb.CEntry{
+		SeqNo:           cw.seqNo,
+		CheckpointValue: value,
+		NetworkConfig:   nextConfig,
+		EpochConfig:     epochConfig,
+	}))
+
+	return actions
 }
 
 func (cw *checkpoint) status() *CheckpointStatus {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 )
 
@@ -266,11 +267,12 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 		checkpoint := e.sequences[e.lowestUncommitted].seqNo%uint64(e.networkConfig.CheckpointInterval) == 0
 
 		if checkpoint {
-			e.networkConfig.Clients = e.clientWindows.clientConfigs()
+			networkConfig := proto.Clone(e.networkConfig).(*pb.NetworkConfig)
+			networkConfig.Clients = e.clientWindows.clientConfigs()
 			actions.Commits = append(actions.Commits, &Commit{
 				QEntry:        e.sequences[e.lowestUncommitted].qEntry,
 				Checkpoint:    checkpoint,
-				NetworkConfig: e.networkConfig,
+				NetworkConfig: networkConfig,
 				EpochConfig:   e.epochConfig,
 			})
 		} else {
