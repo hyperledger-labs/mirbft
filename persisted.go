@@ -29,7 +29,6 @@ type persisted struct {
 	logHead *logEntry
 	logTail *logEntry
 
-	checkpoints   []*pb.CEntry
 	lastCommitted uint64 // Seq
 
 	myConfig *Config
@@ -37,8 +36,7 @@ type persisted struct {
 
 func newPersisted(myConfig *Config) *persisted {
 	return &persisted{
-		myConfig:    myConfig,
-		checkpoints: make([]*pb.CEntry, 3),
+		myConfig: myConfig,
 	}
 }
 
@@ -64,6 +62,8 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 	var err error
 	var index uint64
 
+	var checkpoints []*pb.CEntry
+
 	for {
 		data, err = storage.Load(index)
 		if err == io.EOF {
@@ -80,6 +80,7 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 		case *pb.Persistent_QEntry:
 			persisted.addQEntry(d.QEntry)
 		case *pb.Persistent_CEntry:
+			checkpoints = append(checkpoints, d.CEntry)
 			persisted.lastCommitted = d.CEntry.SeqNo
 			persisted.addCEntry(d.CEntry)
 		case *pb.Persistent_EpochChange:
@@ -98,11 +99,15 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 		index++
 	}
 
-	if persisted.checkpoints[0] == nil {
+	if len(checkpoints) == 0 {
 		panic("no checkpoints in log")
 	}
 
-	persisted.truncate(persisted.checkpoints[0].SeqNo)
+	if len(checkpoints) > 3 {
+		checkpoints = checkpoints[len(checkpoints)-3:]
+	}
+
+	persisted.truncate(checkpoints[0].SeqNo)
 
 	return persisted, nil
 }
@@ -143,19 +148,6 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 
 	if cEntry.EpochConfig == nil {
 		panic("epoch config must be set")
-	}
-
-	switch {
-	case p.checkpoints[0] == nil:
-		p.checkpoints[0] = cEntry
-	case p.checkpoints[1] == nil:
-		p.checkpoints[1] = cEntry
-	case p.checkpoints[2] == nil:
-		p.checkpoints[2] = cEntry
-	default:
-		p.checkpoints[0] = p.checkpoints[1]
-		p.checkpoints[1] = p.checkpoints[2]
-		p.checkpoints[2] = cEntry
 	}
 
 	d := &pb.Persistent{
