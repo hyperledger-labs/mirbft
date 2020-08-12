@@ -29,7 +29,7 @@ type sequence struct {
 	epoch uint64
 
 	myConfig      *Config
-	networkConfig *pb.NetworkConfig
+	networkConfig *pb.NetworkState_Config
 	clientWindows *clientWindows
 
 	state SequenceState
@@ -52,7 +52,7 @@ type sequence struct {
 	commits  map[string]map[NodeID]struct{}
 }
 
-func newSequence(owner NodeID, epoch, seqNo uint64, clientWindows *clientWindows, persisted *persisted, networkConfig *pb.NetworkConfig, myConfig *Config) *sequence {
+func newSequence(owner NodeID, epoch, seqNo uint64, clientWindows *clientWindows, persisted *persisted, networkConfig *pb.NetworkState_Config, myConfig *Config) *sequence {
 	return &sequence{
 		owner:         owner,
 		seqNo:         seqNo,

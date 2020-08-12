@@ -23,7 +23,7 @@ var _ = Describe("clientWindows", func() {
 var _ = Describe("clientWindow", func() {
 	var (
 		cw            *clientWindow
-		networkConfig *pb.NetworkConfig
+		networkConfig *pb.NetworkState_Config
 		myConfig      *Config
 		lwm, hwm      uint64
 	)
@@ -31,7 +31,7 @@ var _ = Describe("clientWindow", func() {
 	BeforeEach(func() {
 		lwm = 10
 		hwm = 20
-		networkConfig = &pb.NetworkConfig{
+		networkConfig = &pb.NetworkState_Config{
 			Nodes: []uint64{0},
 		}
 		myConfig = &Config{} // TODO, populate

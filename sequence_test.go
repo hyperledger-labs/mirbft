@@ -23,7 +23,7 @@ var _ = XDescribe("sequence", func() {
 			myConfig: &Config{
 				ID: 1,
 			},
-			networkConfig: &pb.NetworkConfig{
+			networkConfig: &pb.NetworkState_Config{
 				Nodes: []uint64{0, 1, 2, 3},
 				F:     1,
 			},

@@ -17,13 +17,29 @@ import (
 type clientWindows struct {
 	windows       map[uint64]*clientWindow
 	clients       []uint64
-	networkConfig *pb.NetworkConfig
+	networkConfig *pb.NetworkState_Config
 	myConfig      *Config
 	readyList     *list.List
 	readyMap      map[*clientReqNo]*list.Element
 }
 
-func newClientWindows(networkConfig *pb.NetworkConfig, myConfig *Config) *clientWindows {
+func newClientWindows(persisted *persisted, myConfig *Config) *clientWindows {
+	var clientsState []*pb.NetworkState_Client
+	var networkConfig *pb.NetworkState_Config
+	for head := persisted.logHead; head != nil; head = head.next {
+		switch d := head.entry.Type.(type) {
+		case *pb.Persistent_CEntry:
+			// We want to grab the latest client state,
+			// but the most recently garbage collected network config
+			clientsState = d.CEntry.NetworkState.Clients
+			if networkConfig == nil {
+				networkConfig = d.CEntry.NetworkState.Config
+			}
+		case *pb.Persistent_QEntry:
+			// TODO recover requests from QSet/PSet
+		}
+	}
+
 	cws := &clientWindows{
 		myConfig:      myConfig,
 		networkConfig: networkConfig,
@@ -34,7 +50,7 @@ func newClientWindows(networkConfig *pb.NetworkConfig, myConfig *Config) *client
 
 	clientWindowWidth := uint64(100) // XXX this should be configurable
 
-	for _, client := range networkConfig.Clients {
+	for _, client := range clientsState {
 		lowWatermark := client.BucketLowWatermarks[0]
 		for _, blw := range client.BucketLowWatermarks {
 			if blw < lowWatermark {
@@ -49,8 +65,8 @@ func newClientWindows(networkConfig *pb.NetworkConfig, myConfig *Config) *client
 	return cws
 }
 
-func (cws *clientWindows) clientConfigs() []*pb.NetworkConfig_Client {
-	clients := make([]*pb.NetworkConfig_Client, len(cws.clients))
+func (cws *clientWindows) clientConfigs() []*pb.NetworkState_Client { // XXX I think this needs to take a seqno?
+	clients := make([]*pb.NetworkState_Client, len(cws.clients))
 	for i, clientID := range cws.clients {
 		blws := make([]uint64, cws.networkConfig.NumberOfBuckets)
 		cw, ok := cws.windows[clientID]
@@ -75,7 +91,7 @@ func (cws *clientWindows) clientConfigs() []*pb.NetworkConfig_Client {
 			blws[bucket] = crn.reqNo
 		}
 
-		clients[i] = &pb.NetworkConfig_Client{
+		clients[i] = &pb.NetworkState_Client{
 			Id:                  clientID,
 			BucketLowWatermarks: blws,
 		}
@@ -192,7 +208,7 @@ type clientWindow struct {
 	reqNoMap      map[uint64]*list.Element
 	clientWaiter  *clientWaiter // Used to throttle clients
 	myConfig      *Config
-	networkConfig *pb.NetworkConfig
+	networkConfig *pb.NetworkState_Config
 }
 
 type clientWaiter struct {
@@ -201,7 +217,7 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newClientWindow(clientID, lowWatermark, highWatermark uint64, networkConfig *pb.NetworkConfig, myConfig *Config) *clientWindow {
+func newClientWindow(clientID, lowWatermark, highWatermark uint64, networkConfig *pb.NetworkState_Config, myConfig *Config) *clientWindow {
 	cw := &clientWindow{
 		clientID:      clientID,
 		myConfig:      myConfig,

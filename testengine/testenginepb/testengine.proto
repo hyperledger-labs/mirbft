@@ -17,7 +17,7 @@ import "mirbftpb/mirbft.proto";
 message ScenarioConfig {
 	string name = 1;
 	string description = 2;
-	mirbftpb.NetworkConfig initial_network_config = 3;
+	mirbftpb.NetworkState initial_network_state = 3;
 	repeated NodeConfig node_configs = 4;
 }
 
@@ -76,7 +76,7 @@ message EpochChange {
 
 message Checkpoint {
 	mirbftpb.QEntry q_entry = 1;
-	mirbftpb.NetworkConfig network_config = 2;
+	mirbftpb.NetworkState network_state = 2;
 	mirbftpb.EpochConfig epoch_config = 3;
 	bytes value = 4;
 }

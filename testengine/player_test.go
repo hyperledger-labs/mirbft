@@ -24,7 +24,7 @@ var _ = Describe("Player", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		recorder = testengine.BasicRecorder(4, 4, 20)
-		recorder.NetworkConfig.MaxEpochLength = 200000 // XXX this works around a bug in the library for now
+		recorder.NetworkState.Config.MaxEpochLength = 200000 // XXX this works around a bug in the library for now
 
 		recording, err = recorder.Recording()
 		Expect(err).NotTo(HaveOccurred())

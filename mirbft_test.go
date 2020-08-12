@@ -21,7 +21,7 @@ var _ = Describe("Mirbft", func() {
 
 	BeforeEach(func() {
 		recorder = testengine.BasicRecorder(4, 4, 100)
-		Expect(recorder.NetworkConfig.MaxEpochLength).To(Equal(uint64(200)))
+		Expect(recorder.NetworkState.Config.MaxEpochLength).To(Equal(uint64(200)))
 	})
 
 	JustBeforeEach(func() {

@@ -11,9 +11,22 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+
+	"github.com/golang/protobuf/proto"
+)
+
+type checkpointState int
+
+const (
+	cpsIdle checkpointState = iota
+	cpsGarbageCollectable
+	cpsPendingReconfig // TODO, implement
+	cpsStateTransfer   // TODO, implement
 )
 
 type checkpointTracker struct {
+	state checkpointState
+
 	highestCheckpoint map[NodeID]*checkpoint
 
 	// checkpoints is a map of bounded size.  The map maintains a checkpoint
@@ -21,7 +34,7 @@ type checkpointTracker struct {
 	// within the watermarks.
 	checkpoints map[uint64]*checkpoint
 
-	networkConfig *pb.NetworkConfig
+	networkConfig *pb.NetworkState_Config
 	persisted     *persisted
 	myConfig      *Config
 }
@@ -39,10 +52,14 @@ func newCheckpointTracker(persisted *persisted, myConfig *Config) *checkpointTra
 		case *pb.Persistent_CEntry:
 			cEntry := d.CEntry
 			if ct.networkConfig == nil {
-				ct.networkConfig = cEntry.NetworkConfig
+				ct.networkConfig = cEntry.NetworkState.Config
 			}
 			pcp := ct.checkpoint(cEntry.SeqNo)
-			pcp.nextConfig = cEntry.NetworkConfig
+			pcp.nextState = cEntry.NetworkState
+			if !proto.Equal(pcp.nextState.Config, ct.networkConfig) {
+				// TODO, implement reconfig
+				panic("reconfig not yet supported")
+			}
 			pcp.applyCheckpointMsg(NodeID(myConfig.ID), cEntry.CheckpointValue)
 			if len(ct.checkpoints) == 1 {
 				pcp.stable = true
@@ -81,7 +98,7 @@ func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, val
 	return cp.applyCheckpointMsg(source, value)
 }
 
-func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte, epochConfig *pb.EpochConfig, nextConfig *pb.NetworkConfig) *Actions {
+func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte, epochConfig *pb.EpochConfig, nextConfig *pb.NetworkState) *Actions {
 	return ct.checkpoint(seqNo).applyCheckpointResult(value, epochConfig, nextConfig)
 }
 
@@ -103,8 +120,8 @@ func (ct *checkpointTracker) status() []*CheckpointStatus {
 type checkpoint struct {
 	seqNo           uint64
 	myConfig        *Config
-	verifyingConfig *pb.NetworkConfig
-	nextConfig      *pb.NetworkConfig
+	verifyingConfig *pb.NetworkState_Config
+	nextState       *pb.NetworkState
 	persisted       *persisted
 
 	values         map[string][]NodeID
@@ -114,7 +131,7 @@ type checkpoint struct {
 	obsolete       bool
 }
 
-func newCheckpoint(seqNo uint64, config *pb.NetworkConfig, persisted *persisted, myConfig *Config) *checkpoint {
+func newCheckpoint(seqNo uint64, config *pb.NetworkState_Config, persisted *persisted, myConfig *Config) *checkpoint {
 	return &checkpoint{
 		seqNo:           seqNo,
 		verifyingConfig: config,
@@ -164,8 +181,8 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
 	return stateChange
 }
 
-func (cw *checkpoint) applyCheckpointResult(value []byte, epochConfig *pb.EpochConfig, nextConfig *pb.NetworkConfig) *Actions {
-	cw.nextConfig = nextConfig
+func (cw *checkpoint) applyCheckpointResult(value []byte, epochConfig *pb.EpochConfig, nextState *pb.NetworkState) *Actions {
+	cw.nextState = nextState
 	actions := &Actions{
 		Broadcast: []*pb.Msg{
 			{
@@ -181,7 +198,7 @@ func (cw *checkpoint) applyCheckpointResult(value []byte, epochConfig *pb.EpochC
 	actions.Append(cw.persisted.addCEntry(&pb.CEntry{
 		SeqNo:           cw.seqNo,
 		CheckpointValue: value,
-		NetworkConfig:   nextConfig,
+		NetworkState:    nextState,
 		EpochConfig:     epochConfig,
 	}))
 

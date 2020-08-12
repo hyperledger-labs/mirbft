@@ -12,19 +12,19 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-func newOutstandingReqs(networkConfig *pb.NetworkConfig) *allOutstandingReqs {
+func newOutstandingReqs(networkState *pb.NetworkState) *allOutstandingReqs {
 	ao := &allOutstandingReqs{
-		numBuckets: uint64(networkConfig.NumberOfBuckets),
+		numBuckets: uint64(networkState.Config.NumberOfBuckets),
 		buckets:    map[BucketID]*bucketOutstandingReqs{},
 	}
 
-	for i := BucketID(0); i < BucketID(networkConfig.NumberOfBuckets); i++ {
+	for i := BucketID(0); i < BucketID(networkState.Config.NumberOfBuckets); i++ {
 		bo := &bucketOutstandingReqs{
 			clients: map[uint64]*clientOutstandingReqs{},
 		}
 		ao.buckets[i] = bo
 
-		for _, client := range networkConfig.Clients {
+		for _, client := range networkState.Clients {
 			bo.clients[client.Id] = &clientOutstandingReqs{
 				nextReqNo: client.BucketLowWatermarks[int(i)],
 			}

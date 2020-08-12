@@ -115,10 +115,10 @@ func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*tpb.Checkp
 
 		if commit.Checkpoint {
 			results = append(results, &tpb.Checkpoint{
-				QEntry:        commit.QEntry,
-				NetworkConfig: commit.NetworkConfig,
-				EpochConfig:   commit.EpochConfig,
-				Value:         ns.Hasher.Sum(nil),
+				QEntry:       commit.QEntry,
+				NetworkState: commit.NetworkState,
+				EpochConfig:  commit.EpochConfig,
+				Value:        ns.Hasher.Sum(nil),
 			})
 		}
 
@@ -146,7 +146,7 @@ type ClientConfig struct {
 }
 
 type Recorder struct {
-	NetworkConfig *pb.NetworkConfig
+	NetworkState  *pb.NetworkState
 	NodeConfigs   []*tpb.NodeConfig
 	ClientConfigs []*ClientConfig
 	Manglers      []Mangler
@@ -157,8 +157,8 @@ type Recorder struct {
 
 func (r *Recorder) Recording() (*Recording, error) {
 	eventLog := &EventLog{
-		InitialConfig: r.NetworkConfig,
-		NodeConfigs:   r.NodeConfigs,
+		InitialState: r.NetworkState,
+		NodeConfigs:  r.NodeConfigs,
 	}
 
 	player, err := NewPlayer(eventLog, r.Logger)
@@ -429,13 +429,13 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 		clientIDs[i] = uint64(i)
 	}
 
-	networkConfig := mirbft.StandardInitialNetworkConfig(nodeCount, clientIDs...)
+	networkState := mirbft.StandardInitialNetworkState(nodeCount, clientIDs...)
 
 	clientConfigs := make([]*ClientConfig, clientCount)
 	for i := 0; i < clientCount; i++ {
 		clientConfigs[i] = &ClientConfig{
 			ID:          clientIDs[i],
-			MaxInFlight: int(networkConfig.CheckpointInterval / 2),
+			MaxInFlight: int(networkState.Config.CheckpointInterval / 2),
 			Total:       reqsPerClient,
 		}
 		clientIDs[i] = clientConfigs[i].ID
@@ -448,7 +448,7 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 	}
 
 	return &Recorder{
-		NetworkConfig: networkConfig,
+		NetworkState:  networkState,
 		NodeConfigs:   nodeConfigs,
 		Logger:        logger,
 		Hasher:        sha256.New,

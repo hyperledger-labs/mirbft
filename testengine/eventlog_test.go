@@ -39,7 +39,7 @@ var _ = XDescribe("Non-determinism finding test", func() {
 		f2.Close()
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(proto.Equal(eventLog1.InitialConfig, eventLog2.InitialConfig)).To(BeTrue())
+		Expect(proto.Equal(eventLog1.InitialState, eventLog2.InitialState)).To(BeTrue())
 		Expect(len(eventLog1.NodeConfigs)).To(Equal(len(eventLog2.NodeConfigs)))
 		for i := range eventLog1.NodeConfigs {
 			Expect(proto.Equal(eventLog1.NodeConfigs[i], eventLog2.NodeConfigs[i])).To(BeTrue())
@@ -78,13 +78,13 @@ var _ = XDescribe("Non-determinism finding test", func() {
 var _ = Describe("Eventlog", func() {
 
 	var (
-		networkConfig *pb.NetworkConfig
-		nodeConfigs   []*tpb.NodeConfig
-		eventLog      *testengine.EventLog
+		networkState *pb.NetworkState
+		nodeConfigs  []*tpb.NodeConfig
+		eventLog     *testengine.EventLog
 	)
 
 	BeforeEach(func() {
-		networkConfig = mirbft.StandardInitialNetworkConfig(7)
+		networkState = mirbft.StandardInitialNetworkState(7)
 
 		nodeConfigs = []*tpb.NodeConfig{
 			{
@@ -100,10 +100,10 @@ var _ = Describe("Eventlog", func() {
 		}
 
 		eventLog = &testengine.EventLog{
-			Name:          "fake-name",
-			Description:   "fake-description",
-			InitialConfig: networkConfig,
-			NodeConfigs:   nodeConfigs,
+			Name:         "fake-name",
+			Description:  "fake-description",
+			InitialState: networkState,
+			NodeConfigs:  nodeConfigs,
 		}
 
 		eventLog.InsertTick(1, 10)
@@ -122,7 +122,7 @@ var _ = Describe("Eventlog", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(newEventLog.Name).To(Equal("fake-name"))
 		Expect(newEventLog.Description).To(Equal("fake-description"))
-		Expect(proto.Equal(eventLog.InitialConfig, newEventLog.InitialConfig)).To(BeTrue())
+		Expect(proto.Equal(eventLog.InitialState, newEventLog.InitialState)).To(BeTrue())
 		Expect(proto.Equal(eventLog.NodeConfigs[0], newEventLog.NodeConfigs[0])).To(BeTrue())
 		Expect(proto.Equal(
 			eventLog.FirstEventLogEntry.Event,

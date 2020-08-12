@@ -142,7 +142,7 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
 }
 
 func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
-	if cEntry.NetworkConfig == nil {
+	if cEntry.NetworkState == nil {
 		panic("network config must be set")
 	}
 

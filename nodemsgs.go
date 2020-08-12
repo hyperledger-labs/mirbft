@@ -76,7 +76,7 @@ type nodeMsgs struct {
 	buffer         *list.List
 	epochMsgs      *epochMsgs
 	myConfig       *Config
-	networkConfig  *pb.NetworkConfig
+	networkConfig  *pb.NetworkState_Config
 	clientWindows  *clientWindows
 	nextCheckpoint uint64
 }
@@ -84,7 +84,7 @@ type nodeMsgs struct {
 type epochMsgs struct {
 	myConfig      *Config
 	epochConfig   *pb.EpochConfig
-	networkConfig *pb.NetworkConfig
+	networkConfig *pb.NetworkState_Config
 	epoch         *epoch
 	clientWindows *clientWindows
 
@@ -99,7 +99,7 @@ type nextMsg struct {
 	commit  uint64
 }
 
-func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkConfig, myConfig *Config, clientWindows *clientWindows, oddities *oddities) *nodeMsgs {
+func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, myConfig *Config, clientWindows *clientWindows, oddities *oddities) *nodeMsgs {
 
 	return &nodeMsgs{
 		id:       nodeID,

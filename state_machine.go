@@ -17,7 +17,7 @@ import (
 
 type stateMachine struct {
 	myConfig      *Config
-	networkConfig *pb.NetworkConfig
+	networkConfig *pb.NetworkState_Config
 	nodeMsgs      map[NodeID]*nodeMsgs
 	clientWindows *clientWindows
 
@@ -37,7 +37,7 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 
 	networkConfig := checkpointTracker.networkConfig
 
-	clientWindows := newClientWindows(networkConfig, myConfig)
+	clientWindows := newClientWindows(persisted, myConfig)
 
 	nodeMsgs := map[NodeID]*nodeMsgs{}
 	for _, id := range networkConfig.Nodes {
@@ -297,7 +297,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			checkpointResult.Commit.QEntry.SeqNo,
 			checkpointResult.Value,
 			checkpointResult.Commit.EpochConfig,
-			checkpointResult.Commit.NetworkConfig,
+			checkpointResult.Commit.NetworkState,
 		))
 	}
 

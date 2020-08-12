@@ -16,7 +16,7 @@ import (
 var _ = Describe("NodeMsg", func() {
 	var (
 		nodeID        NodeID
-		networkConfig *pb.NetworkConfig
+		networkConfig *pb.NetworkState_Config
 		myConfig      *Config
 		clientWindows *clientWindows
 		o             *oddities
@@ -27,7 +27,7 @@ var _ = Describe("NodeMsg", func() {
 
 	BeforeEach(func() {
 		nodeID = NodeID(0)
-		networkConfig = &pb.NetworkConfig{
+		networkConfig = &pb.NetworkState_Config{
 			CheckpointInterval: 2,
 			F:                  0,
 			Nodes:              []uint64{0},

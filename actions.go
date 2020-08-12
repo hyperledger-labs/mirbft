@@ -150,10 +150,10 @@ type Unicast struct {
 }
 
 type Commit struct {
-	QEntry        *pb.QEntry
-	Checkpoint    bool
-	NetworkConfig *pb.NetworkConfig
-	EpochConfig   *pb.EpochConfig
+	QEntry       *pb.QEntry
+	Checkpoint   bool
+	NetworkState *pb.NetworkState
+	EpochConfig  *pb.EpochConfig
 }
 
 // ActionResults should be populated by the caller as a result of

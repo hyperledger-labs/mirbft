@@ -22,7 +22,7 @@ var _ = XDescribe("Integration", func() {
 		serializer     *serializer
 		stateMachine   *stateMachine
 		epochConfig    *pb.EpochConfig
-		networkConfig  *pb.NetworkConfig
+		networkState   *pb.NetworkState
 		consumerConfig *Config
 		logger         *zap.Logger
 
@@ -69,13 +69,15 @@ var _ = XDescribe("Integration", func() {
 				Leaders: []uint64{0},
 			}
 
-			networkConfig = &pb.NetworkConfig{
-				CheckpointInterval: 2,
-				F:                  0,
-				Nodes:              []uint64{0},
-				NumberOfBuckets:    1,
-				MaxEpochLength:     10,
-				Clients: []*pb.NetworkConfig_Client{
+			networkState = &pb.NetworkState{
+				Config: &pb.NetworkState_Config{
+					CheckpointInterval: 2,
+					F:                  0,
+					Nodes:              []uint64{0},
+					NumberOfBuckets:    1,
+					MaxEpochLength:     10,
+				},
+				Clients: []*pb.NetworkState_Client{
 					{
 						Id:                  9,
 						BucketLowWatermarks: []uint64{51},
@@ -88,7 +90,7 @@ var _ = XDescribe("Integration", func() {
 				&pb.CEntry{
 					SeqNo:           0,
 					CheckpointValue: []byte("TODO, get from state"),
-					NetworkConfig:   networkConfig,
+					NetworkState:    networkState,
 					EpochConfig:     epochConfig,
 				},
 			)
@@ -334,8 +336,8 @@ var _ = XDescribe("Integration", func() {
 								},
 							},
 						},
-						NetworkConfig: networkConfig,
-						EpochConfig:   epochConfig,
+						NetworkState: networkState,
+						EpochConfig:  epochConfig,
 					},
 				},
 			}))
@@ -349,13 +351,15 @@ var _ = XDescribe("Integration", func() {
 				Leaders: []uint64{0, 1, 2, 3},
 			}
 
-			networkConfig = &pb.NetworkConfig{
-				CheckpointInterval: 5,
-				F:                  1,
-				Nodes:              []uint64{0, 1, 2, 3},
-				NumberOfBuckets:    4,
-				MaxEpochLength:     10,
-				Clients: []*pb.NetworkConfig_Client{
+			networkState = &pb.NetworkState{
+				Config: &pb.NetworkState_Config{
+					CheckpointInterval: 5,
+					F:                  1,
+					Nodes:              []uint64{0, 1, 2, 3},
+					NumberOfBuckets:    4,
+					MaxEpochLength:     10,
+				},
+				Clients: []*pb.NetworkState_Client{
 					{
 						Id:                  9,
 						BucketLowWatermarks: []uint64{0, 1, 2, 3},
@@ -369,7 +373,7 @@ var _ = XDescribe("Integration", func() {
 				&pb.CEntry{
 					SeqNo:           0,
 					CheckpointValue: []byte("TODO, get from state"),
-					NetworkConfig:   networkConfig,
+					NetworkState:    networkState,
 					EpochConfig:     epochConfig,
 				},
 			)
@@ -669,8 +673,8 @@ var _ = XDescribe("Integration", func() {
 								},
 							},
 						},
-						NetworkConfig: networkConfig,
-						EpochConfig:   epochConfig,
+						NetworkState: networkState,
+						EpochConfig:  epochConfig,
 					},
 				},
 			}))

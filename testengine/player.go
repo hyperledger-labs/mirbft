@@ -48,10 +48,10 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 				CEntry: &pb.CEntry{
 					SeqNo:           0,
 					CheckpointValue: []byte("fake-initial-value"),
-					NetworkConfig:   el.InitialConfig,
+					NetworkState:    el.InitialState,
 					EpochConfig: &pb.EpochConfig{
 						Number:            0,
-						Leaders:           el.InitialConfig.Nodes,
+						Leaders:           el.InitialState.Config.Nodes,
 						PlannedExpiration: 0,
 					},
 				},
@@ -201,9 +201,9 @@ func (p *Player) Step() error {
 		for i, cr := range apply.Checkpoints {
 			actionResults.Checkpoints[i] = &mirbft.CheckpointResult{
 				Commit: &mirbft.Commit{
-					QEntry:        cr.QEntry,
-					NetworkConfig: cr.NetworkConfig,
-					EpochConfig:   cr.EpochConfig,
+					QEntry:       cr.QEntry,
+					NetworkState: cr.NetworkState,
+					EpochConfig:  cr.EpochConfig,
 				},
 				Value: cr.Value,
 			}

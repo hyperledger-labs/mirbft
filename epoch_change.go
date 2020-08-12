@@ -52,13 +52,13 @@ type epochTarget struct {
 	networkNewEpoch *pb.NewEpochConfig // The NewEpoch msg as received via the bracha broadcast
 	isLeader        bool
 
-	networkConfig *pb.NetworkConfig
+	networkConfig *pb.NetworkState_Config
 	myConfig      *Config
 	batchTracker  *batchTracker
 	clientWindows *clientWindows
 }
 
-func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkConfig) *pb.NewEpoch {
+func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkState_Config) *pb.NewEpoch {
 	filteredStrongChanges := map[NodeID]*parsedEpochChange{}
 	for nodeID, change := range et.strongChanges {
 		if change.underlying == nil {
@@ -549,12 +549,23 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 					continue
 				}
 
-				commits = append(commits, &Commit{
-					Checkpoint:    seqNo%uint64(et.networkConfig.CheckpointInterval) == 0,
-					QEntry:        d.QEntry,
-					NetworkConfig: et.networkConfig,
-					EpochConfig:   config.Config,
-				})
+				checkpoint := seqNo%uint64(et.networkConfig.CheckpointInterval) == 0
+
+				if checkpoint {
+					commits = append(commits, &Commit{
+						QEntry:     d.QEntry,
+						Checkpoint: checkpoint,
+						NetworkState: &pb.NetworkState{
+							Config:  et.networkConfig,
+							Clients: et.clientWindows.clientConfigs(),
+						},
+						EpochConfig: config.Config,
+					})
+				} else {
+					commits = append(commits, &Commit{
+						QEntry: d.QEntry,
+					})
+				}
 
 				for _, reqForward := range d.QEntry.Requests {
 					cw, _ := et.clientWindows.clientWindow(reqForward.Request.ClientId)
@@ -622,7 +633,7 @@ func (et *epochTarget) advanceState() *Actions {
 type epochChanger struct {
 	pendingEpochTarget *epochTarget
 	persisted          *persisted
-	networkConfig      *pb.NetworkConfig
+	networkConfig      *pb.NetworkState_Config
 	myConfig           *Config
 	batchTracker       *batchTracker
 	clientWindows      *clientWindows
@@ -631,7 +642,7 @@ type epochChanger struct {
 
 func newEpochChanger(
 	persisted *persisted,
-	networkConfig *pb.NetworkConfig,
+	networkConfig *pb.NetworkState_Config,
 	myConfig *Config,
 	batchTracker *batchTracker,
 	clientWindows *clientWindows,
@@ -863,7 +874,7 @@ func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 
 type epochChange struct {
 	// set at creation
-	networkConfig *pb.NetworkConfig
+	networkConfig *pb.NetworkState_Config
 
 	// set via setMsg and setDigest
 	parsedByDigest map[string]*parsedEpochChange
@@ -961,7 +972,7 @@ func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error
 	}, nil
 }
 
-func constructNewEpochConfig(config *pb.NetworkConfig, newLeaders []uint64, epochChanges map[NodeID]*parsedEpochChange) *pb.NewEpochConfig {
+func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64, epochChanges map[NodeID]*parsedEpochChange) *pb.NewEpochConfig {
 	type checkpointKey struct {
 		SeqNo uint64
 		Value string

@@ -264,10 +264,10 @@ type Network struct {
 func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
 	nodes := make([]*mirbft.Node, testConfig.NodeCount)
 
-	networkConfig := mirbft.StandardInitialNetworkConfig(testConfig.NodeCount, 0)
+	networkState := mirbft.StandardInitialNetworkState(testConfig.NodeCount, 0)
 
 	if testConfig.BucketCount != 0 {
-		networkConfig.NumberOfBuckets = int32(testConfig.BucketCount)
+		networkState.Config.NumberOfBuckets = int32(testConfig.BucketCount)
 	}
 
 	for i := range nodes {
@@ -288,10 +288,10 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 				CEntry: &pb.CEntry{
 					SeqNo:           0,
 					CheckpointValue: []byte("fake-initial-value"),
-					NetworkConfig:   networkConfig,
+					NetworkState:    networkState,
 					EpochConfig: &pb.EpochConfig{
 						Number:            0,
-						Leaders:           networkConfig.Nodes,
+						Leaders:           networkState.Config.Nodes,
 						PlannedExpiration: 0,
 					},
 				},

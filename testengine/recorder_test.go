@@ -21,7 +21,7 @@ var _ = Describe("Recorder", func() {
 
 	BeforeEach(func() {
 		recorder = testengine.BasicRecorder(4, 4, 200)
-		recorder.NetworkConfig.MaxEpochLength = 100000 // XXX this works around a bug in the library for now
+		recorder.NetworkState.Config.MaxEpochLength = 100000 // XXX this works around a bug in the library for now
 		totalReqs = 4 * 200
 
 		var err error
@@ -69,22 +69,22 @@ var _ = Describe("Recorder", func() {
 	It("Executes and produces a log", func() {
 		count, err := recording.DrainClients(50000)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(count).To(Equal(36377))
+		Expect(count).To(Equal(36281))
 
 		fmt.Printf("Executing test required a log of %d events\n", count)
 
 		for _, node := range recording.Nodes {
 			status, err := node.PlaybackNode.Node.Status(context.Background())
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.EpochChanger.LastActiveEpoch).To(Equal(uint64(0)))
-			Expect(status.EpochChanger.EpochTargets).To(HaveLen(1))
+			Expect(status.EpochChanger.LastActiveEpoch).To(Equal(uint64(1)))
+			Expect(status.EpochChanger.EpochTargets).To(HaveLen(2))
 			Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
 			Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
 			Expect(node.State.Length).To(Equal(totalReqs))
 			Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
 
 			// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
-			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("280c3b21b48993c723a118f70b52b14a96b0ea423ed56a9d0905ec5deefbdd33"))
+			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("105dd39693d8df1564db08fb0d2e5e3e04abf267039d5ae2a02f66af19cdb34b"))
 		}
 	})
 

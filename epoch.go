@@ -10,7 +10,6 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 )
 
@@ -18,28 +17,28 @@ import (
 // such that any two sets intersected will each contain some same
 // correct node.  This is ceil((n+f+1)/2), which is equivalent to
 // (n+f+2)/2 under truncating integer math.
-func intersectionQuorum(nc *pb.NetworkConfig) int {
+func intersectionQuorum(nc *pb.NetworkState_Config) int {
 	return (len(nc.Nodes) + int(nc.F) + 2) / 2
 }
 
 // someCorrectQuorum is the number of nodes such that at least one of them is correct
-func someCorrectQuorum(nc *pb.NetworkConfig) int {
+func someCorrectQuorum(nc *pb.NetworkState_Config) int {
 	return int(nc.F) + 1
 }
 
 // logWidth is the number of sequence numbers in the sliding window
-func logWidth(nc *pb.NetworkConfig) int {
+func logWidth(nc *pb.NetworkState_Config) int {
 	return 3 * int(nc.CheckpointInterval)
 }
 
-func initialSequence(epochConfig *pb.EpochConfig, networkConfig *pb.NetworkConfig) uint64 {
+func initialSequence(epochConfig *pb.EpochConfig, networkConfig *pb.NetworkState_Config) uint64 {
 	if epochConfig.PlannedExpiration > networkConfig.MaxEpochLength {
 		return epochConfig.PlannedExpiration - networkConfig.MaxEpochLength + 1
 	}
 	return 1
 }
 
-func seqToBucket(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkConfig) BucketID {
+func seqToBucket(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkState_Config) BucketID {
 	return BucketID((seqNo - initialSequence(ec, nc)) % uint64(nc.NumberOfBuckets))
 }
 
@@ -47,7 +46,7 @@ func (e *epoch) seqToBucket(seqNo uint64) BucketID {
 	return seqToBucket(seqNo, e.epochConfig, e.networkConfig)
 }
 
-func seqToColumn(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkConfig) uint64 {
+func seqToColumn(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkState_Config) uint64 {
 	return (seqNo-initialSequence(ec, nc))/uint64(nc.NumberOfBuckets) + 1
 }
 
@@ -64,7 +63,7 @@ func (ec *epochConfig) colBucketToSeq(column uint64, bucket BucketID) uint64 {
 type epoch struct {
 	// config contains the static components of the epoch
 	epochConfig   *pb.EpochConfig
-	networkConfig *pb.NetworkConfig
+	networkConfig *pb.NetworkState_Config
 	myConfig      *Config
 
 	proposer      *proposer
@@ -103,9 +102,9 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 		}
 	}
 
-	networkConfig := maxCheckpoint.NetworkConfig
+	networkConfig := maxCheckpoint.NetworkState.Config
 
-	outstandingReqs := newOutstandingReqs(networkConfig)
+	outstandingReqs := newOutstandingReqs(maxCheckpoint.NetworkState)
 
 	buckets := map[BucketID]NodeID{}
 
@@ -267,13 +266,14 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 		checkpoint := e.sequences[e.lowestUncommitted].seqNo%uint64(e.networkConfig.CheckpointInterval) == 0
 
 		if checkpoint {
-			networkConfig := proto.Clone(e.networkConfig).(*pb.NetworkConfig)
-			networkConfig.Clients = e.clientWindows.clientConfigs()
 			actions.Commits = append(actions.Commits, &Commit{
-				QEntry:        e.sequences[e.lowestUncommitted].qEntry,
-				Checkpoint:    checkpoint,
-				NetworkConfig: networkConfig,
-				EpochConfig:   e.epochConfig,
+				QEntry:     e.sequences[e.lowestUncommitted].qEntry,
+				Checkpoint: checkpoint,
+				NetworkState: &pb.NetworkState{
+					Config:  e.networkConfig,
+					Clients: e.clientWindows.clientConfigs(),
+				},
+				EpochConfig: e.epochConfig,
 			})
 		} else {
 			actions.Commits = append(actions.Commits, &Commit{
