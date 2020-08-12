@@ -292,14 +292,26 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 					EpochConfig: &pb.EpochConfig{
 						Number:            0,
 						Leaders:           networkConfig.Nodes,
-						PlannedExpiration: networkConfig.MaxEpochLength,
+						PlannedExpiration: 0,
 					},
 				},
 			},
 		}, nil)
-		storage.LoadReturnsOnCall(1, nil, io.EOF)
+		storage.LoadReturnsOnCall(1, &pb.Persistent{
+			Type: &pb.Persistent_EpochChange{
+				EpochChange: &pb.EpochChange{
+					NewEpoch: 1,
+					Checkpoints: []*pb.Checkpoint{
+						{
+							SeqNo: 0,
+							Value: []byte("fake-initial-value"),
+						},
+					},
+				},
+			},
+		}, nil)
 
-		storage.LoadReturns(nil, io.EOF)
+		storage.LoadReturnsOnCall(2, nil, io.EOF)
 
 		node, err := mirbft.StartNode(config, doneC, storage)
 		Expect(err).NotTo(HaveOccurred())

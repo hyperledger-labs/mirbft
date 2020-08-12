@@ -620,7 +620,6 @@ func (et *epochTarget) advanceState() *Actions {
 }
 
 type epochChanger struct {
-	lastActiveEpoch    uint64
 	pendingEpochTarget *epochTarget
 	persisted          *persisted
 	networkConfig      *pb.NetworkConfig
@@ -628,6 +627,48 @@ type epochChanger struct {
 	batchTracker       *batchTracker
 	clientWindows      *clientWindows
 	targets            map[uint64]*epochTarget
+}
+
+func newEpochChanger(
+	persisted *persisted,
+	networkConfig *pb.NetworkConfig,
+	myConfig *Config,
+	batchTracker *batchTracker,
+	clientWindows *clientWindows,
+) *epochChanger {
+	ec := &epochChanger{
+		persisted:     persisted,
+		networkConfig: networkConfig,
+		myConfig:      myConfig,
+		batchTracker:  batchTracker,
+		clientWindows: clientWindows,
+		targets:       map[uint64]*epochTarget{},
+	}
+
+	for head := persisted.logHead; head != nil; head = head.next {
+		switch d := head.entry.Type.(type) {
+		case *pb.Persistent_CEntry:
+			cEntry := d.CEntry
+			ec.pendingEpochTarget = ec.target(cEntry.EpochConfig.Number)
+			ec.pendingEpochTarget.state = ready
+		case *pb.Persistent_EpochChange:
+			epochChange := d.EpochChange
+			parsedEpochChange, err := newParsedEpochChange(epochChange)
+			if err != nil {
+				panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
+			}
+
+			ec.pendingEpochTarget = ec.target(epochChange.NewEpoch)
+			ec.pendingEpochTarget.myEpochChange = parsedEpochChange
+			ec.pendingEpochTarget.myLeaderChoice = networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
+		case *pb.Persistent_NewEpochEcho:
+		case *pb.Persistent_NewEpochReady:
+		case *pb.Persistent_NewEpochStart:
+		case *pb.Persistent_Suspect:
+		}
+	}
+
+	return ec
 }
 
 func (ec *epochChanger) tick() *Actions {
@@ -1211,9 +1252,6 @@ func (et *epochTarget) status() *EpochTargetStatus {
 }
 
 func (ec *epochChanger) status() *EpochChangerStatus {
-
-	lastActiveEpoch := ec.lastActiveEpoch
-
 	targets := make([]*EpochTargetStatus, 0, len(ec.targets))
 	for number, target := range ec.targets {
 		ts := target.status()
@@ -1225,8 +1263,8 @@ func (ec *epochChanger) status() *EpochChangerStatus {
 	})
 
 	return &EpochChangerStatus{
+		LastActiveEpoch: ec.pendingEpochTarget.number,
 		State:           ec.pendingEpochTarget.state,
-		LastActiveEpoch: lastActiveEpoch,
 		EpochTargets:    targets,
 	}
 }

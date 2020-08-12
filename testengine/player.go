@@ -52,12 +52,25 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 					EpochConfig: &pb.EpochConfig{
 						Number:            0,
 						Leaders:           el.InitialConfig.Nodes,
-						PlannedExpiration: el.InitialConfig.MaxEpochLength,
+						PlannedExpiration: 0,
 					},
 				},
 			},
 		}, nil)
-		storage.LoadReturnsOnCall(1, nil, io.EOF)
+		storage.LoadReturnsOnCall(1, &pb.Persistent{
+			Type: &pb.Persistent_EpochChange{
+				EpochChange: &pb.EpochChange{
+					NewEpoch: 1,
+					Checkpoints: []*pb.Checkpoint{
+						{
+							SeqNo: 0,
+							Value: []byte("fake-initial-value"),
+						},
+					},
+				},
+			},
+		}, nil)
+		storage.LoadReturnsOnCall(2, nil, io.EOF)
 
 		node, err := mirbft.StartNode(
 			&mirbft.Config{

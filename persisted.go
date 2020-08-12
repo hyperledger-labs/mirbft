@@ -82,6 +82,16 @@ func loadPersisted(config *Config, storage Storage) (*persisted, error) {
 		case *pb.Persistent_CEntry:
 			persisted.lastCommitted = d.CEntry.SeqNo
 			persisted.addCEntry(d.CEntry)
+		case *pb.Persistent_EpochChange:
+			persisted.addEpochChange(d.EpochChange)
+		case *pb.Persistent_NewEpochEcho:
+			persisted.addNewEpochEcho(d.NewEpochEcho)
+		case *pb.Persistent_NewEpochReady:
+			persisted.addNewEpochReady(d.NewEpochReady)
+		case *pb.Persistent_NewEpochStart:
+			persisted.addNewEpochStart(d.NewEpochStart)
+		case *pb.Persistent_Suspect:
+			persisted.addSuspect(d.Suspect)
 		default:
 			panic("unrecognized data type")
 		}

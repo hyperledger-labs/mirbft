@@ -45,36 +45,13 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 	checkpointTracker := newCheckpointTracker(networkConfig, persisted, myConfig)
 	batchTracker := newBatchTracker() // TODO, populate batch tracker from persisted
 
-	checkpoints := []*pb.Checkpoint{}
-	for _, cEntry := range persisted.checkpoints {
-		if cEntry == nil {
-			break
-		}
-		checkpoints = append(checkpoints, &pb.Checkpoint{
-			SeqNo: cEntry.SeqNo,
-			Value: cEntry.CheckpointValue,
-		})
-	}
-	epochChange, err := newParsedEpochChange(&pb.EpochChange{
-		Checkpoints: checkpoints,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	epochChanger := &epochChanger{
-		persisted:     persisted,
-		myConfig:      myConfig,
-		networkConfig: networkConfig,
-		targets:       map[uint64]*epochTarget{},
-		batchTracker:  batchTracker,
-		clientWindows: clientWindows,
-	}
-
-	target := epochChanger.target(0)
-	target.myEpochChange = epochChange
-	target.myLeaderChoice = networkConfig.Nodes
-	epochChanger.pendingEpochTarget = target
+	epochChanger := newEpochChanger(
+		persisted,
+		networkConfig,
+		myConfig,
+		batchTracker,
+		clientWindows,
+	)
 
 	return &stateMachine{
 		myConfig:          myConfig,
@@ -284,7 +261,6 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig)
 	actions.Append(sm.activeEpoch.drainProposer())
 	sm.epochChanger.pendingEpochTarget.state = idle
-	sm.epochChanger.lastActiveEpoch = sm.epochChanger.pendingEpochTarget.number
 	for _, nodeMsgs := range sm.nodeMsgs {
 		nodeMsgs.setActiveEpoch(sm.activeEpoch)
 	}
