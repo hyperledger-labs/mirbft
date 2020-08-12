@@ -21,11 +21,29 @@ type batch struct {
 	requestAcks       []*pb.RequestAck
 }
 
-func newBatchTracker() *batchTracker {
-	return &batchTracker{
+func newBatchTracker(persisted *persisted) *batchTracker {
+	bt := &batchTracker{
 		batchesByDigest: map[string]*batch{},
 		fetchInFlight:   map[string][]uint64{},
 	}
+
+	for head := persisted.logHead; head != nil; head = head.next {
+		switch d := head.entry.Type.(type) {
+		case *pb.Persistent_QEntry:
+			qEntry := d.QEntry
+			acks := make([]*pb.RequestAck, len(qEntry.Requests))
+			for i, req := range qEntry.Requests {
+				acks[i] = &pb.RequestAck{
+					ClientId: req.Request.ClientId,
+					ReqNo:    req.Request.ReqNo,
+					Digest:   req.Digest,
+				}
+			}
+			bt.addBatch(qEntry.SeqNo, qEntry.Digest, acks)
+		}
+	}
+
+	return bt
 }
 
 func (bt *batchTracker) truncate(seqNo uint64) {

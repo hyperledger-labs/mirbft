@@ -43,7 +43,7 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 	}
 
 	checkpointTracker := newCheckpointTracker(networkConfig, persisted, myConfig)
-	batchTracker := newBatchTracker() // TODO, populate batch tracker from persisted
+	batchTracker := newBatchTracker(persisted)
 
 	epochChanger := newEpochChanger(
 		persisted,
