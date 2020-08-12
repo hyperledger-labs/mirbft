@@ -26,24 +26,29 @@ type checkpointTracker struct {
 	myConfig      *Config
 }
 
-func newCheckpointTracker(networkConfig *pb.NetworkConfig, persisted *persisted, myConfig *Config) *checkpointTracker {
+func newCheckpointTracker(persisted *persisted, myConfig *Config) *checkpointTracker {
 	ct := &checkpointTracker{
 		highestCheckpoint: map[NodeID]*checkpoint{}, // TODO, implement
 		checkpoints:       map[uint64]*checkpoint{},
-		networkConfig:     networkConfig,
 		myConfig:          myConfig,
 		persisted:         persisted,
 	}
 
-	for i, cp := range persisted.checkpoints {
-		if cp == nil {
-			break
+	for head := persisted.logHead; head != nil; head = head.next {
+		switch d := head.entry.Type.(type) {
+		case *pb.Persistent_CEntry:
+			cEntry := d.CEntry
+			ct.networkConfig = cEntry.NetworkConfig
+			pcp := ct.checkpoint(cEntry.SeqNo)
+			pcp.applyCheckpointMsg(NodeID(myConfig.ID), cEntry.CheckpointValue)
+			if len(ct.checkpoints) == 1 {
+				pcp.stable = true
+			}
 		}
-		pcp := ct.checkpoint(cp.SeqNo)
-		pcp.applyCheckpointMsg(NodeID(myConfig.ID), cp.CheckpointValue)
-		if i == 0 {
-			pcp.stable = true
-		}
+	}
+
+	if len(ct.checkpoints) == 0 {
+		panic("no checkpoints in log")
 	}
 
 	return ct

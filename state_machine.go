@@ -42,7 +42,7 @@ func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
 		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, clientWindows, oddities)
 	}
 
-	checkpointTracker := newCheckpointTracker(networkConfig, persisted, myConfig)
+	checkpointTracker := newCheckpointTracker(persisted, myConfig)
 	batchTracker := newBatchTracker(persisted)
 
 	epochChanger := newEpochChanger(
