@@ -24,42 +24,55 @@ type clientWindows struct {
 }
 
 func newClientWindows(persisted *persisted, myConfig *Config) *clientWindows {
-	var clientsState []*pb.NetworkState_Client
-	var networkConfig *pb.NetworkState_Config
-	for head := persisted.logHead; head != nil; head = head.next {
-		switch d := head.entry.Type.(type) {
-		case *pb.Persistent_CEntry:
-			// We want to grab the latest client state,
-			// but the most recently garbage collected network config
-			clientsState = d.CEntry.NetworkState.Clients
-			if networkConfig == nil {
-				networkConfig = d.CEntry.NetworkState.Config
-			}
-		case *pb.Persistent_QEntry:
-			// TODO recover requests from QSet/PSet
-		}
-	}
-
 	cws := &clientWindows{
-		myConfig:      myConfig,
-		networkConfig: networkConfig,
-		windows:       map[uint64]*clientWindow{},
-		readyList:     list.New(),
-		readyMap:      map[*clientReqNo]*list.Element{},
+		myConfig:  myConfig,
+		windows:   map[uint64]*clientWindow{},
+		readyList: list.New(),
+		readyMap:  map[*clientReqNo]*list.Element{},
 	}
 
 	clientWindowWidth := uint64(100) // XXX this should be configurable
 
-	for _, client := range clientsState {
-		lowWatermark := client.BucketLowWatermarks[0]
-		for _, blw := range client.BucketLowWatermarks {
-			if blw < lowWatermark {
-				lowWatermark = blw
+	batches := map[string][]*pb.ForwardRequest{}
+
+	for head := persisted.logHead; head != nil; head = head.next {
+		switch d := head.entry.Type.(type) {
+		case *pb.Persistent_CEntry:
+			// Note, we're guaranteed to see this first
+			if cws.networkConfig == nil {
+				cws.networkConfig = d.CEntry.NetworkState.Config
+
+				for _, client := range d.CEntry.NetworkState.Clients {
+					lowWatermark := client.BucketLowWatermarks[0]
+					for _, blw := range client.BucketLowWatermarks {
+						if blw < lowWatermark {
+							lowWatermark = blw
+						}
+					}
+
+					clientWindow := newClientWindow(client.Id, lowWatermark, lowWatermark+clientWindowWidth, d.CEntry.NetworkState.Config, myConfig)
+					cws.insert(client.Id, clientWindow)
+				}
+			}
+
+			// TODO, handle new clients added at checkpoints
+		case *pb.Persistent_QEntry:
+			batches[string(d.QEntry.Digest)] = d.QEntry.Requests
+		case *pb.Persistent_PEntry:
+			batch, ok := batches[string(d.PEntry.Digest)]
+			if !ok {
+				panic("dev sanity test")
+			}
+
+			for _, request := range batch {
+				clientReqNo := cws.windows[request.Request.ClientId].allocate(request.Request, request.Digest)
+				clientReqNo.strongRequest = clientReqNo.digests[string(request.Digest)]
 			}
 		}
+	}
 
-		clientWindow := newClientWindow(client.Id, lowWatermark, lowWatermark+clientWindowWidth, networkConfig, myConfig)
-		cws.insert(client.Id, clientWindow)
+	for _, clientID := range cws.clients {
+		cws.advanceReady(cws.windows[clientID])
 	}
 
 	return cws
@@ -135,6 +148,10 @@ func (cws *clientWindows) checkReady(clientWindow *clientWindow, ocrn *clientReq
 		return
 	}
 
+	cws.advanceReady(clientWindow)
+}
+
+func (cws *clientWindows) advanceReady(clientWindow *clientWindow) {
 	for i := clientWindow.nextReadyMark; i <= clientWindow.highWatermark; i++ {
 		crne, ok := clientWindow.reqNoMap[i]
 		if !ok {
@@ -173,6 +190,7 @@ func (cws *clientWindows) garbageCollect(seqNo uint64) {
 }
 
 func (cws *clientWindows) clientWindow(clientID uint64) (*clientWindow, bool) {
+	// TODO, we could do lazy initialization here
 	cw, ok := cws.windows[clientID]
 	return cw, ok
 }
