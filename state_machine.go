@@ -270,20 +270,22 @@ func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRea
 }
 
 func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
-	if !sm.checkpointTracker.applyCheckpointMsg(source, seqNo, value) {
+	sm.checkpointTracker.applyCheckpointMsg(source, seqNo, value)
+
+	if sm.checkpointTracker.state != cpsGarbageCollectable {
 		return &Actions{}
 	}
 
-	sm.clientWindows.garbageCollect(seqNo)
+	newLow := sm.checkpointTracker.garbageCollect()
 
-	if seqNo > uint64(sm.networkConfig.CheckpointInterval) {
+	sm.clientWindows.garbageCollect(newLow)
+	if newLow > uint64(sm.networkConfig.CheckpointInterval) {
 		// Note, we leave an extra checkpoint worth of batches around, to help
 		// during epoch change.
-		sm.batchTracker.truncate(seqNo - uint64(sm.networkConfig.CheckpointInterval))
+		sm.batchTracker.truncate(newLow - uint64(sm.networkConfig.CheckpointInterval))
 	}
-	sm.persisted.truncate(seqNo)
-	sm.checkpointTracker.truncate(seqNo)
-	actions := sm.activeEpoch.moveWatermarks(seqNo)
+	sm.persisted.truncate(newLow)
+	actions := sm.activeEpoch.moveWatermarks(newLow)
 	actions.Append(sm.drainNodeMsgs())
 	return actions
 }

@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"bytes"
+	"container/list"
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -27,12 +28,9 @@ const (
 type checkpointTracker struct {
 	state checkpointState
 
-	highestCheckpoint map[NodeID]*checkpoint
-
-	// checkpoints is a map of bounded size.  The map maintains a checkpoint
-	// so long as it is the highest checkpoint for some node, or, is currently
-	// within the watermarks.
-	checkpoints map[uint64]*checkpoint
+	highestCheckpoints map[NodeID]uint64
+	checkpointMap      map[uint64]*checkpoint
+	activeCheckpoints  *list.List
 
 	networkConfig *pb.NetworkState_Config
 	persisted     *persisted
@@ -41,10 +39,12 @@ type checkpointTracker struct {
 
 func newCheckpointTracker(persisted *persisted, myConfig *Config) *checkpointTracker {
 	ct := &checkpointTracker{
-		highestCheckpoint: map[NodeID]*checkpoint{}, // TODO, implement
-		checkpoints:       map[uint64]*checkpoint{},
-		myConfig:          myConfig,
-		persisted:         persisted,
+		highestCheckpoints: map[NodeID]uint64{},
+		checkpointMap:      map[uint64]*checkpoint{},
+		myConfig:           myConfig,
+		persisted:          persisted,
+		state:              cpsIdle,
+		activeCheckpoints:  list.New(),
 	}
 
 	for head := persisted.logHead; head != nil; head = head.next {
@@ -54,48 +54,124 @@ func newCheckpointTracker(persisted *persisted, myConfig *Config) *checkpointTra
 			if ct.networkConfig == nil {
 				ct.networkConfig = cEntry.NetworkState.Config
 			}
-			pcp := ct.checkpoint(cEntry.SeqNo)
-			pcp.nextState = cEntry.NetworkState
-			if !proto.Equal(pcp.nextState.Config, ct.networkConfig) {
+			if !proto.Equal(cEntry.NetworkState.Config, ct.networkConfig) {
 				// TODO, implement reconfig
+				ct.state = cpsPendingReconfig
 				panic("reconfig not yet supported")
 			}
-			pcp.applyCheckpointMsg(NodeID(myConfig.ID), cEntry.CheckpointValue)
-			if len(ct.checkpoints) == 1 {
-				pcp.stable = true
-			}
+			cp := ct.checkpoint(cEntry.SeqNo)
+			cp.nextState = cEntry.NetworkState
+			cp.applyCheckpointMsg(NodeID(myConfig.ID), cEntry.CheckpointValue)
+			ct.activeCheckpoints.PushBack(cp)
 		}
 	}
 
-	if len(ct.checkpoints) == 0 {
+	if ct.activeCheckpoints.Len() == 0 {
 		panic("no checkpoints in log")
 	}
+
+	ct.activeCheckpoints.Front().Value.(*checkpoint).stable = true
+
+	ct.garbageCollect()
 
 	return ct
 }
 
-func (ct *checkpointTracker) truncate(lowSeqNo uint64) {
-	for seqNo := range ct.checkpoints {
-		if seqNo < lowSeqNo {
-			delete(ct.checkpoints, seqNo)
+func (ct *checkpointTracker) garbageCollect() uint64 {
+	var highestStable *list.Element
+	for el := ct.activeCheckpoints.Front(); el != nil; el = el.Next() {
+		cp := el.Value.(*checkpoint)
+		if !cp.stable {
+			break
 		}
+
+		highestStable = el
 	}
+
+	for el := highestStable.Prev(); el != nil; el = highestStable.Prev() {
+		delete(ct.checkpointMap, el.Value.(*checkpoint).seqNo)
+		ct.activeCheckpoints.Remove(el)
+	}
+
+	for ct.activeCheckpoints.Len() < 3 {
+		nextCpSeq := ct.highWatermark() + uint64(ct.networkConfig.CheckpointInterval)
+		ct.activeCheckpoints.PushBack(ct.checkpoint(nextCpSeq))
+	}
+
+	ct.state = cpsIdle
+	return highestStable.Value.(*checkpoint).seqNo
 }
 
 func (ct *checkpointTracker) checkpoint(seqNo uint64) *checkpoint {
-	cp, ok := ct.checkpoints[seqNo]
+	cp, ok := ct.checkpointMap[seqNo]
 	if !ok {
-		cp = newCheckpoint(seqNo, ct.networkConfig, ct.persisted, ct.myConfig)
-		ct.checkpoints[seqNo] = cp
+		cp = &checkpoint{
+			seqNo:           seqNo,
+			verifyingConfig: ct.networkConfig,
+			persisted:       ct.persisted,
+			myConfig:        ct.myConfig,
+		}
+		ct.checkpointMap[seqNo] = cp
 	}
 
 	return cp
 }
 
-func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) bool {
-	cp := ct.checkpoint(seqNo)
+func (ct *checkpointTracker) highWatermark() uint64 {
+	return ct.activeCheckpoints.Back().Value.(*checkpoint).seqNo
+}
 
-	return cp.applyCheckpointMsg(source, value)
+func (ct *checkpointTracker) lowWatermark() uint64 {
+	return ct.activeCheckpoints.Front().Value.(*checkpoint).seqNo
+}
+
+func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) {
+	if seqNo < ct.lowWatermark() {
+		// We're already past this point
+		return
+	}
+
+	aboveHighWatermark := seqNo > ct.highWatermark()
+	if aboveHighWatermark {
+		highest, ok := ct.highestCheckpoints[source]
+		if ok && highest <= seqNo {
+			return
+		}
+
+		ct.highestCheckpoints[source] = seqNo
+	}
+
+	cp := ct.checkpoint(seqNo)
+	cp.applyCheckpointMsg(source, value)
+
+	if seqNo > ct.lowWatermark() && cp.stable == true {
+		ct.state = cpsGarbageCollectable
+		return
+	}
+
+	if !aboveHighWatermark {
+		return
+	}
+
+	// We just added a new entry to our highest checkpoints map,
+	// so we need to garbage collect any above window checkpoint
+	// references that no node claims is the most current anymore.
+
+	referencedCPs := map[uint64]struct{}{}
+
+	for el := ct.activeCheckpoints.Front(); el != nil; el.Next() {
+		referencedCPs[el.Value.(*checkpoint).seqNo] = struct{}{}
+	}
+
+	for _, seqNo := range ct.highestCheckpoints {
+		referencedCPs[seqNo] = struct{}{}
+	}
+
+	for seqNo := range ct.checkpointMap {
+		if _, ok := referencedCPs[seqNo]; !ok {
+			delete(ct.checkpointMap, seqNo)
+		}
+	}
 }
 
 func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte, epochConfig *pb.EpochConfig, nextConfig *pb.NetworkState) *Actions {
@@ -103,9 +179,9 @@ func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte, e
 }
 
 func (ct *checkpointTracker) status() []*CheckpointStatus {
-	result := make([]*CheckpointStatus, len(ct.checkpoints))
+	result := make([]*CheckpointStatus, len(ct.checkpointMap))
 	i := 0
-	for _, cp := range ct.checkpoints {
+	for _, cp := range ct.checkpointMap {
 		result[i] = cp.status()
 		i++
 	}
@@ -121,27 +197,21 @@ type checkpoint struct {
 	seqNo           uint64
 	myConfig        *Config
 	verifyingConfig *pb.NetworkState_Config
-	nextState       *pb.NetworkState
 	persisted       *persisted
 
 	values         map[string][]NodeID
 	committedValue []byte
 	myValue        []byte
+	nextState      *pb.NetworkState
 	stable         bool
 	obsolete       bool
 }
 
-func newCheckpoint(seqNo uint64, config *pb.NetworkState_Config, persisted *persisted, myConfig *Config) *checkpoint {
-	return &checkpoint{
-		seqNo:           seqNo,
-		verifyingConfig: config,
-		myConfig:        myConfig,
-		persisted:       persisted,
-		values:          map[string][]NodeID{},
-	}
-}
-
 func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
+	if cw.values == nil {
+		cw.values = map[string][]NodeID{}
+	}
+
 	stateChange := false
 
 	checkpointValueNodes := append(cw.values[string(value)], source)
