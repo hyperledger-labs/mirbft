@@ -124,7 +124,7 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 				actions.Append(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
 			case *pb.Msg_RequestAck:
 				msg := innerMsg.RequestAck
-				actions.Append(sm.applyRequestAckMsg(source, msg.ClientId, msg.ReqNo, msg.Digest))
+				actions.Append(sm.applyRequestAckMsg(source, msg))
 			case *pb.Msg_FetchBatch:
 				msg := innerMsg.FetchBatch
 				actions.Append(sm.batchTracker.replyFetchBatch(msg.SeqNo, msg.Digest))
@@ -359,17 +359,19 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) applyRequestAckMsg(source NodeID, clientID uint64, reqNo uint64, digest []byte) *Actions {
+func (sm *stateMachine) applyRequestAckMsg(source NodeID, ack *pb.RequestAck) *Actions {
 	// TODO, make sure nodeMsgs ignores this if client is not defined
 
-	sm.clientWindows.ack(source, clientID, reqNo, digest)
+	sm.clientWindows.ack(source, ack)
 
 	if sm.activeEpoch == nil {
 		return &Actions{}
 	}
 
 	sm.activeEpoch.proposer.stepAllClientWindows()
-	return sm.activeEpoch.drainProposer()
+	actions := sm.activeEpoch.outstandingReqs.advanceRequests()
+	actions.Append(sm.activeEpoch.drainProposer())
+	return actions
 }
 
 func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb.Request) *Actions {
@@ -380,7 +382,9 @@ func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb
 	}
 
 	sm.activeEpoch.proposer.stepAllClientWindows()
-	return sm.activeEpoch.drainProposer()
+	actions := sm.activeEpoch.outstandingReqs.advanceRequests()
+	actions.Append(sm.activeEpoch.drainProposer())
+	return actions
 }
 
 func (sm *stateMachine) clientWaiter(clientID uint64) *clientWaiter {

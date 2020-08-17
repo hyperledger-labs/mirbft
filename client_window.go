@@ -21,14 +21,16 @@ type clientWindows struct {
 	myConfig      *Config
 	readyList     *list.List
 	readyMap      map[*clientReqNo]*list.Element
+	correctList   *list.List // A list of requests which have f+1 ACKs and the requestData
 }
 
 func newClientWindows(persisted *persisted, myConfig *Config) *clientWindows {
 	cws := &clientWindows{
-		myConfig:  myConfig,
-		windows:   map[uint64]*clientWindow{},
-		readyList: list.New(),
-		readyMap:  map[*clientReqNo]*list.Element{},
+		myConfig:    myConfig,
+		windows:     map[uint64]*clientWindow{},
+		readyList:   list.New(),
+		readyMap:    map[*clientReqNo]*list.Element{},
+		correctList: list.New(),
 	}
 
 	clientWindowWidth := uint64(100) // XXX this should be configurable
@@ -65,7 +67,7 @@ func newClientWindows(persisted *persisted, myConfig *Config) *clientWindows {
 			}
 
 			for _, request := range batch {
-				clientReqNo := cws.windows[request.Request.ClientId].allocate(request.Request, request.Digest)
+				clientReqNo, _ := cws.windows[request.Request.ClientId].allocate(request.Request, request.Digest)
 				clientReqNo.strongRequest = clientReqNo.digests[string(request.Digest)]
 			}
 		}
@@ -113,13 +115,20 @@ func (cws *clientWindows) clientConfigs() []*pb.NetworkState_Client { // XXX I t
 	return clients
 }
 
-func (cws *clientWindows) ack(source NodeID, clientID, reqNo uint64, digest []byte) {
-	cw, ok := cws.windows[clientID]
+func (cws *clientWindows) ack(source NodeID, ack *pb.RequestAck) {
+	cw, ok := cws.windows[ack.ClientId]
 	if !ok {
 		panic("dev sanity test")
 	}
 
-	clientReqNo := cw.ack(source, reqNo, digest)
+	clientReqNo, newlyCorrectReq := cw.ack(source, ack.ReqNo, ack.Digest)
+
+	if newlyCorrectReq != nil {
+		cws.correctList.PushBack(&pb.ForwardRequest{
+			Request: newlyCorrectReq,
+			Digest:  ack.Digest,
+		})
+	}
 
 	cws.checkReady(cw, clientReqNo)
 }
@@ -130,7 +139,14 @@ func (cws *clientWindows) allocate(requestData *pb.Request, digest []byte) {
 		panic("dev sanity test")
 	}
 
-	clientReqNo := cw.allocate(requestData, digest)
+	clientReqNo, newlyCorrectReq := cw.allocate(requestData, digest)
+
+	if newlyCorrectReq != nil {
+		cws.correctList.PushBack(&pb.ForwardRequest{
+			Request: newlyCorrectReq,
+			Digest:  digest,
+		})
+	}
 
 	cws.checkReady(cw, clientReqNo)
 }
@@ -174,6 +190,8 @@ func (cws *clientWindows) garbageCollect(seqNo uint64) {
 	for _, id := range cws.clients {
 		cws.windows[id].garbageCollect(seqNo)
 	}
+
+	// TODO, gc the correctList
 
 	for el := cws.readyList.Front(); el != nil; {
 		oel := el
@@ -298,7 +316,7 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	}
 }
 
-func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) *clientReqNo {
+func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) (*clientReqNo, *pb.Request) {
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
 	}
@@ -325,14 +343,19 @@ func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) *clientR
 
 	cr.agreements[source] = struct{}{}
 
+	var newlyCorrectReq *pb.Request
+	if len(cr.agreements) == someCorrectQuorum(cw.networkConfig) {
+		newlyCorrectReq = cr.data
+	}
+
 	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
 		crn.strongRequest = cr
 	}
 
-	return crn
+	return crn, newlyCorrectReq
 }
 
-func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) *clientReqNo {
+func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) (*clientReqNo, *pb.Request) {
 	reqNo := requestData.ReqNo
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
@@ -359,11 +382,16 @@ func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) *client
 		crn.digests[string(digest)] = cr
 	}
 
+	var newlyCorrectReq *pb.Request
+	if len(cr.agreements) >= someCorrectQuorum(cw.networkConfig) {
+		newlyCorrectReq = requestData
+	}
+
 	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
 		crn.strongRequest = cr
 	}
 
-	return crn
+	return crn, newlyCorrectReq
 }
 
 func (cw *clientWindow) inWatermarks(reqNo uint64) bool {

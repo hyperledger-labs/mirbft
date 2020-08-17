@@ -50,6 +50,8 @@ var _ = XDescribe("sequence", func() {
 						Digest:   []byte("msg2-digest"),
 					},
 				},
+				nil, // TODO, should be non-nil
+				nil,
 			)
 
 			Expect(actions).To(Equal(&Actions{
@@ -123,6 +125,8 @@ var _ = XDescribe("sequence", func() {
 								Digest:   []byte("msg2-digest"),
 							},
 						},
+						nil, // TODO, should be non-nil
+						nil,
 					)
 				}
 				Expect(badTransition).To(Panic())

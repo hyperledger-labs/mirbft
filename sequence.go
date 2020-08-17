@@ -42,8 +42,12 @@ type sequence struct {
 	// batch is not set until after state >= Allocated
 	batch []*pb.RequestAck
 
+	// outstandingReqs is not set until after state >= Allocated and may never be set
+	// it is a map from request digest to index in the requestData slice
+	outstandingReqs map[string]int
+
 	// requestData is corresponding Requests reference in the batch, not available until state >= Ready
-	requestData []*pb.Request
+	requestData []*pb.ForwardRequest
 
 	// digest is the computed digest of the batch, may not be set until state > Ready
 	digest []byte
@@ -95,13 +99,15 @@ func (s *sequence) advanceState() *Actions {
 // allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
 // It transitions to Preprepared and returns a ValidationRequest message.
-func (s *sequence) allocate(requestAcks []*pb.RequestAck) *Actions {
+func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.ForwardRequest, outstandingReqs map[string]int) *Actions {
 	if s.state != Uninitialized {
 		s.myConfig.Logger.Panic("illegal state for allocate", zap.Int("State", int(s.state)), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
 	}
 
 	s.state = Allocated
 	s.batch = requestAcks
+	s.requestData = forwardReqs
+	s.outstandingReqs = outstandingReqs
 
 	if len(requestAcks) == 0 {
 		// This is a no-op batch, no need to compute a digest
@@ -136,45 +142,23 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck) *Actions {
 	return actions
 }
 
-func (s *sequence) checkRequests() {
-	requestData := make([]*pb.Request, len(s.batch))
-	someMissing := false
-	for i, requestAck := range s.batch {
-		cw, ok := s.clientWindows.clientWindow(requestAck.ClientId)
-		if !ok {
-			someMissing = true
-			continue
-		}
-
-		cr := cw.request(requestAck.ReqNo)
-		if cr == nil {
-			panic("this shouldn't happen, we should have already had a request forwarded")
-		}
-
-		clientRequest, ok := cr.digests[string(requestAck.Digest)]
-		if !ok {
-			panic("we should already have at least one ack by this point")
-		}
-
-		if len(clientRequest.agreements) < someCorrectQuorum(s.networkConfig) {
-			someMissing = true
-			continue
-		}
-
-		if clientRequest.data == nil {
-			someMissing = true
-			continue
-		}
-
-		requestData[i] = clientRequest.data
+func (s *sequence) satisfyOutstanding(fr *pb.ForwardRequest) *Actions {
+	i, ok := s.outstandingReqs[string(fr.Digest)]
+	if !ok {
+		panic("dev sanity check")
 	}
 
-	if someMissing {
+	s.requestData[i] = fr
+
+	return s.advanceState()
+}
+
+func (s *sequence) checkRequests() {
+	if len(s.outstandingReqs) > 0 {
 		return
 	}
 
 	s.state = Ready
-	s.requestData = requestData
 }
 
 func (s *sequence) applyProcessResult(digest []byte) *Actions {
@@ -185,18 +169,10 @@ func (s *sequence) applyProcessResult(digest []byte) *Actions {
 }
 
 func (s *sequence) prepare() *Actions {
-	forwardRequests := make([]*pb.ForwardRequest, len(s.batch))
-	for i, req := range s.batch {
-		forwardRequests[i] = &pb.ForwardRequest{
-			Request: s.requestData[i],
-			Digest:  req.Digest,
-		}
-	}
-
 	s.qEntry = &pb.QEntry{
 		SeqNo:    s.seqNo,
 		Digest:   s.digest,
-		Requests: forwardRequests,
+		Requests: s.requestData,
 	}
 
 	s.state = Preprepared

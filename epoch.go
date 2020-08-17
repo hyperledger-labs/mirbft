@@ -104,7 +104,7 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 
 	networkConfig := maxCheckpoint.NetworkState.Config
 
-	outstandingReqs := newOutstandingReqs(maxCheckpoint.NetworkState)
+	outstandingReqs := newOutstandingReqs(clientWindows, maxCheckpoint.NetworkState)
 
 	buckets := map[BucketID]NodeID{}
 
@@ -220,11 +220,14 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 
 	e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 
-	err = e.outstandingReqs.applyAcks(bucketID, batch)
+	// Note, this allocates the sequence inside, as we need to track
+	// outstanidng requests before transitioning the sequence to preprepared
+	actions, err := e.outstandingReqs.applyAcks(bucketID, seq, batch)
 	if err != nil {
 		panic(fmt.Sprintf("handle me, we need to stop the bucket and suspect: %s", err))
 	}
-	return seq.allocate(batch)
+
+	return actions
 }
 
 func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
