@@ -94,7 +94,46 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 
 	nodeMsgs.ingest(outerMsg)
 
-	return sm.drainNodeMsgs()
+	return sm.advance(sm.drainNodeMsgs())
+}
+
+func (sm *stateMachine) advance(actions *Actions) *Actions {
+	for _, commit := range actions.Commits {
+		for _, fr := range commit.QEntry.Requests {
+			cw, ok := sm.clientWindows.clientWindow(fr.Request.ClientId)
+			if !ok {
+				panic("we never should have committed this without the client available")
+			}
+			cw.request(fr.Request.ReqNo).committed = &commit.QEntry.SeqNo
+		}
+
+		checkpoint := commit.QEntry.SeqNo%uint64(sm.networkConfig.CheckpointInterval) == 0
+
+		if checkpoint {
+			commit.Checkpoint = true
+			commit.NetworkState = &pb.NetworkState{
+				Clients: sm.clientWindows.clientConfigs(),
+				Config:  sm.networkConfig,
+			}
+		} else {
+			commit.EpochConfig = nil
+		}
+
+		sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
+	}
+
+	if sm.epochChanger.pendingEpochTarget.state != ready {
+		return actions
+	}
+
+	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig)
+	actions.Append(sm.activeEpoch.drainProposer())
+	sm.epochChanger.pendingEpochTarget.state = idle
+	for _, nodeMsgs := range sm.nodeMsgs {
+		nodeMsgs.setActiveEpoch(sm.activeEpoch)
+	}
+
+	return actions
 }
 
 func (sm *stateMachine) drainNodeMsgs() *Actions {
@@ -175,7 +214,7 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 			case *pb.Msg_NewEpochEcho:
 				actions.Append(sm.epochChanger.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho))
 			case *pb.Msg_NewEpochReady:
-				actions.Append(sm.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
+				actions.Append(sm.epochChanger.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
 			default:
 				// This should be unreachable, as the nodeMsgs filters based on type as well
 				panic(fmt.Sprintf("unexpected bad message type %T, should have been detected earlier", msg.Type))
@@ -248,23 +287,6 @@ func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 			},
 		},
 	})
-
-	return actions
-}
-
-func (sm *stateMachine) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
-	actions := sm.epochChanger.applyNewEpochReadyMsg(source, msg)
-
-	if sm.epochChanger.pendingEpochTarget.state != ready {
-		return actions
-	}
-
-	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig)
-	actions.Append(sm.activeEpoch.drainProposer())
-	sm.epochChanger.pendingEpochTarget.state = idle
-	for _, nodeMsgs := range sm.nodeMsgs {
-		nodeMsgs.setActiveEpoch(sm.activeEpoch)
-	}
 
 	return actions
 }
@@ -356,7 +378,7 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 
 	actions.Append(sm.drainNodeMsgs())
 
-	return actions
+	return sm.advance(actions)
 }
 
 func (sm *stateMachine) applyRequestAckMsg(source NodeID, ack *pb.RequestAck) *Actions {

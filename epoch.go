@@ -137,7 +137,7 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 		seqNo := maxCheckpoint.SeqNo + uint64(i+1)
 		bucket := seqToBucket(seqNo, epochConfig, networkConfig)
 		owner := buckets[bucket]
-		sequences[i] = newSequence(owner, epochConfig.Number, seqNo, clientWindows, persisted, networkConfig, myConfig)
+		sequences[i] = newSequence(owner, epochConfig.Number, seqNo, persisted, networkConfig, myConfig)
 	}
 
 	for logEntry := startingEntry; logEntry != nil; logEntry = logEntry.next {
@@ -258,33 +258,11 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 			break
 		}
 
-		for _, reqForward := range e.sequences[e.lowestUncommitted].qEntry.Requests {
-			cw, ok := e.clientWindows.clientWindow(reqForward.Request.ClientId)
-			if !ok {
-				panic("we never should have committed this without the client available")
-			}
-			cw.request(reqForward.Request.ReqNo).committed = &seqNo
-		}
+		actions.Commits = append(actions.Commits, &Commit{
+			QEntry:      e.sequences[e.lowestUncommitted].qEntry,
+			EpochConfig: e.epochConfig,
+		})
 
-		checkpoint := e.sequences[e.lowestUncommitted].seqNo%uint64(e.networkConfig.CheckpointInterval) == 0
-
-		if checkpoint {
-			actions.Commits = append(actions.Commits, &Commit{
-				QEntry:     e.sequences[e.lowestUncommitted].qEntry,
-				Checkpoint: checkpoint,
-				NetworkState: &pb.NetworkState{
-					Config:  e.networkConfig,
-					Clients: e.clientWindows.clientConfigs(),
-				},
-				EpochConfig: e.epochConfig,
-			})
-		} else {
-			actions.Commits = append(actions.Commits, &Commit{
-				QEntry: e.sequences[e.lowestUncommitted].qEntry,
-			})
-		}
-
-		e.persisted.setLastCommitted(e.sequences[e.lowestUncommitted].seqNo)
 		e.lowestUncommitted++
 	}
 
@@ -315,7 +293,7 @@ func (e *epoch) moveWatermarks(seqNo uint64) *Actions {
 		seqNo := seqNo + uint64(2*ci+i+1)
 		epoch := e.epochConfig.Number
 		owner := e.buckets[e.seqToBucket(seqNo)]
-		e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.clientWindows, e.persisted, e.networkConfig, e.myConfig))
+		e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.persisted, e.networkConfig, e.myConfig))
 	}
 
 	if e.highWatermark()-e.lowWatermark() != uint64(ci)*3-1 {

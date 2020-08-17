@@ -549,29 +549,10 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 					continue
 				}
 
-				checkpoint := seqNo%uint64(et.networkConfig.CheckpointInterval) == 0
-
-				if checkpoint {
-					commits = append(commits, &Commit{
-						QEntry:     d.QEntry,
-						Checkpoint: checkpoint,
-						NetworkState: &pb.NetworkState{
-							Config:  et.networkConfig,
-							Clients: et.clientWindows.clientConfigs(),
-						},
-						EpochConfig: config.Config,
-					})
-				} else {
-					commits = append(commits, &Commit{
-						QEntry: d.QEntry,
-					})
-				}
-
-				for _, reqForward := range d.QEntry.Requests {
-					cw, _ := et.clientWindows.clientWindow(reqForward.Request.ClientId)
-					cw.request(reqForward.Request.ReqNo).committed = &seqNo
-				}
-				et.persisted.setLastCommitted(seqNo)
+				commits = append(commits, &Commit{
+					QEntry:      d.QEntry,
+					EpochConfig: config.Config,
+				})
 			case *pb.Persistent_EpochChange:
 				if d.EpochChange.NewEpoch < config.Config.Number {
 					continue
