@@ -18,8 +18,7 @@ func uint64ToBytes(value uint64) []byte {
 }
 
 type proposer struct {
-	myConfig      *Config
-	clientWindows *clientWindows
+	myConfig *Config
 
 	proposalBuckets map[BucketID]*proposalBucket
 }
