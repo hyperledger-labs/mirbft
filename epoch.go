@@ -168,8 +168,12 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 
 	e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 
+	if seq.owner == NodeID(e.myConfig.ID) {
+		return seq.applyPrepareMsg(source, seq.digest)
+	}
+
 	// Note, this allocates the sequence inside, as we need to track
-	// outstanidng requests before transitioning the sequence to preprepared
+	// outstanding requests before transitioning the sequence to preprepared
 	actions, err := e.outstandingReqs.applyAcks(bucketID, seq, batch)
 	if err != nil {
 		panic(fmt.Sprintf("handle me, we need to stop the bucket and suspect: %s", err))
@@ -289,25 +293,9 @@ func (e *epoch) drainProposer() *Actions {
 					Request: proposal.data,
 					Digest:  proposal.digest,
 				}
-
-				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-					Type: &pb.Msg_ForwardRequest{
-						ForwardRequest: forwardRequests[i],
-					},
-				})
 			}
 
-			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-				Type: &pb.Msg_Preprepare{
-					Preprepare: &pb.Preprepare{
-						SeqNo: seq.seqNo,
-						Epoch: seq.epoch,
-						Batch: requestAcks,
-					},
-				},
-			})
-
-			// XXX Missing QEntry
+			actions.Append(seq.allocate(requestAcks, forwardRequests, nil))
 
 			e.lowestOwnedUnallocated[int(bucketID)] += len(e.buckets)
 		}
@@ -367,9 +355,12 @@ func (e *epoch) tick() *Actions {
 			continue
 		}
 
+		seq := e.sequences[index]
+
 		prb := e.proposer.proposalBucket(BucketID(bucketID))
 
 		var batch []*pb.RequestAck
+		var forwardReqs []*pb.ForwardRequest
 
 		if prb.hasOutstanding() {
 			// TODO, roll this back into the proposer?
@@ -382,28 +373,14 @@ func (e *epoch) tick() *Actions {
 					Digest:   proposal.digest,
 				}
 
-				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-					Type: &pb.Msg_ForwardRequest{
-						ForwardRequest: &pb.ForwardRequest{
-							Request: proposal.data,
-							Digest:  proposal.digest,
-						},
-					},
-				})
+				forwardReqs[i] = &pb.ForwardRequest{
+					Request: proposal.data,
+					Digest:  proposal.digest,
+				}
 			}
 		}
 
-		actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-			Type: &pb.Msg_Preprepare{
-				Preprepare: &pb.Preprepare{
-					SeqNo: e.sequences[index].seqNo,
-					Epoch: e.sequences[index].epoch,
-					Batch: batch,
-				},
-			},
-		})
-
-		// XXX Missing QEntry
+		actions.Append(seq.allocate(batch, forwardReqs, nil))
 
 		e.lowestOwnedUnallocated[int(bucketID)] += len(e.buckets)
 	}

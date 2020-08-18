@@ -42,11 +42,11 @@ type sequence struct {
 	batch []*pb.RequestAck
 
 	// outstandingReqs is not set until after state >= Allocated and may never be set
-	// it is a map from request digest to index in the requestData slice
+	// it is a map from request digest to index in the forwardReqs slice
 	outstandingReqs map[string]int
 
-	// requestData is corresponding Requests reference in the batch, not available until state >= Ready
-	requestData []*pb.ForwardRequest
+	// forwardReqs is corresponding Requests reference in the batch, not available until state >= Ready
+	forwardReqs []*pb.ForwardRequest
 
 	// digest is the computed digest of the batch, may not be set until state > Ready
 	digest []byte
@@ -104,7 +104,7 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.Forw
 
 	s.state = Allocated
 	s.batch = requestAcks
-	s.requestData = forwardReqs
+	s.forwardReqs = forwardReqs
 	s.outstandingReqs = outstandingReqs
 
 	if len(requestAcks) == 0 {
@@ -146,7 +146,7 @@ func (s *sequence) satisfyOutstanding(fr *pb.ForwardRequest) *Actions {
 		panic("dev sanity check")
 	}
 
-	s.requestData[i] = fr
+	s.forwardReqs[i] = fr
 
 	return s.advanceState()
 }
@@ -170,28 +170,50 @@ func (s *sequence) prepare() *Actions {
 	s.qEntry = &pb.QEntry{
 		SeqNo:    s.seqNo,
 		Digest:   s.digest,
-		Requests: s.requestData,
+		Requests: s.forwardReqs,
 	}
 
 	s.state = Preprepared
 
-	if uint64(s.owner) == s.myConfig.ID {
-		return &Actions{}
-	}
+	var actions *Actions
 
-	actions := &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_Prepare{
-					Prepare: &pb.Prepare{
-						SeqNo:  s.seqNo,
-						Epoch:  s.epoch,
-						Digest: s.digest,
+	if uint64(s.owner) == s.myConfig.ID {
+		bcast := make([]*pb.Msg, len(s.forwardReqs)+1)
+		for i, fr := range s.forwardReqs {
+			bcast[i] = &pb.Msg{ // TODO, unicast only to those who need it
+				Type: &pb.Msg_ForwardRequest{
+					ForwardRequest: fr,
+				},
+			}
+		}
+		bcast[len(s.forwardReqs)] = &pb.Msg{
+			Type: &pb.Msg_Preprepare{
+				Preprepare: &pb.Preprepare{
+					SeqNo: s.seqNo,
+					Epoch: s.epoch,
+					Batch: s.batch,
+				},
+			},
+		}
+		actions = &Actions{
+			Broadcast: bcast,
+		}
+	} else {
+		actions = &Actions{
+			Broadcast: []*pb.Msg{
+				{
+					Type: &pb.Msg_Prepare{
+						Prepare: &pb.Prepare{
+							SeqNo:  s.seqNo,
+							Epoch:  s.epoch,
+							Digest: s.digest,
+						},
 					},
 				},
 			},
-		},
+		}
 	}
+
 	actions.Append(s.persisted.addQEntry(s.qEntry))
 
 	return actions
