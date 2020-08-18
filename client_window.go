@@ -115,6 +115,43 @@ func (cws *clientWindows) clientConfigs() []*pb.NetworkState_Client { // XXX I t
 	return clients
 }
 
+func (cws *clientWindows) replyFetchRequest(source NodeID, clientID, reqNo uint64, digest []byte) *Actions {
+	cw, ok := cws.clientWindow(clientID)
+	if !ok {
+		return &Actions{}
+	}
+
+	if !cw.inWatermarks(reqNo) {
+		return &Actions{}
+	}
+
+	creq := cw.request(reqNo)
+	data, ok := creq.digests[string(digest)]
+	if !ok {
+		return &Actions{}
+	}
+
+	if data.data == nil {
+		return &Actions{}
+	}
+
+	return &Actions{
+		Unicast: []Unicast{
+			{
+				Target: uint64(source),
+				Msg: &pb.Msg{
+					Type: &pb.Msg_ForwardRequest{
+						ForwardRequest: &pb.ForwardRequest{
+							Request: data.data,
+							Digest:  digest,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func (cws *clientWindows) ack(source NodeID, ack *pb.RequestAck) {
 	cw, ok := cws.windows[ack.ClientId]
 	if !ok {
