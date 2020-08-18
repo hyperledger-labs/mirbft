@@ -390,7 +390,6 @@ func (sm *stateMachine) applyRequestAckMsg(source NodeID, ack *pb.RequestAck) *A
 		return &Actions{}
 	}
 
-	sm.activeEpoch.proposer.stepAllClientWindows()
 	actions := sm.activeEpoch.outstandingReqs.advanceRequests()
 	actions.Append(sm.activeEpoch.drainProposer())
 	return actions
@@ -403,7 +402,6 @@ func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb
 		return &Actions{}
 	}
 
-	sm.activeEpoch.proposer.stepAllClientWindows()
 	actions := sm.activeEpoch.outstandingReqs.advanceRequests()
 	actions.Append(sm.activeEpoch.drainProposer())
 	return actions

@@ -20,16 +20,17 @@ func uint64ToBytes(value uint64) []byte {
 type proposer struct {
 	myConfig      *Config
 	clientWindows *clientWindows
-	lastReadyReq  *list.Element
 
-	totalBuckets    int
 	proposalBuckets map[BucketID]*proposalBucket
 }
 
 type proposalBucket struct {
-	queue     []*clientRequest
-	sizeBytes int
-	pending   [][]*clientRequest
+	totalBuckets int
+	lastReadyReq *list.Element
+	readyList    *list.List
+	requestCount int
+	pending      []*clientRequest
+	bucketID     BucketID
 }
 
 func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[BucketID]NodeID) *proposer {
@@ -38,79 +39,68 @@ func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[Buc
 		if nodeID != NodeID(myConfig.ID) {
 			continue
 		}
-		proposalBuckets[bucketID] = &proposalBucket{}
+		proposalBuckets[bucketID] = &proposalBucket{
+			bucketID:     bucketID,
+			totalBuckets: len(buckets),
+			readyList:    clientWindows.readyList,
+			requestCount: 1,
+			pending:      make([]*clientRequest, 0, 1), // TODO, might be interesting to play with not preallocating for performance reasons
+		}
 	}
 
 	return &proposer{
 		myConfig:        myConfig,
-		clientWindows:   clientWindows,
 		proposalBuckets: proposalBuckets,
-		totalBuckets:    len(buckets),
 	}
 }
 
-func (p *proposer) stepAllClientWindows() {
-	for {
+func (p *proposer) proposalBucket(bucketID BucketID) *proposalBucket {
+	return p.proposalBuckets[bucketID]
+}
+
+func (prb *proposalBucket) advance() {
+	for len(prb.pending) < prb.requestCount {
 		var nextReadyReq *list.Element
-		if p.lastReadyReq == nil {
-			nextReadyReq = p.clientWindows.readyList.Front()
+		if prb.lastReadyReq == nil {
+			nextReadyReq = prb.readyList.Front()
 		} else {
-			nextReadyReq = p.lastReadyReq.Next()
+			nextReadyReq = prb.lastReadyReq.Next()
 		}
 
 		if nextReadyReq == nil {
 			break
 		}
-		p.lastReadyReq = nextReadyReq
+
+		prb.lastReadyReq = nextReadyReq
 
 		crn := nextReadyReq.Value.(*clientReqNo)
-		bucket := BucketID((crn.reqNo + crn.clientID) % uint64(p.totalBuckets))
-
-		proposalBucket, ok := p.proposalBuckets[bucket]
-		if !ok {
-			// I don't lead this bucket this epoch
-			continue
-		}
-
 		if crn.committed != nil {
+			// This seems like an odd check, but the ready list is not constantly GC-ed
 			continue
 		}
 
-		proposalBucket.queue = append(proposalBucket.queue, crn.strongRequest)
-		proposalBucket.sizeBytes += len(crn.strongRequest.data.Data)
-		if proposalBucket.sizeBytes >= p.myConfig.BatchParameters.CutSizeBytes {
-			proposalBucket.pending = append(proposalBucket.pending, proposalBucket.queue)
-			proposalBucket.queue = nil
-			proposalBucket.sizeBytes = 0
+		bucket := BucketID((crn.reqNo + crn.clientID) % uint64(prb.totalBuckets))
+
+		if bucket != prb.bucketID {
+			continue
 		}
+
+		prb.pending = append(prb.pending, crn.strongRequest)
 	}
 }
 
-func (p *proposer) hasOutstanding(bucket BucketID) bool {
-	proposalBucket := p.proposalBuckets[bucket]
-
-	return len(proposalBucket.queue) > 0 || len(proposalBucket.pending) > 0
+func (prb *proposalBucket) hasOutstanding() bool {
+	prb.advance()
+	return len(prb.pending) > 0
 }
 
-func (p *proposer) hasPending(bucket BucketID) bool {
-	return len(p.proposalBuckets[bucket].pending) > 0
+func (prb *proposalBucket) hasPending() bool {
+	prb.advance()
+	return len(prb.pending) > 0 && len(prb.pending) == prb.requestCount
 }
 
-func (p *proposer) next(bucket BucketID) []*clientRequest {
-	proposalBucket := p.proposalBuckets[bucket]
-
-	if len(proposalBucket.pending) > 0 {
-		n := proposalBucket.pending[0]
-		proposalBucket.pending = proposalBucket.pending[1:]
-		return n
-	}
-
-	if len(proposalBucket.queue) > 0 {
-		n := proposalBucket.queue
-		proposalBucket.queue = nil
-		proposalBucket.sizeBytes = 0
-		return n
-	}
-
-	panic("called next when nothing outstanding")
+func (prb *proposalBucket) next() []*clientRequest {
+	result := prb.pending
+	prb.pending = make([]*clientRequest, 0, prb.requestCount)
+	return result
 }

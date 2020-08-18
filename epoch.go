@@ -125,7 +125,6 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 	lowestUncommitted := int(persisted.lastCommitted - maxCheckpoint.SeqNo)
 
 	proposer := newProposer(myConfig, clientWindows, buckets)
-	proposer.stepAllClientWindows()
 
 	return &epoch{
 		buckets:                buckets,
@@ -260,7 +259,9 @@ func (e *epoch) drainProposer() *Actions {
 			continue
 		}
 
-		for e.proposer.hasPending(bucketID) {
+		prb := e.proposer.proposalBucket(bucketID)
+
+		for prb.hasPending() {
 			i := e.lowestOwnedUnallocated[int(bucketID)]
 			if i >= len(e.sequences) {
 				break
@@ -273,44 +274,42 @@ func (e *epoch) drainProposer() *Actions {
 				break
 			}
 
-			if ownerID == NodeID(e.myConfig.ID) && e.proposer.hasPending(bucketID) {
-				// TODO, roll this back into the proposer?
-				proposals := e.proposer.next(bucketID)
-				requestAcks := make([]*pb.RequestAck, len(proposals))
-				forwardRequests := make([]*pb.ForwardRequest, len(proposals))
-				for i, proposal := range proposals {
-					requestAcks[i] = &pb.RequestAck{
-						ClientId: proposal.data.ClientId,
-						ReqNo:    proposal.data.ReqNo,
-						Digest:   proposal.digest,
-					}
+			// TODO, roll this back into the proposer?
+			proposals := prb.next()
+			requestAcks := make([]*pb.RequestAck, len(proposals))
+			forwardRequests := make([]*pb.ForwardRequest, len(proposals))
+			for i, proposal := range proposals {
+				requestAcks[i] = &pb.RequestAck{
+					ClientId: proposal.data.ClientId,
+					ReqNo:    proposal.data.ReqNo,
+					Digest:   proposal.digest,
+				}
 
-					forwardRequests[i] = &pb.ForwardRequest{
-						Request: proposal.data,
-						Digest:  proposal.digest,
-					}
-
-					actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-						Type: &pb.Msg_ForwardRequest{
-							ForwardRequest: forwardRequests[i],
-						},
-					})
+				forwardRequests[i] = &pb.ForwardRequest{
+					Request: proposal.data,
+					Digest:  proposal.digest,
 				}
 
 				actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-					Type: &pb.Msg_Preprepare{
-						Preprepare: &pb.Preprepare{
-							SeqNo: seq.seqNo,
-							Epoch: seq.epoch,
-							Batch: requestAcks,
-						},
+					Type: &pb.Msg_ForwardRequest{
+						ForwardRequest: forwardRequests[i],
 					},
 				})
-
-				// XXX Missing QEntry
-
-				e.lowestOwnedUnallocated[int(bucketID)] += len(e.buckets)
 			}
+
+			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+				Type: &pb.Msg_Preprepare{
+					Preprepare: &pb.Preprepare{
+						SeqNo: seq.seqNo,
+						Epoch: seq.epoch,
+						Batch: requestAcks,
+					},
+				},
+			})
+
+			// XXX Missing QEntry
+
+			e.lowestOwnedUnallocated[int(bucketID)] += len(e.buckets)
 		}
 	}
 
@@ -368,11 +367,13 @@ func (e *epoch) tick() *Actions {
 			continue
 		}
 
+		prb := e.proposer.proposalBucket(BucketID(bucketID))
+
 		var batch []*pb.RequestAck
 
-		if e.proposer.hasOutstanding(BucketID(bucketID)) {
+		if prb.hasOutstanding() {
 			// TODO, roll this back into the proposer?
-			proposals := e.proposer.next(BucketID(bucketID))
+			proposals := prb.next()
 			batch = make([]*pb.RequestAck, len(proposals))
 			for i, proposal := range proposals {
 				batch[i] = &pb.RequestAck{
