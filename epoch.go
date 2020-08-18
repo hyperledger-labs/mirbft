@@ -25,10 +25,9 @@ type epoch struct {
 	buckets   map[BucketID]NodeID
 	sequences []*sequence
 
-	ending                 bool // set when this epoch about to end gracefully
-	lowestUncommitted      int
-	lowestUnallocated      []int // index by bucket
-	lowestOwnedUnallocated []int // index by bucket
+	ending            bool // set when this epoch about to end gracefully
+	lowestUncommitted int
+	lowestUnallocated []int // index by bucket
 
 	lastCommittedAtTick uint64
 	ticksSinceProgress  int
@@ -76,10 +75,8 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 	}
 
 	lowestUnallocated := make([]int, len(buckets))
-	lowestOwnedUnallocated := make([]int, len(buckets))
 	for i := range lowestUnallocated {
 		lowestUnallocated[int(seqToBucket(maxCheckpoint.SeqNo+uint64(i+1), epochConfig, networkConfig))] = i
-		lowestOwnedUnallocated[int(seqToBucket(maxCheckpoint.SeqNo+uint64(i+1), epochConfig, networkConfig))] = i
 	}
 
 	sequences := make([]*sequence, logWidth(networkConfig))
@@ -104,7 +101,6 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 			}
 
 			lowestUnallocated[bucket] = offset + len(buckets)
-			lowestOwnedUnallocated[bucket] = offset + len(buckets)
 			sequences[offset].qEntry = d.QEntry
 			sequences[offset].digest = d.QEntry.Digest
 			sequences[offset].state = Preprepared
@@ -127,17 +123,16 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 	proposer := newProposer(myConfig, clientWindows, buckets)
 
 	return &epoch{
-		buckets:                buckets,
-		myConfig:               myConfig,
-		epochConfig:            epochConfig,
-		networkConfig:          networkConfig,
-		persisted:              persisted,
-		proposer:               proposer,
-		sequences:              sequences,
-		lowestUnallocated:      lowestUnallocated,
-		lowestOwnedUnallocated: lowestOwnedUnallocated,
-		lowestUncommitted:      lowestUncommitted,
-		outstandingReqs:        outstandingReqs,
+		buckets:           buckets,
+		myConfig:          myConfig,
+		epochConfig:       epochConfig,
+		networkConfig:     networkConfig,
+		persisted:         persisted,
+		proposer:          proposer,
+		sequences:         sequences,
+		lowestUnallocated: lowestUnallocated,
+		lowestUncommitted: lowestUncommitted,
+		outstandingReqs:   outstandingReqs,
 	}
 }
 
@@ -160,6 +155,11 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 		return &Actions{}
 	}
 
+	if seq.owner == NodeID(e.myConfig.ID) {
+		// We already performed the unallocated movement when we allocated the seq
+		return seq.applyPrepareMsg(source, seq.digest)
+	}
+
 	bucketID := e.seqToBucket(seqNo)
 
 	if offset != e.lowestUnallocated[int(bucketID)] {
@@ -167,10 +167,6 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 	}
 
 	e.lowestUnallocated[int(bucketID)] += len(e.buckets)
-
-	if seq.owner == NodeID(e.myConfig.ID) {
-		return seq.applyPrepareMsg(source, seq.digest)
-	}
 
 	// Note, this allocates the sequence inside, as we need to track
 	// outstanding requests before transitioning the sequence to preprepared
@@ -233,7 +229,6 @@ func (e *epoch) moveWatermarks(seqNo uint64) *Actions {
 	e.lowestUncommitted -= ci
 	for i := range e.lowestUnallocated {
 		e.lowestUnallocated[i] -= ci
-		e.lowestOwnedUnallocated[i] -= ci
 	}
 
 	if seqNo+3*uint64(ci)-1 == e.epochConfig.PlannedExpiration {
@@ -266,7 +261,7 @@ func (e *epoch) drainProposer() *Actions {
 		prb := e.proposer.proposalBucket(bucketID)
 
 		for prb.hasPending() {
-			i := e.lowestOwnedUnallocated[int(bucketID)]
+			i := e.lowestUnallocated[int(bucketID)]
 			if i >= len(e.sequences) {
 				break
 			}
@@ -297,7 +292,7 @@ func (e *epoch) drainProposer() *Actions {
 
 			actions.Append(seq.allocate(requestAcks, forwardRequests, nil))
 
-			e.lowestOwnedUnallocated[int(bucketID)] += len(e.buckets)
+			e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 		}
 	}
 
@@ -342,7 +337,7 @@ func (e *epoch) tick() *Actions {
 		return actions
 	}
 
-	for bucketID, index := range e.lowestOwnedUnallocated {
+	for bucketID, index := range e.lowestUnallocated {
 		if index >= len(e.sequences) {
 			continue
 		}
@@ -382,7 +377,7 @@ func (e *epoch) tick() *Actions {
 
 		actions.Append(seq.allocate(batch, forwardReqs, nil))
 
-		e.lowestOwnedUnallocated[int(bucketID)] += len(e.buckets)
+		e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 	}
 
 	return actions
