@@ -94,6 +94,27 @@ func (s *sequence) advanceState() *Actions {
 	}
 }
 
+func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *Actions {
+	requestAcks := make([]*pb.RequestAck, len(clientRequests))
+	forwardReqs := make([]*pb.ForwardRequest, len(clientRequests))
+	for i, clientRequest := range clientRequests {
+		requestAcks[i] = &pb.RequestAck{
+			ClientId: clientRequest.data.ClientId,
+			ReqNo:    clientRequest.data.ReqNo,
+			Digest:   clientRequest.digest,
+		}
+
+		forwardReqs[i] = &pb.ForwardRequest{
+			Request: clientRequest.data,
+			Digest:  clientRequest.digest,
+		}
+	}
+
+	// TODO, hold onto the clientRequests so that we know who to forward to
+
+	return s.allocate(requestAcks, forwardReqs, nil)
+}
+
 // allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
 // It transitions to Preprepared and returns a ValidationRequest message.

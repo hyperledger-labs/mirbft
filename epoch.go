@@ -273,24 +273,7 @@ func (e *epoch) drainProposer() *Actions {
 				break
 			}
 
-			// TODO, roll this back into the proposer?
-			proposals := prb.next()
-			requestAcks := make([]*pb.RequestAck, len(proposals))
-			forwardRequests := make([]*pb.ForwardRequest, len(proposals))
-			for i, proposal := range proposals {
-				requestAcks[i] = &pb.RequestAck{
-					ClientId: proposal.data.ClientId,
-					ReqNo:    proposal.data.ReqNo,
-					Digest:   proposal.digest,
-				}
-
-				forwardRequests[i] = &pb.ForwardRequest{
-					Request: proposal.data,
-					Digest:  proposal.digest,
-				}
-			}
-
-			actions.Append(seq.allocate(requestAcks, forwardRequests, nil))
+			actions.Append(seq.allocateAsOwner(prb.next()))
 
 			e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 		}
@@ -354,28 +337,13 @@ func (e *epoch) tick() *Actions {
 
 		prb := e.proposer.proposalBucket(BucketID(bucketID))
 
-		var batch []*pb.RequestAck
-		var forwardReqs []*pb.ForwardRequest
+		var clientReqs []*clientRequest
 
 		if prb.hasOutstanding() {
-			// TODO, roll this back into the proposer?
-			proposals := prb.next()
-			batch = make([]*pb.RequestAck, len(proposals))
-			for i, proposal := range proposals {
-				batch[i] = &pb.RequestAck{
-					ClientId: proposal.data.ClientId,
-					ReqNo:    proposal.data.ReqNo,
-					Digest:   proposal.digest,
-				}
-
-				forwardReqs[i] = &pb.ForwardRequest{
-					Request: proposal.data,
-					Digest:  proposal.digest,
-				}
-			}
+			clientReqs = prb.next()
 		}
 
-		actions.Append(seq.allocate(batch, forwardReqs, nil))
+		actions.Append(seq.allocateAsOwner(clientReqs))
 
 		e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 	}
