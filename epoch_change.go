@@ -27,7 +27,7 @@ const (
 	echoing           // Have received and validated a new-epoch, waiting for a quorum of echos
 	readying          // Have received a quorum of echos, waiting a on qourum of readies
 	ready             // New epoch is ready to begin
-	idle              // No pending change
+	inProgress        // No pending change
 	done              // We have sent an epoch change, ending this epoch for us
 )
 
@@ -600,7 +600,7 @@ func (et *epochTarget) advanceState() *Actions {
 		case readying: // Have received a quorum of echos, waiting a on qourum of readies
 			actions.Append(et.checkNewEpochReadyQuorum())
 		case ready: // New epoch is ready to begin
-		case idle: // No pending change
+		case inProgress: // No pending change
 		case done: // We have sent an epoch change, ending this epoch for us
 		default:
 			panic("dev sanity test")
@@ -612,13 +612,13 @@ func (et *epochTarget) advanceState() *Actions {
 }
 
 type epochChanger struct {
-	pendingEpochTarget *epochTarget
-	persisted          *persisted
-	networkConfig      *pb.NetworkState_Config
-	myConfig           *Config
-	batchTracker       *batchTracker
-	clientWindows      *clientWindows
-	targets            map[uint64]*epochTarget
+	activeEpoch   *epochTarget
+	persisted     *persisted
+	networkConfig *pb.NetworkState_Config
+	myConfig      *Config
+	batchTracker  *batchTracker
+	clientWindows *clientWindows
+	targets       map[uint64]*epochTarget
 }
 
 func newEpochChanger(
@@ -641,8 +641,8 @@ func newEpochChanger(
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_CEntry:
 			cEntry := d.CEntry
-			ec.pendingEpochTarget = ec.target(cEntry.EpochConfig.Number)
-			ec.pendingEpochTarget.state = ready
+			ec.activeEpoch = ec.target(cEntry.EpochConfig.Number)
+			ec.activeEpoch.state = ready
 		case *pb.Persistent_EpochChange:
 			epochChange := d.EpochChange
 			parsedEpochChange, err := newParsedEpochChange(epochChange)
@@ -650,9 +650,9 @@ func newEpochChanger(
 				panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 			}
 
-			ec.pendingEpochTarget = ec.target(epochChange.NewEpoch)
-			ec.pendingEpochTarget.myEpochChange = parsedEpochChange
-			ec.pendingEpochTarget.myLeaderChoice = networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
+			ec.activeEpoch = ec.target(epochChange.NewEpoch)
+			ec.activeEpoch.myEpochChange = parsedEpochChange
+			ec.activeEpoch.myLeaderChoice = networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
 		case *pb.Persistent_NewEpochEcho:
 		case *pb.Persistent_NewEpochReady:
 		case *pb.Persistent_NewEpochStart:
@@ -664,7 +664,7 @@ func newEpochChanger(
 }
 
 func (ec *epochChanger) tick() *Actions {
-	return ec.pendingEpochTarget.tick()
+	return ec.activeEpoch.tick()
 }
 
 func (ec *epochChanger) target(epoch uint64) *epochTarget {
@@ -709,7 +709,7 @@ func (ec *epochChanger) setPendingTarget(target *epochTarget) {
 			delete(ec.targets, number)
 		}
 	}
-	ec.pendingEpochTarget = target
+	ec.activeEpoch = target
 }
 
 func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
@@ -953,219 +953,6 @@ func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error
 	}, nil
 }
 
-func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64, epochChanges map[NodeID]*parsedEpochChange) *pb.NewEpochConfig {
-	type checkpointKey struct {
-		SeqNo uint64
-		Value string
-	}
-
-	checkpoints := map[checkpointKey][]NodeID{}
-
-	var newEpochNumber uint64 // TODO this is super-hacky
-
-	for nodeID, epochChange := range epochChanges {
-		newEpochNumber = epochChange.underlying.NewEpoch
-		for _, checkpoint := range epochChange.underlying.Checkpoints {
-
-			key := checkpointKey{
-				SeqNo: checkpoint.SeqNo,
-				Value: string(checkpoint.Value),
-			}
-
-			checkpoints[key] = append(checkpoints[key], nodeID)
-		}
-	}
-
-	var maxCheckpoint *checkpointKey
-
-	for key, supporters := range checkpoints {
-		key := key // shadow for when we take the pointer
-		if len(supporters) < someCorrectQuorum(config) {
-			continue
-		}
-
-		nodesWithLowerWatermark := 0
-		for _, epochChange := range epochChanges {
-			if epochChange.lowWatermark <= key.SeqNo {
-				nodesWithLowerWatermark++
-			}
-		}
-
-		if nodesWithLowerWatermark < intersectionQuorum(config) {
-			continue
-		}
-
-		if maxCheckpoint == nil {
-			maxCheckpoint = &key
-			continue
-		}
-
-		if maxCheckpoint.SeqNo > key.SeqNo {
-			continue
-		}
-
-		if maxCheckpoint.SeqNo == key.SeqNo {
-			panic(fmt.Sprintf("two correct quorums have different checkpoints for same seqno %d -- %x != %x", key.SeqNo, []byte(maxCheckpoint.Value), []byte(key.Value)))
-		}
-
-		maxCheckpoint = &key
-	}
-
-	if maxCheckpoint == nil {
-		return nil
-	}
-
-	newEpochConfig := &pb.NewEpochConfig{
-		Config: &pb.EpochConfig{
-			Number:            newEpochNumber,
-			Leaders:           newLeaders,
-			PlannedExpiration: maxCheckpoint.SeqNo + config.MaxEpochLength,
-		},
-		StartingCheckpoint: &pb.Checkpoint{
-			SeqNo: maxCheckpoint.SeqNo,
-			Value: []byte(maxCheckpoint.Value),
-		},
-		FinalPreprepares: make([][]byte, 2*config.CheckpointInterval),
-	}
-
-	anyNonNil := false
-
-	for seqNoOffset := range newEpochConfig.FinalPreprepares {
-		seqNo := uint64(seqNoOffset) + maxCheckpoint.SeqNo + 1
-
-		for _, nodeID := range config.Nodes {
-			nodeID := NodeID(nodeID)
-			// Note, it looks like we're re-implementing `range epochChanges` here,
-			// and we are, but doing so in a deterministic order.
-
-			epochChange, ok := epochChanges[nodeID]
-			if !ok {
-				continue
-			}
-
-			entry, ok := epochChange.pSet[seqNo]
-			if !ok {
-				continue
-			}
-
-			a1Count := 0
-			for _, iEpochChange := range epochChanges {
-				if iEpochChange.lowWatermark >= seqNo {
-					continue
-				}
-
-				iEntry, ok := iEpochChange.pSet[seqNo]
-				if !ok || iEntry.Epoch < entry.Epoch {
-					a1Count++
-					continue
-				}
-
-				if iEntry.Epoch > entry.Epoch {
-					continue
-				}
-
-				// Thus, iEntry.Epoch == entry.Epoch
-
-				if bytes.Equal(entry.Digest, iEntry.Digest) {
-					a1Count++
-				}
-			}
-
-			if a1Count < intersectionQuorum(config) {
-				continue
-			}
-
-			a2Count := 0
-			for _, iEpochChange := range epochChanges {
-				epochEntries, ok := iEpochChange.qSet[seqNo]
-				if !ok {
-					continue
-				}
-
-				for epoch, digest := range epochEntries {
-					if epoch < entry.Epoch {
-						continue
-					}
-
-					if !bytes.Equal(entry.Digest, digest) {
-						continue
-					}
-
-					a2Count++
-					break
-				}
-			}
-
-			if a2Count < someCorrectQuorum(config) {
-				continue
-			}
-
-			newEpochConfig.FinalPreprepares[seqNoOffset] = entry.Digest
-			break
-		}
-
-		if newEpochConfig.FinalPreprepares[seqNoOffset] != nil {
-			// Some entry from the pSet was selected for this bucketSeq
-			anyNonNil = true
-			continue
-		}
-
-		bCount := 0
-		for _, epochChange := range epochChanges {
-			if epochChange.lowWatermark >= seqNo {
-				continue
-			}
-
-			if _, ok := epochChange.pSet[seqNo]; !ok {
-				bCount++
-			}
-		}
-
-		if bCount < intersectionQuorum(config) {
-			// We could not satisfy condition A, or B, we need to wait
-			return nil
-		}
-	}
-
-	if !anyNonNil {
-		newEpochConfig.FinalPreprepares = nil
-	}
-
-	return newEpochConfig
-}
-
-func epochChangeHashData(epochChange *pb.EpochChange) [][]byte {
-	// [new_epoch, checkpoints, pSet, qSet]
-	hashData := make([][]byte, 1+len(epochChange.Checkpoints)*2+len(epochChange.PSet)*3+len(epochChange.QSet)*3)
-	hashData[0] = uint64ToBytes(epochChange.NewEpoch)
-
-	cpOffset := 1
-	for i, cp := range epochChange.Checkpoints {
-		hashData[cpOffset+2*i] = uint64ToBytes(cp.SeqNo)
-		hashData[cpOffset+2*i+1] = cp.Value
-	}
-
-	pEntryOffset := cpOffset + len(epochChange.Checkpoints)*2
-	for i, pEntry := range epochChange.PSet {
-		hashData[pEntryOffset+3*i] = uint64ToBytes(pEntry.Epoch)
-		hashData[pEntryOffset+3*i+1] = uint64ToBytes(pEntry.SeqNo)
-		hashData[pEntryOffset+3*i+2] = pEntry.Digest
-	}
-
-	qEntryOffset := pEntryOffset + len(epochChange.PSet)*3
-	for i, qEntry := range epochChange.QSet {
-		hashData[qEntryOffset+3*i] = uint64ToBytes(qEntry.Epoch)
-		hashData[qEntryOffset+3*i+1] = uint64ToBytes(qEntry.SeqNo)
-		hashData[qEntryOffset+3*i+2] = qEntry.Digest
-	}
-
-	if qEntryOffset+len(epochChange.QSet)*3 != len(hashData) {
-		panic("TODO, remove me, but this is bad")
-	}
-
-	return hashData
-}
-
 func (ec *epochChange) status(source uint64) *EpochChangeStatus {
 	status := &EpochChangeStatus{
 		Source: source,
@@ -1255,8 +1042,8 @@ func (ec *epochChanger) status() *EpochChangerStatus {
 	})
 
 	return &EpochChangerStatus{
-		LastActiveEpoch: ec.pendingEpochTarget.number,
-		State:           ec.pendingEpochTarget.state,
+		LastActiveEpoch: ec.activeEpoch.number,
+		State:           ec.activeEpoch.state,
 		EpochTargets:    targets,
 	}
 }

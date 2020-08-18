@@ -122,13 +122,13 @@ func (sm *stateMachine) advance(actions *Actions) *Actions {
 		sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
 	}
 
-	if sm.epochChanger.pendingEpochTarget.state != ready {
+	if sm.epochChanger.activeEpoch.state != ready {
 		return actions
 	}
 
 	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig)
 	actions.Append(sm.activeEpoch.drainProposer())
-	sm.epochChanger.pendingEpochTarget.state = idle
+	sm.epochChanger.activeEpoch.state = inProgress
 	for _, nodeMsgs := range sm.nodeMsgs {
 		nodeMsgs.setActiveEpoch(sm.activeEpoch)
 	}
@@ -359,8 +359,8 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 				// XXX this should not panic, but put to make dev easier
 			}
 			actions.Append(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
-			if sm.epochChanger.pendingEpochTarget.state == fetching {
-				actions.Append(sm.epochChanger.pendingEpochTarget.fetchNewEpochState())
+			if sm.epochChanger.activeEpoch.state == fetching {
+				actions.Append(sm.epochChanger.activeEpoch.fetchNewEpochState())
 			}
 		case request.EpochChange != nil:
 			epochChange := request.EpochChange
@@ -368,8 +368,8 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 		case request.VerifyBatch != nil:
 			verifyBatch := request.VerifyBatch
 			sm.batchTracker.applyVerifyBatchHashResult(hashResult.Digest, verifyBatch)
-			if !sm.batchTracker.hasFetchInFlight() && sm.epochChanger.pendingEpochTarget.state == fetching {
-				actions.Append(sm.epochChanger.pendingEpochTarget.fetchNewEpochState())
+			if !sm.batchTracker.hasFetchInFlight() && sm.epochChanger.activeEpoch.state == fetching {
+				actions.Append(sm.epochChanger.activeEpoch.fetchNewEpochState())
 			}
 		default:
 			panic("no hash result type set")

@@ -13,62 +13,14 @@ import (
 	"github.com/pkg/errors"
 )
 
-// intersectionQuorum is the number of nodes required to agree
-// such that any two sets intersected will each contain some same
-// correct node.  This is ceil((n+f+1)/2), which is equivalent to
-// (n+f+2)/2 under truncating integer math.
-func intersectionQuorum(nc *pb.NetworkState_Config) int {
-	return (len(nc.Nodes) + int(nc.F) + 2) / 2
-}
-
-// someCorrectQuorum is the number of nodes such that at least one of them is correct
-func someCorrectQuorum(nc *pb.NetworkState_Config) int {
-	return int(nc.F) + 1
-}
-
-// logWidth is the number of sequence numbers in the sliding window
-func logWidth(nc *pb.NetworkState_Config) int {
-	return 3 * int(nc.CheckpointInterval)
-}
-
-func initialSequence(epochConfig *pb.EpochConfig, networkConfig *pb.NetworkState_Config) uint64 {
-	if epochConfig.PlannedExpiration > networkConfig.MaxEpochLength {
-		return epochConfig.PlannedExpiration - networkConfig.MaxEpochLength + 1
-	}
-	return 1
-}
-
-func seqToBucket(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkState_Config) BucketID {
-	return BucketID((seqNo - initialSequence(ec, nc)) % uint64(nc.NumberOfBuckets))
-}
-
-func (e *epoch) seqToBucket(seqNo uint64) BucketID {
-	return seqToBucket(seqNo, e.epochConfig, e.networkConfig)
-}
-
-func seqToColumn(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkState_Config) uint64 {
-	return (seqNo-initialSequence(ec, nc))/uint64(nc.NumberOfBuckets) + 1
-}
-
-/*
-func (ec *epochConfig) seqToBucketColumn(seqNo uint64) (BucketID, uint64) {
-	return ec.seqToBucket(seqNo), ec.seqToColumn(seqNo)
-}
-
-func (ec *epochConfig) colBucketToSeq(column uint64, bucket BucketID) uint64 {
-	return ec.initialSequence + (column-1)*uint64(len(ec.buckets)) + uint64(bucket)
-}
-*/
-
 type epoch struct {
-	// config contains the static components of the epoch
 	epochConfig   *pb.EpochConfig
 	networkConfig *pb.NetworkState_Config
 	myConfig      *Config
 
-	proposer      *proposer
-	persisted     *persisted
-	clientWindows *clientWindows
+	outstandingReqs *allOutstandingReqs
+	proposer        *proposer
+	persisted       *persisted
 
 	buckets   map[BucketID]NodeID
 	sequences []*sequence
@@ -77,8 +29,6 @@ type epoch struct {
 	lowestUncommitted      int
 	lowestUnallocated      []int // index by bucket
 	lowestOwnedUnallocated []int // index by bucket
-
-	outstandingReqs *allOutstandingReqs
 
 	lastCommittedAtTick uint64
 	ticksSinceProgress  int
@@ -182,7 +132,6 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Conf
 		myConfig:               myConfig,
 		epochConfig:            epochConfig,
 		networkConfig:          networkConfig,
-		clientWindows:          clientWindows,
 		persisted:              persisted,
 		proposer:               proposer,
 		sequences:              sequences,
