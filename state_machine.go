@@ -109,6 +109,19 @@ func (sm *stateMachine) completeInitialization() {
 	sm.state = smInitialized
 }
 
+func (sm *stateMachine) applyEvent(stateEvent *pb.StateEvent) *Actions {
+	if sm.state != smInitialized {
+		panic("cannot apply events to an uninitialized state machine")
+		// TODO, initialize via events in the future.
+	}
+
+	switch stateEvent.Type.(type) {
+	case *pb.StateEvent_Tick:
+		return sm.tick()
+	}
+	return &Actions{}
+}
+
 func (sm *stateMachine) propose(requestData *pb.Request) *Actions {
 	data := [][]byte{
 		uint64ToBytes(requestData.ClientId),

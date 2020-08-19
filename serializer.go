@@ -120,35 +120,38 @@ func (s *serializer) run() {
 	}
 	var actionsC chan<- Actions
 	for {
+		var stateEvent *pb.StateEvent
+
 		select {
 		case data := <-s.propC:
-			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "proposal"))
 			actions.Append(s.stateMachine.propose(data))
 		case req := <-s.clientC:
 			req.replyC <- s.stateMachine.clientWaiter(req.clientID)
 		case step := <-s.stepC:
-			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "step"))
 			actions.Append(s.stateMachine.step(NodeID(step.Source), step.Msg))
 		case actionsC <- *actions:
-			// s.stateMachine.myConfig.Logger.Debug("serializer sent actions")
 			actions.Clear()
 			actionsC = nil
 			continue
 		case results := <-s.resultsC:
-			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "results"))
 			actions.Append(s.stateMachine.processResults(results))
 		case statusReq := <-s.statusC:
-			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "status"))
 			select {
 			case statusReq <- s.stateMachine.status():
 			case <-s.doneC:
 			}
 		case <-s.tickC:
-			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "tick"))
-			actions.Append(s.stateMachine.tick())
+			stateEvent = &pb.StateEvent{
+				Type: &pb.StateEvent_Tick{
+					Tick: &pb.StateEvent_TickElapsed{},
+				},
+			}
 		case <-s.doneC:
-			// s.stateMachine.myConfig.Logger.Debug("serializer receiving", zap.String("type", "done"))
 			return
+		}
+
+		if stateEvent != nil {
+			actions.Append(s.stateMachine.applyEvent(stateEvent))
 		}
 
 		// We unconditionally re-enable the actions channel after any event is injected into the system

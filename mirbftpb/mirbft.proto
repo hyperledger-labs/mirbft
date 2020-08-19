@@ -312,14 +312,14 @@ message StateEvent {
             Msg msg = 2;
     }
 
-    message Tick {}
+    message TickElapsed {}
 
     oneof type {
         ActionResults add_results = 1;
         Actions ready = 2;
         Request propose = 3;
         InboundMsg step = 4;
-	Tick tick = 5;
+	TickElapsed tick = 5;
     }
 }
 
