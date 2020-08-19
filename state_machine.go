@@ -176,33 +176,11 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 			case *pb.Msg_ForwardRequest:
 				if source == NodeID(sm.myConfig.ID) {
 					// We've already pre-processed this
+					// TODO, once we implement unicasting to only those
+					// who don't know this should go away.
 					continue
 				}
-				msg := innerMsg.ForwardRequest
-				cw, ok := sm.clientWindows.clientWindow(msg.Request.ClientId)
-				if ok {
-					// TODO, make sure that we only allow one vote per replica for a reqno
-					if cr := cw.request(msg.Request.ReqNo); cr != nil {
-						req, ok := cr.digests[string(msg.Digest)]
-						req.agreements[source] = struct{}{}
-						if ok && req.data != nil {
-							continue
-						}
-					}
-				}
-
-				actions.Hash = append(actions.Hash, &HashRequest{
-					Data: [][]byte{
-						uint64ToBytes(msg.Request.ClientId),
-						uint64ToBytes(msg.Request.ReqNo),
-						msg.Request.Data,
-					},
-					VerifyRequest: &VerifyRequest{
-						Source:         uint64(source),
-						Request:        msg.Request,
-						ExpectedDigest: msg.Digest,
-					},
-				})
+				actions.Append(sm.clientWindows.applyForwardRequest(source, innerMsg.ForwardRequest))
 			case *pb.Msg_Suspect:
 				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 			case *pb.Msg_EpochChange:

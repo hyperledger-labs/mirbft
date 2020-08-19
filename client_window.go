@@ -152,6 +152,40 @@ func (cws *clientWindows) replyFetchRequest(source NodeID, clientID, reqNo uint6
 	}
 }
 
+func (cws *clientWindows) applyForwardRequest(source NodeID, msg *pb.ForwardRequest) *Actions {
+	cw, ok := cws.clientWindow(msg.Request.ClientId)
+	if !ok {
+		// TODO log oddity
+		return &Actions{}
+	}
+
+	// TODO, make sure that we only allow one vote per replica for a reqno, or bounded
+	cr := cw.request(msg.Request.ReqNo)
+	req, ok := cr.digests[string(msg.Digest)]
+	if !ok || req.data != nil {
+		return &Actions{}
+	}
+
+	req.agreements[source] = struct{}{}
+
+	return &Actions{
+		Hash: []*HashRequest{
+			{
+				Data: [][]byte{
+					uint64ToBytes(msg.Request.ClientId),
+					uint64ToBytes(msg.Request.ReqNo),
+					msg.Request.Data,
+				},
+				VerifyRequest: &VerifyRequest{
+					Source:         uint64(source),
+					Request:        msg.Request,
+					ExpectedDigest: msg.Digest,
+				},
+			},
+		},
+	}
+}
+
 func (cws *clientWindows) ack(source NodeID, ack *pb.RequestAck) {
 	cw, ok := cws.windows[ack.ClientId]
 	if !ok {
