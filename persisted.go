@@ -1,5 +1,6 @@
 /*
 Copyright IBM Corp. All Rights Reserved.
+
 SPDX-License-Identifier: Apache-2.0
 */
 
@@ -7,10 +8,8 @@ package mirbft
 
 import (
 	"fmt"
-	"io"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/pkg/errors"
 )
 
 //go:generate counterfeiter -o mock/storage.go -fake-name Storage . Storage
@@ -53,63 +52,6 @@ func (p *persisted) appendLogEntry(entry *pb.Persistent) {
 		}
 		p.logTail = p.logTail.next
 	}
-}
-
-func loadPersisted(config *Config, storage Storage) (*persisted, error) {
-	persisted := newPersisted(config)
-
-	var data *pb.Persistent
-	var err error
-	var index uint64
-
-	var checkpoints []*pb.CEntry
-
-	for {
-		data, err = storage.Load(index)
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			return nil, errors.Errorf("failed to load persisted from Storage: %s", err)
-		}
-
-		switch d := data.Type.(type) {
-		case *pb.Persistent_PEntry:
-			persisted.addPEntry(d.PEntry)
-		case *pb.Persistent_QEntry:
-			persisted.addQEntry(d.QEntry)
-		case *pb.Persistent_CEntry:
-			checkpoints = append(checkpoints, d.CEntry)
-			persisted.lastCommitted = d.CEntry.SeqNo
-			persisted.addCEntry(d.CEntry)
-		case *pb.Persistent_EpochChange:
-			persisted.addEpochChange(d.EpochChange)
-		case *pb.Persistent_NewEpochEcho:
-			persisted.addNewEpochEcho(d.NewEpochEcho)
-		case *pb.Persistent_NewEpochReady:
-			persisted.addNewEpochReady(d.NewEpochReady)
-		case *pb.Persistent_NewEpochStart:
-			persisted.addNewEpochStart(d.NewEpochStart)
-		case *pb.Persistent_Suspect:
-			persisted.addSuspect(d.Suspect)
-		default:
-			panic("unrecognized data type")
-		}
-		index++
-	}
-
-	if len(checkpoints) == 0 {
-		panic("no checkpoints in log")
-	}
-
-	if len(checkpoints) > 3 {
-		checkpoints = checkpoints[len(checkpoints)-3:]
-	}
-
-	persisted.truncate(checkpoints[0].SeqNo)
-
-	return persisted, nil
 }
 
 func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {

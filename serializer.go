@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"io"
 	"sync"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -44,7 +45,27 @@ type serializer struct {
 	stateMachine *stateMachine
 }
 
-func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serializer {
+func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*serializer, error) {
+	sm := &stateMachine{}
+	sm.initialize(myConfig)
+
+	var index uint64
+	for {
+		data, err := storage.Load(index)
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return nil, errors.Errorf("failed to load persisted from Storage: %s", err)
+		}
+
+		sm.applyPersisted(data)
+		index++
+	}
+
+	sm.completeInitialization()
+
 	s := &serializer{
 		actionsC:     make(chan Actions),
 		doneC:        doneC,
@@ -55,10 +76,10 @@ func newSerializer(stateMachine *stateMachine, doneC <-chan struct{}) *serialize
 		stepC:        make(chan step),
 		tickC:        make(chan struct{}),
 		errC:         make(chan struct{}),
-		stateMachine: stateMachine,
+		stateMachine: sm,
 	}
 	go s.run()
-	return s
+	return s, nil
 }
 
 func (s *serializer) getExitErr() error {

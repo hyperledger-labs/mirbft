@@ -303,17 +303,15 @@ func (e *epoch) tick() *Actions {
 	actions := &Actions{}
 
 	if e.ticksSinceProgress > e.myConfig.SuspectTicks {
-		actions.Append(&Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_Suspect{
-						Suspect: &pb.Suspect{
-							Epoch: e.epochConfig.Number,
-						},
-					},
-				},
+		suspect := &pb.Suspect{
+			Epoch: e.epochConfig.Number,
+		}
+		actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+			Type: &pb.Msg_Suspect{
+				Suspect: suspect,
 			},
 		})
+		actions.Append(e.persisted.addSuspect(suspect))
 	}
 
 	if e.myConfig.HeartbeatTicks == 0 || e.ticksSinceProgress%e.myConfig.HeartbeatTicks != 0 {

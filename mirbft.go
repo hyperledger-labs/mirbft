@@ -167,20 +167,14 @@ func StartNode(
 	doneC <-chan struct{},
 	storage Storage,
 ) (*Node, error) {
-	persisted, err := loadPersisted(config, storage)
+	serializer, err := newSerializer(config, storage, doneC)
 	if err != nil {
 		return nil, errors.Errorf("failed to start new node: %s", err)
 	}
 
 	return &Node{
 		Config: config,
-		s: newSerializer(
-			newStateMachine(
-				config,
-				persisted,
-			),
-			doneC,
-		),
+		s:      serializer,
 	}, nil
 }
 

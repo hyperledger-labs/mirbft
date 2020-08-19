@@ -318,17 +318,20 @@ func (et *epochTarget) tickPending() *Actions {
 		}
 	} else {
 		if pendingTicks == 0 {
-			return &Actions{
+			suspect := &pb.Suspect{
+				Epoch: et.myNewEpoch.NewConfig.Config.Number,
+			}
+			actions := &Actions{
 				Broadcast: []*pb.Msg{
 					{
 						Type: &pb.Msg_Suspect{
-							Suspect: &pb.Suspect{
-								Epoch: et.myNewEpoch.NewConfig.Config.Number,
-							},
+							Suspect: suspect,
 						},
 					},
 				},
 			}
+			actions.Append(et.persisted.addSuspect(suspect))
+			return actions
 		}
 		if pendingTicks%2 == 0 {
 			return et.repeatEpochChangeBroadcast()

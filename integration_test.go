@@ -19,8 +19,8 @@ import (
 
 var _ = XDescribe("Integration", func() {
 	var (
-		serializer     *serializer
-		stateMachine   *stateMachine
+		srlzr          *serializer
+		sm             *stateMachine
 		epochConfig    *pb.EpochConfig
 		networkState   *pb.NetworkState
 		consumerConfig *Config
@@ -53,8 +53,8 @@ var _ = XDescribe("Integration", func() {
 		tDesc := CurrentGinkgoTestDescription()
 		if tDesc.Failed {
 			fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
-			fmt.Printf("\nStatus of statemachine:\n%s\n", stateMachine.status().Pretty())
-			exitErr := serializer.getExitErr()
+			fmt.Printf("\nStatus of statemachine:\n%s\n", sm.status().Pretty())
+			exitErr := srlzr.getExitErr()
 			if exitErr != nil {
 				fmt.Printf("Serializer had exit error: %s\n", exitErr)
 			}
@@ -95,22 +95,40 @@ var _ = XDescribe("Integration", func() {
 				},
 			)
 
-			stateMachine = newStateMachine(consumerConfig, persisted)
-			stateMachine.activeEpoch = newEpoch(persisted, stateMachine.clientWindows, consumerConfig)
-			stateMachine.nodeMsgs[0].setActiveEpoch(stateMachine.activeEpoch)
+			sm = &stateMachine{
+				myConfig:  consumerConfig,
+				persisted: persisted,
+				state:     smLoadingPersisted,
+			}
+			sm.completeInitialization()
 
-			serializer = newSerializer(stateMachine, doneC)
+			sm.activeEpoch = newEpoch(persisted, sm.clientWindows, consumerConfig)
+			sm.nodeMsgs[0].setActiveEpoch(sm.activeEpoch)
+
+			srlzr = &serializer{
+				actionsC:     make(chan Actions),
+				doneC:        doneC,
+				propC:        make(chan *pb.Request),
+				clientC:      make(chan *clientReq),
+				resultsC:     make(chan ActionResults),
+				statusC:      make(chan chan<- *Status),
+				stepC:        make(chan step),
+				tickC:        make(chan struct{}),
+				errC:         make(chan struct{}),
+				stateMachine: sm,
+			}
+
 		})
 
 		It("works from proposal through commit", func() {
 			By("proposing a message")
-			serializer.propC <- &pb.Request{
+			srlzr.propC <- &pb.Request{
 				ClientId: 9,
 				ReqNo:    51,
 				Data:     []byte("data"),
 			}
 			actions := &Actions{}
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}},
 				Hash: []*HashRequest{
@@ -133,7 +151,7 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("returning a processed version of the proposal")
-			serializer.resultsC <- ActionResults{
+			srlzr.resultsC <- ActionResults{
 				Digests: []*HashResult{
 					{
 						Digest: []byte("request-digest"),
@@ -155,7 +173,7 @@ var _ = XDescribe("Integration", func() {
 					},
 				},
 			}
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}},
 				Broadcast: []*pb.Msg{
@@ -172,12 +190,12 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("applying our own ack")
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 0,
 				Msg:    actions.Broadcast[0],
 			}
 
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}},
 				Broadcast: []*pb.Msg{
@@ -232,11 +250,11 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("broadcasting the pre-prepare to myself")
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 0,
 				Msg:    actions.Broadcast[1],
 			}
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}},
 				Hash: []*HashRequest{
@@ -261,7 +279,7 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("returning a the process result for the batch")
-			serializer.resultsC <- ActionResults{
+			srlzr.resultsC <- ActionResults{
 				Digests: []*HashResult{
 					{
 						Request: &HashRequest{
@@ -286,7 +304,7 @@ var _ = XDescribe("Integration", func() {
 					},
 				},
 			}
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}},
 				Broadcast: []*pb.Msg{
@@ -313,11 +331,11 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("broadcasting the commit to myself")
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 0,
 				Msg:    actions.Broadcast[0],
 			}
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}},
 				Commits: []*Commit{
@@ -377,28 +395,43 @@ var _ = XDescribe("Integration", func() {
 					EpochConfig:     epochConfig,
 				},
 			)
-			stateMachine = newStateMachine(consumerConfig, persisted)
-			stateMachine.activeEpoch = newEpoch(persisted, stateMachine.clientWindows, consumerConfig)
-			stateMachine.activeEpoch.sequences[0].state = Committed
-			stateMachine.activeEpoch.lowestUncommitted = 1
-			stateMachine.nodeMsgs[0].setActiveEpoch(stateMachine.activeEpoch)
-			stateMachine.nodeMsgs[1].setActiveEpoch(stateMachine.activeEpoch)
-			stateMachine.nodeMsgs[2].setActiveEpoch(stateMachine.activeEpoch)
-			stateMachine.nodeMsgs[3].setActiveEpoch(stateMachine.activeEpoch)
+			sm = &stateMachine{
+				myConfig:  consumerConfig,
+				persisted: persisted,
+				state:     smLoadingPersisted,
+			}
+			sm.completeInitialization()
+			sm.activeEpoch = newEpoch(persisted, sm.clientWindows, consumerConfig)
+			sm.activeEpoch.sequences[0].state = Committed
+			sm.activeEpoch.lowestUncommitted = 1
+			sm.nodeMsgs[0].setActiveEpoch(sm.activeEpoch)
+			sm.nodeMsgs[1].setActiveEpoch(sm.activeEpoch)
+			sm.nodeMsgs[2].setActiveEpoch(sm.activeEpoch)
+			sm.nodeMsgs[3].setActiveEpoch(sm.activeEpoch)
 
-			serializer = newSerializer(stateMachine, doneC)
-
+			srlzr = &serializer{
+				actionsC:     make(chan Actions),
+				doneC:        doneC,
+				propC:        make(chan *pb.Request),
+				clientC:      make(chan *clientReq),
+				resultsC:     make(chan ActionResults),
+				statusC:      make(chan chan<- *Status),
+				stepC:        make(chan step),
+				tickC:        make(chan struct{}),
+				errC:         make(chan struct{}),
+				stateMachine: sm,
+			}
 		})
 
 		It("works from proposal through commit", func() {
 			By("proposing a message")
-			serializer.propC <- &pb.Request{
+			srlzr.propC <- &pb.Request{
 				ClientId: 9,
 				ReqNo:    1,
 				Data:     []byte("data"),
 			}
 			actions := &Actions{}
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Hash: []*HashRequest{
@@ -421,7 +454,7 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("returning a processed version of the proposal")
-			serializer.resultsC <- ActionResults{
+			srlzr.resultsC <- ActionResults{
 				Digests: []*HashResult{
 					{
 						Digest: []byte("request-digest"),
@@ -443,7 +476,7 @@ var _ = XDescribe("Integration", func() {
 					},
 				},
 			}
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Broadcast: []*pb.Msg{
@@ -460,7 +493,7 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("applying our own ack and receiving two acks for the request")
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 0,
 				Msg: &pb.Msg{
 					Type: &pb.Msg_RequestAck{
@@ -472,7 +505,7 @@ var _ = XDescribe("Integration", func() {
 					},
 				},
 			}
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 1,
 				Msg: &pb.Msg{
 					Type: &pb.Msg_RequestAck{
@@ -484,7 +517,7 @@ var _ = XDescribe("Integration", func() {
 					},
 				},
 			}
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 2,
 				Msg: &pb.Msg{
 					Type: &pb.Msg_RequestAck{
@@ -498,7 +531,7 @@ var _ = XDescribe("Integration", func() {
 			}
 
 			By("faking a preprepare from the leader")
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 3,
 				Msg: &pb.Msg{
 					Type: &pb.Msg_Preprepare{
@@ -516,7 +549,7 @@ var _ = XDescribe("Integration", func() {
 					},
 				},
 			}
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Hash: []*HashRequest{
@@ -541,7 +574,7 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("returning a digest for the batch")
-			serializer.resultsC <- ActionResults{
+			srlzr.resultsC <- ActionResults{
 				Digests: []*HashResult{
 					{
 						Request: &HashRequest{
@@ -565,7 +598,7 @@ var _ = XDescribe("Integration", func() {
 					},
 				},
 			}
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Broadcast: []*pb.Msg{
@@ -602,17 +635,17 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("broadcasting the prepare to myself, and from one other node")
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 0,
 				Msg:    actions.Broadcast[0],
 			}
 
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 2,
 				Msg:    actions.Broadcast[0],
 			}
 
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Broadcast: []*pb.Msg{
@@ -639,22 +672,22 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("broadcasting the commit to myself, and from two other nodes")
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 0,
 				Msg:    actions.Broadcast[0],
 			}
 
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 2,
 				Msg:    actions.Broadcast[0],
 			}
 
-			serializer.stepC <- step{
+			srlzr.stepC <- step{
 				Source: 3,
 				Msg:    actions.Broadcast[0],
 			}
 
-			Eventually(serializer.actionsC).Should(Receive(actions))
+			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
 				Replicas: []Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}},
 				Commits: []*Commit{

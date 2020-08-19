@@ -15,7 +15,17 @@ import (
 	"go.uber.org/zap"
 )
 
+type stateMachineState int
+
+const (
+	smUninitialized stateMachineState = iota
+	smLoadingPersisted
+	smInitialized
+)
+
 type stateMachine struct {
+	state stateMachineState
+
 	myConfig      *Config
 	networkConfig *pb.NetworkState_Config
 	nodeMsgs      map[NodeID]*nodeMsgs
@@ -28,42 +38,75 @@ type stateMachine struct {
 	persisted         *persisted
 }
 
-func newStateMachine(myConfig *Config, persisted *persisted) *stateMachine {
+func (sm *stateMachine) initialize(myConfig *Config) {
+	if sm.state != smUninitialized {
+		panic("state machine has already been initialized")
+	}
+
+	sm.myConfig = myConfig
+	sm.state = smLoadingPersisted
+	sm.persisted = newPersisted(myConfig)
+}
+
+func (sm *stateMachine) applyPersisted(entry *pb.Persistent) {
+	if sm.state != smLoadingPersisted {
+		panic("state machine has already finished loading persisted data")
+	}
+
+	sm.persisted.appendLogEntry(entry)
+}
+
+func (sm *stateMachine) completeInitialization() {
+	if sm.state != smLoadingPersisted {
+		panic("state machine has already finished loading persisted data")
+	}
+
+	var checkpoints []*pb.CEntry
+	for el := sm.persisted.logHead; el != nil; el = el.next {
+		cEntryType, ok := el.entry.Type.(*pb.Persistent_CEntry)
+		if !ok {
+			continue
+		}
+
+		checkpoints = append(checkpoints, cEntryType.CEntry)
+	}
+
+	if len(checkpoints) == 0 {
+		panic("no checkpoints in log")
+	}
+
+	if len(checkpoints) > 3 {
+		checkpoints = checkpoints[len(checkpoints)-3:]
+	}
+
+	sm.persisted.truncate(checkpoints[0].SeqNo)
+	sm.persisted.lastCommitted = checkpoints[len(checkpoints)-1].SeqNo
+
 	oddities := &oddities{
-		logger: myConfig.Logger,
+		logger: sm.myConfig.Logger,
 	}
 
-	checkpointTracker := newCheckpointTracker(persisted, myConfig)
+	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig)
+	sm.clientWindows = newClientWindows(sm.persisted, sm.myConfig)
 
-	networkConfig := checkpointTracker.networkConfig
+	sm.networkConfig = sm.checkpointTracker.networkConfig
 
-	clientWindows := newClientWindows(persisted, myConfig)
-
-	nodeMsgs := map[NodeID]*nodeMsgs{}
-	for _, id := range networkConfig.Nodes {
-		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, myConfig, clientWindows, oddities)
+	sm.nodeMsgs = map[NodeID]*nodeMsgs{}
+	for _, id := range sm.networkConfig.Nodes {
+		sm.nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), sm.networkConfig, sm.myConfig, sm.clientWindows, oddities)
 	}
 
-	batchTracker := newBatchTracker(persisted)
+	sm.batchTracker = newBatchTracker(sm.persisted)
 
-	epochChanger := newEpochChanger(
-		persisted,
-		networkConfig,
-		myConfig,
-		batchTracker,
-		clientWindows,
+	sm.epochChanger = newEpochChanger(
+		sm.persisted,
+		sm.networkConfig,
+		sm.myConfig,
+		sm.batchTracker,
+		sm.clientWindows,
 	)
 
-	return &stateMachine{
-		myConfig:          myConfig,
-		networkConfig:     networkConfig,
-		epochChanger:      epochChanger,
-		batchTracker:      batchTracker,
-		checkpointTracker: checkpointTracker,
-		nodeMsgs:          nodeMsgs,
-		clientWindows:     clientWindows,
-		persisted:         persisted,
-	}
+	sm.state = smInitialized
 }
 
 func (sm *stateMachine) propose(requestData *pb.Request) *Actions {
