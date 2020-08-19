@@ -301,8 +301,6 @@ message StateEvent {
             repeated CheckpointResult checkpoints = 2;
     }
 
-    message Actions {}
-
     message Proposal {
             Request request = 1;
     }
@@ -316,10 +314,9 @@ message StateEvent {
 
     oneof type {
         ActionResults add_results = 1;
-        Actions ready = 2;
-        Request propose = 3;
-        InboundMsg step = 4;
-	TickElapsed tick = 5;
+        Request propose = 2;
+        InboundMsg step = 3;
+	TickElapsed tick = 4;
     }
 }
 
