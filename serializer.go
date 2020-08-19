@@ -16,11 +16,6 @@ import (
 	// "go.uber.org/zap"
 )
 
-type step struct {
-	Source uint64
-	Msg    *pb.Msg
-}
-
 type clientReq struct {
 	clientID uint64
 	replyC   chan *clientWaiter
@@ -35,7 +30,7 @@ type serializer struct {
 	propC    chan *pb.Request
 	resultsC chan ActionResults
 	statusC  chan chan<- *Status
-	stepC    chan step
+	stepC    chan *pb.StateEvent_Step
 	tickC    chan struct{}
 	errC     chan struct{}
 
@@ -73,7 +68,7 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 		clientC:      make(chan *clientReq),
 		resultsC:     make(chan ActionResults),
 		statusC:      make(chan chan<- *Status),
-		stepC:        make(chan step),
+		stepC:        make(chan *pb.StateEvent_Step),
 		tickC:        make(chan struct{}),
 		errC:         make(chan struct{}),
 		stateMachine: sm,
@@ -128,7 +123,9 @@ func (s *serializer) run() {
 		case req := <-s.clientC:
 			req.replyC <- s.stateMachine.clientWaiter(req.clientID)
 		case step := <-s.stepC:
-			actions.Append(s.stateMachine.step(NodeID(step.Source), step.Msg))
+			stateEvent = &pb.StateEvent{
+				Type: step,
+			}
 		case actionsC <- *actions:
 			actions.Clear()
 			actionsC = nil

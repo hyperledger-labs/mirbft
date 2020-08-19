@@ -115,9 +115,14 @@ func (sm *stateMachine) applyEvent(stateEvent *pb.StateEvent) *Actions {
 		// TODO, initialize via events in the future.
 	}
 
-	switch stateEvent.Type.(type) {
+	switch event := stateEvent.Type.(type) {
 	case *pb.StateEvent_Tick:
 		return sm.tick()
+	case *pb.StateEvent_Step:
+		return sm.step(
+			NodeID(event.Step.Source),
+			event.Step.Msg,
+		)
 	}
 	return &Actions{}
 }

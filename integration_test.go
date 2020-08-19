@@ -112,7 +112,7 @@ var _ = XDescribe("Integration", func() {
 				clientC:      make(chan *clientReq),
 				resultsC:     make(chan ActionResults),
 				statusC:      make(chan chan<- *Status),
-				stepC:        make(chan step),
+				stepC:        make(chan *pb.StateEvent_Step),
 				tickC:        make(chan struct{}),
 				errC:         make(chan struct{}),
 				stateMachine: sm,
@@ -190,9 +190,11 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("applying our own ack")
-			srlzr.stepC <- step{
-				Source: 0,
-				Msg:    actions.Broadcast[0],
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 0,
+					Msg:    actions.Broadcast[0],
+				},
 			}
 
 			Eventually(srlzr.actionsC).Should(Receive(actions))
@@ -250,9 +252,11 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("broadcasting the pre-prepare to myself")
-			srlzr.stepC <- step{
-				Source: 0,
-				Msg:    actions.Broadcast[1],
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 0,
+					Msg:    actions.Broadcast[1],
+				},
 			}
 			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
@@ -331,9 +335,11 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("broadcasting the commit to myself")
-			srlzr.stepC <- step{
-				Source: 0,
-				Msg:    actions.Broadcast[0],
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 0,
+					Msg:    actions.Broadcast[0],
+				},
 			}
 			Eventually(srlzr.actionsC).Should(Receive(actions))
 			Expect(actions).To(Equal(&Actions{
@@ -416,7 +422,7 @@ var _ = XDescribe("Integration", func() {
 				clientC:      make(chan *clientReq),
 				resultsC:     make(chan ActionResults),
 				statusC:      make(chan chan<- *Status),
-				stepC:        make(chan step),
+				stepC:        make(chan *pb.StateEvent_Step),
 				tickC:        make(chan struct{}),
 				errC:         make(chan struct{}),
 				stateMachine: sm,
@@ -493,56 +499,64 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("applying our own ack and receiving two acks for the request")
-			srlzr.stepC <- step{
-				Source: 0,
-				Msg: &pb.Msg{
-					Type: &pb.Msg_RequestAck{
-						RequestAck: &pb.RequestAck{
-							ClientId: 9,
-							ReqNo:    1,
-							Digest:   []byte("request-digest"),
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 0,
+					Msg: &pb.Msg{
+						Type: &pb.Msg_RequestAck{
+							RequestAck: &pb.RequestAck{
+								ClientId: 9,
+								ReqNo:    1,
+								Digest:   []byte("request-digest"),
+							},
 						},
 					},
 				},
 			}
-			srlzr.stepC <- step{
-				Source: 1,
-				Msg: &pb.Msg{
-					Type: &pb.Msg_RequestAck{
-						RequestAck: &pb.RequestAck{
-							ClientId: 9,
-							ReqNo:    1,
-							Digest:   []byte("request-digest"),
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 1,
+					Msg: &pb.Msg{
+						Type: &pb.Msg_RequestAck{
+							RequestAck: &pb.RequestAck{
+								ClientId: 9,
+								ReqNo:    1,
+								Digest:   []byte("request-digest"),
+							},
 						},
 					},
 				},
 			}
-			srlzr.stepC <- step{
-				Source: 2,
-				Msg: &pb.Msg{
-					Type: &pb.Msg_RequestAck{
-						RequestAck: &pb.RequestAck{
-							ClientId: 9,
-							ReqNo:    1,
-							Digest:   []byte("request-digest"),
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 2,
+					Msg: &pb.Msg{
+						Type: &pb.Msg_RequestAck{
+							RequestAck: &pb.RequestAck{
+								ClientId: 9,
+								ReqNo:    1,
+								Digest:   []byte("request-digest"),
+							},
 						},
 					},
 				},
 			}
 
 			By("faking a preprepare from the leader")
-			srlzr.stepC <- step{
-				Source: 3,
-				Msg: &pb.Msg{
-					Type: &pb.Msg_Preprepare{
-						Preprepare: &pb.Preprepare{
-							Epoch: 2,
-							SeqNo: 2,
-							Batch: []*pb.RequestAck{
-								{
-									ClientId: 9,
-									ReqNo:    1,
-									Digest:   []byte("request-digest"),
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 3,
+					Msg: &pb.Msg{
+						Type: &pb.Msg_Preprepare{
+							Preprepare: &pb.Preprepare{
+								Epoch: 2,
+								SeqNo: 2,
+								Batch: []*pb.RequestAck{
+									{
+										ClientId: 9,
+										ReqNo:    1,
+										Digest:   []byte("request-digest"),
+									},
 								},
 							},
 						},
@@ -635,14 +649,18 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("broadcasting the prepare to myself, and from one other node")
-			srlzr.stepC <- step{
-				Source: 0,
-				Msg:    actions.Broadcast[0],
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 0,
+					Msg:    actions.Broadcast[0],
+				},
 			}
 
-			srlzr.stepC <- step{
-				Source: 2,
-				Msg:    actions.Broadcast[0],
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 2,
+					Msg:    actions.Broadcast[0],
+				},
 			}
 
 			Eventually(srlzr.actionsC).Should(Receive(actions))
@@ -672,19 +690,25 @@ var _ = XDescribe("Integration", func() {
 			}))
 
 			By("broadcasting the commit to myself, and from two other nodes")
-			srlzr.stepC <- step{
-				Source: 0,
-				Msg:    actions.Broadcast[0],
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 0,
+					Msg:    actions.Broadcast[0],
+				},
 			}
 
-			srlzr.stepC <- step{
-				Source: 2,
-				Msg:    actions.Broadcast[0],
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 2,
+					Msg:    actions.Broadcast[0],
+				},
 			}
 
-			srlzr.stepC <- step{
-				Source: 3,
-				Msg:    actions.Broadcast[0],
+			srlzr.stepC <- &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: 3,
+					Msg:    actions.Broadcast[0],
+				},
 			}
 
 			Eventually(srlzr.actionsC).Should(Receive(actions))

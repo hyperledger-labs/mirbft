@@ -251,8 +251,15 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 		return err
 	}
 
+	stepEvent := &pb.StateEvent_Step{
+		Step: &pb.StateEvent_InboundMsg{
+			Source: source,
+			Msg:    msg,
+		},
+	}
+
 	select {
-	case n.s.stepC <- step{Source: source, Msg: msg}:
+	case n.s.stepC <- stepEvent:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
