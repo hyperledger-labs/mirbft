@@ -42,7 +42,7 @@ func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[Buc
 			bucketID:     bucketID,
 			totalBuckets: len(buckets),
 			readyList:    clientWindows.readyList,
-			requestCount: 1,
+			requestCount: myConfig.BatchParameters.BatchSize,
 			pending:      make([]*clientRequest, 0, 1), // TODO, might be interesting to play with not preallocating for performance reasons
 		}
 	}

@@ -275,7 +275,7 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 			ID:     uint64(i),
 			Logger: logger.Named(fmt.Sprintf("node%d", i)),
 			BatchParameters: mirbft.BatchParameters{
-				CutSizeBytes: 1,
+				BatchSize: 1,
 			},
 			SuspectTicks:         4,
 			NewEpochTimeoutTicks: 8,

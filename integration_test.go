@@ -38,7 +38,7 @@ var _ = XDescribe("Integration", func() {
 			ID:     0,
 			Logger: logger,
 			BatchParameters: BatchParameters{
-				CutSizeBytes: 1,
+				BatchSize: 1,
 			},
 			BufferSize: 500,
 		}

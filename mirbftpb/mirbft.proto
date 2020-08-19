@@ -292,3 +292,82 @@ message NewEpochEcho {
 message NewEpochReady {
     NewEpochConfig new_config = 1;
 }
+
+// StateEvent represents an event occurring inside of the state machine
+// and is used for tracing and debugging purposes only.
+message StateEvent {
+    message ActionResults {
+            repeated HashResult digests = 1;
+            repeated CheckpointResult checkpoints = 2;
+    }
+
+    message Actions {}
+
+    message Proposal {
+            Request request = 1;
+    }
+
+    message InboundMsg {
+            uint64 source = 1;
+            Msg msg = 2;
+    }
+
+    message Tick {}
+
+    oneof type {
+        ActionResults add_results = 1;
+        Actions ready = 2;
+        Request propose = 3;
+        InboundMsg step = 4;
+	Tick tick = 5;
+    }
+}
+
+message HashResult {
+    message Request {
+        uint64 source = 1;
+        mirbftpb.Request request = 2;
+    }
+
+    message VerifyRequest { 
+        uint64 source = 1;
+        mirbftpb.Request request = 2;
+        bytes expected_digest = 3;
+    }
+
+    message Batch {
+        uint64 source = 1;
+        uint64 epoch = 2;
+        uint64 seq_no = 3;
+        repeated mirbftpb.RequestAck request_acks = 5;
+    }
+
+    message VerifyBatch { 
+        uint64 source = 1;
+        uint64 seq_no = 2;
+        repeated mirbftpb.RequestAck request_acks = 3;
+        bytes expected_digest = 4;
+    }
+
+    message EpochChange {
+        uint64 source = 1;
+        uint64 origin = 2;
+        mirbftpb.EpochChange epoch_change = 3;
+    }
+
+    bytes digest = 1;
+    oneof type {
+        Request request = 2;
+        Batch batch = 3;
+        EpochChange epoch_change = 4;
+        VerifyBatch verify_batch = 5;
+        VerifyRequest verify_request = 6;
+    }
+}
+
+message CheckpointResult {
+        QEntry q_entry = 1;
+        NetworkState network_state = 2;
+        EpochConfig epoch_config = 3;
+        bytes value = 4;
+}

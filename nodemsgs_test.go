@@ -38,7 +38,7 @@ var _ = Describe("NodeMsg", func() {
 			ID:     uint64(0),
 			Logger: zap.NewExample(),
 			BatchParameters: BatchParameters{
-				CutSizeBytes: 1,
+				BatchSize: 1,
 			},
 			SuspectTicks:         4,
 			NewEpochTimeoutTicks: 8,

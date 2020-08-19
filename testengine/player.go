@@ -77,7 +77,7 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 				ID:     nodeConfig.Id,
 				Logger: logger.Named(fmt.Sprintf("node%d", nodeConfig.Id)),
 				BatchParameters: mirbft.BatchParameters{
-					CutSizeBytes: 1,
+					BatchSize: 1,
 				},
 				SuspectTicks:         int(nodeConfig.SuspectTicks),
 				NewEpochTimeoutTicks: int(nodeConfig.NewEpochTimeoutTicks),

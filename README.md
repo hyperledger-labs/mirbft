@@ -28,7 +28,7 @@ config := &mirbft.Config{
 	ID:     uint64(i),
 	Logger: zap.NewProduction(),
 	BatchParameters: mirbft.BatchParameters{
-		CutSizeBytes: 1,
+		BatchSize: 1,
 	},
 }
 
