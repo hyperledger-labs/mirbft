@@ -114,7 +114,9 @@ func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.Request) 
 	}
 
 	select {
-	case cp.s.propC <- requestData:
+	case cp.s.propC <- &pb.StateEvent_Proposal{
+		Request: requestData,
+	}:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

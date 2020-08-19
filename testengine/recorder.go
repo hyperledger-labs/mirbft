@@ -308,46 +308,46 @@ func (r *Recording) Step() error {
 				Digest: hasher.Sum(nil),
 			}
 
-			switch {
-			case hashRequest.Request != nil:
+			switch hashType := hashRequest.Origin.Type.(type) {
+			case *pb.HashResult_Request_:
 				apply.Digests[i].Type = &tpb.HashResult_Request{
 					Request: &tpb.Request{
-						Source:  hashRequest.Request.Source,
-						Request: hashRequest.Request.Request,
+						Source:  hashType.Request.Source,
+						Request: hashType.Request.Request,
 					},
 				}
-			case hashRequest.Batch != nil:
+			case *pb.HashResult_Batch_:
 				apply.Digests[i].Type = &tpb.HashResult_Batch{
 					Batch: &tpb.Batch{
-						Source:      hashRequest.Batch.Source,
-						Epoch:       hashRequest.Batch.Epoch,
-						SeqNo:       hashRequest.Batch.SeqNo,
-						RequestAcks: hashRequest.Batch.RequestAcks,
+						Source:      hashType.Batch.Source,
+						Epoch:       hashType.Batch.Epoch,
+						SeqNo:       hashType.Batch.SeqNo,
+						RequestAcks: hashType.Batch.RequestAcks,
 					},
 				}
-			case hashRequest.EpochChange != nil:
+			case *pb.HashResult_EpochChange_:
 				apply.Digests[i].Type = &tpb.HashResult_EpochChange{
 					EpochChange: &tpb.EpochChange{
-						Source:      hashRequest.EpochChange.Source,
-						Origin:      hashRequest.EpochChange.Origin,
-						EpochChange: hashRequest.EpochChange.EpochChange,
+						Source:      hashType.EpochChange.Source,
+						Origin:      hashType.EpochChange.Origin,
+						EpochChange: hashType.EpochChange.EpochChange,
 					},
 				}
-			case hashRequest.VerifyBatch != nil:
+			case *pb.HashResult_VerifyBatch_:
 				apply.Digests[i].Type = &tpb.HashResult_VerifyBatch{
 					VerifyBatch: &tpb.VerifyBatch{
-						Source:         hashRequest.VerifyBatch.Source,
-						SeqNo:          hashRequest.VerifyBatch.SeqNo,
-						RequestAcks:    hashRequest.VerifyBatch.RequestAcks,
-						ExpectedDigest: hashRequest.VerifyBatch.ExpectedDigest,
+						Source:         hashType.VerifyBatch.Source,
+						SeqNo:          hashType.VerifyBatch.SeqNo,
+						RequestAcks:    hashType.VerifyBatch.RequestAcks,
+						ExpectedDigest: hashType.VerifyBatch.ExpectedDigest,
 					},
 				}
-			case hashRequest.VerifyRequest != nil:
+			case *pb.HashResult_VerifyRequest_:
 				apply.Digests[i].Type = &tpb.HashResult_VerifyRequest{
 					VerifyRequest: &tpb.VerifyRequest{
-						Source:         hashRequest.VerifyRequest.Source,
-						Request:        hashRequest.VerifyRequest.Request,
-						ExpectedDigest: hashRequest.VerifyRequest.ExpectedDigest,
+						Source:         hashType.VerifyRequest.Source,
+						Request:        hashType.VerifyRequest.Request,
+						ExpectedDigest: hashType.VerifyRequest.ExpectedDigest,
 					},
 				}
 			default:

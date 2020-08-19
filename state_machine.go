@@ -123,6 +123,10 @@ func (sm *stateMachine) applyEvent(stateEvent *pb.StateEvent) *Actions {
 			NodeID(event.Step.Source),
 			event.Step.Msg,
 		)
+	case *pb.StateEvent_Propose:
+		return sm.propose(
+			event.Propose.Request,
+		)
 	}
 	return &Actions{}
 }
@@ -138,9 +142,13 @@ func (sm *stateMachine) propose(requestData *pb.Request) *Actions {
 		Hash: []*HashRequest{
 			{
 				Data: data,
-				Request: &Request{
-					Source:  sm.myConfig.ID,
-					Request: requestData,
+				Origin: &pb.HashResult{
+					Type: &pb.HashResult_Request_{
+						Request: &pb.HashResult_Request{
+							Source:  sm.myConfig.ID,
+							Request: requestData,
+						},
+					},
 				},
 			},
 		},
@@ -331,10 +339,9 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 	}
 
 	for _, hashResult := range results.Digests {
-		request := hashResult.Request
-		switch {
-		case request.Batch != nil:
-			batch := request.Batch
+		switch hashType := hashResult.Request.Origin.Type.(type) {
+		case *pb.HashResult_Batch_:
+			batch := hashType.Batch
 			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
 
 			if sm.activeEpoch != nil && batch.Epoch != sm.activeEpoch.epochConfig.Number {
@@ -345,8 +352,8 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			seqNo := batch.SeqNo
 			// TODO, rename applyProcessResult to something better
 			actions.Append(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
-		case request.Request != nil:
-			request := request.Request
+		case *pb.HashResult_Request_:
+			request := hashType.Request
 			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
 				Type: &pb.Msg_RequestAck{
 					RequestAck: &pb.RequestAck{
@@ -357,8 +364,8 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 				},
 			})
 			actions.Append(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
-		case request.VerifyRequest != nil:
-			request := request.VerifyRequest
+		case *pb.HashResult_VerifyRequest_:
+			request := hashType.VerifyRequest
 			if !bytes.Equal(request.ExpectedDigest, hashResult.Digest) {
 				panic("byzantine")
 				// XXX this should not panic, but put to make dev easier
@@ -367,11 +374,11 @@ func (sm *stateMachine) processResults(results ActionResults) *Actions {
 			if sm.epochChanger.activeEpoch.state == fetching {
 				actions.Append(sm.epochChanger.activeEpoch.fetchNewEpochState())
 			}
-		case request.EpochChange != nil:
-			epochChange := request.EpochChange
+		case *pb.HashResult_EpochChange_:
+			epochChange := hashType.EpochChange
 			actions.Append(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
-		case request.VerifyBatch != nil:
-			verifyBatch := request.VerifyBatch
+		case *pb.HashResult_VerifyBatch_:
+			verifyBatch := hashType.VerifyBatch
 			sm.batchTracker.applyVerifyBatchHashResult(hashResult.Digest, verifyBatch)
 			if !sm.batchTracker.hasFetchInFlight() && sm.epochChanger.activeEpoch.state == fetching {
 				actions.Append(sm.epochChanger.activeEpoch.fetchNewEpochState())

@@ -154,43 +154,63 @@ func (p *Player) Step() error {
 			switch result := hashResult.Type.(type) {
 			case *tpb.HashResult_Request:
 				actionResults.Digests[i].Request = &mirbft.HashRequest{
-					Request: &mirbft.Request{
-						Source:  result.Request.Source,
-						Request: result.Request.Request,
+					Origin: &pb.HashResult{
+						Type: &pb.HashResult_Request_{
+							Request: &pb.HashResult_Request{
+								Source:  result.Request.Source,
+								Request: result.Request.Request,
+							},
+						},
 					},
 				}
 			case *tpb.HashResult_Batch:
 				actionResults.Digests[i].Request = &mirbft.HashRequest{
-					Batch: &mirbft.Batch{
-						Source:      result.Batch.Source,
-						SeqNo:       result.Batch.SeqNo,
-						Epoch:       result.Batch.Epoch,
-						RequestAcks: result.Batch.RequestAcks,
+					Origin: &pb.HashResult{
+						Type: &pb.HashResult_Batch_{
+							Batch: &pb.HashResult_Batch{
+								Source:      result.Batch.Source,
+								SeqNo:       result.Batch.SeqNo,
+								Epoch:       result.Batch.Epoch,
+								RequestAcks: result.Batch.RequestAcks,
+							},
+						},
 					},
 				}
 			case *tpb.HashResult_EpochChange:
 				actionResults.Digests[i].Request = &mirbft.HashRequest{
-					EpochChange: &mirbft.EpochChange{
-						Source:      result.EpochChange.Source,
-						Origin:      result.EpochChange.Origin,
-						EpochChange: result.EpochChange.EpochChange,
+					Origin: &pb.HashResult{
+						Type: &pb.HashResult_EpochChange_{
+							EpochChange: &pb.HashResult_EpochChange{
+								Source:      result.EpochChange.Source,
+								Origin:      result.EpochChange.Origin,
+								EpochChange: result.EpochChange.EpochChange,
+							},
+						},
 					},
 				}
 			case *tpb.HashResult_VerifyBatch:
 				actionResults.Digests[i].Request = &mirbft.HashRequest{
-					VerifyBatch: &mirbft.VerifyBatch{
-						Source:         result.VerifyBatch.Source,
-						SeqNo:          result.VerifyBatch.SeqNo,
-						RequestAcks:    result.VerifyBatch.RequestAcks,
-						ExpectedDigest: result.VerifyBatch.ExpectedDigest,
+					Origin: &pb.HashResult{
+						Type: &pb.HashResult_VerifyBatch_{
+							VerifyBatch: &pb.HashResult_VerifyBatch{
+								Source:         result.VerifyBatch.Source,
+								SeqNo:          result.VerifyBatch.SeqNo,
+								RequestAcks:    result.VerifyBatch.RequestAcks,
+								ExpectedDigest: result.VerifyBatch.ExpectedDigest,
+							},
+						},
 					},
 				}
 			case *tpb.HashResult_VerifyRequest:
 				actionResults.Digests[i].Request = &mirbft.HashRequest{
-					VerifyRequest: &mirbft.VerifyRequest{
-						Source:         result.VerifyRequest.Source,
-						Request:        result.VerifyRequest.Request,
-						ExpectedDigest: result.VerifyRequest.ExpectedDigest,
+					Origin: &pb.HashResult{
+						Type: &pb.HashResult_VerifyRequest_{
+							VerifyRequest: &pb.HashResult_VerifyRequest{
+								Source:         result.VerifyRequest.Source,
+								Request:        result.VerifyRequest.Request,
+								ExpectedDigest: result.VerifyRequest.ExpectedDigest,
+							},
+						},
 					},
 				}
 			default:

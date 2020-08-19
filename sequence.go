@@ -144,11 +144,15 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.Forw
 			{
 				Data: data,
 
-				Batch: &Batch{
-					Source:      uint64(s.owner),
-					SeqNo:       s.seqNo,
-					Epoch:       s.epoch,
-					RequestAcks: requestAcks,
+				Origin: &pb.HashResult{
+					Type: &pb.HashResult_Batch_{
+						Batch: &pb.HashResult_Batch{
+							Source:      uint64(s.owner),
+							SeqNo:       s.seqNo,
+							Epoch:       s.epoch,
+							RequestAcks: requestAcks,
+						},
+					},
 				},
 			},
 		},

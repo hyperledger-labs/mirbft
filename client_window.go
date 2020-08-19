@@ -176,10 +176,14 @@ func (cws *clientWindows) applyForwardRequest(source NodeID, msg *pb.ForwardRequ
 					uint64ToBytes(msg.Request.ReqNo),
 					msg.Request.Data,
 				},
-				VerifyRequest: &VerifyRequest{
-					Source:         uint64(source),
-					Request:        msg.Request,
-					ExpectedDigest: msg.Digest,
+				Origin: &pb.HashResult{
+					Type: &pb.HashResult_VerifyRequest_{
+						VerifyRequest: &pb.HashResult_VerifyRequest{
+							Source:         uint64(source),
+							Request:        msg.Request,
+							ExpectedDigest: msg.Digest,
+						},
+					},
 				},
 			},
 		},

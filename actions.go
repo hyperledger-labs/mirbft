@@ -80,62 +80,9 @@ type HashRequest struct {
 	// Data is a series of byte slices which should be added to the hash
 	Data [][]byte
 
-	// Batch is internal state used to associate the result of this hash request
-	// with the batch it originated at.  Consumers should usually not need to
-	// reference this field.
-	Batch *Batch
-
-	// Request is the proposal which is being hashed.
-	Request *Request
-
-	// EpochChange contains the epoch change message being hashed.
-	EpochChange *EpochChange
-
-	// VerifyBatch is used to confirm that a forwarded batch matches
-	// the digest we requested.
-	VerifyBatch *VerifyBatch
-
-	// VerifyRequest is used to confirm that a forwarded request matches
-	// the digest we requested.
-	VerifyRequest *VerifyRequest
-}
-
-type VerifyBatch struct {
-	Source         uint64
-	SeqNo          uint64
-	RequestAcks    []*pb.RequestAck
-	ExpectedDigest []byte
-}
-
-// Batch is a collection of proposals which has been allocated a sequence in a given epoch.
-type Batch struct {
-	Source      uint64
-	SeqNo       uint64
-	Epoch       uint64
-	RequestAcks []*pb.RequestAck
-}
-
-type VerifyRequest struct {
-	Source         uint64
-	Request        *pb.Request
-	ExpectedDigest []byte
-}
-
-type Request struct {
-	Source  uint64
-	Request *pb.Request
-}
-
-type EpochChange struct {
-	// Source is who actually sent us the request, whereas Origin is
-	// the purported originator of the message.
-	Source uint64
-
-	// Origin is the replica which originated the epoch change message
-	Origin uint64
-
-	// EpochChange is the epoch change message being hashed.
-	EpochChange *pb.EpochChange
+	// Origin is the request that originated, encoded awkwardly as a HashResult
+	// with an empty Digest field but a populated Type.
+	Origin *pb.HashResult
 }
 
 type HashResult struct {

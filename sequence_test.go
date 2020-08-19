@@ -57,20 +57,24 @@ var _ = XDescribe("sequence", func() {
 			Expect(actions).To(Equal(&Actions{
 				Hash: []*HashRequest{
 					{
-						Batch: &Batch{
-							Source: 0,
-							SeqNo:  5,
-							Epoch:  4,
-							RequestAcks: []*pb.RequestAck{
-								{
-									ClientId: 9,
-									ReqNo:    7,
-									Digest:   []byte("msg1-digest"),
-								},
-								{
-									ClientId: 9,
-									ReqNo:    8,
-									Digest:   []byte("msg2-digest"),
+						Origin: &pb.HashResult{
+							Type: &pb.HashResult_Batch_{
+								Batch: &pb.HashResult_Batch{
+									Source: 0,
+									SeqNo:  5,
+									Epoch:  4,
+									RequestAcks: []*pb.RequestAck{
+										{
+											ClientId: 9,
+											ReqNo:    7,
+											Digest:   []byte("msg1-digest"),
+										},
+										{
+											ClientId: 9,
+											ReqNo:    8,
+											Digest:   []byte("msg2-digest"),
+										},
+									},
 								},
 							},
 						},

@@ -344,10 +344,14 @@ func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, origin NodeID, msg 
 	// TODO, make sure nodemsgs prevents us from receiving an epoch change twice
 	hashRequest := &HashRequest{
 		Data: epochChangeHashData(msg),
-		EpochChange: &EpochChange{
-			Source:      uint64(source),
-			Origin:      uint64(origin),
-			EpochChange: msg,
+		Origin: &pb.HashResult{
+			Type: &pb.HashResult_EpochChange_{
+				EpochChange: &pb.HashResult_EpochChange{
+					Source:      uint64(source),
+					Origin:      uint64(origin),
+					EpochChange: msg,
+				},
+			},
 		},
 	}
 
@@ -356,7 +360,7 @@ func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, origin NodeID, msg 
 	}
 }
 
-func (et *epochTarget) applyEpochChangeDigest(processedChange *EpochChange, digest []byte) *Actions {
+func (et *epochTarget) applyEpochChangeDigest(processedChange *pb.HashResult_EpochChange, digest []byte) *Actions {
 	originNode := NodeID(processedChange.Origin)
 	sourceNode := NodeID(processedChange.Source)
 
@@ -811,7 +815,7 @@ func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) 
 	return actions
 }
 
-func (ec *epochChanger) applyEpochChangeDigest(epochChange *EpochChange, digest []byte) *Actions {
+func (ec *epochChanger) applyEpochChangeDigest(epochChange *pb.HashResult_EpochChange, digest []byte) *Actions {
 	// TODO, fix all this stuttering and repitition
 	target := ec.target(epochChange.EpochChange.NewEpoch)
 	return target.applyEpochChangeDigest(epochChange, digest)

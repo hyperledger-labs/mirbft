@@ -147,18 +147,22 @@ func (bt *batchTracker) applyForwardBatchMsg(source NodeID, seqNo uint64, digest
 		Hash: []*HashRequest{
 			{
 				Data: data,
-				VerifyBatch: &VerifyBatch{
-					Source:         uint64(source),
-					SeqNo:          seqNo,
-					RequestAcks:    requestAcks,
-					ExpectedDigest: digest,
+				Origin: &pb.HashResult{
+					Type: &pb.HashResult_VerifyBatch_{
+						VerifyBatch: &pb.HashResult_VerifyBatch{
+							Source:         uint64(source),
+							SeqNo:          seqNo,
+							RequestAcks:    requestAcks,
+							ExpectedDigest: digest,
+						},
+					},
 				},
 			},
 		},
 	}
 }
 
-func (bt *batchTracker) applyVerifyBatchHashResult(digest []byte, verifyBatch *VerifyBatch) {
+func (bt *batchTracker) applyVerifyBatchHashResult(digest []byte, verifyBatch *pb.HashResult_VerifyBatch) {
 	if !bytes.Equal(verifyBatch.ExpectedDigest, digest) {
 		panic("byzantine")
 		// XXX this should be a log only, but panic-ing to make dev easier for now

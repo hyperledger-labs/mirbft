@@ -314,7 +314,7 @@ message StateEvent {
 
     oneof type {
         ActionResults add_results = 1;
-        Request propose = 2;
+        Proposal propose = 2;
         InboundMsg step = 3;
 	TickElapsed tick = 4;
     }
