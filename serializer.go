@@ -179,15 +179,8 @@ func (s *serializer) run() {
 			actions.concat(s.stateMachine.ApplyEvent(stateEvent))
 		}
 
-		// XXX this is no longer needed
-		// We unconditionally re-enable the actions channel after any event is injected into the system
-		// which will mean some zero-length actions get sent to the consumer.  This isn't optimal,
-		// but, I've convinced myself that's okay for a couple reasons:
-		// 1) Under stress, processing the actions will take enough time for the actions channel to
-		// become available again anyway.
-		// 2) For tests and visualizations, it's very nice being able to guarantee that we have
-		// the latest set of actions (in the other model, it's unclear whether a call to the actions
-		// channel will ever unblock.
-		actionsC = s.actionsC
+		if !actions.isEmpty() {
+			actionsC = s.actionsC
+		}
 	}
 }

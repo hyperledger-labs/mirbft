@@ -54,6 +54,13 @@ func (a *Actions) clear() {
 	a.Commits = nil
 }
 
+func (a *Actions) isEmpty() bool {
+	return len(a.Send) == 0 &&
+		len(a.Hash) == 0 &&
+		len(a.Persist) == 0 &&
+		len(a.Commits) == 0
+}
+
 // concat takes a set of actions and for each field, appends it to
 // the corresponding field of itself.
 func (a *Actions) concat(o *Actions) *Actions {
