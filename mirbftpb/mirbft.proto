@@ -296,6 +296,8 @@ message NewEpochReady {
 // StateEvent represents an event occurring inside of the state machine
 // and is used for tracing and debugging purposes only.
 message StateEvent {
+    message LoadCompleted {}
+
     message ActionResults {
             repeated HashResult digests = 1;
             repeated CheckpointResult checkpoints = 2;
@@ -313,10 +315,11 @@ message StateEvent {
     message TickElapsed {}
 
     oneof type {
-        ActionResults add_results = 1;
-        Proposal propose = 2;
-        InboundMsg step = 3;
-	TickElapsed tick = 4;
+	LoadCompleted complete_initialization = 1;
+        ActionResults add_results = 2;
+        Proposal propose = 3;
+        InboundMsg step = 4;
+	TickElapsed tick = 5;
     }
 }
 

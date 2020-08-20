@@ -59,7 +59,9 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 		index++
 	}
 
-	sm.completeInitialization()
+	sm.ApplyEvent(&pb.StateEvent{
+		Type: &pb.StateEvent_CompleteInitialization{},
+	})
 
 	s := &serializer{
 		actionsC:     make(chan Actions),

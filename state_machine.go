@@ -113,28 +113,38 @@ func (sm *StateMachine) completeInitialization() {
 }
 
 func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
-	if sm.state != smInitialized {
-		panic("cannot apply events to an uninitialized state machine")
-		// TODO, initialize via events in the future.
+	assertInitialized := func() {
+		if sm.state != smInitialized {
+			panic("cannot apply events to an uninitialized state machine")
+		}
 	}
 
 	switch event := stateEvent.Type.(type) {
+	case *pb.StateEvent_CompleteInitialization:
+		sm.completeInitialization()
 	case *pb.StateEvent_Tick:
+		assertInitialized()
 		return sm.tick()
 	case *pb.StateEvent_Step:
+		assertInitialized()
 		return sm.step(
 			NodeID(event.Step.Source),
 			event.Step.Msg,
 		)
 	case *pb.StateEvent_Propose:
+		assertInitialized()
 		return sm.propose(
 			event.Propose.Request,
 		)
 	case *pb.StateEvent_AddResults:
+		assertInitialized()
 		return sm.processResults(
 			event.AddResults,
 		)
+	default:
+		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}
+
 	return &Actions{}
 }
 
