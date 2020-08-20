@@ -10,6 +10,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+
+	"go.uber.org/zap"
 )
 
 func Uint64ToPtr(value uint64) *uint64 {
@@ -24,7 +26,7 @@ var _ = Describe("clientWindow", func() {
 	var (
 		cw            *clientWindow
 		networkConfig *pb.NetworkState_Config
-		myConfig      *Config
+		logger        *zap.Logger
 		lwm, hwm      uint64
 	)
 
@@ -34,11 +36,13 @@ var _ = Describe("clientWindow", func() {
 		networkConfig = &pb.NetworkState_Config{
 			Nodes: []uint64{0},
 		}
-		myConfig = &Config{} // TODO, populate
+		var err error
+		logger, err = zap.NewProduction()
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	JustBeforeEach(func() {
-		cw = newClientWindow(0, lwm, hwm, networkConfig, myConfig)
+		cw = newClientWindow(0, lwm, hwm, networkConfig, logger)
 	})
 
 	It("stores requests", func() {

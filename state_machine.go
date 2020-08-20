@@ -30,12 +30,11 @@ type StateMachine struct {
 	// Logger XXX this is a weird place/way to initialize the logger, since
 	// we go and reference it through myConfig at the moment, but, it's the
 	// only non-serializable part of the config.
-	Logger       Logger
-	Introspector Introspector // XXX this wiring is weird too
+	Logger Logger
 
 	state StateMachineState
 
-	myConfig      *Config
+	myConfig      *pb.StateEvent_InitialParameters
 	networkConfig *pb.NetworkState_Config
 	nodeMsgs      map[NodeID]*nodeMsgs
 	clientWindows *clientWindows
@@ -52,19 +51,9 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 		panic("state machine has already been initialized")
 	}
 
-	sm.myConfig = &Config{
-		Logger: sm.Logger,
-		ID:     parameters.Id,
-		BatchParameters: BatchParameters{
-			BatchSize: parameters.BatchSize,
-		},
-		HeartbeatTicks:       parameters.HeartbeatTicks,
-		SuspectTicks:         parameters.SuspectTicks,
-		NewEpochTimeoutTicks: parameters.NewEpochTimeoutTicks,
-		BufferSize:           parameters.BufferSize,
-	}
+	sm.myConfig = parameters
 	sm.state = smLoadingPersisted
-	sm.persisted = newPersisted(sm.myConfig)
+	sm.persisted = newPersisted(sm.Logger)
 }
 
 func (sm *StateMachine) applyPersisted(entry *pb.Persistent) {
@@ -102,17 +91,17 @@ func (sm *StateMachine) completeInitialization() {
 	sm.persisted.lastCommitted = checkpoints[len(checkpoints)-1].SeqNo
 
 	oddities := &oddities{
-		logger: sm.myConfig.Logger,
+		logger: sm.Logger,
 	}
 
 	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig)
-	sm.clientWindows = newClientWindows(sm.persisted, sm.myConfig)
+	sm.clientWindows = newClientWindows(sm.persisted, sm.Logger)
 
 	sm.networkConfig = sm.checkpointTracker.networkConfig
 
 	sm.nodeMsgs = map[NodeID]*nodeMsgs{}
 	for _, id := range sm.networkConfig.Nodes {
-		sm.nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), sm.networkConfig, sm.myConfig, sm.clientWindows, oddities)
+		sm.nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), sm.networkConfig, sm.Logger, sm.myConfig, sm.clientWindows, oddities)
 	}
 
 	sm.batchTracker = newBatchTracker(sm.persisted)
@@ -129,10 +118,6 @@ func (sm *StateMachine) completeInitialization() {
 }
 
 func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
-	if sm.Introspector != nil {
-		sm.Introspector.Inspect(stateEvent)
-	}
-
 	assertInitialized := func() {
 		if sm.state != smInitialized {
 			panic("cannot apply events to an uninitialized state machine")
@@ -186,7 +171,7 @@ func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
 				Origin: &pb.HashResult{
 					Type: &pb.HashResult_Request_{
 						Request: &pb.HashResult_Request{
-							Source:  sm.myConfig.ID,
+							Source:  sm.myConfig.Id,
 							Request: requestData,
 						},
 					},
@@ -199,7 +184,7 @@ func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
 func (sm *StateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	nodeMsgs, ok := sm.nodeMsgs[source]
 	if !ok {
-		sm.myConfig.Logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
+		sm.Logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
 	}
 
 	nodeMsgs.ingest(outerMsg)
@@ -236,7 +221,7 @@ func (sm *StateMachine) advance(actions *Actions) *Actions {
 		return actions
 	}
 
-	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig)
+	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig, sm.Logger)
 	actions.concat(sm.activeEpoch.drainProposer())
 	sm.epochChanger.activeEpoch.state = inProgress
 	for _, nodeMsgs := range sm.nodeMsgs {
@@ -284,7 +269,7 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 				msg := innerMsg.ForwardBatch
 				actions.concat(sm.batchTracker.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.RequestAcks))
 			case *pb.Msg_ForwardRequest:
-				if source == NodeID(sm.myConfig.ID) {
+				if source == NodeID(sm.myConfig.Id) {
 					// We've already pre-processed this
 					// TODO, once we implement unicasting to only those
 					// who don't know this should go away.
@@ -516,7 +501,7 @@ func (sm *StateMachine) Status() *Status {
 	}
 
 	return &Status{
-		NodeID:        sm.myConfig.ID,
+		NodeID:        sm.myConfig.Id,
 		LowWatermark:  lowWatermark,
 		HighWatermark: highWatermark,
 		EpochChanger:  sm.epochChanger.status(),

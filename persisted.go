@@ -30,12 +30,12 @@ type persisted struct {
 
 	lastCommitted uint64 // Seq
 
-	myConfig *Config
+	logger Logger
 }
 
-func newPersisted(myConfig *Config) *persisted {
+func newPersisted(logger Logger) *persisted {
 	return &persisted{
-		myConfig: myConfig,
+		logger: logger,
 	}
 }
 

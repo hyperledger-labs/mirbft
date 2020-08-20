@@ -75,14 +75,15 @@ type nodeMsgs struct {
 	oddities       *oddities
 	buffer         *list.List
 	epochMsgs      *epochMsgs
-	myConfig       *Config
+	logger         Logger
+	myConfig       *pb.StateEvent_InitialParameters
 	networkConfig  *pb.NetworkState_Config
 	clientWindows  *clientWindows
 	nextCheckpoint uint64
 }
 
 type epochMsgs struct {
-	myConfig      *Config
+	myConfig      *pb.StateEvent_InitialParameters
 	epochConfig   *pb.EpochConfig
 	networkConfig *pb.NetworkState_Config
 	epoch         *epoch
@@ -99,11 +100,12 @@ type nextMsg struct {
 	commit  uint64
 }
 
-func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, myConfig *Config, clientWindows *clientWindows, oddities *oddities) *nodeMsgs {
+func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, logger Logger, myConfig *pb.StateEvent_InitialParameters, clientWindows *clientWindows, oddities *oddities) *nodeMsgs {
 
 	return &nodeMsgs{
 		id:       nodeID,
 		oddities: oddities,
+		logger:   logger,
 
 		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
 		// XXX we should initialize this properly, sort of like the above
@@ -236,7 +238,7 @@ func (n *nodeMsgs) next() *pb.Msg {
 			return msg
 		case future:
 			// TODO, this is too aggressive, but useful for debugging
-			n.myConfig.Logger.Debug("deferring apply as it's from the future", logBasics(n.id, msg)...)
+			n.logger.Debug("deferring apply as it's from the future", logBasics(n.id, msg)...)
 			e = e.Next()
 		}
 	}
@@ -265,7 +267,7 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	}
 }
 
-func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *epoch, myConfig *Config) *epochMsgs {
+func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *epoch, myConfig *pb.StateEvent_InitialParameters) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
 	for bucketID, leaderID := range epoch.buckets {
 		nm := &nextMsg{

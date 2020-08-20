@@ -18,15 +18,15 @@ type clientWindows struct {
 	windows       map[uint64]*clientWindow
 	clients       []uint64
 	networkConfig *pb.NetworkState_Config
-	myConfig      *Config
+	logger        Logger
 	readyList     *list.List
 	readyMap      map[*clientReqNo]*list.Element
 	correctList   *list.List // A list of requests which have f+1 ACKs and the requestData
 }
 
-func newClientWindows(persisted *persisted, myConfig *Config) *clientWindows {
+func newClientWindows(persisted *persisted, logger Logger) *clientWindows {
 	cws := &clientWindows{
-		myConfig:    myConfig,
+		logger:      logger,
 		windows:     map[uint64]*clientWindow{},
 		readyList:   list.New(),
 		readyMap:    map[*clientReqNo]*list.Element{},
@@ -52,7 +52,7 @@ func newClientWindows(persisted *persisted, myConfig *Config) *clientWindows {
 						}
 					}
 
-					clientWindow := newClientWindow(client.Id, lowWatermark, lowWatermark+clientWindowWidth, d.CEntry.NetworkState.Config, myConfig)
+					clientWindow := newClientWindow(client.Id, lowWatermark, lowWatermark+clientWindowWidth, d.CEntry.NetworkState.Config, logger)
 					cws.insert(client.Id, clientWindow)
 				}
 			}
@@ -314,7 +314,7 @@ type clientWindow struct {
 	reqNoList     *list.List
 	reqNoMap      map[uint64]*list.Element
 	clientWaiter  *clientWaiter // Used to throttle clients
-	myConfig      *Config
+	logger        Logger
 	networkConfig *pb.NetworkState_Config
 }
 
@@ -324,10 +324,10 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newClientWindow(clientID, lowWatermark, highWatermark uint64, networkConfig *pb.NetworkState_Config, myConfig *Config) *clientWindow {
+func newClientWindow(clientID, lowWatermark, highWatermark uint64, networkConfig *pb.NetworkState_Config, logger Logger) *clientWindow {
 	cw := &clientWindow{
 		clientID:      clientID,
-		myConfig:      myConfig,
+		logger:        logger,
 		networkConfig: networkConfig,
 		lowWatermark:  lowWatermark,
 		nextReadyMark: lowWatermark,

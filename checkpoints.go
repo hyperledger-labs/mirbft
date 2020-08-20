@@ -34,10 +34,10 @@ type checkpointTracker struct {
 
 	networkConfig *pb.NetworkState_Config
 	persisted     *persisted
-	myConfig      *Config
+	myConfig      *pb.StateEvent_InitialParameters
 }
 
-func newCheckpointTracker(persisted *persisted, myConfig *Config) *checkpointTracker {
+func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialParameters) *checkpointTracker {
 	ct := &checkpointTracker{
 		highestCheckpoints: map[NodeID]uint64{},
 		checkpointMap:      map[uint64]*checkpoint{},
@@ -61,7 +61,7 @@ func newCheckpointTracker(persisted *persisted, myConfig *Config) *checkpointTra
 			}
 			cp := ct.checkpoint(cEntry.SeqNo)
 			cp.nextState = cEntry.NetworkState
-			cp.applyCheckpointMsg(NodeID(myConfig.ID), cEntry.CheckpointValue)
+			cp.applyCheckpointMsg(NodeID(myConfig.Id), cEntry.CheckpointValue)
 			ct.activeCheckpoints.PushBack(cp)
 		}
 	}
@@ -195,7 +195,7 @@ func (ct *checkpointTracker) status() []*CheckpointStatus {
 
 type checkpoint struct {
 	seqNo           uint64
-	myConfig        *Config
+	myConfig        *pb.StateEvent_InitialParameters
 	verifyingConfig *pb.NetworkState_Config
 	persisted       *persisted
 
@@ -223,7 +223,7 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
 		cw.committedValue = value
 	}
 
-	if source == NodeID(cw.myConfig.ID) {
+	if source == NodeID(cw.myConfig.Id) {
 		cw.myValue = value
 	}
 

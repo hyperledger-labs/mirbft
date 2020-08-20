@@ -20,8 +20,8 @@ var _ = XDescribe("sequence", func() {
 
 	BeforeEach(func() {
 		s = &sequence{
-			myConfig: &Config{
-				ID: 1,
+			myConfig: &pb.StateEvent_InitialParameters{
+				Id: 1,
 			},
 			networkConfig: &pb.NetworkState_Config{
 				Nodes: []uint64{0, 1, 2, 3},

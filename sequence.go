@@ -28,7 +28,8 @@ type sequence struct {
 	seqNo uint64
 	epoch uint64
 
-	myConfig      *Config
+	myConfig      *pb.StateEvent_InitialParameters
+	logger        Logger
 	networkConfig *pb.NetworkState_Config
 
 	state SequenceState
@@ -55,7 +56,7 @@ type sequence struct {
 	commits  map[string]map[NodeID]struct{}
 }
 
-func newSequence(owner NodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *pb.NetworkState_Config, myConfig *Config) *sequence {
+func newSequence(owner NodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *pb.NetworkState_Config, myConfig *pb.StateEvent_InitialParameters, logger Logger) *sequence {
 	return &sequence{
 		owner:         owner,
 		seqNo:         seqNo,
@@ -120,7 +121,7 @@ func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *Actions {
 // It transitions to Preprepared and returns a ValidationRequest message.
 func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.ForwardRequest, outstandingReqs map[string]int) *Actions {
 	if s.state != Uninitialized {
-		s.myConfig.Logger.Panic("illegal state for allocate", zap.Int("State", int(s.state)), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
+		s.logger.Panic("illegal state for allocate", zap.Int("State", int(s.state)), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
 	}
 
 	s.state = Allocated
@@ -200,7 +201,7 @@ func (s *sequence) prepare() *Actions {
 
 	var actions *Actions
 
-	if uint64(s.owner) == s.myConfig.ID {
+	if uint64(s.owner) == s.myConfig.Id {
 		bcast := make([]Send, len(s.forwardReqs)+1)
 		for i, fr := range s.forwardReqs {
 			bcast[i] = Send{
@@ -263,7 +264,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 	agreements := s.prepares[string(s.digest)]
 	// Do not prepare unless we have sent our prepare as well
 	// as this ensures we've persisted our qSet
-	if _, ok := agreements[NodeID(s.myConfig.ID)]; !ok {
+	if _, ok := agreements[NodeID(s.myConfig.Id)]; !ok {
 		return &Actions{}
 	}
 
@@ -313,7 +314,7 @@ func (s *sequence) checkCommitQuorum() {
 	agreements := s.commits[string(s.digest)]
 	// Do not commit unless we have sent a commit
 	// and therefore already have persisted our pSet and qSet
-	if _, ok := agreements[NodeID(s.myConfig.ID)]; !ok {
+	if _, ok := agreements[NodeID(s.myConfig.Id)]; !ok {
 		return
 	}
 

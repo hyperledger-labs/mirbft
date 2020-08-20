@@ -53,7 +53,7 @@ type epochTarget struct {
 	isLeader        bool
 
 	networkConfig *pb.NetworkState_Config
-	myConfig      *Config
+	myConfig      *pb.StateEvent_InitialParameters
 	batchTracker  *batchTracker
 	clientWindows *clientWindows
 }
@@ -606,7 +606,7 @@ type epochChanger struct {
 	activeEpoch   *epochTarget
 	persisted     *persisted
 	networkConfig *pb.NetworkState_Config
-	myConfig      *Config
+	myConfig      *pb.StateEvent_InitialParameters
 	batchTracker  *batchTracker
 	clientWindows *clientWindows
 	targets       map[uint64]*epochTarget
@@ -615,7 +615,7 @@ type epochChanger struct {
 func newEpochChanger(
 	persisted *persisted,
 	networkConfig *pb.NetworkState_Config,
-	myConfig *Config,
+	myConfig *pb.StateEvent_InitialParameters,
 	batchTracker *batchTracker,
 	clientWindows *clientWindows,
 ) *epochChanger {
@@ -674,7 +674,7 @@ func (ec *epochChanger) target(epoch uint64) *epochTarget {
 			strongChanges: map[NodeID]*parsedEpochChange{},
 			echos:         map[*pb.NewEpochConfig]map[NodeID]struct{}{},
 			readies:       map[*pb.NewEpochConfig]map[NodeID]struct{}{},
-			isLeader:      epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.ID,
+			isLeader:      epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.Id,
 			persisted:     ec.persisted,
 			networkConfig: ec.networkConfig,
 			myConfig:      ec.myConfig,
@@ -720,7 +720,7 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 	}
 
-	newTarget.myLeaderChoice = []uint64{ec.myConfig.ID}
+	newTarget.myLeaderChoice = []uint64{ec.myConfig.Id}
 
 	return epochChange
 }
@@ -779,7 +779,7 @@ func (ec *epochChanger) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 
 func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
 	actions := &Actions{}
-	if source != NodeID(ec.myConfig.ID) {
+	if source != NodeID(ec.myConfig.Id) {
 		// We don't want to echo our own EpochChange message,
 		// as we already broadcast/rebroadcast it.
 		actions.send(

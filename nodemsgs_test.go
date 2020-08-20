@@ -17,10 +17,11 @@ var _ = Describe("NodeMsg", func() {
 	var (
 		nodeID        NodeID
 		networkConfig *pb.NetworkState_Config
-		myConfig      *Config
+		myConfig      *pb.StateEvent_InitialParameters
 		clientWindows *clientWindows
 		o             *oddities
 		nodeMsgs      *nodeMsgs
+		logger        *zap.Logger
 
 		defaultEpochConfig *pb.EpochConfig
 	)
@@ -34,12 +35,11 @@ var _ = Describe("NodeMsg", func() {
 			NumberOfBuckets:    1,
 			MaxEpochLength:     10,
 		}
-		myConfig = &Config{
-			ID:     uint64(0),
-			Logger: zap.NewExample(),
-			BatchParameters: BatchParameters{
-				BatchSize: 1,
-			},
+		logger = zap.NewExample()
+
+		myConfig = &pb.StateEvent_InitialParameters{
+			Id:                   uint64(0),
+			BatchSize:            1,
 			SuspectTicks:         4,
 			NewEpochTimeoutTicks: 8,
 			BufferSize:           100,
@@ -53,7 +53,7 @@ var _ = Describe("NodeMsg", func() {
 	})
 
 	JustBeforeEach(func() {
-		nodeMsgs = newNodeMsgs(nodeID, networkConfig, myConfig, clientWindows, o)
+		nodeMsgs = newNodeMsgs(nodeID, networkConfig, logger, myConfig, clientWindows, o)
 		Expect(nodeMsgs).NotTo(BeNil())
 	})
 

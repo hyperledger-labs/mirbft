@@ -9,6 +9,8 @@ package mirbft
 import (
 	"container/list"
 	"encoding/binary"
+
+	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
 func uint64ToBytes(value uint64) []byte {
@@ -18,7 +20,7 @@ func uint64ToBytes(value uint64) []byte {
 }
 
 type proposer struct {
-	myConfig *Config
+	myConfig *pb.StateEvent_InitialParameters
 
 	proposalBuckets map[BucketID]*proposalBucket
 }
@@ -32,17 +34,17 @@ type proposalBucket struct {
 	bucketID     BucketID
 }
 
-func newProposer(myConfig *Config, clientWindows *clientWindows, buckets map[BucketID]NodeID) *proposer {
+func newProposer(myConfig *pb.StateEvent_InitialParameters, clientWindows *clientWindows, buckets map[BucketID]NodeID) *proposer {
 	proposalBuckets := map[BucketID]*proposalBucket{}
 	for bucketID, nodeID := range buckets {
-		if nodeID != NodeID(myConfig.ID) {
+		if nodeID != NodeID(myConfig.Id) {
 			continue
 		}
 		proposalBuckets[bucketID] = &proposalBucket{
 			bucketID:     bucketID,
 			totalBuckets: len(buckets),
 			readyList:    clientWindows.readyList,
-			requestCount: myConfig.BatchParameters.BatchSize,
+			requestCount: myConfig.BatchSize,
 			pending:      make([]*clientRequest, 0, 1), // TODO, might be interesting to play with not preallocating for performance reasons
 		}
 	}

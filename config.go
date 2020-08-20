@@ -39,21 +39,24 @@ type Config struct {
 	// make room for new messages
 	BufferSize uint32
 
-	// Introspector, if set, has its Selected method invoked each time the
+	// EventInterceptor, if set, has its Selected method invoked each time the
 	// state machine undergoes some mutation.  This allows for additional
 	// external insight into the state machine, but comes at a performance cost
 	// and would generally not be enabled outside of a test or debug setting.
-	Introspector Introspector
+	EventInterceptor EventInterceptor
 }
 
 type BatchParameters struct {
 	BatchSize uint32
 }
 
-// Introspector provides a way for a consumer to gain insight into
+// EventInterceptor provides a way for a consumer to gain insight into
 // the internal operation of the state machine.  And is usually not
-// interesting outside of debugging or testing scenarios.
-type Introspector interface {
-	// Inspect is invoked for each mutating state machine event
-	Inspect(s *pb.StateEvent)
+// interesting outside of debugging or testing scenarios.  Note, this
+// is applied inside the serializer, so any blocking will prevent the
+// event from arriving at the state machine until it returns.
+type EventInterceptor interface {
+	// Intercept is invoked prior to passing each state event to
+	// the state machine.
+	Intercept(s *pb.StateEvent)
 }

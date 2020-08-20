@@ -34,6 +34,9 @@ type serializer struct {
 	tickC    chan struct{}
 	errC     chan struct{}
 
+	interceptor EventInterceptor
+	logger      Logger
+
 	exitMutex    sync.Mutex
 	exitErr      error
 	exitStatus   *Status
@@ -41,10 +44,8 @@ type serializer struct {
 }
 
 func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*serializer, error) {
-	sm := &StateMachine{
-		Logger: myConfig.Logger,
-	}
-	//sm.initialize(myConfig)
+	sm := &StateMachine{}
+
 	sm.ApplyEvent(&pb.StateEvent{
 		Type: &pb.StateEvent_Initialize{
 			Initialize: &pb.StateEvent_InitialParameters{
