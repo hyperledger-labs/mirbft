@@ -55,7 +55,13 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 			return nil, errors.Errorf("failed to load persisted from Storage: %s", err)
 		}
 
-		sm.applyPersisted(data)
+		sm.ApplyEvent(&pb.StateEvent{
+			Type: &pb.StateEvent_LoadEntry{
+				LoadEntry: &pb.StateEvent_PersistedEntry{
+					Entry: data,
+				},
+			},
+		})
 		index++
 	}
 

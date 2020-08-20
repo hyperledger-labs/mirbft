@@ -296,30 +296,36 @@ message NewEpochReady {
 // StateEvent represents an event occurring inside of the state machine
 // and is used for tracing and debugging purposes only.
 message StateEvent {
+
+    message PersistedEntry {
+        Persistent entry = 1;
+    }
+
     message LoadCompleted {}
 
     message ActionResults {
-            repeated HashResult digests = 1;
-            repeated CheckpointResult checkpoints = 2;
+        repeated HashResult digests = 1;
+        repeated CheckpointResult checkpoints = 2;
     }
 
     message Proposal {
-            Request request = 1;
+        Request request = 1;
     }
 
     message InboundMsg {
-            uint64 source = 1;
-            Msg msg = 2;
+        uint64 source = 1;
+        Msg msg = 2;
     }
 
     message TickElapsed {}
 
     oneof type {
-	LoadCompleted complete_initialization = 1;
-        ActionResults add_results = 2;
-        Proposal propose = 3;
-        InboundMsg step = 4;
-	TickElapsed tick = 5;
+	PersistedEntry load_entry = 1;
+	LoadCompleted complete_initialization = 2;
+        ActionResults add_results = 3;
+        Proposal propose = 4;
+        InboundMsg step = 5;
+	TickElapsed tick = 6;
     }
 }
 

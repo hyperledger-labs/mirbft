@@ -120,6 +120,8 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	}
 
 	switch event := stateEvent.Type.(type) {
+	case *pb.StateEvent_LoadEntry:
+		sm.applyPersisted(event.LoadEntry.Entry)
 	case *pb.StateEvent_CompleteInitialization:
 		sm.completeInitialization()
 	case *pb.StateEvent_Tick:
