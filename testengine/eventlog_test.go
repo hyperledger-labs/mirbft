@@ -37,11 +37,6 @@ var _ = XDescribe("Non-determinism finding test", func() {
 		f2.Close()
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(len(eventLog1.NodeConfigs())).To(Equal(len(eventLog2.NodeConfigs())))
-		for i := range eventLog1.NodeConfigs() {
-			Expect(proto.Equal(eventLog1.NodeConfigs()[i], eventLog2.NodeConfigs()[i])).To(BeTrue())
-		}
-
 		logEntry1 := eventLog1.FirstEventLogEntry
 		logEntry2 := eventLog2.FirstEventLogEntry
 		for {
@@ -100,7 +95,6 @@ var _ = Describe("Eventlog", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(newEventLog.Name).To(Equal("fake-name"))
 		Expect(newEventLog.Description).To(Equal("fake-description"))
-		Expect(proto.Equal(eventLog.NodeConfigs()[0], newEventLog.NodeConfigs()[0])).To(BeTrue())
 		Expect(proto.Equal(
 			eventLog.FirstEventLogEntry.Event,
 			newEventLog.FirstEventLogEntry.Event,

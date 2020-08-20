@@ -12,7 +12,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	tpb "github.com/IBM/mirbft/testengine/testenginepb"
@@ -55,35 +54,12 @@ func writePrefixedProto(dest io.Writer, msg proto.Message) error {
 	return nil
 }
 
-func (l *EventLog) NodeConfigs() []*tpb.NodeConfig {
-	var nodeConfigs []*tpb.NodeConfig
-	idMap := map[uint64]struct{}{}
-	for logEntry := l.FirstEventLogEntry; logEntry != nil; logEntry = logEntry.Next {
-		_, ok := idMap[logEntry.Event.Target]
-		if ok {
-			continue
-		}
-
-		idMap[logEntry.Event.Target] = struct{}{}
-		nodeConfigs = append(nodeConfigs, &tpb.NodeConfig{
-			Id: logEntry.Event.Target,
-		})
-	}
-
-	sort.Slice(nodeConfigs, func(i, j int) bool {
-		return nodeConfigs[i].Id < nodeConfigs[j].Id
-	})
-
-	return nodeConfigs
-}
-
 func (l *EventLog) Write(dest io.Writer) error {
 	if err := writePrefixedProto(dest, &tpb.LogEntry{
 		Type: &tpb.LogEntry_Scenario{
 			Scenario: &tpb.ScenarioConfig{
 				Name:        l.Name,
 				Description: l.Description,
-				NodeConfigs: l.NodeConfigs(),
 			},
 		},
 	}); err != nil {
