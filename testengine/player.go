@@ -17,6 +17,7 @@ import (
 )
 
 type PlaybackNode struct {
+	ID           uint64
 	StateMachine *mirbft.StateMachine
 	Processing   *mirbft.Actions
 	Actions      *mirbft.Actions
@@ -49,6 +50,7 @@ func (p *Player) Node(id uint64) *PlaybackNode {
 	}
 
 	node = &PlaybackNode{
+		ID:           id,
 		StateMachine: sm,
 		Actions:      &mirbft.Actions{},
 		Status:       sm.Status(),
