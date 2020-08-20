@@ -248,6 +248,11 @@ func (msfm *MsgSourceFilterMangler) BeforeStep(random int, el *EventLog) {
 		return
 	}
 
+	if recv.Step.Source == event.Target {
+		// Never allow messages from a node to itself to be mangled
+		return
+	}
+
 	msfm.Mangler.BeforeStep(random, el)
 }
 

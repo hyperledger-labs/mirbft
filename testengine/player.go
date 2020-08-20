@@ -96,33 +96,6 @@ func (p *Player) Step() error {
 			return errors.Errorf("node %d is currently processing but got a second process event", event.Target)
 		}
 
-		for _, msg := range node.Actions.Broadcast {
-			actions.Append(node.StateMachine.ApplyEvent(&pb.StateEvent{
-				Type: &pb.StateEvent_Step{
-					Step: &pb.StateEvent_InboundMsg{
-						Source: event.Target,
-						Msg:    msg,
-					},
-				},
-			}))
-		}
-
-		for _, unicast := range node.Actions.Unicast {
-			if unicast.Target != event.Target {
-				continue
-			}
-
-			// It's a bit weird to unicast to ourselves, but let's handle it.
-			actions.Append(node.StateMachine.ApplyEvent(&pb.StateEvent{
-				Type: &pb.StateEvent_Step{
-					Step: &pb.StateEvent_InboundMsg{
-						Source: event.Target,
-						Msg:    unicast.Msg,
-					},
-				},
-			}))
-		}
-
 		node.Processing = node.Actions
 		node.Actions = actions
 		return nil

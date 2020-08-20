@@ -65,7 +65,7 @@ var _ = Describe("Recorder", func() {
 		It("Executes and produces a log", func() {
 			count, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(36393))
+			Expect(count).To(Equal(46994))
 
 			fmt.Printf("Executing test required a log of %d events\n", count)
 
@@ -94,9 +94,9 @@ var _ = Describe("Recorder", func() {
 		})
 
 		It("still executes and produces a log", func() {
-			count, err := recording.DrainClients(50)
+			count, err := recording.DrainClients(100)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(30))
+			Expect(count).To(Equal(50))
 		})
 	})
 })

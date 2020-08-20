@@ -40,6 +40,7 @@ type RuntimeParameters struct {
 	LinkLatency    int
 	ReadyLatency   int
 	ProcessLatency int
+	PersistLatency int
 }
 
 type RecorderNode struct {
@@ -366,9 +367,10 @@ func (r *Recording) Step() error {
 		processing := playbackNode.Processing
 		for _, msg := range processing.Broadcast {
 			for i := range r.Player.Nodes {
+				linkLatency := runtimeParms.LinkLatency
 				if uint64(i) == lastEvent.Target {
-					// We've already sent it to ourselves
-					continue
+					// There's no latency to send to ourselves
+					linkLatency = 0
 				}
 				r.EventLog.InsertStepEvent(
 					uint64(i),
@@ -376,15 +378,16 @@ func (r *Recording) Step() error {
 						Source: lastEvent.Target,
 						Msg:    msg,
 					},
-					uint64(runtimeParms.LinkLatency),
+					uint64(linkLatency+runtimeParms.PersistLatency),
 				)
 			}
 		}
 
 		for _, unicast := range processing.Unicast {
+			linkLatency := runtimeParms.LinkLatency
 			if unicast.Target == lastEvent.Target {
-				// We've already sent it to ourselves
-				continue
+				// There's no latency to send to ourselves
+				linkLatency = 0
 			}
 
 			r.EventLog.InsertStepEvent(
@@ -393,7 +396,7 @@ func (r *Recording) Step() error {
 					Source: lastEvent.Target,
 					Msg:    unicast.Msg,
 				},
-				uint64(runtimeParms.LinkLatency),
+				uint64(linkLatency+runtimeParms.PersistLatency),
 			)
 		}
 
@@ -488,6 +491,7 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 				LinkLatency:    100,
 				ReadyLatency:   50,
 				ProcessLatency: 10,
+				PersistLatency: 10,
 			},
 		})
 	}
