@@ -195,17 +195,7 @@ func (r *Recorder) Recording() (*Recording, error) {
 			}
 			for j := range nodes {
 				client.LastNodeReqNoSend[uint64(j)] = uint64(i)
-				eventLog.InsertStateEvent(
-					uint64(j),
-					&pb.StateEvent{
-						Type: &pb.StateEvent_Propose{
-							Propose: &pb.StateEvent_Proposal{
-								Request: req,
-							},
-						},
-					},
-					client.Config.TxLatency,
-				)
+				eventLog.InsertProposeEvent(uint64(j), req, client.Config.TxLatency)
 			}
 		}
 	}
@@ -279,17 +269,7 @@ func (r *Recording) Step() error {
 							continue
 						}
 						client.LastNodeReqNoSend[lastEvent.Target] = i
-						r.EventLog.InsertStateEvent(
-							lastEvent.Target,
-							&pb.StateEvent{
-								Type: &pb.StateEvent_Propose{
-									Propose: &pb.StateEvent_Proposal{
-										Request: req,
-									},
-								},
-							},
-							client.Config.TxLatency,
-						)
+						r.EventLog.InsertProposeEvent(lastEvent.Target, req, client.Config.TxLatency)
 					}
 				}
 			}
