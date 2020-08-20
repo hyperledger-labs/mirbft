@@ -253,7 +253,7 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
 
 func (cw *checkpoint) applyCheckpointResult(value []byte, epochConfig *pb.EpochConfig, nextState *pb.NetworkState) *Actions {
 	cw.nextState = nextState
-	actions := (&Actions{}).send(
+	return (&Actions{}).send(
 		cw.verifyingConfig.Nodes,
 		&pb.Msg{
 			Type: &pb.Msg_Checkpoint{
@@ -263,15 +263,12 @@ func (cw *checkpoint) applyCheckpointResult(value []byte, epochConfig *pb.EpochC
 				},
 			},
 		},
-	)
-	actions.Append(cw.persisted.addCEntry(&pb.CEntry{
+	).concat(cw.persisted.addCEntry(&pb.CEntry{
 		SeqNo:           cw.seqNo,
 		CheckpointValue: value,
 		NetworkState:    nextState,
 		EpochConfig:     epochConfig,
 	}))
-
-	return actions
 }
 
 func (cw *checkpoint) status() *CheckpointStatus {

@@ -46,21 +46,22 @@ func (a *Actions) send(targets []uint64, msg *pb.Msg) *Actions {
 	return a
 }
 
-// Clear nils out all of the fields.
-func (a *Actions) Clear() {
+// clear nils out all of the fields.
+func (a *Actions) clear() {
 	a.Send = nil
 	a.Hash = nil
 	a.Persist = nil
 	a.Commits = nil
 }
 
-// Append takes a set of actions and for each field, appends it to
+// concat takes a set of actions and for each field, appends it to
 // the corresponding field of itself.
-func (a *Actions) Append(o *Actions) {
+func (a *Actions) concat(o *Actions) *Actions {
 	a.Send = append(a.Send, o.Send...)
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
 	a.Persist = append(a.Persist, o.Persist...)
+	return a
 }
 
 // HashRequest is a request from the state machine to the consumer to hash some data.

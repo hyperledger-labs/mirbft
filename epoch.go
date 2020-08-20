@@ -273,7 +273,7 @@ func (e *epoch) drainProposer() *Actions {
 				break
 			}
 
-			actions.Append(seq.allocateAsOwner(prb.next()))
+			actions.concat(seq.allocateAsOwner(prb.next()))
 
 			e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 		}
@@ -311,7 +311,7 @@ func (e *epoch) tick() *Actions {
 				Suspect: suspect,
 			},
 		})
-		actions.Append(e.persisted.addSuspect(suspect))
+		actions.concat(e.persisted.addSuspect(suspect))
 	}
 
 	if e.myConfig.HeartbeatTicks == 0 || e.ticksSinceProgress%e.myConfig.HeartbeatTicks != 0 {
@@ -341,7 +341,7 @@ func (e *epoch) tick() *Actions {
 			clientReqs = prb.next()
 		}
 
-		actions.Append(seq.allocateAsOwner(clientReqs))
+		actions.concat(seq.allocateAsOwner(clientReqs))
 
 		e.lowestUnallocated[int(bucketID)] += len(e.buckets)
 	}

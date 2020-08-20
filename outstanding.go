@@ -78,7 +78,7 @@ func (ao *allOutstandingReqs) advanceRequests() *Actions {
 
 		if seq, ok := ao.outstandingRequests[key]; ok {
 			delete(ao.outstandingRequests, key)
-			actions.Append(seq.satisfyOutstanding(fr))
+			actions.concat(seq.satisfyOutstanding(fr))
 			continue
 		}
 

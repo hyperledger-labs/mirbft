@@ -151,7 +151,7 @@ func (s *serializer) run() {
 				Type: step,
 			}
 		case actionsC <- *actions:
-			actions.Clear()
+			actions.clear()
 			actionsC = nil
 			continue
 		case results := <-s.resultsC:
@@ -176,9 +176,10 @@ func (s *serializer) run() {
 		}
 
 		if stateEvent != nil {
-			actions.Append(s.stateMachine.ApplyEvent(stateEvent))
+			actions.concat(s.stateMachine.ApplyEvent(stateEvent))
 		}
 
+		// XXX this is no longer needed
 		// We unconditionally re-enable the actions channel after any event is injected into the system
 		// which will mean some zero-length actions get sent to the consumer.  This isn't optimal,
 		// but, I've convinced myself that's okay for a couple reasons:

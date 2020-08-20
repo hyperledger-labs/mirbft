@@ -166,7 +166,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		batch, ok := et.batchTracker.getBatch(digest)
 		if !ok {
 			// TODO, perhaps only ask those who have it?
-			actions.Append(et.batchTracker.fetchBatch(seqNo, digest, et.networkConfig.Nodes))
+			actions.concat(et.batchTracker.fetchBatch(seqNo, digest, et.networkConfig.Nodes))
 			fetchPending = true
 			continue
 		}
@@ -207,7 +207,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
 		if len(digest) == 0 {
-			actions.Append(et.persisted.addQEntry(&pb.QEntry{
+			actions.concat(et.persisted.addQEntry(&pb.QEntry{
 				SeqNo: seqNo,
 			}))
 			continue
@@ -231,12 +231,12 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 			Requests: requests,
 		}
 
-		actions.Append(et.persisted.addQEntry(qEntry))
+		actions.concat(et.persisted.addQEntry(qEntry))
 	}
 
-	actions.Append(et.persisted.addNewEpochEcho(et.leaderNewEpoch.NewConfig))
-
-	return actions.send(
+	return actions.concat(
+		et.persisted.addNewEpochEcho(et.leaderNewEpoch.NewConfig),
+	).send(
 		et.networkConfig.Nodes,
 		&pb.Msg{
 			Type: &pb.Msg_NewEpochEcho{
@@ -315,16 +315,14 @@ func (et *epochTarget) tickPending() *Actions {
 			suspect := &pb.Suspect{
 				Epoch: et.myNewEpoch.NewConfig.Config.Number,
 			}
-			actions := (&Actions{}).send(
+			return (&Actions{}).send(
 				et.networkConfig.Nodes,
 				&pb.Msg{
 					Type: &pb.Msg_Suspect{
 						Suspect: suspect,
 					},
 				},
-			)
-			actions.Append(et.persisted.addSuspect(suspect))
-			return actions
+			).concat(et.persisted.addSuspect(suspect))
 		}
 		if pendingTicks%2 == 0 {
 			return et.repeatEpochChangeBroadcast()
@@ -443,15 +441,15 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 
 		for i, digest := range config.FinalPreprepares {
 			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
-			actions.Append(et.persisted.addPEntry(&pb.PEntry{
+			actions.concat(et.persisted.addPEntry(&pb.PEntry{
 				SeqNo:  seqNo,
 				Digest: digest,
 			}))
 		}
 
-		actions.Append(et.persisted.addNewEpochReady(config))
-
-		actions.send(
+		return actions.concat(
+			et.persisted.addNewEpochReady(config),
+		).send(
 			et.networkConfig.Nodes,
 			&pb.Msg{
 				Type: &pb.Msg_NewEpochReady{
@@ -461,8 +459,6 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 				},
 			},
 		)
-
-		break
 	}
 
 	return actions
@@ -564,13 +560,11 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 
 		}
 
-		actions := et.persisted.addNewEpochStart(config.Config)
-
-		actions.Append(&Actions{
-			Commits: commits,
-		})
-
-		return actions
+		return et.persisted.addNewEpochStart(config.Config).concat(
+			&Actions{
+				Commits: commits,
+			},
+		)
 	}
 
 	return &Actions{}
@@ -582,20 +576,20 @@ func (et *epochTarget) advanceState() *Actions {
 		oldState := et.state
 		switch et.state {
 		case prepending: // Have sent an epoch-change, but waiting for a quorum
-			actions.Append(et.checkEpochQuorum())
+			actions.concat(et.checkEpochQuorum())
 		case pending: // Have a quorum of epoch-change messages, waits on new-epoch
 			if et.leaderNewEpoch == nil {
 				return actions
 			}
 			et.state = verifying
 		case verifying: // Have a new view message but it references epoch changes we cannot yet verify
-			actions.Append(et.verifyNewEpochState())
+			actions.concat(et.verifyNewEpochState())
 		case fetching: // Have received and verified a new epoch messages, and are waiting to get state
-			actions.Append(et.fetchNewEpochState())
+			actions.concat(et.fetchNewEpochState())
 		case echoing: // Have received and validated a new-epoch, waiting for a quorum of echos
-			actions.Append(et.checkNewEpochEchoQuorum())
+			actions.concat(et.checkNewEpochEchoQuorum())
 		case readying: // Have received a quorum of echos, waiting a on qourum of readies
-			actions.Append(et.checkNewEpochReadyQuorum())
+			actions.concat(et.checkNewEpochReadyQuorum())
 		case ready: // New epoch is ready to begin
 		case inProgress: // No pending change
 		case done: // We have sent an epoch change, ending this epoch for us
@@ -804,8 +798,7 @@ func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) 
 	// TODO, we could get away with one type of message, an 'EpochChange'
 	// with an 'Origin', but it's a little less clear reading messages on the wire.
 	target := ec.target(msg.NewEpoch)
-	actions.Append(target.applyEpochChangeAckMsg(source, source, msg))
-	return actions
+	return actions.concat(target.applyEpochChangeAckMsg(source, source, msg))
 }
 
 func (ec *epochChanger) applyEpochChangeDigest(epochChange *pb.HashResult_EpochChange, digest []byte) *Actions {

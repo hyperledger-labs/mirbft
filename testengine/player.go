@@ -87,8 +87,11 @@ func (p *Player) Step() error {
 				node.Processing = nil
 			}
 		}
-
-		node.Actions.Append(node.StateMachine.ApplyEvent(se))
+		newActions := node.StateMachine.ApplyEvent(se)
+		node.Actions.Send = append(node.Actions.Send, newActions.Send...)
+		node.Actions.Hash = append(node.Actions.Hash, newActions.Hash...)
+		node.Actions.Commits = append(node.Actions.Commits, newActions.Commits...)
+		node.Actions.Persist = append(node.Actions.Persist, newActions.Persist...)
 	case *tpb.Event_Process_:
 		actions := &mirbft.Actions{}
 

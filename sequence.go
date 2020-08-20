@@ -80,10 +80,10 @@ func (s *sequence) advanceState() *Actions {
 			s.checkRequests()
 		case Ready:
 			if s.digest != nil || len(s.batch) == 0 {
-				actions.Append(s.prepare())
+				actions.concat(s.prepare())
 			}
 		case Preprepared:
-			actions.Append(s.checkPrepareQuorum())
+			actions.concat(s.checkPrepareQuorum())
 		case Prepared:
 			s.checkCommitQuorum()
 		case Committed:
@@ -160,9 +160,7 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.Forw
 
 	s.state = PendingRequests
 
-	actions.Append(s.advanceState())
-
-	return actions
+	return actions.concat(s.advanceState())
 }
 
 func (s *sequence) satisfyOutstanding(fr *pb.ForwardRequest) *Actions {
@@ -245,9 +243,7 @@ func (s *sequence) prepare() *Actions {
 		)
 	}
 
-	actions.Append(s.persisted.addQEntry(s.qEntry))
-
-	return actions
+	return actions.concat(s.persisted.addQEntry(s.qEntry))
 }
 
 func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
@@ -298,8 +294,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 			},
 		},
 	)
-	actions.Append(s.persisted.addPEntry(pEntry))
-	return actions
+	return actions.concat(s.persisted.addPEntry(pEntry))
 }
 
 func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {

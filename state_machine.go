@@ -237,7 +237,7 @@ func (sm *StateMachine) advance(actions *Actions) *Actions {
 	}
 
 	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig)
-	actions.Append(sm.activeEpoch.drainProposer())
+	actions.concat(sm.activeEpoch.drainProposer())
 	sm.epochChanger.activeEpoch.state = inProgress
 	for _, nodeMsgs := range sm.nodeMsgs {
 		nodeMsgs.setActiveEpoch(sm.activeEpoch)
@@ -261,28 +261,28 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			switch innerMsg := msg.Type.(type) {
 			case *pb.Msg_Preprepare:
 				msg := innerMsg.Preprepare
-				actions.Append(sm.applyPreprepareMsg(source, msg))
+				actions.concat(sm.applyPreprepareMsg(source, msg))
 			case *pb.Msg_Prepare:
 				msg := innerMsg.Prepare
-				actions.Append(sm.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
+				actions.concat(sm.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
 			case *pb.Msg_Commit:
 				msg := innerMsg.Commit
-				actions.Append(sm.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
+				actions.concat(sm.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
 			case *pb.Msg_Checkpoint:
 				msg := innerMsg.Checkpoint
-				actions.Append(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
+				actions.concat(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
 			case *pb.Msg_RequestAck:
 				msg := innerMsg.RequestAck
-				actions.Append(sm.applyRequestAckMsg(source, msg))
+				actions.concat(sm.applyRequestAckMsg(source, msg))
 			case *pb.Msg_FetchBatch:
 				msg := innerMsg.FetchBatch
-				actions.Append(sm.batchTracker.replyFetchBatch(uint64(source), msg.SeqNo, msg.Digest))
+				actions.concat(sm.batchTracker.replyFetchBatch(uint64(source), msg.SeqNo, msg.Digest))
 			case *pb.Msg_FetchRequest:
 				msg := innerMsg.FetchRequest
-				actions.Append(sm.clientWindows.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest))
+				actions.concat(sm.clientWindows.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest))
 			case *pb.Msg_ForwardBatch:
 				msg := innerMsg.ForwardBatch
-				actions.Append(sm.batchTracker.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.RequestAcks))
+				actions.concat(sm.batchTracker.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.RequestAcks))
 			case *pb.Msg_ForwardRequest:
 				if source == NodeID(sm.myConfig.ID) {
 					// We've already pre-processed this
@@ -290,19 +290,19 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 					// who don't know this should go away.
 					continue
 				}
-				actions.Append(sm.clientWindows.applyForwardRequest(source, innerMsg.ForwardRequest))
+				actions.concat(sm.clientWindows.applyForwardRequest(source, innerMsg.ForwardRequest))
 			case *pb.Msg_Suspect:
 				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 			case *pb.Msg_EpochChange:
-				actions.Append(sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange))
+				actions.concat(sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange))
 			case *pb.Msg_EpochChangeAck:
-				actions.Append(sm.epochChanger.applyEpochChangeAckMsg(source, innerMsg.EpochChangeAck))
+				actions.concat(sm.epochChanger.applyEpochChangeAckMsg(source, innerMsg.EpochChangeAck))
 			case *pb.Msg_NewEpoch:
-				actions.Append(sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch))
+				actions.concat(sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch))
 			case *pb.Msg_NewEpochEcho:
-				actions.Append(sm.epochChanger.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho))
+				actions.concat(sm.epochChanger.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho))
 			case *pb.Msg_NewEpochReady:
-				actions.Append(sm.epochChanger.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
+				actions.concat(sm.epochChanger.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
 			default:
 				// This should be unreachable, as the nodeMsgs filters based on type as well
 				panic(fmt.Sprintf("unexpected bad message type %T, should have been detected earlier", msg.Type))
@@ -359,8 +359,7 @@ func (sm *StateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 	}
 	sm.persisted.truncate(newLow)
 	actions := sm.activeEpoch.moveWatermarks(newLow)
-	actions.Append(sm.drainNodeMsgs())
-	return actions
+	return actions.concat(sm.drainNodeMsgs())
 }
 
 func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Actions {
@@ -368,7 +367,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 
 	for _, checkpointResult := range results.Checkpoints {
 		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
-		actions.Append(sm.checkpointTracker.applyCheckpointResult(
+		actions.concat(sm.checkpointTracker.applyCheckpointResult(
 			checkpointResult.SeqNo,
 			checkpointResult.Value,
 			checkpointResult.EpochConfig,
@@ -389,7 +388,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 			// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
 			seqNo := batch.SeqNo
 			// TODO, rename applyProcessResult to something better
-			actions.Append(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
+			actions.concat(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
 		case *pb.HashResult_Request_:
 			request := hashType.Request
 			actions.send(
@@ -404,32 +403,32 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 					},
 				},
 			)
-			actions.Append(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
+			actions.concat(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
 		case *pb.HashResult_VerifyRequest_:
 			request := hashType.VerifyRequest
 			if !bytes.Equal(request.ExpectedDigest, hashResult.Digest) {
 				panic("byzantine")
 				// XXX this should not panic, but put to make dev easier
 			}
-			actions.Append(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
+			actions.concat(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
 			if sm.epochChanger.activeEpoch.state == fetching {
-				actions.Append(sm.epochChanger.activeEpoch.fetchNewEpochState())
+				actions.concat(sm.epochChanger.activeEpoch.fetchNewEpochState())
 			}
 		case *pb.HashResult_EpochChange_:
 			epochChange := hashType.EpochChange
-			actions.Append(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
+			actions.concat(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
 		case *pb.HashResult_VerifyBatch_:
 			verifyBatch := hashType.VerifyBatch
 			sm.batchTracker.applyVerifyBatchHashResult(hashResult.Digest, verifyBatch)
 			if !sm.batchTracker.hasFetchInFlight() && sm.epochChanger.activeEpoch.state == fetching {
-				actions.Append(sm.epochChanger.activeEpoch.fetchNewEpochState())
+				actions.concat(sm.epochChanger.activeEpoch.fetchNewEpochState())
 			}
 		default:
 			panic("no hash result type set")
 		}
 	}
 
-	actions.Append(sm.drainNodeMsgs())
+	actions.concat(sm.drainNodeMsgs())
 
 	return sm.advance(actions)
 }
@@ -444,8 +443,7 @@ func (sm *StateMachine) applyRequestAckMsg(source NodeID, ack *pb.RequestAck) *A
 	}
 
 	actions := sm.activeEpoch.outstandingReqs.advanceRequests()
-	actions.Append(sm.activeEpoch.drainProposer())
-	return actions
+	return actions.concat(sm.activeEpoch.drainProposer())
 }
 
 func (sm *StateMachine) applyDigestedValidRequest(digest []byte, requestData *pb.Request) *Actions {
@@ -456,8 +454,7 @@ func (sm *StateMachine) applyDigestedValidRequest(digest []byte, requestData *pb
 	}
 
 	actions := sm.activeEpoch.outstandingReqs.advanceRequests()
-	actions.Append(sm.activeEpoch.drainProposer())
-	return actions
+	return actions.concat(sm.activeEpoch.drainProposer())
 }
 
 func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
@@ -473,12 +470,10 @@ func (sm *StateMachine) tick() *Actions {
 	actions := &Actions{}
 
 	if sm.activeEpoch != nil {
-		actions.Append(sm.activeEpoch.tick())
+		actions.concat(sm.activeEpoch.tick())
 	}
 
-	actions.Append(sm.epochChanger.tick())
-
-	return actions
+	return actions.concat(sm.epochChanger.tick())
 }
 
 func (sm *StateMachine) Status() *Status {
