@@ -54,14 +54,6 @@ func (a *Actions) Clear() {
 	a.Commits = nil
 }
 
-// IsEmpty returns whether every field is zero in length.
-func (a *Actions) IsEmpty() bool {
-	return len(a.Send) == 0 &&
-		len(a.Commits) == 0 &&
-		len(a.Hash) == 0 &&
-		len(a.Persist) == 0
-}
-
 // Append takes a set of actions and for each field, appends it to
 // the corresponding field of itself.
 func (a *Actions) Append(o *Actions) {

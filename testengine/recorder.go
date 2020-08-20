@@ -413,13 +413,20 @@ func (r *Recording) Step() error {
 	}
 
 	if playbackNode.Processing == nil &&
-		!playbackNode.Actions.IsEmpty() &&
+		!isEmpty(playbackNode.Actions) &&
 		!node.AwaitingProcessEvent {
 		r.EventLog.InsertProcess(lastEvent.Target, uint64(runtimeParms.ProcessLatency))
 		node.AwaitingProcessEvent = true
 	}
 
 	return nil
+}
+
+func isEmpty(actions *mirbft.Actions) bool {
+	return len(actions.Send) == 0 &&
+		len(actions.Persist) == 0 &&
+		len(actions.Hash) == 0 &&
+		len(actions.Commits) == 0
 }
 
 // DrainClients will execute the recording until all client requests have committed.
