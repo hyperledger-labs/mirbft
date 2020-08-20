@@ -168,9 +168,7 @@ type Recorder struct {
 }
 
 func (r *Recorder) Recording() (*Recording, error) {
-	eventLog := &EventLog{
-		InitialState: r.NetworkState,
-	}
+	eventLog := &EventLog{}
 
 	nodes := make([]*RecorderNode, len(r.RecorderNodeConfigs))
 	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
@@ -196,10 +194,10 @@ func (r *Recorder) Recording() (*Recording, error) {
 								CEntry: &pb.CEntry{
 									SeqNo:           0,
 									CheckpointValue: []byte("fake-initial-value"),
-									NetworkState:    eventLog.InitialState,
+									NetworkState:    r.NetworkState,
 									EpochConfig: &pb.EpochConfig{
 										Number:            0,
-										Leaders:           eventLog.InitialState.Config.Nodes,
+										Leaders:           r.NetworkState.Config.Nodes,
 										PlannedExpiration: 0,
 									},
 								},

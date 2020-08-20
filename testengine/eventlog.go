@@ -30,7 +30,6 @@ type EventLogEntry struct {
 type EventLog struct {
 	Name               string
 	Description        string
-	InitialState       *pb.NetworkState
 	FirstEventLogEntry *EventLogEntry
 	NextEventLogEntry  *EventLogEntry
 	LastConsumed       *EventLogEntry
@@ -82,10 +81,9 @@ func (l *EventLog) Write(dest io.Writer) error {
 	if err := writePrefixedProto(dest, &tpb.LogEntry{
 		Type: &tpb.LogEntry_Scenario{
 			Scenario: &tpb.ScenarioConfig{
-				Name:                l.Name,
-				Description:         l.Description,
-				InitialNetworkState: l.InitialState,
-				NodeConfigs:         l.NodeConfigs(),
+				Name:        l.Name,
+				Description: l.Description,
+				NodeConfigs: l.NodeConfigs(),
 			},
 		},
 	}); err != nil {
@@ -152,9 +150,8 @@ func ReadEventLog(source io.Reader) (el *EventLog, err error) {
 			scenario = scenarioType.Scenario
 
 			eventLog = &EventLog{
-				Name:         scenario.Name,
-				Description:  scenario.Description,
-				InitialState: scenario.InitialNetworkState,
+				Name:        scenario.Name,
+				Description: scenario.Description,
 			}
 		default:
 			eventType, ok := pLogEntry.Type.(*tpb.LogEntry_Event)

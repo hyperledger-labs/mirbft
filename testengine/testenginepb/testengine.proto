@@ -17,7 +17,6 @@ import "mirbftpb/mirbft.proto";
 message ScenarioConfig {
 	string name = 1;
 	string description = 2;
-	mirbftpb.NetworkState initial_network_state = 3;
 	repeated NodeConfig node_configs = 4;
 }
 
