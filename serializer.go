@@ -50,7 +50,7 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 		Type: &pb.StateEvent_Initialize{
 			Initialize: &pb.StateEvent_InitialParameters{
 				Id:                   myConfig.ID,
-				BatchSize:            myConfig.BatchParameters.BatchSize,
+				BatchSize:            myConfig.BatchSize,
 				HeartbeatTicks:       myConfig.HeartbeatTicks,
 				SuspectTicks:         myConfig.SuspectTicks,
 				NewEpochTimeoutTicks: myConfig.NewEpochTimeoutTicks,

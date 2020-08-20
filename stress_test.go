@@ -272,11 +272,9 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 
 	for i := range nodes {
 		config := &mirbft.Config{
-			ID:     uint64(i),
-			Logger: logger.Named(fmt.Sprintf("node%d", i)),
-			BatchParameters: mirbft.BatchParameters{
-				BatchSize: 1,
-			},
+			ID:                   uint64(i),
+			Logger:               logger.Named(fmt.Sprintf("node%d", i)),
+			BatchSize:            1,
 			SuspectTicks:         4,
 			NewEpochTimeoutTicks: 8,
 			BufferSize:           500,

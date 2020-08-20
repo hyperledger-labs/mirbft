@@ -17,9 +17,9 @@ type Config struct {
 	// Logger provides the logging functions.
 	Logger Logger
 
-	// BatchParameters determines under what conditions the queued
-	// pieces of data should be converted into a batch and consented on
-	BatchParameters BatchParameters
+	// BatchSize determines how large a batch may grow (in number of request)
+	// before it is cut. (Note, batches may be cut earlier, so this is a max size).
+	BatchSize uint32
 
 	// HeartbeatTicks is the number of ticks before a heartbeat is emitted
 	// by a leader.
@@ -44,10 +44,6 @@ type Config struct {
 	// external insight into the state machine, but comes at a performance cost
 	// and would generally not be enabled outside of a test or debug setting.
 	EventInterceptor EventInterceptor
-}
-
-type BatchParameters struct {
-	BatchSize uint32
 }
 
 // EventInterceptor provides a way for a consumer to gain insight into
