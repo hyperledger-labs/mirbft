@@ -75,18 +75,14 @@ func (c *SerialProcessor) Persist(actions *mirbft.Actions) {
 }
 
 func (c *SerialProcessor) Transmit(actions *mirbft.Actions) {
-	for _, broadcast := range actions.Broadcast {
-		for _, replica := range actions.Replicas {
-			if replica.ID == c.Node.Config.ID {
-				c.Node.Step(context.TODO(), replica.ID, broadcast)
+	for _, send := range actions.Send {
+		for _, replica := range send.Targets {
+			if replica == c.Node.Config.ID {
+				c.Node.Step(context.Background(), replica, send.Msg)
 			} else {
-				c.Link.Send(replica.ID, broadcast)
+				c.Link.Send(replica, send.Msg)
 			}
 		}
-	}
-
-	for _, unicast := range actions.Unicast {
-		c.Link.Send(unicast.Target, unicast.Msg)
 	}
 }
 

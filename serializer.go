@@ -132,9 +132,7 @@ func (s *serializer) run() {
 		}
 	}
 
-	actions := &Actions{
-		Replicas: replicas,
-	}
+	actions := &Actions{}
 	var actionsC chan<- Actions
 	for {
 		var stateEvent *pb.StateEvent

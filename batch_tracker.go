@@ -80,7 +80,7 @@ func (bt *batchTracker) addBatch(seqNo uint64, digest []byte, requestAcks []*pb.
 	b.observedSequences[seqNo] = struct{}{}
 }
 
-func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte) *Actions {
+func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte, sources []uint64) *Actions {
 	inFlight, ok := bt.fetchInFlight[string(digest)]
 	if ok {
 		// It's a weird, but possible case, that two batches have
@@ -95,40 +95,38 @@ func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte) *Actions {
 	inFlight = append(inFlight, seqNo)
 	bt.fetchInFlight[string(digest)] = inFlight
 
-	return &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_FetchBatch{
-					FetchBatch: &pb.FetchBatch{
-						SeqNo:  seqNo,
-						Digest: digest,
-					},
+	return (&Actions{}).send(
+		sources,
+		&pb.Msg{
+			Type: &pb.Msg_FetchBatch{
+				FetchBatch: &pb.FetchBatch{
+					SeqNo:  seqNo,
+					Digest: digest,
 				},
 			},
 		},
-	}
+	)
 }
 
-func (bt *batchTracker) replyFetchBatch(seqNo uint64, digest []byte) *Actions {
+func (bt *batchTracker) replyFetchBatch(source uint64, seqNo uint64, digest []byte) *Actions {
 	batch, ok := bt.getBatch(digest)
 	if !ok {
 		// TODO, is this worth logging, or just ignore? (It's not necessarily byzantine)
 		return &Actions{}
 	}
 
-	return &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_ForwardBatch{
-					ForwardBatch: &pb.ForwardBatch{
-						SeqNo:       seqNo,
-						Digest:      digest,
-						RequestAcks: batch.requestAcks,
-					},
+	return (&Actions{}).send(
+		[]uint64{source},
+		&pb.Msg{
+			Type: &pb.Msg_ForwardBatch{
+				ForwardBatch: &pb.ForwardBatch{
+					SeqNo:       seqNo,
+					Digest:      digest,
+					RequestAcks: batch.requestAcks,
 				},
 			},
 		},
-	}
+	)
 }
 
 func (bt *batchTracker) applyForwardBatchMsg(source NodeID, seqNo uint64, digest []byte, requestAcks []*pb.RequestAck) *Actions {

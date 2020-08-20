@@ -203,40 +203,46 @@ func (s *sequence) prepare() *Actions {
 	var actions *Actions
 
 	if uint64(s.owner) == s.myConfig.ID {
-		bcast := make([]*pb.Msg, len(s.forwardReqs)+1)
+		bcast := make([]Send, len(s.forwardReqs)+1)
 		for i, fr := range s.forwardReqs {
-			bcast[i] = &pb.Msg{ // TODO, unicast only to those who need it
-				Type: &pb.Msg_ForwardRequest{
-					ForwardRequest: fr,
+			bcast[i] = Send{
+				// TODO, send only to those who need it
+				s.networkConfig.Nodes,
+				&pb.Msg{
+					Type: &pb.Msg_ForwardRequest{
+						ForwardRequest: fr,
+					},
 				},
 			}
 		}
-		bcast[len(s.forwardReqs)] = &pb.Msg{
-			Type: &pb.Msg_Preprepare{
-				Preprepare: &pb.Preprepare{
-					SeqNo: s.seqNo,
-					Epoch: s.epoch,
-					Batch: s.batch,
-				},
-			},
-		}
-		actions = &Actions{
-			Broadcast: bcast,
-		}
-	} else {
-		actions = &Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_Prepare{
-						Prepare: &pb.Prepare{
-							SeqNo:  s.seqNo,
-							Epoch:  s.epoch,
-							Digest: s.digest,
-						},
+		bcast[len(s.forwardReqs)] = Send{
+			s.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_Preprepare{
+					Preprepare: &pb.Preprepare{
+						SeqNo: s.seqNo,
+						Epoch: s.epoch,
+						Batch: s.batch,
 					},
 				},
 			},
 		}
+		actions = &Actions{
+			Send: bcast,
+		}
+	} else {
+		actions = (&Actions{}).send(
+			s.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_Prepare{
+					Prepare: &pb.Prepare{
+						SeqNo:  s.seqNo,
+						Epoch:  s.epoch,
+						Digest: s.digest,
+					},
+				},
+			},
+		)
 	}
 
 	actions.Append(s.persisted.addQEntry(s.qEntry))
@@ -280,19 +286,18 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 		Digest: s.digest,
 	}
 
-	actions := &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_Commit{
-					Commit: &pb.Commit{
-						SeqNo:  s.seqNo,
-						Epoch:  s.epoch,
-						Digest: s.digest,
-					},
+	actions := (&Actions{}).send(
+		s.networkConfig.Nodes,
+		&pb.Msg{
+			Type: &pb.Msg_Commit{
+				Commit: &pb.Commit{
+					SeqNo:  s.seqNo,
+					Epoch:  s.epoch,
+					Digest: s.digest,
 				},
 			},
 		},
-	}
+	)
 	actions.Append(s.persisted.addPEntry(pEntry))
 	return actions
 }

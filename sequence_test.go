@@ -159,13 +159,16 @@ var _ = XDescribe("sequence", func() {
 		It("transitions from Allocated to Preprepared", func() {
 			actions := s.applyProcessResult([]byte("digest"))
 			Expect(actions).To(Equal(&Actions{
-				Broadcast: []*pb.Msg{
+				Send: []Send{
 					{
-						Type: &pb.Msg_Prepare{
-							Prepare: &pb.Prepare{
-								SeqNo:  5,
-								Epoch:  4,
-								Digest: []byte("digest"),
+						Targets: []uint64{0, 1, 2, 3},
+						Msg: &pb.Msg{
+							Type: &pb.Msg_Prepare{
+								Prepare: &pb.Prepare{
+									SeqNo:  5,
+									Epoch:  4,
+									Digest: []byte("digest"),
+								},
 							},
 						},
 					},
@@ -256,13 +259,16 @@ var _ = XDescribe("sequence", func() {
 			s.applyPrepareMsg(0, []byte("digest"))
 			actions := s.advanceState()
 			Expect(actions).To(Equal(&Actions{
-				Broadcast: []*pb.Msg{
+				Send: []Send{
 					{
-						Type: &pb.Msg_Commit{
-							Commit: &pb.Commit{
-								SeqNo:  5,
-								Epoch:  4,
-								Digest: []byte("digest"),
+						Targets: []uint64{0, 1, 2, 3},
+						Msg: &pb.Msg{
+							Type: &pb.Msg_Commit{
+								Commit: &pb.Commit{
+									SeqNo:  5,
+									Epoch:  4,
+									Digest: []byte("digest"),
+								},
 							},
 						},
 					},

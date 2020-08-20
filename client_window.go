@@ -135,21 +135,17 @@ func (cws *clientWindows) replyFetchRequest(source NodeID, clientID, reqNo uint6
 		return &Actions{}
 	}
 
-	return &Actions{
-		Unicast: []Unicast{
-			{
-				Target: uint64(source),
-				Msg: &pb.Msg{
-					Type: &pb.Msg_ForwardRequest{
-						ForwardRequest: &pb.ForwardRequest{
-							Request: data.data,
-							Digest:  digest,
-						},
-					},
+	return (&Actions{}).send(
+		[]uint64{uint64(source)},
+		&pb.Msg{
+			Type: &pb.Msg_ForwardRequest{
+				ForwardRequest: &pb.ForwardRequest{
+					Request: data.data,
+					Digest:  digest,
 				},
 			},
 		},
-	}
+	)
 }
 
 func (cws *clientWindows) applyForwardRequest(source NodeID, msg *pb.ForwardRequest) *Actions {

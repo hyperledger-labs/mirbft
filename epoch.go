@@ -306,7 +306,7 @@ func (e *epoch) tick() *Actions {
 		suspect := &pb.Suspect{
 			Epoch: e.epochConfig.Number,
 		}
-		actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+		actions.send(e.networkConfig.Nodes, &pb.Msg{
 			Type: &pb.Msg_Suspect{
 				Suspect: suspect,
 			},

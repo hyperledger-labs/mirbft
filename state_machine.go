@@ -276,7 +276,7 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 				actions.Append(sm.applyRequestAckMsg(source, msg))
 			case *pb.Msg_FetchBatch:
 				msg := innerMsg.FetchBatch
-				actions.Append(sm.batchTracker.replyFetchBatch(msg.SeqNo, msg.Digest))
+				actions.Append(sm.batchTracker.replyFetchBatch(uint64(source), msg.SeqNo, msg.Digest))
 			case *pb.Msg_FetchRequest:
 				msg := innerMsg.FetchRequest
 				actions.Append(sm.clientWindows.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest))
@@ -332,17 +332,14 @@ func (sm *StateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 
 	actions := sm.persisted.addEpochChange(epochChange) // TODO, this is an awkward spot
 
-	actions.Append(&Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_EpochChange{
-					EpochChange: epochChange,
-				},
+	return actions.send(
+		sm.networkConfig.Nodes,
+		&pb.Msg{
+			Type: &pb.Msg_EpochChange{
+				EpochChange: epochChange,
 			},
 		},
-	})
-
-	return actions
+	)
 }
 
 func (sm *StateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
@@ -395,15 +392,18 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 			actions.Append(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
 		case *pb.HashResult_Request_:
 			request := hashType.Request
-			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-				Type: &pb.Msg_RequestAck{
-					RequestAck: &pb.RequestAck{
-						ClientId: request.Request.ClientId,
-						ReqNo:    request.Request.ReqNo,
-						Digest:   hashResult.Digest,
+			actions.send(
+				sm.networkConfig.Nodes,
+				&pb.Msg{
+					Type: &pb.Msg_RequestAck{
+						RequestAck: &pb.RequestAck{
+							ClientId: request.Request.ClientId,
+							ReqNo:    request.Request.ReqNo,
+							Digest:   hashResult.Digest,
+						},
 					},
 				},
-			})
+			)
 			actions.Append(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
 		case *pb.HashResult_VerifyRequest_:
 			request := hashType.VerifyRequest

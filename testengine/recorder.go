@@ -365,8 +365,8 @@ func (r *Recording) Step() error {
 		}
 		node.AwaitingProcessEvent = false
 		processing := playbackNode.Processing
-		for _, msg := range processing.Broadcast {
-			for i := range r.Player.Nodes {
+		for _, send := range processing.Send {
+			for _, i := range send.Targets {
 				linkLatency := runtimeParms.LinkLatency
 				if uint64(i) == lastEvent.Target {
 					// There's no latency to send to ourselves
@@ -376,28 +376,11 @@ func (r *Recording) Step() error {
 					uint64(i),
 					&pb.StateEvent_InboundMsg{
 						Source: lastEvent.Target,
-						Msg:    msg,
+						Msg:    send.Msg,
 					},
 					uint64(linkLatency+runtimeParms.PersistLatency),
 				)
 			}
-		}
-
-		for _, unicast := range processing.Unicast {
-			linkLatency := runtimeParms.LinkLatency
-			if unicast.Target == lastEvent.Target {
-				// There's no latency to send to ourselves
-				linkLatency = 0
-			}
-
-			r.EventLog.InsertStepEvent(
-				unicast.Target,
-				&pb.StateEvent_InboundMsg{
-					Source: lastEvent.Target,
-					Msg:    unicast.Msg,
-				},
-				uint64(linkLatency+runtimeParms.PersistLatency),
-			)
 		}
 
 		apply := &pb.StateEvent_ActionResults{

@@ -166,7 +166,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		batch, ok := et.batchTracker.getBatch(digest)
 		if !ok {
 			// TODO, perhaps only ask those who have it?
-			actions.Append(et.batchTracker.fetchBatch(seqNo, digest))
+			actions.Append(et.batchTracker.fetchBatch(seqNo, digest, et.networkConfig.Nodes))
 			fetchPending = true
 			continue
 		}
@@ -190,7 +190,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 			// We are missing this request data and must fetch before proceeding
 			fetchPending = true
 			// TODO, perhaps only ask those who have it?
-			actions.Broadcast = append(actions.Broadcast, &pb.Msg{
+			actions.send(et.networkConfig.Nodes, &pb.Msg{
 				Type: &pb.Msg_FetchRequest{
 					FetchRequest: requestAck,
 				},
@@ -236,19 +236,16 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 	actions.Append(et.persisted.addNewEpochEcho(et.leaderNewEpoch.NewConfig))
 
-	actions.Append(&Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_NewEpochEcho{
-					NewEpochEcho: &pb.NewEpochEcho{
-						NewConfig: et.leaderNewEpoch.NewConfig,
-					},
+	return actions.send(
+		et.networkConfig.Nodes,
+		&pb.Msg{
+			Type: &pb.Msg_NewEpochEcho{
+				NewEpochEcho: &pb.NewEpochEcho{
+					NewConfig: et.leaderNewEpoch.NewConfig,
 				},
 			},
 		},
-	})
-
-	return actions
+	)
 }
 
 func (et *epochTarget) tick() *Actions {
@@ -264,15 +261,14 @@ func (et *epochTarget) tick() *Actions {
 }
 
 func (et *epochTarget) repeatEpochChangeBroadcast() *Actions {
-	return &Actions{
-		Broadcast: []*pb.Msg{
-			{
-				Type: &pb.Msg_EpochChange{
-					EpochChange: et.myEpochChange.underlying,
-				},
+	return (&Actions{}).send(
+		et.networkConfig.Nodes,
+		&pb.Msg{
+			Type: &pb.Msg_EpochChange{
+				EpochChange: et.myEpochChange.underlying,
 			},
 		},
-	}
+	)
 }
 
 func (et *epochTarget) tickPrepending() *Actions {
@@ -287,15 +283,14 @@ func (et *epochTarget) tickPrepending() *Actions {
 	et.stateTicks = 0
 
 	if et.isLeader {
-		return &Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_NewEpoch{
-						NewEpoch: et.myNewEpoch,
-					},
+		return (&Actions{}).send(
+			et.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_NewEpoch{
+					NewEpoch: et.myNewEpoch,
 				},
 			},
-		}
+		)
 	}
 
 	return &Actions{}
@@ -306,30 +301,28 @@ func (et *epochTarget) tickPending() *Actions {
 	if et.isLeader {
 		// resend the new-view if others perhaps missed it
 		if pendingTicks%2 == 0 {
-			return &Actions{
-				Broadcast: []*pb.Msg{
-					{
-						Type: &pb.Msg_NewEpoch{
-							NewEpoch: et.myNewEpoch,
-						},
+			return (&Actions{}).send(
+				et.networkConfig.Nodes,
+				&pb.Msg{
+					Type: &pb.Msg_NewEpoch{
+						NewEpoch: et.myNewEpoch,
 					},
 				},
-			}
+			)
 		}
 	} else {
 		if pendingTicks == 0 {
 			suspect := &pb.Suspect{
 				Epoch: et.myNewEpoch.NewConfig.Config.Number,
 			}
-			actions := &Actions{
-				Broadcast: []*pb.Msg{
-					{
-						Type: &pb.Msg_Suspect{
-							Suspect: suspect,
-						},
+			actions := (&Actions{}).send(
+				et.networkConfig.Nodes,
+				&pb.Msg{
+					Type: &pb.Msg_Suspect{
+						Suspect: suspect,
 					},
 				},
-			}
+			)
 			actions.Append(et.persisted.addSuspect(suspect))
 			return actions
 		}
@@ -401,15 +394,14 @@ func (et *epochTarget) checkEpochQuorum() *Actions {
 	et.state = pending
 
 	if et.isLeader {
-		return &Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_NewEpoch{
-						NewEpoch: et.myNewEpoch,
-					},
+		return (&Actions{}).send(
+			et.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_NewEpoch{
+					NewEpoch: et.myNewEpoch,
 				},
 			},
-		}
+		)
 	}
 
 	return &Actions{}
@@ -459,17 +451,16 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 
 		actions.Append(et.persisted.addNewEpochReady(config))
 
-		actions.Append(&Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_NewEpochReady{
-						NewEpochReady: &pb.NewEpochReady{
-							NewConfig: config,
-						},
+		actions.send(
+			et.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_NewEpochReady{
+					NewEpochReady: &pb.NewEpochReady{
+						NewConfig: config,
 					},
 				},
 			},
-		})
+		)
 
 		break
 	}
@@ -513,17 +504,16 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 		actions := et.persisted.addNewEpochReady(msg.NewConfig)
 		// TODO Pset?
 
-		actions.Append(&Actions{
-			Broadcast: []*pb.Msg{
-				{
-					Type: &pb.Msg_NewEpochReady{
-						NewEpochReady: &pb.NewEpochReady{
-							NewConfig: msg.NewConfig,
-						},
+		actions.send(
+			et.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_NewEpochReady{
+					NewEpochReady: &pb.NewEpochReady{
+						NewConfig: msg.NewConfig,
 					},
 				},
 			},
-		})
+		)
 
 		return actions
 	}
@@ -798,14 +788,17 @@ func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) 
 	if source != NodeID(ec.myConfig.ID) {
 		// We don't want to echo our own EpochChange message,
 		// as we already broadcast/rebroadcast it.
-		actions.Broadcast = append(actions.Broadcast, &pb.Msg{
-			Type: &pb.Msg_EpochChangeAck{
-				EpochChangeAck: &pb.EpochChangeAck{
-					Originator:  uint64(source),
-					EpochChange: msg,
+		actions.send(
+			ec.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_EpochChangeAck{
+					EpochChangeAck: &pb.EpochChangeAck{
+						Originator:  uint64(source),
+						EpochChange: msg,
+					},
 				},
 			},
-		})
+		)
 	}
 
 	// TODO, we could get away with one type of message, an 'EpochChange'

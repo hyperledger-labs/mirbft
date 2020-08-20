@@ -16,14 +16,8 @@ import (
 // ActionResults to the *Node.AddResults call.
 // TODO add details about concurrency
 type Actions struct {
-	// Replicas are the set of active replicas for these actions
-	Replicas []Replica
-
-	// Broadcast messages should be sent to every node in the cluster (including yourself).
-	Broadcast []*pb.Msg
-
-	// Unicast messages should be sent only to the specified target.
-	Unicast []Unicast
+	// Send messages should be sent to every node in the cluster (including yourself).
+	Send []Send
 
 	// Hash is a set of requests to be hashed.  Hash can (and usually should) be done
 	// in parallel with persisting to disk and performing network sends.
@@ -43,10 +37,18 @@ type Actions struct {
 	Commits []*Commit
 }
 
+func (a *Actions) send(targets []uint64, msg *pb.Msg) *Actions {
+	a.Send = append(a.Send, Send{
+		Targets: targets,
+		Msg:     msg,
+	})
+
+	return a
+}
+
 // Clear nils out all of the fields.
 func (a *Actions) Clear() {
-	a.Broadcast = nil
-	a.Unicast = nil
+	a.Send = nil
 	a.Hash = nil
 	a.Persist = nil
 	a.Commits = nil
@@ -54,8 +56,7 @@ func (a *Actions) Clear() {
 
 // IsEmpty returns whether every field is zero in length.
 func (a *Actions) IsEmpty() bool {
-	return len(a.Broadcast) == 0 &&
-		len(a.Unicast) == 0 &&
+	return len(a.Send) == 0 &&
 		len(a.Commits) == 0 &&
 		len(a.Hash) == 0 &&
 		len(a.Persist) == 0
@@ -64,8 +65,7 @@ func (a *Actions) IsEmpty() bool {
 // Append takes a set of actions and for each field, appends it to
 // the corresponding field of itself.
 func (a *Actions) Append(o *Actions) {
-	a.Broadcast = append(a.Broadcast, o.Broadcast...)
-	a.Unicast = append(a.Unicast, o.Unicast...)
+	a.Send = append(a.Send, o.Send...)
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
 	a.Persist = append(a.Persist, o.Persist...)
@@ -90,10 +90,10 @@ type HashResult struct {
 	Request *HashRequest
 }
 
-// Unicast is an action to send a message to a particular node.
-type Unicast struct {
-	Target uint64
-	Msg    *pb.Msg
+// Send is an action to send a message to a set of nodes
+type Send struct {
+	Targets []uint64
+	Msg     *pb.Msg
 }
 
 type Commit struct {
