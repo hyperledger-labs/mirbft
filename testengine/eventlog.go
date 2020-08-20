@@ -194,6 +194,18 @@ func (l *EventLog) InsertTickEvent(target uint64, fromNow uint64) {
 	)
 }
 
+func (l *EventLog) InsertStepEvent(target uint64, stepEvent *pb.StateEvent_InboundMsg, fromNow uint64) {
+	l.InsertStateEvent(
+		target,
+		&pb.StateEvent{
+			Type: &pb.StateEvent_Step{
+				Step: stepEvent,
+			},
+		},
+		fromNow,
+	)
+}
+
 func (l *EventLog) InsertStateEvent(target uint64, stateEvent *pb.StateEvent, fromNow uint64) {
 	l.Insert(&tpb.Event{
 		Target: target,

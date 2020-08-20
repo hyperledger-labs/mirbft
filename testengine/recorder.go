@@ -308,15 +308,11 @@ func (r *Recording) Step() error {
 					// We've already sent it to ourselves
 					continue
 				}
-				r.EventLog.InsertStateEvent(
+				r.EventLog.InsertStepEvent(
 					uint64(i),
-					&pb.StateEvent{
-						Type: &pb.StateEvent_Step{
-							Step: &pb.StateEvent_InboundMsg{
-								Source: lastEvent.Target,
-								Msg:    msg,
-							},
-						},
+					&pb.StateEvent_InboundMsg{
+						Source: lastEvent.Target,
+						Msg:    msg,
 					},
 					uint64(nodeConfig.LinkLatency),
 				)
@@ -329,15 +325,11 @@ func (r *Recording) Step() error {
 				continue
 			}
 
-			r.EventLog.InsertStateEvent(
+			r.EventLog.InsertStepEvent(
 				unicast.Target,
-				&pb.StateEvent{
-					Type: &pb.StateEvent_Step{
-						Step: &pb.StateEvent_InboundMsg{
-							Source: lastEvent.Target,
-							Msg:    unicast.Msg,
-						},
-					},
+				&pb.StateEvent_InboundMsg{
+					Source: lastEvent.Target,
+					Msg:    unicast.Msg,
 				},
 				uint64(nodeConfig.LinkLatency),
 			)
