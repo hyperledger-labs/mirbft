@@ -1,7 +1,6 @@
 package testengine_test
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
@@ -20,13 +19,7 @@ var _ = Describe("Recorder", func() {
 	)
 
 	BeforeEach(func() {
-		recorder = testengine.BasicRecorder(4, 4, 200)
-		recorder.NetworkState.Config.MaxEpochLength = 100000 // XXX this works around a bug in the library for now
 		totalReqs = 4 * 200
-
-		var err error
-		recording, err = recorder.Recording()
-		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
@@ -43,12 +36,8 @@ var _ = Describe("Recorder", func() {
 			Expect(recording).NotTo(BeNil())
 
 			for nodeIndex, node := range recording.Nodes {
-				status, err := node.PlaybackNode.Node.Status(context.Background())
-				if err != nil && status == nil {
-					fmt.Printf("Could not get status for node %d: %s", nodeIndex, err)
-				} else {
-					fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
-				}
+				status := node.PlaybackNode.StateMachine.Status()
+				fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
 			}
 
 			fmt.Printf("\nWriting EventLog to disk\n")
@@ -66,26 +55,37 @@ var _ = Describe("Recorder", func() {
 
 	})
 
-	It("Executes and produces a log", func() {
-		count, err := recording.DrainClients(50000)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(count).To(Equal(36377))
+	When("There is a four node network", func() {
+		BeforeEach(func() {
+			totalReqs = 4 * 200
+			recorder = testengine.BasicRecorder(4, 4, 200)
+			recorder.NetworkState.Config.MaxEpochLength = 100000 // XXX this works around a bug in the library for now
 
-		fmt.Printf("Executing test required a log of %d events\n", count)
-
-		for _, node := range recording.Nodes {
-			status, err := node.PlaybackNode.Node.Status(context.Background())
+			var err error
+			recording, err = recorder.Recording()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(status.EpochChanger.LastActiveEpoch).To(Equal(uint64(1)))
-			Expect(status.EpochChanger.EpochTargets).To(HaveLen(2))
-			Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
-			Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
-			Expect(node.State.Length).To(Equal(totalReqs))
-			Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
+		})
 
-			// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
-			Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("105dd39693d8df1564db08fb0d2e5e3e04abf267039d5ae2a02f66af19cdb34b"))
-		}
+		It("Executes and produces a log", func() {
+			count, err := recording.DrainClients(50000)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(36377))
+
+			fmt.Printf("Executing test required a log of %d events\n", count)
+
+			for _, node := range recording.Nodes {
+				status := node.PlaybackNode.StateMachine.Status()
+				Expect(status.EpochChanger.LastActiveEpoch).To(Equal(uint64(1)))
+				Expect(status.EpochChanger.EpochTargets).To(HaveLen(2))
+				Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
+				Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
+				Expect(node.State.Length).To(Equal(totalReqs))
+				Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
+
+				// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
+				Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("105dd39693d8df1564db08fb0d2e5e3e04abf267039d5ae2a02f66af19cdb34b"))
+			}
+		})
 	})
 
 	When("A single-node network is selected", func() {
@@ -98,7 +98,7 @@ var _ = Describe("Recorder", func() {
 		})
 
 		It("still executes and produces a log", func() {
-			count, err := recording.DrainClients(50000)
+			count, err := recording.DrainClients(50)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(count).To(Equal(26))
 		})

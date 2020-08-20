@@ -1,7 +1,6 @@
 package mirbft_test
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
@@ -45,15 +44,8 @@ var _ = Describe("Mirbft", func() {
 			Expect(recording).NotTo(BeNil())
 
 			for nodeIndex, node := range recording.Nodes {
-				status, err := node.PlaybackNode.Node.Status(context.Background())
-				if err != nil && status == nil {
-					fmt.Printf("Could not get status for node %d: %s\n", nodeIndex, err)
-				} else {
-					fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
-					if err != nil {
-						fmt.Printf("Node exited with err: %+v\n", err)
-					}
-				}
+				status := node.PlaybackNode.StateMachine.Status()
+				fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
 			}
 
 			fmt.Printf("\nWriting EventLog to disk\n")
