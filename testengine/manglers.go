@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package testengine
 
 import (
+	pb "github.com/IBM/mirbft/mirbftpb"
 	tpb "github.com/IBM/mirbft/testengine/testenginepb"
 	"github.com/golang/protobuf/proto"
 )
@@ -180,12 +181,20 @@ func (etfm *EventTypeFilterMangler) BeforeStep(random int, el *EventLog) {
 	event := el.NextEventLogEntry.Event
 	switch etfm.Type {
 	case "Receive":
-		_, ok := event.Type.(*tpb.Event_Receive_)
+		se, ok := event.Type.(*tpb.Event_StateEvent)
+		if !ok {
+			return
+		}
+		_, ok = se.StateEvent.Type.(*pb.StateEvent_Step)
 		if ok {
 			etfm.Mangler.BeforeStep(random, el)
 		}
 	case "Tick":
-		_, ok := event.Type.(*tpb.Event_Tick_)
+		se, ok := event.Type.(*tpb.Event_StateEvent)
+		if !ok {
+			return
+		}
+		_, ok = se.StateEvent.Type.(*pb.StateEvent_Tick)
 		if ok {
 			etfm.Mangler.BeforeStep(random, el)
 		}
@@ -195,12 +204,20 @@ func (etfm *EventTypeFilterMangler) BeforeStep(random int, el *EventLog) {
 			etfm.Mangler.BeforeStep(random, el)
 		}
 	case "Apply":
-		_, ok := event.Type.(*tpb.Event_Apply_)
+		se, ok := event.Type.(*tpb.Event_StateEvent)
+		if !ok {
+			return
+		}
+		_, ok = se.StateEvent.Type.(*pb.StateEvent_AddResults)
 		if ok {
 			etfm.Mangler.BeforeStep(random, el)
 		}
 	case "Propose":
-		_, ok := event.Type.(*tpb.Event_Propose_)
+		se, ok := event.Type.(*tpb.Event_StateEvent)
+		if !ok {
+			return
+		}
+		_, ok = se.StateEvent.Type.(*pb.StateEvent_Propose)
 		if ok {
 			etfm.Mangler.BeforeStep(random, el)
 		}
@@ -218,12 +235,16 @@ type MsgSourceFilterMangler struct {
 func (msfm *MsgSourceFilterMangler) BeforeStep(random int, el *EventLog) {
 	event := el.NextEventLogEntry.Event
 
-	recv, ok := event.Type.(*tpb.Event_Receive_)
+	se, ok := event.Type.(*tpb.Event_StateEvent)
+	if !ok {
+		return
+	}
+	recv, ok := se.StateEvent.Type.(*pb.StateEvent_Step)
 	if !ok {
 		return
 	}
 
-	if recv.Receive.Source != msfm.Source {
+	if recv.Step.Source != msfm.Source {
 		return
 	}
 

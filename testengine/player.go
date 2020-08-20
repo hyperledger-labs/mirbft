@@ -134,100 +134,21 @@ func (p *Player) Step() error {
 
 	node := p.Nodes[int(event.Target)]
 
-	actions := &mirbft.Actions{}
-
 	switch et := event.Type.(type) {
-	case *tpb.Event_Apply_:
-		if node.Processing == nil {
-			return errors.Errorf("node %d is not currently processing but got an apply event", event.Target)
-		}
-
-		node.Processing = nil
-
-		apply := et.Apply
-		actionResults := &pb.StateEvent_ActionResults{
-			Digests:     make([]*pb.HashResult, len(apply.Digests)),
-			Checkpoints: make([]*pb.CheckpointResult, len(apply.Checkpoints)),
-		}
-
-		for i, hashResult := range apply.Digests {
-
-			actionResults.Digests[i] = &pb.HashResult{
-				Digest: hashResult.Digest,
-			}
-
-			switch result := hashResult.Type.(type) {
-			case *tpb.HashResult_Request:
-				actionResults.Digests[i].Type = &pb.HashResult_Request_{
-					Request: &pb.HashResult_Request{
-						Source:  result.Request.Source,
-						Request: result.Request.Request,
-					},
-				}
-			case *tpb.HashResult_Batch:
-				actionResults.Digests[i].Type = &pb.HashResult_Batch_{
-					Batch: &pb.HashResult_Batch{
-						Source:      result.Batch.Source,
-						SeqNo:       result.Batch.SeqNo,
-						Epoch:       result.Batch.Epoch,
-						RequestAcks: result.Batch.RequestAcks,
-					},
-				}
-			case *tpb.HashResult_EpochChange:
-				actionResults.Digests[i].Type = &pb.HashResult_EpochChange_{
-					EpochChange: &pb.HashResult_EpochChange{
-						Source:      result.EpochChange.Source,
-						Origin:      result.EpochChange.Origin,
-						EpochChange: result.EpochChange.EpochChange,
-					},
-				}
-			case *tpb.HashResult_VerifyBatch:
-				actionResults.Digests[i].Type = &pb.HashResult_VerifyBatch_{
-					VerifyBatch: &pb.HashResult_VerifyBatch{
-						Source:         result.VerifyBatch.Source,
-						SeqNo:          result.VerifyBatch.SeqNo,
-						RequestAcks:    result.VerifyBatch.RequestAcks,
-						ExpectedDigest: result.VerifyBatch.ExpectedDigest,
-					},
-				}
-			case *tpb.HashResult_VerifyRequest:
-				actionResults.Digests[i].Type = &pb.HashResult_VerifyRequest_{
-					VerifyRequest: &pb.HashResult_VerifyRequest{
-						Source:         result.VerifyRequest.Source,
-						Request:        result.VerifyRequest.Request,
-						ExpectedDigest: result.VerifyRequest.ExpectedDigest,
-					},
-				}
-			default:
-				return errors.Errorf("unimplemented hash result type: %T", hashResult.Type)
+	case *tpb.Event_StateEvent:
+		se := et.StateEvent
+		if _, ok := se.Type.(*pb.StateEvent_AddResults); ok {
+			if node.Processing == nil {
+				return errors.Errorf("node %d is not currently processing but got an apply event", event.Target)
+			} else {
+				node.Processing = nil
 			}
 		}
 
-		for i, cr := range apply.Checkpoints {
-			actionResults.Checkpoints[i] = &pb.CheckpointResult{
-				SeqNo:        cr.QEntry.SeqNo,
-				NetworkState: cr.NetworkState,
-				EpochConfig:  cr.EpochConfig,
-				Value:        cr.Value,
-			}
-		}
-
-		actions.Append(node.StateMachine.ApplyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_AddResults{
-				AddResults: actionResults,
-			},
-		}))
-	case *tpb.Event_Receive_:
-		receive := et.Receive
-		actions.Append(node.StateMachine.ApplyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_Step{
-				Step: &pb.StateEvent_InboundMsg{
-					Source: receive.Source,
-					Msg:    receive.Msg,
-				},
-			},
-		}))
+		node.Actions.Append(node.StateMachine.ApplyEvent(se))
 	case *tpb.Event_Process_:
+		actions := &mirbft.Actions{}
+
 		if node.Processing != nil {
 			return errors.Errorf("node %d is currently processing but got a second process event", event.Target)
 		}
@@ -262,22 +183,7 @@ func (p *Player) Step() error {
 		node.Processing = node.Actions
 		node.Actions = actions
 		return nil
-	case *tpb.Event_Propose_:
-		request := et.Propose.Request
-		actions.Append(node.StateMachine.ApplyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_Propose{
-				Propose: &pb.StateEvent_Proposal{
-					Request: request,
-				},
-			},
-		}))
-	case *tpb.Event_Tick_:
-		actions.Append(node.StateMachine.ApplyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_Tick{},
-		}))
 	}
-
-	node.Actions.Append(actions)
 
 	node.Status = node.StateMachine.Status()
 

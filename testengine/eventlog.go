@@ -182,35 +182,12 @@ func (l *EventLog) ConsumeAndAdvance() *tpb.Event {
 	return nele.Event
 }
 
-func (l *EventLog) InsertApply(target uint64, apply *tpb.Event_Apply, fromNow uint64) {
+func (l *EventLog) InsertStateEvent(target uint64, stateEvent *pb.StateEvent, fromNow uint64) {
 	l.Insert(&tpb.Event{
 		Target: target,
 		Time:   l.FakeTime + fromNow,
-		Type: &tpb.Event_Apply_{
-			Apply: apply,
-		},
-	})
-}
-
-func (l *EventLog) InsertTick(target uint64, fromNow uint64) {
-	l.Insert(&tpb.Event{
-		Target: target,
-		Time:   l.FakeTime + fromNow,
-		Type: &tpb.Event_Tick_{
-			Tick: &tpb.Event_Tick{},
-		},
-	})
-}
-
-func (l *EventLog) InsertRecv(target uint64, source uint64, msg *pb.Msg, fromNow uint64) {
-	l.Insert(&tpb.Event{
-		Target: target,
-		Time:   l.FakeTime + fromNow,
-		Type: &tpb.Event_Receive_{
-			Receive: &tpb.Event_Receive{
-				Source: source,
-				Msg:    msg,
-			},
+		Type: &tpb.Event_StateEvent{
+			StateEvent: stateEvent,
 		},
 	})
 }
@@ -221,18 +198,6 @@ func (l *EventLog) InsertProcess(target uint64, fromNow uint64) {
 		Time:   l.FakeTime + fromNow,
 		Type: &tpb.Event_Process_{
 			Process: &tpb.Event_Process{},
-		},
-	})
-}
-
-func (l *EventLog) InsertPropose(target uint64, request *pb.Request, fromNow uint64) {
-	l.Insert(&tpb.Event{
-		Target: target,
-		Time:   l.FakeTime + fromNow,
-		Type: &tpb.Event_Propose_{
-			Propose: &tpb.Event_Propose{
-				Request: request,
-			},
 		},
 	})
 }

@@ -82,37 +82,19 @@ message Checkpoint {
 }
 
 message Event {
-	message Apply {
-		repeated HashResult digests = 1;
-		repeated Checkpoint checkpoints = 2;
-	}
-
-	message Process {}
-
-	message Propose {
-		mirbftpb.Request request = 1;
-	}
-
-	message Receive {
-		uint64 source = 1;
-		mirbftpb.Msg msg = 2;
-	}
-
-	message Tick {}
-
 	uint64 target = 1;
 	uint64 time = 2;
+
+        message Process {}
+
 	oneof type {
-		Apply apply = 3;
-		Receive receive = 4;
-		Process process = 5;
-		Propose propose = 6;
-		Tick tick = 7;
+		mirbftpb.StateEvent state_event =3;
+		Process process = 4;
 	}
 
-	bool dropped = 8;
-	uint64 delayed = 9;
-	uint64 duplicated = 10;
+	bool dropped = 5;
+	uint64 delayed = 6;
+	uint64 duplicated = 7;
 }
 
 message LogEntry {

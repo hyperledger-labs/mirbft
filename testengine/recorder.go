@@ -75,7 +75,7 @@ type NodeState struct {
 	LastCommit         *CommitList
 }
 
-func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*tpb.Checkpoint {
+func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*pb.CheckpointResult {
 	for _, commit := range commits {
 		if commit.QEntry.SeqNo <= ns.LastCommittedSeqNo {
 			panic(fmt.Sprintf("trying to commit seqno=%d, but we've already committed seqno=%d", commit.QEntry.SeqNo, ns.LastCommittedSeqNo))
@@ -87,7 +87,7 @@ func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*tpb.Checkp
 		ns.OutstandingCommits[index-1] = commit
 	}
 
-	var results []*tpb.Checkpoint
+	var results []*pb.CheckpointResult
 
 	i := 0
 	for _, commit := range ns.OutstandingCommits {
@@ -114,8 +114,8 @@ func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*tpb.Checkp
 		}
 
 		if commit.Checkpoint {
-			results = append(results, &tpb.Checkpoint{
-				QEntry:       commit.QEntry,
+			results = append(results, &pb.CheckpointResult{
+				SeqNo:        commit.QEntry.SeqNo,
 				NetworkState: commit.NetworkState,
 				EpochConfig:  commit.EpochConfig,
 				Value:        ns.Hasher.Sum(nil),
@@ -169,7 +169,15 @@ func (r *Recorder) Recording() (*Recording, error) {
 	nodes := make([]*RecorderNode, len(r.NodeConfigs))
 	for i, nodeConfig := range r.NodeConfigs {
 		nodeID := uint64(i)
-		eventLog.InsertTick(nodeID, uint64(nodeConfig.TickInterval))
+		eventLog.InsertStateEvent(
+			nodeID,
+			&pb.StateEvent{
+				Type: &pb.StateEvent_Tick{
+					Tick: &pb.StateEvent_TickElapsed{},
+				},
+			},
+			uint64(nodeConfig.TickInterval),
+		)
 		nodes[i] = &RecorderNode{
 			State: &NodeState{
 				Hasher: r.Hasher(),
@@ -195,7 +203,17 @@ func (r *Recorder) Recording() (*Recording, error) {
 			}
 			for j := range nodes {
 				client.LastNodeReqNoSend[uint64(j)] = uint64(i)
-				eventLog.InsertPropose(uint64(j), req, client.Config.TxLatency)
+				eventLog.InsertStateEvent(
+					uint64(j),
+					&pb.StateEvent{
+						Type: &pb.StateEvent_Propose{
+							Propose: &pb.StateEvent_Proposal{
+								Request: req,
+							},
+						},
+					},
+					client.Config.TxLatency,
+				)
 			}
 		}
 	}
@@ -249,26 +267,51 @@ func (r *Recording) Step() error {
 	playbackNode := node.PlaybackNode
 	nodeState := node.State
 
-	switch lastEvent.Type.(type) {
-	case *tpb.Event_Apply_:
-		nodeStatus := node.PlaybackNode.Status
-		for _, rw := range nodeStatus.ClientWindows {
-			for _, client := range r.Clients {
-				if client.Config.ID != rw.ClientID {
-					continue
-				}
-
-				for i := client.LastNodeReqNoSend[lastEvent.Target] + 1; i <= rw.HighWatermark; i++ {
-					req := client.RequestByReqNo(i)
-					if req == nil {
+	switch et := lastEvent.Type.(type) {
+	case *tpb.Event_StateEvent:
+		se := et.StateEvent
+		switch se.Type.(type) {
+		case *pb.StateEvent_Tick:
+			r.EventLog.InsertStateEvent(
+				lastEvent.Target,
+				&pb.StateEvent{
+					Type: &pb.StateEvent_Tick{
+						Tick: &pb.StateEvent_TickElapsed{},
+					},
+				},
+				uint64(nodeConfig.TickInterval),
+			)
+		case *pb.StateEvent_AddResults:
+			nodeStatus := node.PlaybackNode.Status
+			for _, rw := range nodeStatus.ClientWindows {
+				for _, client := range r.Clients {
+					if client.Config.ID != rw.ClientID {
 						continue
 					}
-					client.LastNodeReqNoSend[lastEvent.Target] = i
-					r.EventLog.InsertPropose(lastEvent.Target, req, client.Config.TxLatency)
+
+					for i := client.LastNodeReqNoSend[lastEvent.Target] + 1; i <= rw.HighWatermark; i++ {
+						req := client.RequestByReqNo(i)
+						if req == nil {
+							continue
+						}
+						client.LastNodeReqNoSend[lastEvent.Target] = i
+						r.EventLog.InsertStateEvent(
+							lastEvent.Target,
+							&pb.StateEvent{
+								Type: &pb.StateEvent_Propose{
+									Propose: &pb.StateEvent_Proposal{
+										Request: req,
+									},
+								},
+							},
+							client.Config.TxLatency,
+						)
+					}
 				}
 			}
+		case *pb.StateEvent_Step:
+		case *pb.StateEvent_Propose:
 		}
-	case *tpb.Event_Receive_:
 	case *tpb.Event_Process_:
 		if !node.AwaitingProcessEvent {
 			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.Target)
@@ -281,7 +324,18 @@ func (r *Recording) Step() error {
 					// We've already sent it to ourselves
 					continue
 				}
-				r.EventLog.InsertRecv(uint64(i), lastEvent.Target, msg, uint64(nodeConfig.LinkLatency))
+				r.EventLog.InsertStateEvent(
+					uint64(i),
+					&pb.StateEvent{
+						Type: &pb.StateEvent_Step{
+							Step: &pb.StateEvent_InboundMsg{
+								Source: lastEvent.Target,
+								Msg:    msg,
+							},
+						},
+					},
+					uint64(nodeConfig.LinkLatency),
+				)
 			}
 		}
 
@@ -291,11 +345,22 @@ func (r *Recording) Step() error {
 				continue
 			}
 
-			r.EventLog.InsertRecv(unicast.Target, lastEvent.Target, unicast.Msg, uint64(nodeConfig.LinkLatency))
+			r.EventLog.InsertStateEvent(
+				unicast.Target,
+				&pb.StateEvent{
+					Type: &pb.StateEvent_Step{
+						Step: &pb.StateEvent_InboundMsg{
+							Source: lastEvent.Target,
+							Msg:    unicast.Msg,
+						},
+					},
+				},
+				uint64(nodeConfig.LinkLatency),
+			)
 		}
 
-		apply := &tpb.Event_Apply{
-			Digests: make([]*tpb.HashResult, len(processing.Hash)),
+		apply := &pb.StateEvent_ActionResults{
+			Digests: make([]*pb.HashResult, len(processing.Hash)),
 		}
 
 		for i, hashRequest := range processing.Hash {
@@ -304,63 +369,23 @@ func (r *Recording) Step() error {
 				hasher.Write(data)
 			}
 
-			apply.Digests[i] = &tpb.HashResult{
+			apply.Digests[i] = &pb.HashResult{
 				Digest: hasher.Sum(nil),
-			}
-
-			switch hashType := hashRequest.Origin.Type.(type) {
-			case *pb.HashResult_Request_:
-				apply.Digests[i].Type = &tpb.HashResult_Request{
-					Request: &tpb.Request{
-						Source:  hashType.Request.Source,
-						Request: hashType.Request.Request,
-					},
-				}
-			case *pb.HashResult_Batch_:
-				apply.Digests[i].Type = &tpb.HashResult_Batch{
-					Batch: &tpb.Batch{
-						Source:      hashType.Batch.Source,
-						Epoch:       hashType.Batch.Epoch,
-						SeqNo:       hashType.Batch.SeqNo,
-						RequestAcks: hashType.Batch.RequestAcks,
-					},
-				}
-			case *pb.HashResult_EpochChange_:
-				apply.Digests[i].Type = &tpb.HashResult_EpochChange{
-					EpochChange: &tpb.EpochChange{
-						Source:      hashType.EpochChange.Source,
-						Origin:      hashType.EpochChange.Origin,
-						EpochChange: hashType.EpochChange.EpochChange,
-					},
-				}
-			case *pb.HashResult_VerifyBatch_:
-				apply.Digests[i].Type = &tpb.HashResult_VerifyBatch{
-					VerifyBatch: &tpb.VerifyBatch{
-						Source:         hashType.VerifyBatch.Source,
-						SeqNo:          hashType.VerifyBatch.SeqNo,
-						RequestAcks:    hashType.VerifyBatch.RequestAcks,
-						ExpectedDigest: hashType.VerifyBatch.ExpectedDigest,
-					},
-				}
-			case *pb.HashResult_VerifyRequest_:
-				apply.Digests[i].Type = &tpb.HashResult_VerifyRequest{
-					VerifyRequest: &tpb.VerifyRequest{
-						Source:         hashType.VerifyRequest.Source,
-						Request:        hashType.VerifyRequest.Request,
-						ExpectedDigest: hashType.VerifyRequest.ExpectedDigest,
-					},
-				}
-			default:
-				return errors.Errorf("unimplemented hash type in recorder")
+				Type:   hashRequest.Origin.Type,
 			}
 		}
 
 		apply.Checkpoints = nodeState.Commit(processing.Commits, lastEvent.Target)
 
-		r.EventLog.InsertApply(lastEvent.Target, apply, uint64(nodeConfig.ReadyLatency))
-	case *tpb.Event_Propose_:
-	case *tpb.Event_Tick_:
-		r.EventLog.InsertTick(lastEvent.Target, uint64(nodeConfig.TickInterval))
+		r.EventLog.InsertStateEvent(
+			lastEvent.Target,
+			&pb.StateEvent{
+				Type: &pb.StateEvent_AddResults{
+					AddResults: apply,
+				},
+			},
+			uint64(nodeConfig.ReadyLatency),
+		)
 	}
 
 	if playbackNode.Processing == nil &&

@@ -106,8 +106,8 @@ var _ = Describe("Eventlog", func() {
 			NodeConfigs:  nodeConfigs,
 		}
 
-		eventLog.InsertTick(1, 10)
-		eventLog.InsertTick(2, 20)
+		eventLog.InsertStateEvent(1, &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}}, 10)
+		eventLog.InsertStateEvent(2, &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}}, 20)
 
 		Expect(eventLog.ConsumeAndAdvance()).NotTo(BeNil())
 		Expect(eventLog.ConsumeAndAdvance()).NotTo(BeNil())

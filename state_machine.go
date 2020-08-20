@@ -30,7 +30,8 @@ type StateMachine struct {
 	// Logger XXX this is a weird place/way to initialize the logger, since
 	// we go and reference it through myConfig at the moment, but, it's the
 	// only non-serializable part of the config.
-	Logger Logger
+	Logger       Logger
+	Introspector Introspector // XXX this wiring is weird too
 
 	state StateMachineState
 
@@ -128,6 +129,10 @@ func (sm *StateMachine) completeInitialization() {
 }
 
 func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
+	if sm.Introspector != nil {
+		sm.Introspector.Inspect(stateEvent)
+	}
+
 	assertInitialized := func() {
 		if sm.state != smInitialized {
 			panic("cannot apply events to an uninitialized state machine")
