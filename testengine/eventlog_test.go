@@ -11,7 +11,6 @@ import (
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/testengine"
-	tpb "github.com/IBM/mirbft/testengine/testenginepb"
 
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
@@ -40,9 +39,9 @@ var _ = XDescribe("Non-determinism finding test", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(proto.Equal(eventLog1.InitialState, eventLog2.InitialState)).To(BeTrue())
-		Expect(len(eventLog1.NodeConfigs)).To(Equal(len(eventLog2.NodeConfigs)))
-		for i := range eventLog1.NodeConfigs {
-			Expect(proto.Equal(eventLog1.NodeConfigs[i], eventLog2.NodeConfigs[i])).To(BeTrue())
+		Expect(len(eventLog1.NodeConfigs())).To(Equal(len(eventLog2.NodeConfigs())))
+		for i := range eventLog1.NodeConfigs() {
+			Expect(proto.Equal(eventLog1.NodeConfigs()[i], eventLog2.NodeConfigs()[i])).To(BeTrue())
 		}
 
 		logEntry1 := eventLog1.FirstEventLogEntry
@@ -79,31 +78,16 @@ var _ = Describe("Eventlog", func() {
 
 	var (
 		networkState *pb.NetworkState
-		nodeConfigs  []*tpb.NodeConfig
 		eventLog     *testengine.EventLog
 	)
 
 	BeforeEach(func() {
 		networkState = mirbft.StandardInitialNetworkState(7)
 
-		nodeConfigs = []*tpb.NodeConfig{
-			{
-				Id:                   7,
-				HeartbeatTicks:       2,
-				SuspectTicks:         4,
-				NewEpochTimeoutTicks: 8,
-				TickInterval:         500,
-				LinkLatency:          100,
-				ReadyLatency:         50,
-				ProcessLatency:       10,
-			},
-		}
-
 		eventLog = &testengine.EventLog{
 			Name:         "fake-name",
 			Description:  "fake-description",
 			InitialState: networkState,
-			NodeConfigs:  nodeConfigs,
 		}
 
 		eventLog.InsertStateEvent(1, &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}}, 10)
@@ -123,7 +107,7 @@ var _ = Describe("Eventlog", func() {
 		Expect(newEventLog.Name).To(Equal("fake-name"))
 		Expect(newEventLog.Description).To(Equal("fake-description"))
 		Expect(proto.Equal(eventLog.InitialState, newEventLog.InitialState)).To(BeTrue())
-		Expect(proto.Equal(eventLog.NodeConfigs[0], newEventLog.NodeConfigs[0])).To(BeTrue())
+		Expect(proto.Equal(eventLog.NodeConfigs()[0], newEventLog.NodeConfigs()[0])).To(BeTrue())
 		Expect(proto.Equal(
 			eventLog.FirstEventLogEntry.Event,
 			newEventLog.FirstEventLogEntry.Event,

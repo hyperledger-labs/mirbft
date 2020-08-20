@@ -30,10 +30,22 @@ func uint64ToBytes(value uint64) []byte {
 	return byteValue
 }
 
+type RecorderNodeConfig struct {
+	InitParms    *pb.StateEvent_InitialParameters
+	RuntimeParms *RuntimeParameters
+}
+
+type RuntimeParameters struct {
+	TickInterval   int
+	LinkLatency    int
+	ReadyLatency   int
+	ProcessLatency int
+}
+
 type RecorderNode struct {
 	PlaybackNode         *PlaybackNode
 	State                *NodeState
-	Config               *tpb.NodeConfig
+	Config               *RecorderNodeConfig
 	AwaitingProcessEvent bool
 }
 
@@ -146,19 +158,94 @@ type ClientConfig struct {
 }
 
 type Recorder struct {
-	NetworkState  *pb.NetworkState
-	NodeConfigs   []*tpb.NodeConfig
-	ClientConfigs []*ClientConfig
-	Manglers      []Mangler
-	Logger        *zap.Logger
-	Hasher        Hasher
-	RandomSeed    int64
+	NetworkState        *pb.NetworkState
+	RecorderNodeConfigs []*RecorderNodeConfig
+	ClientConfigs       []*ClientConfig
+	Manglers            []Mangler
+	Logger              *zap.Logger
+	Hasher              Hasher
+	RandomSeed          int64
 }
 
 func (r *Recorder) Recording() (*Recording, error) {
 	eventLog := &EventLog{
 		InitialState: r.NetworkState,
-		NodeConfigs:  r.NodeConfigs,
+	}
+
+	nodes := make([]*RecorderNode, len(r.RecorderNodeConfigs))
+	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
+		nodeID := uint64(i)
+
+		eventLog.InsertStateEvent(
+			nodeID,
+			&pb.StateEvent{
+				Type: &pb.StateEvent_Initialize{
+					Initialize: recorderNodeConfig.InitParms,
+				},
+			},
+			0,
+		)
+
+		eventLog.InsertStateEvent(
+			nodeID,
+			&pb.StateEvent{
+				Type: &pb.StateEvent_LoadEntry{
+					LoadEntry: &pb.StateEvent_PersistedEntry{
+						Entry: &pb.Persistent{
+							Type: &pb.Persistent_CEntry{
+								CEntry: &pb.CEntry{
+									SeqNo:           0,
+									CheckpointValue: []byte("fake-initial-value"),
+									NetworkState:    eventLog.InitialState,
+									EpochConfig: &pb.EpochConfig{
+										Number:            0,
+										Leaders:           eventLog.InitialState.Config.Nodes,
+										PlannedExpiration: 0,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			1,
+		)
+
+		eventLog.InsertStateEvent(
+			nodeID,
+			&pb.StateEvent{
+				Type: &pb.StateEvent_LoadEntry{
+					LoadEntry: &pb.StateEvent_PersistedEntry{
+						Entry: &pb.Persistent{
+							Type: &pb.Persistent_EpochChange{
+								EpochChange: &pb.EpochChange{
+									NewEpoch: 1,
+									Checkpoints: []*pb.Checkpoint{
+										{
+											SeqNo: 0,
+											Value: []byte("fake-initial-value"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			2,
+		)
+
+		eventLog.InsertStateEvent(
+			nodeID,
+			&pb.StateEvent{
+				Type: &pb.StateEvent_CompleteInitialization{
+					CompleteInitialization: &pb.StateEvent_LoadCompleted{},
+				},
+			},
+			3,
+		)
+
+		eventLog.InsertTickEvent(nodeID, uint64(recorderNodeConfig.RuntimeParms.TickInterval))
 	}
 
 	player, err := NewPlayer(eventLog, r.Logger)
@@ -166,16 +253,13 @@ func (r *Recorder) Recording() (*Recording, error) {
 		return nil, errors.WithMessage(err, "could not construct player")
 	}
 
-	nodes := make([]*RecorderNode, len(r.NodeConfigs))
-	for i, nodeConfig := range r.NodeConfigs {
-		nodeID := uint64(i)
-		eventLog.InsertTickEvent(nodeID, uint64(nodeConfig.TickInterval))
+	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
 		nodes[i] = &RecorderNode{
 			State: &NodeState{
 				Hasher: r.Hasher(),
 			},
 			PlaybackNode: player.Nodes[i],
-			Config:       nodeConfig,
+			Config:       recorderNodeConfig,
 		}
 	}
 
@@ -245,7 +329,7 @@ func (r *Recording) Step() error {
 	}
 
 	node := r.Nodes[int(lastEvent.Target)]
-	nodeConfig := node.Config
+	runtimeParms := node.Config.RuntimeParms
 	playbackNode := node.PlaybackNode
 	nodeState := node.State
 
@@ -254,7 +338,7 @@ func (r *Recording) Step() error {
 		se := et.StateEvent
 		switch se.Type.(type) {
 		case *pb.StateEvent_Tick:
-			r.EventLog.InsertTickEvent(lastEvent.Target, uint64(nodeConfig.TickInterval))
+			r.EventLog.InsertTickEvent(lastEvent.Target, uint64(runtimeParms.TickInterval))
 		case *pb.StateEvent_AddResults:
 			nodeStatus := node.PlaybackNode.Status
 			for _, rw := range nodeStatus.ClientWindows {
@@ -294,7 +378,7 @@ func (r *Recording) Step() error {
 						Source: lastEvent.Target,
 						Msg:    msg,
 					},
-					uint64(nodeConfig.LinkLatency),
+					uint64(runtimeParms.LinkLatency),
 				)
 			}
 		}
@@ -311,7 +395,7 @@ func (r *Recording) Step() error {
 					Source: lastEvent.Target,
 					Msg:    unicast.Msg,
 				},
-				uint64(nodeConfig.LinkLatency),
+				uint64(runtimeParms.LinkLatency),
 			)
 		}
 
@@ -340,14 +424,14 @@ func (r *Recording) Step() error {
 					AddResults: apply,
 				},
 			},
-			uint64(nodeConfig.ReadyLatency),
+			uint64(runtimeParms.ReadyLatency),
 		)
 	}
 
 	if playbackNode.Processing == nil &&
 		!playbackNode.Actions.IsEmpty() &&
 		!node.AwaitingProcessEvent {
-		r.EventLog.InsertProcess(lastEvent.Target, uint64(nodeConfig.ProcessLatency))
+		r.EventLog.InsertProcess(lastEvent.Target, uint64(runtimeParms.ProcessLatency))
 		node.AwaitingProcessEvent = true
 	}
 
@@ -390,18 +474,23 @@ func (r *Recording) DrainClients(timeout int) (int, error) {
 }
 
 func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
-	var nodeConfigs []*tpb.NodeConfig
+	var recorderNodeConfigs []*RecorderNodeConfig
 	for i := 0; i < nodeCount; i++ {
-		nodeConfigs = append(nodeConfigs, &tpb.NodeConfig{
-			Id:                   uint64(i),
-			HeartbeatTicks:       2,
-			SuspectTicks:         4,
-			NewEpochTimeoutTicks: 8,
-			TickInterval:         500,
-			LinkLatency:          100,
-			ReadyLatency:         50,
-			ProcessLatency:       10,
-			BufferSize:           5000,
+		recorderNodeConfigs = append(recorderNodeConfigs, &RecorderNodeConfig{
+			InitParms: &pb.StateEvent_InitialParameters{
+				Id:                   uint64(i),
+				HeartbeatTicks:       2,
+				SuspectTicks:         4,
+				NewEpochTimeoutTicks: 8,
+				BufferSize:           5000,
+				BatchSize:            1,
+			},
+			RuntimeParms: &RuntimeParameters{
+				TickInterval:   500,
+				LinkLatency:    100,
+				ReadyLatency:   50,
+				ProcessLatency: 10,
+			},
 		})
 	}
 
@@ -418,6 +507,7 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 			ID:          clientIDs[i],
 			MaxInFlight: int(networkState.Config.CheckpointInterval / 2),
 			Total:       reqsPerClient,
+			TxLatency:   10,
 		}
 		clientIDs[i] = clientConfigs[i].ID
 	}
@@ -429,10 +519,10 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 	}
 
 	return &Recorder{
-		NetworkState:  networkState,
-		NodeConfigs:   nodeConfigs,
-		Logger:        logger,
-		Hasher:        sha256.New,
-		ClientConfigs: clientConfigs,
+		NetworkState:        networkState,
+		RecorderNodeConfigs: recorderNodeConfigs,
+		Logger:              logger,
+		Hasher:              sha256.New,
+		ClientConfigs:       clientConfigs,
 	}
 }

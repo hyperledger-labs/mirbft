@@ -482,6 +482,10 @@ func (sm *StateMachine) tick() *Actions {
 }
 
 func (sm *StateMachine) Status() *Status {
+	if sm.state != smInitialized {
+		return &Status{}
+	}
+
 	clientWindowsStatus := make([]*ClientWindowStatus, len(sm.clientWindows.clients))
 
 	for i, id := range sm.clientWindows.clients {

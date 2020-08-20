@@ -23,14 +23,6 @@ message ScenarioConfig {
 
 message NodeConfig {
 	uint64 id = 1;
-	int32 heartbeat_ticks = 2;
-	int32 suspect_ticks = 3;
-	int32 new_epoch_timeout_ticks = 4;
-	int32 tick_interval = 5;   // in fake ms
-	int32 link_latency = 6;    // in fake ms
-	int32 ready_latency = 7;   // in fake ms
-	int32 process_latency = 8; // in fake ms
-	int32 buffer_size = 9;
 }
 
 message HashResult {

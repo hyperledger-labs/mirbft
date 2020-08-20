@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	tpb "github.com/IBM/mirbft/testengine/testenginepb"
@@ -30,7 +31,6 @@ type EventLog struct {
 	Name               string
 	Description        string
 	InitialState       *pb.NetworkState
-	NodeConfigs        []*tpb.NodeConfig
 	FirstEventLogEntry *EventLogEntry
 	NextEventLogEntry  *EventLogEntry
 	LastConsumed       *EventLogEntry
@@ -56,6 +56,28 @@ func writePrefixedProto(dest io.Writer, msg proto.Message) error {
 	return nil
 }
 
+func (l *EventLog) NodeConfigs() []*tpb.NodeConfig {
+	var nodeConfigs []*tpb.NodeConfig
+	idMap := map[uint64]struct{}{}
+	for logEntry := l.FirstEventLogEntry; logEntry != nil; logEntry = logEntry.Next {
+		_, ok := idMap[logEntry.Event.Target]
+		if ok {
+			continue
+		}
+
+		idMap[logEntry.Event.Target] = struct{}{}
+		nodeConfigs = append(nodeConfigs, &tpb.NodeConfig{
+			Id: logEntry.Event.Target,
+		})
+	}
+
+	sort.Slice(nodeConfigs, func(i, j int) bool {
+		return nodeConfigs[i].Id < nodeConfigs[j].Id
+	})
+
+	return nodeConfigs
+}
+
 func (l *EventLog) Write(dest io.Writer) error {
 	if err := writePrefixedProto(dest, &tpb.LogEntry{
 		Type: &tpb.LogEntry_Scenario{
@@ -63,7 +85,7 @@ func (l *EventLog) Write(dest io.Writer) error {
 				Name:                l.Name,
 				Description:         l.Description,
 				InitialNetworkState: l.InitialState,
-				NodeConfigs:         l.NodeConfigs,
+				NodeConfigs:         l.NodeConfigs(),
 			},
 		},
 	}); err != nil {
@@ -133,7 +155,6 @@ func ReadEventLog(source io.Reader) (el *EventLog, err error) {
 				Name:         scenario.Name,
 				Description:  scenario.Description,
 				InitialState: scenario.InitialNetworkState,
-				NodeConfigs:  scenario.NodeConfigs,
 			}
 		default:
 			eventType, ok := pLogEntry.Type.(*tpb.LogEntry_Event)

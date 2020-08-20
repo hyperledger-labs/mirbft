@@ -33,7 +33,7 @@ type Player struct {
 func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 	doneC := make(chan struct{})
 	var nodes []*PlaybackNode
-	for i, nodeConfig := range el.NodeConfigs {
+	for i, nodeConfig := range el.NodeConfigs() {
 		if uint64(i) != nodeConfig.Id {
 			return nil, errors.Errorf("nodeConfig.Id did not appear in order, expected %d, got %d", i, nodeConfig.Id)
 		}
@@ -41,64 +41,6 @@ func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
 		sm := &mirbft.StateMachine{
 			Logger: logger.Named(fmt.Sprintf("node%d", nodeConfig.Id)),
 		}
-
-		sm.ApplyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_Initialize{
-				Initialize: &pb.StateEvent_InitialParameters{
-					Id:                   nodeConfig.Id,
-					BatchSize:            1,
-					SuspectTicks:         uint32(nodeConfig.SuspectTicks),
-					NewEpochTimeoutTicks: uint32(nodeConfig.NewEpochTimeoutTicks),
-					HeartbeatTicks:       uint32(nodeConfig.HeartbeatTicks),
-					BufferSize:           uint32(nodeConfig.BufferSize),
-				},
-			},
-		})
-
-		sm.ApplyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_LoadEntry{
-				LoadEntry: &pb.StateEvent_PersistedEntry{
-					Entry: &pb.Persistent{
-						Type: &pb.Persistent_CEntry{
-							CEntry: &pb.CEntry{
-								SeqNo:           0,
-								CheckpointValue: []byte("fake-initial-value"),
-								NetworkState:    el.InitialState,
-								EpochConfig: &pb.EpochConfig{
-									Number:            0,
-									Leaders:           el.InitialState.Config.Nodes,
-									PlannedExpiration: 0,
-								},
-							},
-						},
-					},
-				},
-			},
-		})
-
-		sm.ApplyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_LoadEntry{
-				LoadEntry: &pb.StateEvent_PersistedEntry{
-					Entry: &pb.Persistent{
-						Type: &pb.Persistent_EpochChange{
-							EpochChange: &pb.EpochChange{
-								NewEpoch: 1,
-								Checkpoints: []*pb.Checkpoint{
-									{
-										SeqNo: 0,
-										Value: []byte("fake-initial-value"),
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		})
-
-		sm.ApplyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_CompleteInitialization{},
-		})
 
 		nodes = append(nodes, &PlaybackNode{
 			StateMachine: sm,
