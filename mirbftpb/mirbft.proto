@@ -363,7 +363,7 @@ message HashResult {
 }
 
 message CheckpointResult {
-        QEntry q_entry = 1;
+        uint64 seq_no = 1;
         NetworkState network_state = 2;
         EpochConfig epoch_config = 3;
         bytes value = 4;

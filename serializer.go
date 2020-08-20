@@ -28,7 +28,7 @@ type serializer struct {
 	doneC    <-chan struct{}
 	clientC  chan *clientReq
 	propC    chan *pb.StateEvent_Proposal
-	resultsC chan ActionResults
+	resultsC chan *pb.StateEvent_ActionResults
 	statusC  chan chan<- *Status
 	stepC    chan *pb.StateEvent_Step
 	tickC    chan struct{}
@@ -66,7 +66,7 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 		doneC:        doneC,
 		propC:        make(chan *pb.StateEvent_Proposal),
 		clientC:      make(chan *clientReq),
-		resultsC:     make(chan ActionResults),
+		resultsC:     make(chan *pb.StateEvent_ActionResults),
 		statusC:      make(chan chan<- *Status),
 		stepC:        make(chan *pb.StateEvent_Step),
 		tickC:        make(chan struct{}),
@@ -135,7 +135,11 @@ func (s *serializer) run() {
 			actionsC = nil
 			continue
 		case results := <-s.resultsC:
-			actions.Append(s.stateMachine.processResults(results))
+			stateEvent = &pb.StateEvent{
+				Type: &pb.StateEvent_AddResults{
+					AddResults: results,
+				},
+			}
 		case statusReq := <-s.statusC:
 			select {
 			case statusReq <- s.stateMachine.status():

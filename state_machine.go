@@ -127,6 +127,10 @@ func (sm *stateMachine) applyEvent(stateEvent *pb.StateEvent) *Actions {
 		return sm.propose(
 			event.Propose.Request,
 		)
+	case *pb.StateEvent_AddResults:
+		return sm.processResults(
+			event.AddResults,
+		)
 	}
 	return &Actions{}
 }
@@ -325,21 +329,21 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 	return actions
 }
 
-func (sm *stateMachine) processResults(results ActionResults) *Actions {
+func (sm *stateMachine) processResults(results *pb.StateEvent_ActionResults) *Actions {
 	actions := &Actions{}
 
 	for _, checkpointResult := range results.Checkpoints {
 		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
 		actions.Append(sm.checkpointTracker.applyCheckpointResult(
-			checkpointResult.Commit.QEntry.SeqNo,
+			checkpointResult.SeqNo,
 			checkpointResult.Value,
-			checkpointResult.Commit.EpochConfig,
-			checkpointResult.Commit.NetworkState,
+			checkpointResult.EpochConfig,
+			checkpointResult.NetworkState,
 		))
 	}
 
 	for _, hashResult := range results.Digests {
-		switch hashType := hashResult.Request.Origin.Type.(type) {
+		switch hashType := hashResult.Type.(type) {
 		case *pb.HashResult_Batch_:
 			batch := hashType.Batch
 			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)

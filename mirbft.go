@@ -337,8 +337,28 @@ func (n *Node) Tick() error {
 // Actions is applicable.  In the case that the node is stopped, it returns
 // ErrStopped, otherwise nil is returned.
 func (n *Node) AddResults(results ActionResults) error {
+	stateEventResults := &pb.StateEvent_ActionResults{
+		Digests:     make([]*pb.HashResult, len(results.Digests)),
+		Checkpoints: make([]*pb.CheckpointResult, len(results.Checkpoints)),
+	}
+
+	for i, hashResult := range results.Digests {
+		// TODO, I really don't like this... but it should be safe
+		hashResult.Request.Origin.Digest = hashResult.Digest
+		stateEventResults.Digests[i] = hashResult.Request.Origin
+	}
+
+	for i, cr := range results.Checkpoints {
+		stateEventResults.Checkpoints[i] = &pb.CheckpointResult{
+			SeqNo:        cr.Commit.QEntry.SeqNo,
+			Value:        cr.Value,
+			EpochConfig:  cr.Commit.EpochConfig,
+			NetworkState: cr.Commit.NetworkState,
+		}
+	}
+
 	select {
-	case n.s.resultsC <- results:
+	case n.s.resultsC <- stateEventResults:
 		return nil
 	case <-n.s.errC:
 		return n.s.getExitErr()
