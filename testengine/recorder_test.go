@@ -23,10 +23,6 @@ var _ = Describe("Recorder", func() {
 	})
 
 	AfterEach(func() {
-		if recording != nil && recording.Player != nil && recording.Player.DoneC != nil {
-			close(recording.Player.DoneC)
-		}
-
 		if recorder.Logger != nil {
 			recorder.Logger.Sync()
 		}

@@ -26,34 +26,37 @@ type PlaybackNode struct {
 type Player struct {
 	LastEvent *tpb.Event
 	EventLog  *EventLog
-	Nodes     []*PlaybackNode
-	DoneC     chan struct{}
+	Logger    *zap.Logger
+	Nodes     map[uint64]*PlaybackNode
 }
 
 func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
-	doneC := make(chan struct{})
-	var nodes []*PlaybackNode
-	for i, nodeConfig := range el.NodeConfigs() {
-		if uint64(i) != nodeConfig.Id {
-			return nil, errors.Errorf("nodeConfig.Id did not appear in order, expected %d, got %d", i, nodeConfig.Id)
-		}
-
-		sm := &mirbft.StateMachine{
-			Logger: logger.Named(fmt.Sprintf("node%d", nodeConfig.Id)),
-		}
-
-		nodes = append(nodes, &PlaybackNode{
-			StateMachine: sm,
-			Actions:      &mirbft.Actions{},
-			Status:       sm.Status(),
-		})
-	}
-
 	return &Player{
 		EventLog: el,
-		Nodes:    nodes,
-		DoneC:    doneC,
+		Logger:   logger,
+		Nodes:    map[uint64]*PlaybackNode{},
 	}, nil
+}
+
+func (p *Player) Node(id uint64) *PlaybackNode {
+	node, ok := p.Nodes[id]
+	if ok {
+		return node
+	}
+
+	sm := &mirbft.StateMachine{
+		Logger: p.Logger.Named(fmt.Sprintf("node%d", id)),
+	}
+
+	node = &PlaybackNode{
+		StateMachine: sm,
+		Actions:      &mirbft.Actions{},
+		Status:       sm.Status(),
+	}
+
+	p.Nodes[id] = node
+
+	return node
 }
 
 func (p *Player) Step() error {
@@ -70,11 +73,7 @@ func (p *Player) Step() error {
 		return nil
 	}
 
-	if event.Target >= uint64(len(p.Nodes)) {
-		return errors.Errorf("event log referenced a node %d which does not exist", event.Target)
-	}
-
-	node := p.Nodes[int(event.Target)]
+	node := p.Node(event.Target)
 
 	switch et := event.Type.(type) {
 	case *tpb.Event_StateEvent:

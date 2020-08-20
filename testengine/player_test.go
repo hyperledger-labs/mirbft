@@ -38,10 +38,6 @@ var _ = Describe("Player", func() {
 	})
 
 	AfterEach(func() {
-		if recording != nil && recording.Player != nil && recording.Player.DoneC != nil {
-			close(recording.Player.DoneC)
-		}
-
 		logger.Sync()
 
 	})
@@ -58,7 +54,7 @@ var _ = Describe("Player", func() {
 			Expect(err).NotTo(HaveOccurred())
 		}
 
-		for i := 0; i < 4; i++ {
+		for i := uint64(0); i < 4; i++ {
 			Expect(player.Nodes[i].Status).To(Equal(recording.Nodes[i].PlaybackNode.Status))
 		}
 	})

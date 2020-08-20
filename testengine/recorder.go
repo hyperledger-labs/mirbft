@@ -256,7 +256,7 @@ func (r *Recorder) Recording() (*Recording, error) {
 			State: &NodeState{
 				Hasher: r.Hasher(),
 			},
-			PlaybackNode: player.Nodes[i],
+			PlaybackNode: player.Node(uint64(i)),
 			Config:       recorderNodeConfig,
 		}
 	}
