@@ -169,15 +169,7 @@ func (r *Recorder) Recording() (*Recording, error) {
 	nodes := make([]*RecorderNode, len(r.NodeConfigs))
 	for i, nodeConfig := range r.NodeConfigs {
 		nodeID := uint64(i)
-		eventLog.InsertStateEvent(
-			nodeID,
-			&pb.StateEvent{
-				Type: &pb.StateEvent_Tick{
-					Tick: &pb.StateEvent_TickElapsed{},
-				},
-			},
-			uint64(nodeConfig.TickInterval),
-		)
+		eventLog.InsertTickEvent(nodeID, uint64(nodeConfig.TickInterval))
 		nodes[i] = &RecorderNode{
 			State: &NodeState{
 				Hasher: r.Hasher(),
@@ -272,15 +264,7 @@ func (r *Recording) Step() error {
 		se := et.StateEvent
 		switch se.Type.(type) {
 		case *pb.StateEvent_Tick:
-			r.EventLog.InsertStateEvent(
-				lastEvent.Target,
-				&pb.StateEvent{
-					Type: &pb.StateEvent_Tick{
-						Tick: &pb.StateEvent_TickElapsed{},
-					},
-				},
-				uint64(nodeConfig.TickInterval),
-			)
+			r.EventLog.InsertTickEvent(lastEvent.Target, uint64(nodeConfig.TickInterval))
 		case *pb.StateEvent_AddResults:
 			nodeStatus := node.PlaybackNode.Status
 			for _, rw := range nodeStatus.ClientWindows {

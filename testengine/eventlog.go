@@ -182,6 +182,18 @@ func (l *EventLog) ConsumeAndAdvance() *tpb.Event {
 	return nele.Event
 }
 
+func (l *EventLog) InsertTickEvent(target uint64, fromNow uint64) {
+	l.InsertStateEvent(
+		target,
+		&pb.StateEvent{
+			Type: &pb.StateEvent_Tick{
+				Tick: &pb.StateEvent_TickElapsed{},
+			},
+		},
+		fromNow,
+	)
+}
+
 func (l *EventLog) InsertStateEvent(target uint64, stateEvent *pb.StateEvent, fromNow uint64) {
 	l.Insert(&tpb.Event{
 		Target: target,
