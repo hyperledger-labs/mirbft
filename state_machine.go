@@ -15,16 +15,19 @@ import (
 	"go.uber.org/zap"
 )
 
-type stateMachineState int
+type StateMachineState int
 
 const (
-	smUninitialized stateMachineState = iota
+	smUninitialized StateMachineState = iota
 	smLoadingPersisted
 	smInitialized
 )
 
-type stateMachine struct {
-	state stateMachineState
+// StateMachine contains a deterministic processor for mirbftpb state events.
+// This structure should almost never be initialized directly but should instead
+// be allocated via StartNode.
+type StateMachine struct {
+	state StateMachineState
 
 	myConfig      *Config
 	networkConfig *pb.NetworkState_Config
@@ -38,7 +41,7 @@ type stateMachine struct {
 	persisted         *persisted
 }
 
-func (sm *stateMachine) initialize(myConfig *Config) {
+func (sm *StateMachine) initialize(myConfig *Config) {
 	if sm.state != smUninitialized {
 		panic("state machine has already been initialized")
 	}
@@ -48,7 +51,7 @@ func (sm *stateMachine) initialize(myConfig *Config) {
 	sm.persisted = newPersisted(myConfig)
 }
 
-func (sm *stateMachine) applyPersisted(entry *pb.Persistent) {
+func (sm *StateMachine) applyPersisted(entry *pb.Persistent) {
 	if sm.state != smLoadingPersisted {
 		panic("state machine has already finished loading persisted data")
 	}
@@ -56,7 +59,7 @@ func (sm *stateMachine) applyPersisted(entry *pb.Persistent) {
 	sm.persisted.appendLogEntry(entry)
 }
 
-func (sm *stateMachine) completeInitialization() {
+func (sm *StateMachine) completeInitialization() {
 	if sm.state != smLoadingPersisted {
 		panic("state machine has already finished loading persisted data")
 	}
@@ -109,7 +112,7 @@ func (sm *stateMachine) completeInitialization() {
 	sm.state = smInitialized
 }
 
-func (sm *stateMachine) applyEvent(stateEvent *pb.StateEvent) *Actions {
+func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	if sm.state != smInitialized {
 		panic("cannot apply events to an uninitialized state machine")
 		// TODO, initialize via events in the future.
@@ -135,7 +138,7 @@ func (sm *stateMachine) applyEvent(stateEvent *pb.StateEvent) *Actions {
 	return &Actions{}
 }
 
-func (sm *stateMachine) propose(requestData *pb.Request) *Actions {
+func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
 	data := [][]byte{
 		uint64ToBytes(requestData.ClientId),
 		uint64ToBytes(requestData.ReqNo),
@@ -159,7 +162,7 @@ func (sm *stateMachine) propose(requestData *pb.Request) *Actions {
 	}
 }
 
-func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
+func (sm *StateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	nodeMsgs, ok := sm.nodeMsgs[source]
 	if !ok {
 		sm.myConfig.Logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
@@ -170,7 +173,7 @@ func (sm *stateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 	return sm.advance(sm.drainNodeMsgs())
 }
 
-func (sm *stateMachine) advance(actions *Actions) *Actions {
+func (sm *StateMachine) advance(actions *Actions) *Actions {
 	for _, commit := range actions.Commits {
 		for _, fr := range commit.QEntry.Requests {
 			cw, ok := sm.clientWindows.clientWindow(fr.Request.ClientId)
@@ -209,7 +212,7 @@ func (sm *stateMachine) advance(actions *Actions) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) drainNodeMsgs() *Actions {
+func (sm *StateMachine) drainNodeMsgs() *Actions {
 	actions := &Actions{}
 
 	for {
@@ -278,11 +281,11 @@ func (sm *stateMachine) drainNodeMsgs() *Actions {
 	}
 }
 
-func (sm *stateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
+func (sm *StateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
 	return sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch)
 }
 
-func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
+func (sm *StateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 	epochChange := sm.epochChanger.applySuspectMsg(source, epoch)
 	if epochChange == nil {
 		return &Actions{}
@@ -308,7 +311,7 @@ func (sm *stateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 	return actions
 }
 
-func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
+func (sm *StateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
 	sm.checkpointTracker.applyCheckpointMsg(source, seqNo, value)
 
 	if sm.checkpointTracker.state != cpsGarbageCollectable {
@@ -329,7 +332,7 @@ func (sm *stateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 	return actions
 }
 
-func (sm *stateMachine) processResults(results *pb.StateEvent_ActionResults) *Actions {
+func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Actions {
 	actions := &Actions{}
 
 	for _, checkpointResult := range results.Checkpoints {
@@ -397,7 +400,7 @@ func (sm *stateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 	return sm.advance(actions)
 }
 
-func (sm *stateMachine) applyRequestAckMsg(source NodeID, ack *pb.RequestAck) *Actions {
+func (sm *StateMachine) applyRequestAckMsg(source NodeID, ack *pb.RequestAck) *Actions {
 	// TODO, make sure nodeMsgs ignores this if client is not defined
 
 	sm.clientWindows.ack(source, ack)
@@ -411,7 +414,7 @@ func (sm *stateMachine) applyRequestAckMsg(source NodeID, ack *pb.RequestAck) *A
 	return actions
 }
 
-func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb.Request) *Actions {
+func (sm *StateMachine) applyDigestedValidRequest(digest []byte, requestData *pb.Request) *Actions {
 	sm.clientWindows.allocate(requestData, digest)
 
 	if sm.activeEpoch == nil {
@@ -423,7 +426,7 @@ func (sm *stateMachine) applyDigestedValidRequest(digest []byte, requestData *pb
 	return actions
 }
 
-func (sm *stateMachine) clientWaiter(clientID uint64) *clientWaiter {
+func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
 	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
 	if !ok {
 		return nil
@@ -432,7 +435,7 @@ func (sm *stateMachine) clientWaiter(clientID uint64) *clientWaiter {
 	return clientWindow.clientWaiter
 }
 
-func (sm *stateMachine) tick() *Actions {
+func (sm *StateMachine) tick() *Actions {
 	actions := &Actions{}
 
 	if sm.activeEpoch != nil {
@@ -444,7 +447,7 @@ func (sm *stateMachine) tick() *Actions {
 	return actions
 }
 
-func (sm *stateMachine) status() *Status {
+func (sm *StateMachine) Status() *Status {
 	clientWindowsStatus := make([]*ClientWindowStatus, len(sm.clientWindows.clients))
 
 	for i, id := range sm.clientWindows.clients {

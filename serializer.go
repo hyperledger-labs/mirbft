@@ -37,11 +37,11 @@ type serializer struct {
 	exitMutex    sync.Mutex
 	exitErr      error
 	exitStatus   *Status
-	stateMachine *stateMachine
+	stateMachine *StateMachine
 }
 
 func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*serializer, error) {
-	sm := &stateMachine{}
+	sm := &StateMachine{}
 	sm.initialize(myConfig)
 
 	var index uint64
@@ -99,7 +99,7 @@ func (s *serializer) run() {
 		} else {
 			s.exitErr = ErrStopped
 		}
-		s.exitStatus = s.stateMachine.status()
+		s.exitStatus = s.stateMachine.Status()
 	}()
 
 	// TODO, at some point, these can change, need to be recalculated
@@ -142,7 +142,7 @@ func (s *serializer) run() {
 			}
 		case statusReq := <-s.statusC:
 			select {
-			case statusReq <- s.stateMachine.status():
+			case statusReq <- s.stateMachine.Status():
 			case <-s.doneC:
 			}
 		case <-s.tickC:
@@ -156,7 +156,7 @@ func (s *serializer) run() {
 		}
 
 		if stateEvent != nil {
-			actions.Append(s.stateMachine.applyEvent(stateEvent))
+			actions.Append(s.stateMachine.ApplyEvent(stateEvent))
 		}
 
 		// We unconditionally re-enable the actions channel after any event is injected into the system
