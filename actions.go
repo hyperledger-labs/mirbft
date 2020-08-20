@@ -71,6 +71,12 @@ func (a *Actions) concat(o *Actions) *Actions {
 	return a
 }
 
+// Send is an action to send a message to a set of nodes
+type Send struct {
+	Targets []uint64
+	Msg     *pb.Msg
+}
+
 // HashRequest is a request from the state machine to the consumer to hash some data.
 // The Data field is generally the only field the consumer should read.  One of the other fields
 // e.g. Batch or Request, will be populated, while the remainder will be nil.  The consumer
@@ -85,17 +91,10 @@ type HashRequest struct {
 	Origin *pb.HashResult
 }
 
-type HashResult struct {
-	Digest  []byte
-	Request *HashRequest
-}
-
-// Send is an action to send a message to a set of nodes
-type Send struct {
-	Targets []uint64
-	Msg     *pb.Msg
-}
-
+// Commit contains a batch of requests which have achieved total order and are ready
+// to be committed.  Commits are delivered in order.  If this commit corresponds to a
+// checkpoint (as indicated by the Checkpoint field), it is the consumer's responsibility
+// to compute a CheckpointResult and return it in the ActionsResults.
 type Commit struct {
 	QEntry       *pb.QEntry
 	Checkpoint   bool
@@ -108,6 +107,15 @@ type Commit struct {
 type ActionResults struct {
 	Digests     []*HashResult
 	Checkpoints []*CheckpointResult
+}
+
+// HashResult must be populated with the result of hashing the requested HashRequest.
+type HashResult struct {
+	// Digest is the resulting hash of the original request.
+	Digest []byte
+
+	// Request is the original HashRequest which resulted in the computed Digest.
+	Request *HashRequest
 }
 
 // CheckpointResult gives the state machine a verifiable checkpoint for the network
