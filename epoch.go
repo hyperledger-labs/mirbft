@@ -30,7 +30,7 @@ type epoch struct {
 	lowestUnallocated []int // index by bucket
 
 	lastCommittedAtTick uint64
-	ticksSinceProgress  int
+	ticksSinceProgress  uint32
 }
 
 func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *Config) *epoch {

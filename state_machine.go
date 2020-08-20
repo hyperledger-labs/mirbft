@@ -27,6 +27,11 @@ const (
 // This structure should almost never be initialized directly but should instead
 // be allocated via StartNode.
 type StateMachine struct {
+	// Logger XXX this is a weird place/way to initialize the logger, since
+	// we go and reference it through myConfig at the moment, but, it's the
+	// only non-serializable part of the config.
+	Logger Logger
+
 	state StateMachineState
 
 	myConfig      *Config
@@ -41,14 +46,24 @@ type StateMachine struct {
 	persisted         *persisted
 }
 
-func (sm *StateMachine) initialize(myConfig *Config) {
+func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) {
 	if sm.state != smUninitialized {
 		panic("state machine has already been initialized")
 	}
 
-	sm.myConfig = myConfig
+	sm.myConfig = &Config{
+		Logger: sm.Logger,
+		ID:     parameters.Id,
+		BatchParameters: BatchParameters{
+			BatchSize: parameters.BatchSize,
+		},
+		HeartbeatTicks:       parameters.HeartbeatTicks,
+		SuspectTicks:         parameters.SuspectTicks,
+		NewEpochTimeoutTicks: parameters.NewEpochTimeoutTicks,
+		BufferSize:           parameters.BufferSize,
+	}
 	sm.state = smLoadingPersisted
-	sm.persisted = newPersisted(myConfig)
+	sm.persisted = newPersisted(sm.myConfig)
 }
 
 func (sm *StateMachine) applyPersisted(entry *pb.Persistent) {
@@ -120,6 +135,8 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	}
 
 	switch event := stateEvent.Type.(type) {
+	case *pb.StateEvent_Initialize:
+		sm.initialize(event.Initialize)
 	case *pb.StateEvent_LoadEntry:
 		sm.applyPersisted(event.LoadEntry.Entry)
 	case *pb.StateEvent_CompleteInitialization:

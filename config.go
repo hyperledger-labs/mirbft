@@ -23,21 +23,21 @@ type Config struct {
 
 	// HeartbeatTicks is the number of ticks before a heartbeat is emitted
 	// by a leader.
-	HeartbeatTicks int
+	HeartbeatTicks uint32
 
 	// SuspectTicks is the number of ticks a bucket may not progress before
 	// the node suspects the epoch has gone bad.
-	SuspectTicks int
+	SuspectTicks uint32
 
 	// NewEpochTimeoutTicks is the number of ticks a replica will wait until
 	// it suspects the epoch leader has failed.  This value must be greater
 	// than 1, as rebroadcast ticks are computed as half this value.
-	NewEpochTimeoutTicks int
+	NewEpochTimeoutTicks uint32
 
 	// BufferSize is the number of messages buffered waiting for this node
 	// to process. If buffer is full, oldest message will be dropped to
 	// make room for new messages
-	BufferSize int
+	BufferSize uint32
 
 	// Introspector, if set, has its Selected method invoked each time the
 	// state machine undergoes some mutation.  This allows for additional
@@ -47,7 +47,7 @@ type Config struct {
 }
 
 type BatchParameters struct {
-	BatchSize int
+	BatchSize uint32
 }
 
 // Introspector provides a way for a consumer to gain insight into

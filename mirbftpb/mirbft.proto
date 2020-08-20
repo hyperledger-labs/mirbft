@@ -296,6 +296,14 @@ message NewEpochReady {
 // StateEvent represents an event occurring inside of the state machine
 // and is used for tracing and debugging purposes only.
 message StateEvent {
+    message InitialParameters {
+        uint64 id = 1;
+        uint32 batch_size = 2;
+        uint32 heartbeat_ticks = 3;
+        uint32 suspect_ticks = 4;
+        uint32 new_epoch_timeout_ticks = 5;
+        uint32 buffer_size = 6;
+    }
 
     message PersistedEntry {
         Persistent entry = 1;
@@ -320,12 +328,13 @@ message StateEvent {
     message TickElapsed {}
 
     oneof type {
-	PersistedEntry load_entry = 1;
-	LoadCompleted complete_initialization = 2;
-        ActionResults add_results = 3;
-        Proposal propose = 4;
-        InboundMsg step = 5;
-	TickElapsed tick = 6;
+        InitialParameters initialize = 1;
+	PersistedEntry load_entry = 2;
+	LoadCompleted complete_initialization = 3;
+        ActionResults add_results = 4;
+        Proposal propose = 5;
+        InboundMsg step = 6;
+	TickElapsed tick = 7;
     }
 }
 

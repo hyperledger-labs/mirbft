@@ -27,7 +27,7 @@ type proposalBucket struct {
 	totalBuckets int
 	lastReadyReq *list.Element
 	readyList    *list.List
-	requestCount int
+	requestCount uint32
 	pending      []*clientRequest
 	bucketID     BucketID
 }
@@ -58,7 +58,7 @@ func (p *proposer) proposalBucket(bucketID BucketID) *proposalBucket {
 }
 
 func (prb *proposalBucket) advance() {
-	for len(prb.pending) < prb.requestCount {
+	for uint32(len(prb.pending)) < prb.requestCount {
 		var nextReadyReq *list.Element
 		if prb.lastReadyReq == nil {
 			nextReadyReq = prb.readyList.Front()
@@ -90,12 +90,12 @@ func (prb *proposalBucket) advance() {
 
 func (prb *proposalBucket) hasOutstanding() bool {
 	prb.advance()
-	return len(prb.pending) > 0
+	return uint32(len(prb.pending)) > 0
 }
 
 func (prb *proposalBucket) hasPending() bool {
 	prb.advance()
-	return len(prb.pending) > 0 && len(prb.pending) == prb.requestCount
+	return len(prb.pending) > 0 && uint32(len(prb.pending)) == prb.requestCount
 }
 
 func (prb *proposalBucket) next() []*clientRequest {

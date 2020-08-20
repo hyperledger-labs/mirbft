@@ -41,8 +41,22 @@ type serializer struct {
 }
 
 func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*serializer, error) {
-	sm := &StateMachine{}
-	sm.initialize(myConfig)
+	sm := &StateMachine{
+		Logger: myConfig.Logger,
+	}
+	//sm.initialize(myConfig)
+	sm.ApplyEvent(&pb.StateEvent{
+		Type: &pb.StateEvent_Initialize{
+			Initialize: &pb.StateEvent_InitialParameters{
+				Id:                   myConfig.ID,
+				BatchSize:            myConfig.BatchParameters.BatchSize,
+				HeartbeatTicks:       myConfig.HeartbeatTicks,
+				SuspectTicks:         myConfig.SuspectTicks,
+				NewEpochTimeoutTicks: myConfig.NewEpochTimeoutTicks,
+				BufferSize:           myConfig.BufferSize,
+			},
+		},
+	})
 
 	var index uint64
 	for {

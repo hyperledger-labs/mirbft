@@ -128,7 +128,7 @@ func (n *nodeMsgs) setActiveEpoch(epoch *epoch) {
 // for future consumption
 func (n *nodeMsgs) ingest(outerMsg *pb.Msg) {
 	n.buffer.PushBack(outerMsg)
-	if n.buffer.Len() > n.myConfig.BufferSize {
+	if uint32(n.buffer.Len()) > n.myConfig.BufferSize {
 		e := n.buffer.Front()
 		n.buffer.Remove(e)
 	}
