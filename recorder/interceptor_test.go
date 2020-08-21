@@ -11,6 +11,7 @@ import (
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/recorder"
+	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 )
 
 var tickEvent = &pb.StateEvent{
@@ -27,7 +28,7 @@ var _ = Describe("Interceptor", func() {
 	)
 
 	BeforeEach(func() {
-		interceptor = recorder.NewInterceptor(3)
+		interceptor = recorder.NewInterceptor(1, func() int64 { return 2 }, 3)
 		interceptor.Intercept(tickEvent)
 		interceptor.Intercept(tickEvent)
 
@@ -46,7 +47,7 @@ var _ = Describe("Interceptor", func() {
 		close(doneC)
 		Eventually(goDone).Should(BeClosed())
 
-		Expect(output.Len()).To(Equal(6))
+		Expect(output.Len()).To(Equal(18))
 	})
 
 	It("blocks when the buffer space is exceeded", func() {
@@ -66,7 +67,7 @@ var _ = Describe("Interceptor", func() {
 		interceptor.Intercept(tickEvent)
 		err := interceptor.Drain(output, doneC)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(output.Len()).To(Equal(9))
+		Expect(output.Len()).To(Equal(27))
 	})
 
 	It("can be read back with a Reader", func() {
@@ -76,13 +77,19 @@ var _ = Describe("Interceptor", func() {
 
 		reader := recorder.NewReader(output)
 
+		recordedTickEvent := &rpb.RecordedEvent{
+			NodeId:     1,
+			Time:       2,
+			StateEvent: tickEvent,
+		}
+
 		se, err := reader.ReadEvent()
 		Expect(err).NotTo(HaveOccurred())
-		Expect(proto.Equal(se, tickEvent)).To(BeTrue())
+		Expect(proto.Equal(se, recordedTickEvent)).To(BeTrue())
 
 		se, err = reader.ReadEvent()
 		Expect(err).NotTo(HaveOccurred())
-		Expect(proto.Equal(se, tickEvent)).To(BeTrue())
+		Expect(proto.Equal(se, recordedTickEvent)).To(BeTrue())
 
 		_, err = reader.ReadEvent()
 		Expect(err).To(Equal(io.EOF))

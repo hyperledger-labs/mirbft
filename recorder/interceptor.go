@@ -16,30 +16,51 @@ import (
 	"github.com/pkg/errors"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 )
 
 type Interceptor struct {
-	eventC chan *pb.StateEvent
+	timeSource func() int64
+	nodeID     uint64
+	eventC     chan eventTime
 }
 
-func NewInterceptor(bufferSize int) *Interceptor {
+type eventTime struct {
+	event *pb.StateEvent
+	time  int64
+}
+
+func NewInterceptor(nodeID uint64, timeSource func() int64, bufferSize int) *Interceptor {
 	return &Interceptor{
-		eventC: make(chan *pb.StateEvent, bufferSize),
+		nodeID:     nodeID,
+		timeSource: timeSource,
+		eventC:     make(chan eventTime, bufferSize),
 	}
 }
 
 func (i *Interceptor) Intercept(event *pb.StateEvent) {
-	i.eventC <- event
+	i.eventC <- eventTime{
+		event: event,
+		time:  i.timeSource(),
+	}
 }
 
 func (i *Interceptor) Drain(dest io.Writer, doneC <-chan struct{}) error {
+	write := func(eventTime eventTime) error {
+		return writeSizePrefixedProto(dest, &rpb.RecordedEvent{
+			NodeId:     i.nodeID,
+			Time:       eventTime.time,
+			StateEvent: eventTime.event,
+		})
+	}
+
 	for {
 		select {
 		case <-doneC:
 			for {
 				select {
 				case event := <-i.eventC:
-					if err := writeSizePrefixedProto(dest, event); err != nil {
+					if err := write(event); err != nil {
 						return errors.WithMessage(err, "error serializing to stream")
 					}
 				default:
@@ -47,7 +68,7 @@ func (i *Interceptor) Drain(dest io.Writer, doneC <-chan struct{}) error {
 				}
 			}
 		case event := <-i.eventC:
-			if err := writeSizePrefixedProto(dest, event); err != nil {
+			if err := write(event); err != nil {
 				return errors.WithMessage(err, "error serializing to stream")
 			}
 		}
@@ -85,18 +106,18 @@ func NewReader(source io.Reader) *Reader {
 	}
 }
 
-func (r *Reader) ReadEvent() (*pb.StateEvent, error) {
-	se := &pb.StateEvent{}
-	err := readSizePrefixedProto(r.source, se, r.buffer)
+func (r *Reader) ReadEvent() (*rpb.RecordedEvent, error) {
+	re := &rpb.RecordedEvent{}
+	err := readSizePrefixedProto(r.source, re, r.buffer)
 	if err == io.EOF {
-		return se, err
+		return re, err
 	}
 	if err != nil {
 		return nil, errors.WithMessage(err, "error reading event")
 	}
 	r.buffer.Reset()
 
-	return se, nil
+	return re, nil
 }
 
 func readSizePrefixedProto(reader *bufio.Reader, msg proto.Message, buffer *bytes.Buffer) error {
