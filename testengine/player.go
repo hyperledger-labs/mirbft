@@ -77,32 +77,28 @@ func (p *Player) Step() error {
 
 	node := p.Node(event.Target)
 
-	switch et := event.Type.(type) {
-	case *tpb.Event_StateEvent:
-		se := et.StateEvent
-		if _, ok := se.Type.(*pb.StateEvent_AddResults); ok {
-			if node.Processing == nil {
-				return errors.Errorf("node %d is not currently processing but got an apply event", event.Target)
-			} else {
-				node.Processing = nil
-			}
+	switch event.StateEvent.Type.(type) {
+	case *pb.StateEvent_AddResults:
+		if node.Processing == nil {
+			return errors.Errorf("node %d is not currently processing but got an apply event", event.Target)
 		}
-		newActions := node.StateMachine.ApplyEvent(se)
-		node.Actions.Send = append(node.Actions.Send, newActions.Send...)
-		node.Actions.Hash = append(node.Actions.Hash, newActions.Hash...)
-		node.Actions.Commits = append(node.Actions.Commits, newActions.Commits...)
-		node.Actions.Persist = append(node.Actions.Persist, newActions.Persist...)
-	case *tpb.Event_Process_:
-		actions := &mirbft.Actions{}
 
+		node.Processing = nil
+	case *pb.StateEvent_ActionsReceived:
 		if node.Processing != nil {
 			return errors.Errorf("node %d is currently processing but got a second process event", event.Target)
 		}
 
 		node.Processing = node.Actions
-		node.Actions = actions
+		node.Actions = &mirbft.Actions{}
 		return nil
 	}
+
+	newActions := node.StateMachine.ApplyEvent(event.StateEvent)
+	node.Actions.Send = append(node.Actions.Send, newActions.Send...)
+	node.Actions.Hash = append(node.Actions.Hash, newActions.Hash...)
+	node.Actions.Commits = append(node.Actions.Commits, newActions.Commits...)
+	node.Actions.Persist = append(node.Actions.Persist, newActions.Persist...)
 
 	node.Status = node.StateMachine.Status()
 

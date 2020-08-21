@@ -181,43 +181,27 @@ func (etfm *EventTypeFilterMangler) BeforeStep(random int, el *EventLog) {
 	event := el.NextEventLogEntry.Event
 	switch etfm.Type {
 	case "Receive":
-		se, ok := event.Type.(*tpb.Event_StateEvent)
-		if !ok {
-			return
-		}
-		_, ok = se.StateEvent.Type.(*pb.StateEvent_Step)
+		_, ok := event.StateEvent.Type.(*pb.StateEvent_Step)
 		if ok {
 			etfm.Mangler.BeforeStep(random, el)
 		}
 	case "Tick":
-		se, ok := event.Type.(*tpb.Event_StateEvent)
-		if !ok {
-			return
-		}
-		_, ok = se.StateEvent.Type.(*pb.StateEvent_Tick)
+		_, ok := event.StateEvent.Type.(*pb.StateEvent_Tick)
 		if ok {
 			etfm.Mangler.BeforeStep(random, el)
 		}
 	case "Process":
-		_, ok := event.Type.(*tpb.Event_Process_)
+		_, ok := event.StateEvent.Type.(*pb.StateEvent_ActionsReceived)
 		if ok {
 			etfm.Mangler.BeforeStep(random, el)
 		}
 	case "Apply":
-		se, ok := event.Type.(*tpb.Event_StateEvent)
-		if !ok {
-			return
-		}
-		_, ok = se.StateEvent.Type.(*pb.StateEvent_AddResults)
+		_, ok := event.StateEvent.Type.(*pb.StateEvent_AddResults)
 		if ok {
 			etfm.Mangler.BeforeStep(random, el)
 		}
 	case "Propose":
-		se, ok := event.Type.(*tpb.Event_StateEvent)
-		if !ok {
-			return
-		}
-		_, ok = se.StateEvent.Type.(*pb.StateEvent_Propose)
+		_, ok := event.StateEvent.Type.(*pb.StateEvent_Propose)
 		if ok {
 			etfm.Mangler.BeforeStep(random, el)
 		}
@@ -235,11 +219,7 @@ type MsgSourceFilterMangler struct {
 func (msfm *MsgSourceFilterMangler) BeforeStep(random int, el *EventLog) {
 	event := el.NextEventLogEntry.Event
 
-	se, ok := event.Type.(*tpb.Event_StateEvent)
-	if !ok {
-		return
-	}
-	recv, ok := se.StateEvent.Type.(*pb.StateEvent_Step)
+	recv, ok := event.StateEvent.Type.(*pb.StateEvent_Step)
 	if !ok {
 		return
 	}

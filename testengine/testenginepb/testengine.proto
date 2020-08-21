@@ -17,75 +17,15 @@ import "mirbftpb/mirbft.proto";
 message ScenarioConfig {
 	string name = 1;
 	string description = 2;
-	repeated NodeConfig node_configs = 4;
-}
-
-message NodeConfig {
-	uint64 id = 1;
-}
-
-message HashResult {
-	bytes digest = 1;
-	oneof type {
-		Request request = 2;
-		Batch batch = 3;
-		EpochChange epoch_change = 4;
-		VerifyBatch verify_batch = 5;
-		VerifyRequest verify_request = 6;
-        }
-}
-message Request {
-	uint64 source = 1;
-	mirbftpb.Request request = 2;
-}
-
-message VerifyRequest {
-	uint64 source = 1;
-	mirbftpb.Request request = 2;
-	bytes expected_digest = 3;
-}
-
-message Batch {
-	uint64 source = 1;
-	uint64 epoch = 2;
-	uint64 seq_no = 3;
-	repeated mirbftpb.RequestAck request_acks = 5;
-}
-
-message VerifyBatch {
-	uint64 source = 1;
-	uint64 seq_no = 2;
-	repeated mirbftpb.RequestAck request_acks = 3;
-	bytes expected_digest = 4;
-}
-
-message EpochChange {
-	uint64 source = 1;
-	uint64 origin = 2;
-	mirbftpb.EpochChange epoch_change = 3;
-}
-
-message Checkpoint {
-	mirbftpb.QEntry q_entry = 1;
-	mirbftpb.NetworkState network_state = 2;
-	mirbftpb.EpochConfig epoch_config = 3;
-	bytes value = 4;
 }
 
 message Event {
 	uint64 target = 1;
 	uint64 time = 2;
-
-        message Process {}
-
-	oneof type {
-		mirbftpb.StateEvent state_event =3;
-		Process process = 4;
-	}
-
-	bool dropped = 5;
-	uint64 delayed = 6;
-	uint64 duplicated = 7;
+        mirbftpb.StateEvent state_event =3;
+	bool dropped = 4;
+	uint64 delayed = 5;
+	uint64 duplicated = 6;
 }
 
 message LogEntry {

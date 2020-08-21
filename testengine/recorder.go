@@ -16,7 +16,6 @@ import (
 
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
-	tpb "github.com/IBM/mirbft/testengine/testenginepb"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -332,34 +331,30 @@ func (r *Recording) Step() error {
 	playbackNode := node.PlaybackNode
 	nodeState := node.State
 
-	switch et := lastEvent.Type.(type) {
-	case *tpb.Event_StateEvent:
-		se := et.StateEvent
-		switch se.Type.(type) {
-		case *pb.StateEvent_Tick:
-			r.EventLog.InsertTickEvent(lastEvent.Target, uint64(runtimeParms.TickInterval))
-		case *pb.StateEvent_AddResults:
-			nodeStatus := node.PlaybackNode.Status
-			for _, rw := range nodeStatus.ClientWindows {
-				for _, client := range r.Clients {
-					if client.Config.ID != rw.ClientID {
+	switch lastEvent.StateEvent.Type.(type) {
+	case *pb.StateEvent_Tick:
+		r.EventLog.InsertTickEvent(lastEvent.Target, uint64(runtimeParms.TickInterval))
+	case *pb.StateEvent_AddResults:
+		nodeStatus := node.PlaybackNode.Status
+		for _, rw := range nodeStatus.ClientWindows {
+			for _, client := range r.Clients {
+				if client.Config.ID != rw.ClientID {
+					continue
+				}
+
+				for i := client.LastNodeReqNoSend[lastEvent.Target] + 1; i <= rw.HighWatermark; i++ {
+					req := client.RequestByReqNo(i)
+					if req == nil {
 						continue
 					}
-
-					for i := client.LastNodeReqNoSend[lastEvent.Target] + 1; i <= rw.HighWatermark; i++ {
-						req := client.RequestByReqNo(i)
-						if req == nil {
-							continue
-						}
-						client.LastNodeReqNoSend[lastEvent.Target] = i
-						r.EventLog.InsertProposeEvent(lastEvent.Target, req, client.Config.TxLatency)
-					}
+					client.LastNodeReqNoSend[lastEvent.Target] = i
+					r.EventLog.InsertProposeEvent(lastEvent.Target, req, client.Config.TxLatency)
 				}
 			}
-		case *pb.StateEvent_Step:
-		case *pb.StateEvent_Propose:
 		}
-	case *tpb.Event_Process_:
+	case *pb.StateEvent_Step:
+	case *pb.StateEvent_Propose:
+	case *pb.StateEvent_ActionsReceived:
 		if !node.AwaitingProcessEvent {
 			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.Target)
 		}

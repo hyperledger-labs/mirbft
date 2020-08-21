@@ -20,19 +20,18 @@ var _ = math.Inf
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
 type ScenarioConfig struct {
-	Name                 string        `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description          string        `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	NodeConfigs          []*NodeConfig `protobuf:"bytes,4,rep,name=node_configs,json=nodeConfigs,proto3" json:"node_configs,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}      `json:"-"`
-	XXX_unrecognized     []byte        `json:"-"`
-	XXX_sizecache        int32         `json:"-"`
+	Name                 string   `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description          string   `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *ScenarioConfig) Reset()         { *m = ScenarioConfig{} }
 func (m *ScenarioConfig) String() string { return proto.CompactTextString(m) }
 func (*ScenarioConfig) ProtoMessage()    {}
 func (*ScenarioConfig) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{0}
+	return fileDescriptor_testengine_0da2a3b56dfae249, []int{0}
 }
 func (m *ScenarioConfig) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ScenarioConfig.Unmarshal(m, b)
@@ -66,663 +65,23 @@ func (m *ScenarioConfig) GetDescription() string {
 	return ""
 }
 
-func (m *ScenarioConfig) GetNodeConfigs() []*NodeConfig {
-	if m != nil {
-		return m.NodeConfigs
-	}
-	return nil
-}
-
-type NodeConfig struct {
-	Id                   uint64   `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *NodeConfig) Reset()         { *m = NodeConfig{} }
-func (m *NodeConfig) String() string { return proto.CompactTextString(m) }
-func (*NodeConfig) ProtoMessage()    {}
-func (*NodeConfig) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{1}
-}
-func (m *NodeConfig) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_NodeConfig.Unmarshal(m, b)
-}
-func (m *NodeConfig) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_NodeConfig.Marshal(b, m, deterministic)
-}
-func (dst *NodeConfig) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_NodeConfig.Merge(dst, src)
-}
-func (m *NodeConfig) XXX_Size() int {
-	return xxx_messageInfo_NodeConfig.Size(m)
-}
-func (m *NodeConfig) XXX_DiscardUnknown() {
-	xxx_messageInfo_NodeConfig.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_NodeConfig proto.InternalMessageInfo
-
-func (m *NodeConfig) GetId() uint64 {
-	if m != nil {
-		return m.Id
-	}
-	return 0
-}
-
-type HashResult struct {
-	Digest []byte `protobuf:"bytes,1,opt,name=digest,proto3" json:"digest,omitempty"`
-	// Types that are valid to be assigned to Type:
-	//	*HashResult_Request
-	//	*HashResult_Batch
-	//	*HashResult_EpochChange
-	//	*HashResult_VerifyBatch
-	//	*HashResult_VerifyRequest
-	Type                 isHashResult_Type `protobuf_oneof:"type"`
-	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
-	XXX_unrecognized     []byte            `json:"-"`
-	XXX_sizecache        int32             `json:"-"`
-}
-
-func (m *HashResult) Reset()         { *m = HashResult{} }
-func (m *HashResult) String() string { return proto.CompactTextString(m) }
-func (*HashResult) ProtoMessage()    {}
-func (*HashResult) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{2}
-}
-func (m *HashResult) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_HashResult.Unmarshal(m, b)
-}
-func (m *HashResult) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_HashResult.Marshal(b, m, deterministic)
-}
-func (dst *HashResult) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_HashResult.Merge(dst, src)
-}
-func (m *HashResult) XXX_Size() int {
-	return xxx_messageInfo_HashResult.Size(m)
-}
-func (m *HashResult) XXX_DiscardUnknown() {
-	xxx_messageInfo_HashResult.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_HashResult proto.InternalMessageInfo
-
-func (m *HashResult) GetDigest() []byte {
-	if m != nil {
-		return m.Digest
-	}
-	return nil
-}
-
-type isHashResult_Type interface {
-	isHashResult_Type()
-}
-
-type HashResult_Request struct {
-	Request *Request `protobuf:"bytes,2,opt,name=request,proto3,oneof"`
-}
-
-type HashResult_Batch struct {
-	Batch *Batch `protobuf:"bytes,3,opt,name=batch,proto3,oneof"`
-}
-
-type HashResult_EpochChange struct {
-	EpochChange *EpochChange `protobuf:"bytes,4,opt,name=epoch_change,json=epochChange,proto3,oneof"`
-}
-
-type HashResult_VerifyBatch struct {
-	VerifyBatch *VerifyBatch `protobuf:"bytes,5,opt,name=verify_batch,json=verifyBatch,proto3,oneof"`
-}
-
-type HashResult_VerifyRequest struct {
-	VerifyRequest *VerifyRequest `protobuf:"bytes,6,opt,name=verify_request,json=verifyRequest,proto3,oneof"`
-}
-
-func (*HashResult_Request) isHashResult_Type() {}
-
-func (*HashResult_Batch) isHashResult_Type() {}
-
-func (*HashResult_EpochChange) isHashResult_Type() {}
-
-func (*HashResult_VerifyBatch) isHashResult_Type() {}
-
-func (*HashResult_VerifyRequest) isHashResult_Type() {}
-
-func (m *HashResult) GetType() isHashResult_Type {
-	if m != nil {
-		return m.Type
-	}
-	return nil
-}
-
-func (m *HashResult) GetRequest() *Request {
-	if x, ok := m.GetType().(*HashResult_Request); ok {
-		return x.Request
-	}
-	return nil
-}
-
-func (m *HashResult) GetBatch() *Batch {
-	if x, ok := m.GetType().(*HashResult_Batch); ok {
-		return x.Batch
-	}
-	return nil
-}
-
-func (m *HashResult) GetEpochChange() *EpochChange {
-	if x, ok := m.GetType().(*HashResult_EpochChange); ok {
-		return x.EpochChange
-	}
-	return nil
-}
-
-func (m *HashResult) GetVerifyBatch() *VerifyBatch {
-	if x, ok := m.GetType().(*HashResult_VerifyBatch); ok {
-		return x.VerifyBatch
-	}
-	return nil
-}
-
-func (m *HashResult) GetVerifyRequest() *VerifyRequest {
-	if x, ok := m.GetType().(*HashResult_VerifyRequest); ok {
-		return x.VerifyRequest
-	}
-	return nil
-}
-
-// XXX_OneofFuncs is for the internal use of the proto package.
-func (*HashResult) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
-	return _HashResult_OneofMarshaler, _HashResult_OneofUnmarshaler, _HashResult_OneofSizer, []interface{}{
-		(*HashResult_Request)(nil),
-		(*HashResult_Batch)(nil),
-		(*HashResult_EpochChange)(nil),
-		(*HashResult_VerifyBatch)(nil),
-		(*HashResult_VerifyRequest)(nil),
-	}
-}
-
-func _HashResult_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
-	m := msg.(*HashResult)
-	// type
-	switch x := m.Type.(type) {
-	case *HashResult_Request:
-		b.EncodeVarint(2<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.Request); err != nil {
-			return err
-		}
-	case *HashResult_Batch:
-		b.EncodeVarint(3<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.Batch); err != nil {
-			return err
-		}
-	case *HashResult_EpochChange:
-		b.EncodeVarint(4<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.EpochChange); err != nil {
-			return err
-		}
-	case *HashResult_VerifyBatch:
-		b.EncodeVarint(5<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.VerifyBatch); err != nil {
-			return err
-		}
-	case *HashResult_VerifyRequest:
-		b.EncodeVarint(6<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.VerifyRequest); err != nil {
-			return err
-		}
-	case nil:
-	default:
-		return fmt.Errorf("HashResult.Type has unexpected type %T", x)
-	}
-	return nil
-}
-
-func _HashResult_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
-	m := msg.(*HashResult)
-	switch tag {
-	case 2: // type.request
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(Request)
-		err := b.DecodeMessage(msg)
-		m.Type = &HashResult_Request{msg}
-		return true, err
-	case 3: // type.batch
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(Batch)
-		err := b.DecodeMessage(msg)
-		m.Type = &HashResult_Batch{msg}
-		return true, err
-	case 4: // type.epoch_change
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(EpochChange)
-		err := b.DecodeMessage(msg)
-		m.Type = &HashResult_EpochChange{msg}
-		return true, err
-	case 5: // type.verify_batch
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(VerifyBatch)
-		err := b.DecodeMessage(msg)
-		m.Type = &HashResult_VerifyBatch{msg}
-		return true, err
-	case 6: // type.verify_request
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(VerifyRequest)
-		err := b.DecodeMessage(msg)
-		m.Type = &HashResult_VerifyRequest{msg}
-		return true, err
-	default:
-		return false, nil
-	}
-}
-
-func _HashResult_OneofSizer(msg proto.Message) (n int) {
-	m := msg.(*HashResult)
-	// type
-	switch x := m.Type.(type) {
-	case *HashResult_Request:
-		s := proto.Size(x.Request)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case *HashResult_Batch:
-		s := proto.Size(x.Batch)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case *HashResult_EpochChange:
-		s := proto.Size(x.EpochChange)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case *HashResult_VerifyBatch:
-		s := proto.Size(x.VerifyBatch)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case *HashResult_VerifyRequest:
-		s := proto.Size(x.VerifyRequest)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case nil:
-	default:
-		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
-	}
-	return n
-}
-
-type Request struct {
-	Source               uint64            `protobuf:"varint,1,opt,name=source,proto3" json:"source,omitempty"`
-	Request              *mirbftpb.Request `protobuf:"bytes,2,opt,name=request,proto3" json:"request,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
-	XXX_unrecognized     []byte            `json:"-"`
-	XXX_sizecache        int32             `json:"-"`
-}
-
-func (m *Request) Reset()         { *m = Request{} }
-func (m *Request) String() string { return proto.CompactTextString(m) }
-func (*Request) ProtoMessage()    {}
-func (*Request) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{3}
-}
-func (m *Request) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Request.Unmarshal(m, b)
-}
-func (m *Request) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Request.Marshal(b, m, deterministic)
-}
-func (dst *Request) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Request.Merge(dst, src)
-}
-func (m *Request) XXX_Size() int {
-	return xxx_messageInfo_Request.Size(m)
-}
-func (m *Request) XXX_DiscardUnknown() {
-	xxx_messageInfo_Request.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Request proto.InternalMessageInfo
-
-func (m *Request) GetSource() uint64 {
-	if m != nil {
-		return m.Source
-	}
-	return 0
-}
-
-func (m *Request) GetRequest() *mirbftpb.Request {
-	if m != nil {
-		return m.Request
-	}
-	return nil
-}
-
-type VerifyRequest struct {
-	Source               uint64            `protobuf:"varint,1,opt,name=source,proto3" json:"source,omitempty"`
-	Request              *mirbftpb.Request `protobuf:"bytes,2,opt,name=request,proto3" json:"request,omitempty"`
-	ExpectedDigest       []byte            `protobuf:"bytes,3,opt,name=expected_digest,json=expectedDigest,proto3" json:"expected_digest,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
-	XXX_unrecognized     []byte            `json:"-"`
-	XXX_sizecache        int32             `json:"-"`
-}
-
-func (m *VerifyRequest) Reset()         { *m = VerifyRequest{} }
-func (m *VerifyRequest) String() string { return proto.CompactTextString(m) }
-func (*VerifyRequest) ProtoMessage()    {}
-func (*VerifyRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{4}
-}
-func (m *VerifyRequest) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_VerifyRequest.Unmarshal(m, b)
-}
-func (m *VerifyRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_VerifyRequest.Marshal(b, m, deterministic)
-}
-func (dst *VerifyRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_VerifyRequest.Merge(dst, src)
-}
-func (m *VerifyRequest) XXX_Size() int {
-	return xxx_messageInfo_VerifyRequest.Size(m)
-}
-func (m *VerifyRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_VerifyRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_VerifyRequest proto.InternalMessageInfo
-
-func (m *VerifyRequest) GetSource() uint64 {
-	if m != nil {
-		return m.Source
-	}
-	return 0
-}
-
-func (m *VerifyRequest) GetRequest() *mirbftpb.Request {
-	if m != nil {
-		return m.Request
-	}
-	return nil
-}
-
-func (m *VerifyRequest) GetExpectedDigest() []byte {
-	if m != nil {
-		return m.ExpectedDigest
-	}
-	return nil
-}
-
-type Batch struct {
-	Source               uint64                 `protobuf:"varint,1,opt,name=source,proto3" json:"source,omitempty"`
-	Epoch                uint64                 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	SeqNo                uint64                 `protobuf:"varint,3,opt,name=seq_no,json=seqNo,proto3" json:"seq_no,omitempty"`
-	RequestAcks          []*mirbftpb.RequestAck `protobuf:"bytes,5,rep,name=request_acks,json=requestAcks,proto3" json:"request_acks,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
-	XXX_unrecognized     []byte                 `json:"-"`
-	XXX_sizecache        int32                  `json:"-"`
-}
-
-func (m *Batch) Reset()         { *m = Batch{} }
-func (m *Batch) String() string { return proto.CompactTextString(m) }
-func (*Batch) ProtoMessage()    {}
-func (*Batch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{5}
-}
-func (m *Batch) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Batch.Unmarshal(m, b)
-}
-func (m *Batch) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Batch.Marshal(b, m, deterministic)
-}
-func (dst *Batch) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Batch.Merge(dst, src)
-}
-func (m *Batch) XXX_Size() int {
-	return xxx_messageInfo_Batch.Size(m)
-}
-func (m *Batch) XXX_DiscardUnknown() {
-	xxx_messageInfo_Batch.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Batch proto.InternalMessageInfo
-
-func (m *Batch) GetSource() uint64 {
-	if m != nil {
-		return m.Source
-	}
-	return 0
-}
-
-func (m *Batch) GetEpoch() uint64 {
-	if m != nil {
-		return m.Epoch
-	}
-	return 0
-}
-
-func (m *Batch) GetSeqNo() uint64 {
-	if m != nil {
-		return m.SeqNo
-	}
-	return 0
-}
-
-func (m *Batch) GetRequestAcks() []*mirbftpb.RequestAck {
-	if m != nil {
-		return m.RequestAcks
-	}
-	return nil
-}
-
-type VerifyBatch struct {
-	Source               uint64                 `protobuf:"varint,1,opt,name=source,proto3" json:"source,omitempty"`
-	SeqNo                uint64                 `protobuf:"varint,2,opt,name=seq_no,json=seqNo,proto3" json:"seq_no,omitempty"`
-	RequestAcks          []*mirbftpb.RequestAck `protobuf:"bytes,3,rep,name=request_acks,json=requestAcks,proto3" json:"request_acks,omitempty"`
-	ExpectedDigest       []byte                 `protobuf:"bytes,4,opt,name=expected_digest,json=expectedDigest,proto3" json:"expected_digest,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
-	XXX_unrecognized     []byte                 `json:"-"`
-	XXX_sizecache        int32                  `json:"-"`
-}
-
-func (m *VerifyBatch) Reset()         { *m = VerifyBatch{} }
-func (m *VerifyBatch) String() string { return proto.CompactTextString(m) }
-func (*VerifyBatch) ProtoMessage()    {}
-func (*VerifyBatch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{6}
-}
-func (m *VerifyBatch) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_VerifyBatch.Unmarshal(m, b)
-}
-func (m *VerifyBatch) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_VerifyBatch.Marshal(b, m, deterministic)
-}
-func (dst *VerifyBatch) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_VerifyBatch.Merge(dst, src)
-}
-func (m *VerifyBatch) XXX_Size() int {
-	return xxx_messageInfo_VerifyBatch.Size(m)
-}
-func (m *VerifyBatch) XXX_DiscardUnknown() {
-	xxx_messageInfo_VerifyBatch.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_VerifyBatch proto.InternalMessageInfo
-
-func (m *VerifyBatch) GetSource() uint64 {
-	if m != nil {
-		return m.Source
-	}
-	return 0
-}
-
-func (m *VerifyBatch) GetSeqNo() uint64 {
-	if m != nil {
-		return m.SeqNo
-	}
-	return 0
-}
-
-func (m *VerifyBatch) GetRequestAcks() []*mirbftpb.RequestAck {
-	if m != nil {
-		return m.RequestAcks
-	}
-	return nil
-}
-
-func (m *VerifyBatch) GetExpectedDigest() []byte {
-	if m != nil {
-		return m.ExpectedDigest
-	}
-	return nil
-}
-
-type EpochChange struct {
-	Source               uint64                `protobuf:"varint,1,opt,name=source,proto3" json:"source,omitempty"`
-	Origin               uint64                `protobuf:"varint,2,opt,name=origin,proto3" json:"origin,omitempty"`
-	EpochChange          *mirbftpb.EpochChange `protobuf:"bytes,3,opt,name=epoch_change,json=epochChange,proto3" json:"epoch_change,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
-	XXX_unrecognized     []byte                `json:"-"`
-	XXX_sizecache        int32                 `json:"-"`
-}
-
-func (m *EpochChange) Reset()         { *m = EpochChange{} }
-func (m *EpochChange) String() string { return proto.CompactTextString(m) }
-func (*EpochChange) ProtoMessage()    {}
-func (*EpochChange) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{7}
-}
-func (m *EpochChange) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_EpochChange.Unmarshal(m, b)
-}
-func (m *EpochChange) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_EpochChange.Marshal(b, m, deterministic)
-}
-func (dst *EpochChange) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_EpochChange.Merge(dst, src)
-}
-func (m *EpochChange) XXX_Size() int {
-	return xxx_messageInfo_EpochChange.Size(m)
-}
-func (m *EpochChange) XXX_DiscardUnknown() {
-	xxx_messageInfo_EpochChange.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_EpochChange proto.InternalMessageInfo
-
-func (m *EpochChange) GetSource() uint64 {
-	if m != nil {
-		return m.Source
-	}
-	return 0
-}
-
-func (m *EpochChange) GetOrigin() uint64 {
-	if m != nil {
-		return m.Origin
-	}
-	return 0
-}
-
-func (m *EpochChange) GetEpochChange() *mirbftpb.EpochChange {
-	if m != nil {
-		return m.EpochChange
-	}
-	return nil
-}
-
-type Checkpoint struct {
-	QEntry               *mirbftpb.QEntry       `protobuf:"bytes,1,opt,name=q_entry,json=qEntry,proto3" json:"q_entry,omitempty"`
-	NetworkState         *mirbftpb.NetworkState `protobuf:"bytes,2,opt,name=network_state,json=networkState,proto3" json:"network_state,omitempty"`
-	EpochConfig          *mirbftpb.EpochConfig  `protobuf:"bytes,3,opt,name=epoch_config,json=epochConfig,proto3" json:"epoch_config,omitempty"`
-	Value                []byte                 `protobuf:"bytes,4,opt,name=value,proto3" json:"value,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
-	XXX_unrecognized     []byte                 `json:"-"`
-	XXX_sizecache        int32                  `json:"-"`
-}
-
-func (m *Checkpoint) Reset()         { *m = Checkpoint{} }
-func (m *Checkpoint) String() string { return proto.CompactTextString(m) }
-func (*Checkpoint) ProtoMessage()    {}
-func (*Checkpoint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{8}
-}
-func (m *Checkpoint) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Checkpoint.Unmarshal(m, b)
-}
-func (m *Checkpoint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Checkpoint.Marshal(b, m, deterministic)
-}
-func (dst *Checkpoint) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Checkpoint.Merge(dst, src)
-}
-func (m *Checkpoint) XXX_Size() int {
-	return xxx_messageInfo_Checkpoint.Size(m)
-}
-func (m *Checkpoint) XXX_DiscardUnknown() {
-	xxx_messageInfo_Checkpoint.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Checkpoint proto.InternalMessageInfo
-
-func (m *Checkpoint) GetQEntry() *mirbftpb.QEntry {
-	if m != nil {
-		return m.QEntry
-	}
-	return nil
-}
-
-func (m *Checkpoint) GetNetworkState() *mirbftpb.NetworkState {
-	if m != nil {
-		return m.NetworkState
-	}
-	return nil
-}
-
-func (m *Checkpoint) GetEpochConfig() *mirbftpb.EpochConfig {
-	if m != nil {
-		return m.EpochConfig
-	}
-	return nil
-}
-
-func (m *Checkpoint) GetValue() []byte {
-	if m != nil {
-		return m.Value
-	}
-	return nil
-}
-
 type Event struct {
-	Target uint64 `protobuf:"varint,1,opt,name=target,proto3" json:"target,omitempty"`
-	Time   uint64 `protobuf:"varint,2,opt,name=time,proto3" json:"time,omitempty"`
-	// Types that are valid to be assigned to Type:
-	//	*Event_StateEvent
-	//	*Event_Process_
-	Type                 isEvent_Type `protobuf_oneof:"type"`
-	Dropped              bool         `protobuf:"varint,5,opt,name=dropped,proto3" json:"dropped,omitempty"`
-	Delayed              uint64       `protobuf:"varint,6,opt,name=delayed,proto3" json:"delayed,omitempty"`
-	Duplicated           uint64       `protobuf:"varint,7,opt,name=duplicated,proto3" json:"duplicated,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
-	XXX_unrecognized     []byte       `json:"-"`
-	XXX_sizecache        int32        `json:"-"`
+	Target               uint64               `protobuf:"varint,1,opt,name=target,proto3" json:"target,omitempty"`
+	Time                 uint64               `protobuf:"varint,2,opt,name=time,proto3" json:"time,omitempty"`
+	StateEvent           *mirbftpb.StateEvent `protobuf:"bytes,3,opt,name=state_event,json=stateEvent,proto3" json:"state_event,omitempty"`
+	Dropped              bool                 `protobuf:"varint,4,opt,name=dropped,proto3" json:"dropped,omitempty"`
+	Delayed              uint64               `protobuf:"varint,5,opt,name=delayed,proto3" json:"delayed,omitempty"`
+	Duplicated           uint64               `protobuf:"varint,6,opt,name=duplicated,proto3" json:"duplicated,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
 }
 
 func (m *Event) Reset()         { *m = Event{} }
 func (m *Event) String() string { return proto.CompactTextString(m) }
 func (*Event) ProtoMessage()    {}
 func (*Event) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{9}
+	return fileDescriptor_testengine_0da2a3b56dfae249, []int{1}
 }
 func (m *Event) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Event.Unmarshal(m, b)
@@ -756,39 +115,9 @@ func (m *Event) GetTime() uint64 {
 	return 0
 }
 
-type isEvent_Type interface {
-	isEvent_Type()
-}
-
-type Event_StateEvent struct {
-	StateEvent *mirbftpb.StateEvent `protobuf:"bytes,3,opt,name=state_event,json=stateEvent,proto3,oneof"`
-}
-
-type Event_Process_ struct {
-	Process *Event_Process `protobuf:"bytes,4,opt,name=process,proto3,oneof"`
-}
-
-func (*Event_StateEvent) isEvent_Type() {}
-
-func (*Event_Process_) isEvent_Type() {}
-
-func (m *Event) GetType() isEvent_Type {
-	if m != nil {
-		return m.Type
-	}
-	return nil
-}
-
 func (m *Event) GetStateEvent() *mirbftpb.StateEvent {
-	if x, ok := m.GetType().(*Event_StateEvent); ok {
-		return x.StateEvent
-	}
-	return nil
-}
-
-func (m *Event) GetProcess() *Event_Process {
-	if x, ok := m.GetType().(*Event_Process_); ok {
-		return x.Process
+	if m != nil {
+		return m.StateEvent
 	}
 	return nil
 }
@@ -814,110 +143,6 @@ func (m *Event) GetDuplicated() uint64 {
 	return 0
 }
 
-// XXX_OneofFuncs is for the internal use of the proto package.
-func (*Event) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
-	return _Event_OneofMarshaler, _Event_OneofUnmarshaler, _Event_OneofSizer, []interface{}{
-		(*Event_StateEvent)(nil),
-		(*Event_Process_)(nil),
-	}
-}
-
-func _Event_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
-	m := msg.(*Event)
-	// type
-	switch x := m.Type.(type) {
-	case *Event_StateEvent:
-		b.EncodeVarint(3<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.StateEvent); err != nil {
-			return err
-		}
-	case *Event_Process_:
-		b.EncodeVarint(4<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.Process); err != nil {
-			return err
-		}
-	case nil:
-	default:
-		return fmt.Errorf("Event.Type has unexpected type %T", x)
-	}
-	return nil
-}
-
-func _Event_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
-	m := msg.(*Event)
-	switch tag {
-	case 3: // type.state_event
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(mirbftpb.StateEvent)
-		err := b.DecodeMessage(msg)
-		m.Type = &Event_StateEvent{msg}
-		return true, err
-	case 4: // type.process
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(Event_Process)
-		err := b.DecodeMessage(msg)
-		m.Type = &Event_Process_{msg}
-		return true, err
-	default:
-		return false, nil
-	}
-}
-
-func _Event_OneofSizer(msg proto.Message) (n int) {
-	m := msg.(*Event)
-	// type
-	switch x := m.Type.(type) {
-	case *Event_StateEvent:
-		s := proto.Size(x.StateEvent)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case *Event_Process_:
-		s := proto.Size(x.Process)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case nil:
-	default:
-		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
-	}
-	return n
-}
-
-type Event_Process struct {
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *Event_Process) Reset()         { *m = Event_Process{} }
-func (m *Event_Process) String() string { return proto.CompactTextString(m) }
-func (*Event_Process) ProtoMessage()    {}
-func (*Event_Process) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{9, 0}
-}
-func (m *Event_Process) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_Event_Process.Unmarshal(m, b)
-}
-func (m *Event_Process) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_Event_Process.Marshal(b, m, deterministic)
-}
-func (dst *Event_Process) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Event_Process.Merge(dst, src)
-}
-func (m *Event_Process) XXX_Size() int {
-	return xxx_messageInfo_Event_Process.Size(m)
-}
-func (m *Event_Process) XXX_DiscardUnknown() {
-	xxx_messageInfo_Event_Process.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Event_Process proto.InternalMessageInfo
-
 type LogEntry struct {
 	// Types that are valid to be assigned to Type:
 	//	*LogEntry_Scenario
@@ -932,7 +157,7 @@ func (m *LogEntry) Reset()         { *m = LogEntry{} }
 func (m *LogEntry) String() string { return proto.CompactTextString(m) }
 func (*LogEntry) ProtoMessage()    {}
 func (*LogEntry) Descriptor() ([]byte, []int) {
-	return fileDescriptor_testengine_9e65a60aa6e587d6, []int{10}
+	return fileDescriptor_testengine_0da2a3b56dfae249, []int{2}
 }
 func (m *LogEntry) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_LogEntry.Unmarshal(m, b)
@@ -1065,69 +290,31 @@ func _LogEntry_OneofSizer(msg proto.Message) (n int) {
 
 func init() {
 	proto.RegisterType((*ScenarioConfig)(nil), "testenginepb.ScenarioConfig")
-	proto.RegisterType((*NodeConfig)(nil), "testenginepb.NodeConfig")
-	proto.RegisterType((*HashResult)(nil), "testenginepb.HashResult")
-	proto.RegisterType((*Request)(nil), "testenginepb.Request")
-	proto.RegisterType((*VerifyRequest)(nil), "testenginepb.VerifyRequest")
-	proto.RegisterType((*Batch)(nil), "testenginepb.Batch")
-	proto.RegisterType((*VerifyBatch)(nil), "testenginepb.VerifyBatch")
-	proto.RegisterType((*EpochChange)(nil), "testenginepb.EpochChange")
-	proto.RegisterType((*Checkpoint)(nil), "testenginepb.Checkpoint")
 	proto.RegisterType((*Event)(nil), "testenginepb.Event")
-	proto.RegisterType((*Event_Process)(nil), "testenginepb.Event.Process")
 	proto.RegisterType((*LogEntry)(nil), "testenginepb.LogEntry")
 }
 
-func init() { proto.RegisterFile("testengine.proto", fileDescriptor_testengine_9e65a60aa6e587d6) }
+func init() { proto.RegisterFile("testengine.proto", fileDescriptor_testengine_0da2a3b56dfae249) }
 
-var fileDescriptor_testengine_9e65a60aa6e587d6 = []byte{
-	// 756 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x55, 0xcd, 0x6e, 0xdb, 0x46,
-	0x10, 0xd6, 0x0f, 0x25, 0xd9, 0x43, 0x59, 0x75, 0xb7, 0xb6, 0xc1, 0xba, 0x46, 0x61, 0xf0, 0x52,
-	0x17, 0x06, 0x54, 0xd4, 0x3d, 0xb8, 0x88, 0x81, 0x00, 0xf1, 0x0f, 0xa0, 0x43, 0x20, 0x24, 0xeb,
-	0x20, 0x57, 0x82, 0x22, 0xc7, 0x12, 0x21, 0x79, 0x97, 0xe2, 0xae, 0xe4, 0x08, 0x41, 0x4e, 0x41,
-	0x6e, 0x79, 0x86, 0x3c, 0x4d, 0x9e, 0x20, 0x4f, 0x14, 0x70, 0xb8, 0x14, 0x29, 0x47, 0x0a, 0x72,
-	0xc8, 0x49, 0x3b, 0xbf, 0xdf, 0xa7, 0x6f, 0x87, 0xb3, 0xb0, 0xab, 0x51, 0x69, 0x14, 0xc3, 0x48,
-	0x60, 0x37, 0x4e, 0xa4, 0x96, 0xac, 0x5d, 0x78, 0xe2, 0xc1, 0xe1, 0xfe, 0x7d, 0x94, 0x0c, 0xee,
-	0x74, 0x3c, 0xf8, 0x27, 0x3b, 0x64, 0x49, 0xee, 0xfb, 0x2a, 0x74, 0x6e, 0x03, 0x14, 0x7e, 0x12,
-	0xc9, 0x2b, 0x29, 0xee, 0xa2, 0x21, 0x63, 0x60, 0x09, 0xff, 0x1e, 0x9d, 0xea, 0x71, 0xf5, 0x64,
-	0x9b, 0xd3, 0x99, 0x1d, 0x83, 0x1d, 0xa2, 0x0a, 0x92, 0x28, 0xd6, 0x91, 0x14, 0x4e, 0x8d, 0x42,
-	0x65, 0x17, 0xbb, 0x80, 0xb6, 0x90, 0x21, 0x7a, 0x01, 0x35, 0x51, 0x8e, 0x75, 0x5c, 0x3f, 0xb1,
-	0xcf, 0x9c, 0x6e, 0x99, 0x44, 0xb7, 0x2f, 0x43, 0xcc, 0x50, 0xb8, 0x2d, 0x96, 0x67, 0xe5, 0x1e,
-	0x01, 0x14, 0x21, 0xd6, 0x81, 0x5a, 0x14, 0x12, 0xbc, 0xc5, 0x6b, 0x51, 0xe8, 0x7e, 0xa9, 0x01,
-	0xf4, 0x7c, 0x35, 0xe2, 0xa8, 0x66, 0x13, 0xcd, 0x0e, 0xa0, 0x19, 0x46, 0x43, 0x54, 0x9a, 0x52,
-	0xda, 0xdc, 0x58, 0xec, 0x5f, 0x68, 0x25, 0x38, 0x9d, 0xa5, 0x81, 0x94, 0x9f, 0x7d, 0xb6, 0xbf,
-	0x0a, 0xce, 0xb3, 0x60, 0xaf, 0xc2, 0xf3, 0x3c, 0x76, 0x0a, 0x8d, 0x81, 0xaf, 0x83, 0x91, 0x53,
-	0xa7, 0x82, 0xdf, 0x56, 0x0b, 0x2e, 0xd3, 0x50, 0xaf, 0xc2, 0xb3, 0x1c, 0xf6, 0x14, 0xda, 0x18,
-	0xcb, 0x60, 0xe4, 0x05, 0x23, 0x5f, 0x0c, 0xd1, 0xb1, 0xa8, 0xe6, 0xf7, 0xd5, 0x9a, 0x9b, 0x34,
-	0xe3, 0x8a, 0x12, 0x7a, 0x15, 0x6e, 0x63, 0x61, 0xa6, 0xf5, 0x73, 0x4c, 0xa2, 0xbb, 0x85, 0x97,
-	0x61, 0x36, 0xd6, 0xd5, 0xbf, 0xa6, 0x8c, 0x1c, 0xd9, 0x9e, 0x17, 0x26, 0xbb, 0x86, 0x8e, 0xa9,
-	0xcf, 0xff, 0x66, 0x93, 0x3a, 0xfc, 0xb1, 0xae, 0x43, 0xf1, 0x67, 0x77, 0xe6, 0x65, 0xc7, 0x65,
-	0x13, 0x2c, 0xbd, 0x88, 0xd1, 0xed, 0x43, 0xcb, 0xb8, 0x52, 0x41, 0x95, 0x9c, 0x25, 0x01, 0x1a,
-	0xcd, 0x8d, 0xc5, 0x4e, 0x1f, 0x0b, 0xfa, 0x6b, 0x37, 0x1f, 0xa2, 0x5c, 0xcc, 0xa5, 0x94, 0xee,
-	0x3b, 0xd8, 0x59, 0x41, 0xfe, 0x29, 0x5d, 0xd9, 0x5f, 0xf0, 0x0b, 0xbe, 0x89, 0x31, 0xd0, 0x18,
-	0x7a, 0xe6, 0xd2, 0xeb, 0x74, 0xe9, 0x9d, 0xdc, 0x7d, 0x4d, 0x5e, 0xf7, 0x43, 0x15, 0x1a, 0x99,
-	0x4c, 0x9b, 0x70, 0xf7, 0xa0, 0x41, 0xb7, 0x41, 0xa8, 0x16, 0xcf, 0x0c, 0xb6, 0x0f, 0x4d, 0x85,
-	0x53, 0x4f, 0x48, 0xea, 0x6b, 0xf1, 0x86, 0xc2, 0x69, 0x5f, 0xb2, 0x73, 0x68, 0x1b, 0x0a, 0x9e,
-	0x1f, 0x8c, 0x95, 0xd3, 0xa0, 0x69, 0xde, 0xfb, 0x86, 0xe9, 0xb3, 0x60, 0xcc, 0xed, 0x64, 0x79,
-	0x56, 0xee, 0xa7, 0x2a, 0xd8, 0xa5, 0x3b, 0xdc, 0xc8, 0xa6, 0xc0, 0xad, 0x7d, 0x0f, 0xb7, 0xfe,
-	0x83, 0xb8, 0xeb, 0x84, 0xb2, 0xd6, 0x0a, 0xf5, 0x00, 0x76, 0x69, 0x46, 0x37, 0xf2, 0x3b, 0x80,
-	0xa6, 0x4c, 0xa2, 0x61, 0x24, 0x0c, 0x3f, 0x63, 0xb1, 0xff, 0x1f, 0x7d, 0x04, 0x75, 0xf3, 0xa5,
-	0x2d, 0x09, 0x96, 0x9a, 0xaf, 0x8c, 0xbf, 0xfb, 0xb9, 0x0a, 0x70, 0x35, 0xc2, 0x60, 0x1c, 0xcb,
-	0x48, 0x68, 0xf6, 0x37, 0xb4, 0xa6, 0x1e, 0x0a, 0x9d, 0x2c, 0x08, 0xd9, 0x3e, 0xdb, 0x2d, 0x7a,
-	0xbc, 0xbc, 0x49, 0xfd, 0xbc, 0x39, 0xa5, 0x5f, 0x76, 0x01, 0x3b, 0x02, 0xf5, 0x83, 0x4c, 0xc6,
-	0x9e, 0xd2, 0xbe, 0x46, 0x33, 0x37, 0x07, 0x45, 0x41, 0x3f, 0x0b, 0xdf, 0xa6, 0x51, 0xde, 0x16,
-	0x25, 0xab, 0x44, 0x98, 0x96, 0xcb, 0x26, 0xc2, 0x66, 0x29, 0x61, 0x61, 0xa4, 0x03, 0x33, 0xf7,
-	0x27, 0x33, 0x34, 0x42, 0x66, 0x86, 0xfb, 0xb1, 0x06, 0x8d, 0x9b, 0x39, 0x0a, 0x1a, 0x70, 0xed,
-	0x27, 0x43, 0xd4, 0xb9, 0x74, 0x99, 0x95, 0xee, 0x4f, 0x1d, 0xdd, 0xa3, 0x11, 0x8e, 0xce, 0xec,
-	0x1c, 0x6c, 0xa2, 0xee, 0x61, 0x5a, 0x6a, 0x48, 0x94, 0xae, 0x95, 0xb8, 0x52, 0xdb, 0x5e, 0x85,
-	0x83, 0x5a, 0x5a, 0xec, 0x1c, 0x5a, 0x71, 0x22, 0x03, 0x54, 0xca, 0xec, 0x9b, 0x47, 0x5f, 0x3b,
-	0x65, 0x75, 0x5f, 0x64, 0x29, 0xe9, 0x6a, 0x33, 0xd9, 0xcc, 0x81, 0x56, 0x98, 0xc8, 0x38, 0xc6,
-	0x90, 0x16, 0xcd, 0x16, 0xcf, 0x4d, 0x8a, 0xe0, 0xc4, 0x5f, 0x60, 0x48, 0x0b, 0xc4, 0xe2, 0xb9,
-	0xc9, 0xfe, 0x04, 0x08, 0x67, 0xf1, 0x24, 0x0a, 0x7c, 0x8d, 0xa1, 0xd3, 0xa2, 0x60, 0xc9, 0x73,
-	0xb8, 0x0d, 0x2d, 0x83, 0xb4, 0x5c, 0x23, 0x6f, 0x61, 0xeb, 0xb9, 0x1c, 0x66, 0xf7, 0xf4, 0x04,
-	0xb6, 0x94, 0x79, 0x4a, 0xcc, 0x9d, 0x1e, 0xad, 0x92, 0x5d, 0x7d, 0x68, 0x7a, 0x15, 0xbe, 0xcc,
-	0x4f, 0x37, 0x71, 0x26, 0x4d, 0x6d, 0xdd, 0x26, 0xce, 0x95, 0xc9, 0x72, 0x52, 0xf0, 0x57, 0x8b,
-	0x18, 0x07, 0x4d, 0x7a, 0xc3, 0xfe, 0xfb, 0x1a, 0x00, 0x00, 0xff, 0xff, 0xe7, 0x5f, 0x89, 0x4a,
-	0xfc, 0x06, 0x00, 0x00,
+var fileDescriptor_testengine_0da2a3b56dfae249 = []byte{
+	// 294 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x54, 0x51, 0x4d, 0x4b, 0x03, 0x31,
+	0x10, 0xed, 0xd6, 0xed, 0x5a, 0x67, 0x45, 0x24, 0x7e, 0x10, 0x44, 0x64, 0xe9, 0xa9, 0x20, 0xac,
+	0x50, 0xf1, 0xe2, 0x51, 0xa9, 0xf4, 0xe0, 0x29, 0xf5, 0x2e, 0xd9, 0x66, 0xba, 0x04, 0xda, 0x24,
+	0x64, 0x47, 0xa1, 0xf8, 0xdf, 0xfc, 0x6d, 0xd2, 0xd9, 0xb6, 0xb6, 0xb7, 0x37, 0xf3, 0xe6, 0xbd,
+	0xcc, 0xbc, 0xc0, 0x39, 0x61, 0x43, 0xe8, 0x6a, 0xeb, 0xb0, 0x0c, 0xd1, 0x93, 0x17, 0xa7, 0xff,
+	0x9d, 0x50, 0xdd, 0x5c, 0x2d, 0x6d, 0xac, 0xe6, 0x14, 0xaa, 0x87, 0x16, 0xb4, 0x43, 0x83, 0x37,
+	0x38, 0x9b, 0xce, 0xd0, 0xe9, 0x68, 0xfd, 0xab, 0x77, 0x73, 0x5b, 0x0b, 0x01, 0xa9, 0xd3, 0x4b,
+	0x94, 0x49, 0x91, 0x0c, 0x4f, 0x14, 0x63, 0x51, 0x40, 0x6e, 0xb0, 0x99, 0x45, 0x1b, 0xc8, 0x7a,
+	0x27, 0xbb, 0x4c, 0xed, 0xb7, 0x06, 0xbf, 0x09, 0xf4, 0xc6, 0xdf, 0xe8, 0x48, 0x5c, 0x43, 0x46,
+	0x3a, 0xd6, 0x48, 0xec, 0x90, 0xaa, 0x4d, 0xb5, 0xf6, 0x25, 0xbb, 0x44, 0x16, 0xa7, 0x8a, 0xb1,
+	0x78, 0x82, 0xbc, 0x21, 0x4d, 0xf8, 0x89, 0x6b, 0xa9, 0x3c, 0x2a, 0x92, 0x61, 0x3e, 0xba, 0x2c,
+	0xb7, 0xab, 0x96, 0xd3, 0x35, 0xc9, 0xb6, 0x0a, 0x9a, 0x1d, 0x16, 0x12, 0x8e, 0x4d, 0xf4, 0x21,
+	0xa0, 0x91, 0x69, 0x91, 0x0c, 0xfb, 0x6a, 0x5b, 0x32, 0x83, 0x0b, 0xbd, 0x42, 0x23, 0x7b, 0xfc,
+	0xce, 0xb6, 0x14, 0x77, 0x00, 0xe6, 0x2b, 0x2c, 0xec, 0x4c, 0x13, 0x1a, 0x99, 0x31, 0xb9, 0xd7,
+	0x19, 0xfc, 0x40, 0xff, 0xdd, 0xd7, 0x63, 0x47, 0x71, 0x25, 0x9e, 0xa1, 0xdf, 0x6c, 0x42, 0xe1,
+	0x23, 0xf2, 0xd1, 0x6d, 0xb9, 0x1f, 0x66, 0x79, 0x18, 0xd9, 0xa4, 0xa3, 0x76, 0xf3, 0xe2, 0x1e,
+	0x7a, 0xed, 0x31, 0x5d, 0x16, 0x5e, 0x1c, 0x0a, 0x79, 0xff, 0x49, 0x47, 0xb5, 0x33, 0x2f, 0x19,
+	0xa4, 0x1f, 0xab, 0x80, 0x55, 0xc6, 0x9f, 0xf1, 0xf8, 0x17, 0x00, 0x00, 0xff, 0xff, 0x81, 0xbd,
+	0x32, 0x9f, 0xc5, 0x01, 0x00, 0x00,
 }

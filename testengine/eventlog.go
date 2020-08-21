@@ -216,22 +216,22 @@ func (l *EventLog) InsertStepEvent(target uint64, stepEvent *pb.StateEvent_Inbou
 
 func (l *EventLog) InsertStateEvent(target uint64, stateEvent *pb.StateEvent, fromNow uint64) {
 	l.Insert(&tpb.Event{
-		Target: target,
-		Time:   l.FakeTime + fromNow,
-		Type: &tpb.Event_StateEvent{
-			StateEvent: stateEvent,
-		},
+		Target:     target,
+		Time:       l.FakeTime + fromNow,
+		StateEvent: stateEvent,
 	})
 }
 
 func (l *EventLog) InsertProcess(target uint64, fromNow uint64) {
-	l.Insert(&tpb.Event{
-		Target: target,
-		Time:   l.FakeTime + fromNow,
-		Type: &tpb.Event_Process_{
-			Process: &tpb.Event_Process{},
+	l.InsertStateEvent(
+		target,
+		&pb.StateEvent{
+			Type: &pb.StateEvent_ActionsReceived{
+				ActionsReceived: &pb.StateEvent_Ready{},
+			},
 		},
-	})
+		fromNow,
+	)
 }
 
 func (l *EventLog) Insert(event *tpb.Event) {
