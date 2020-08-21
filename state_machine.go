@@ -150,6 +150,10 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		return sm.processResults(
 			event.AddResults,
 		)
+	case *pb.StateEvent_ActionsReceived:
+		// This is a bit odd, in that it's a no-op, but it's harmless
+		// and allows for much more insightful playback events (allowing
+		// us to tie action results to a particular set of actions)
 	default:
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}

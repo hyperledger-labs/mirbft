@@ -146,6 +146,11 @@ func (s *serializer) run() {
 		case actionsC <- *actions:
 			actions.clear()
 			actionsC = nil
+			stateEvent = &pb.StateEvent{
+				Type: &pb.StateEvent_ActionsReceived{
+					ActionsReceived: &pb.StateEvent_Ready{},
+				},
+			}
 			continue
 		case results := <-s.resultsC:
 			stateEvent = &pb.StateEvent{

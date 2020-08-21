@@ -327,6 +327,8 @@ message StateEvent {
 
     message TickElapsed {}
 
+    message Ready{}
+
     oneof type {
         InitialParameters initialize = 1;
 	PersistedEntry load_entry = 2;
@@ -335,6 +337,7 @@ message StateEvent {
         Proposal propose = 5;
         InboundMsg step = 6;
 	TickElapsed tick = 7;
+	Ready actions_received = 8;
     }
 }
 
