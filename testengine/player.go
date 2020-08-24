@@ -11,10 +11,14 @@ import (
 
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
-	tpb "github.com/IBM/mirbft/testengine/testenginepb"
+	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
+
+type EventSource interface {
+	ReadEvent() (*rpb.RecordedEvent, error)
+}
 
 type PlaybackNode struct {
 	ID           uint64
@@ -25,17 +29,17 @@ type PlaybackNode struct {
 }
 
 type Player struct {
-	LastEvent *tpb.Event
-	EventLog  *EventLog
-	Logger    *zap.Logger
-	Nodes     map[uint64]*PlaybackNode
+	LastEvent   *rpb.RecordedEvent
+	EventSource EventSource
+	Logger      *zap.Logger
+	Nodes       map[uint64]*PlaybackNode
 }
 
-func NewPlayer(el *EventLog, logger *zap.Logger) (*Player, error) {
+func NewPlayer(es EventSource, logger *zap.Logger) (*Player, error) {
 	return &Player{
-		EventLog: el,
-		Logger:   logger,
-		Nodes:    map[uint64]*PlaybackNode{},
+		EventSource: es,
+		Logger:      logger,
+		Nodes:       map[uint64]*PlaybackNode{},
 	}, nil
 }
 
@@ -62,31 +66,24 @@ func (p *Player) Node(id uint64) *PlaybackNode {
 }
 
 func (p *Player) Step() error {
-	event := p.EventLog.ConsumeAndAdvance()
-	if event == nil {
-		return errors.Errorf("event log has no more events")
+	event, err := p.EventSource.ReadEvent()
+	if event == nil || err != nil {
+		return errors.WithMessage(err, "event log has no more events")
 	}
 	p.LastEvent = event
 
-	if event.Dropped {
-		// We allow the log to encode events which were set to be processed, but were
-		// deliberatley dropped by some mangler.  This makes it easier to review event logs
-		// identifying why tests failed.
-		return nil
-	}
-
-	node := p.Node(event.Target)
+	node := p.Node(event.NodeId)
 
 	switch event.StateEvent.Type.(type) {
 	case *pb.StateEvent_AddResults:
 		if node.Processing == nil {
-			return errors.Errorf("node %d is not currently processing but got an apply event", event.Target)
+			return errors.Errorf("node %d is not currently processing but got an apply event", event.NodeId)
 		}
 
 		node.Processing = nil
 	case *pb.StateEvent_ActionsReceived:
 		if node.Processing != nil {
-			return errors.Errorf("node %d is currently processing but got a second process event", event.Target)
+			return errors.Errorf("node %d is currently processing but got a second process event", event.NodeId)
 		}
 
 		node.Processing = node.Actions

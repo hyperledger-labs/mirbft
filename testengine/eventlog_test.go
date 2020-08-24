@@ -2,6 +2,7 @@ package testengine_test
 
 import (
 	"bytes"
+	"container/list"
 	"fmt"
 	"os"
 
@@ -9,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 	"github.com/IBM/mirbft/testengine"
 
 	"github.com/golang/protobuf/jsonpb"
@@ -37,27 +39,27 @@ var _ = XDescribe("Non-determinism finding test", func() {
 		f2.Close()
 		Expect(err).NotTo(HaveOccurred())
 
-		logEntry1 := eventLog1.FirstEventLogEntry
-		logEntry2 := eventLog2.FirstEventLogEntry
+		logEntry1 := eventLog1.List.Front()
+		logEntry2 := eventLog2.List.Front()
 		for {
-			if !proto.Equal(
-				logEntry1.Event,
-				logEntry2.Event,
-			) {
-				jLogEntry1, err := jsonMarshaler.MarshalToString(logEntry1.Event)
+			e1 := logEntry1.Value.(*rpb.RecordedEvent)
+			e2 := logEntry2.Value.(*rpb.RecordedEvent)
+
+			if !proto.Equal(e1, e2) {
+				jLogEntry1, err := jsonMarshaler.MarshalToString(e1)
 				Expect(err).NotTo(HaveOccurred())
 
-				jLogEntry2, err := jsonMarshaler.MarshalToString(logEntry2.Event)
+				jLogEntry2, err := jsonMarshaler.MarshalToString(e2)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(jLogEntry1).To(MatchJSON(jLogEntry2))
-				fmt.Printf("logEntry1=%+v\n", logEntry1)
-				fmt.Printf("logEntry2=%+v\n", logEntry2)
+				fmt.Printf("logEntry1=%+v\n", e1)
+				fmt.Printf("logEntry2=%+v\n", e2)
 				Fail("protos are not equal")
 			}
 
-			logEntry1 = logEntry1.Next
-			logEntry2 = logEntry2.Next
+			logEntry1 = logEntry1.Next()
+			logEntry2 = logEntry2.Next()
 
 			if logEntry1 == nil {
 				Expect(logEntry2).To(BeNil())
@@ -67,43 +69,60 @@ var _ = XDescribe("Non-determinism finding test", func() {
 	})
 })
 
+var tickEvent = &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}}
+
 var _ = Describe("Eventlog", func() {
 
 	var (
-		eventLog *testengine.EventLog
+		serializedLog *bytes.Buffer
 	)
 
 	BeforeEach(func() {
-		eventLog = &testengine.EventLog{
-			Name:        "fake-name",
-			Description: "fake-description",
+		serializedLog = &bytes.Buffer{}
+		initialLog := testengine.EventLog{
+			Output: serializedLog,
+			List:   list.New(),
 		}
-
-		eventLog.InsertStateEvent(1, &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}}, 10)
-		eventLog.InsertStateEvent(2, &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}}, 20)
-
-		Expect(eventLog.ConsumeAndAdvance()).NotTo(BeNil())
-		Expect(eventLog.ConsumeAndAdvance()).NotTo(BeNil())
+		initialLog.Insert(
+			&rpb.RecordedEvent{
+				NodeId:     1,
+				StateEvent: tickEvent,
+				Time:       10,
+			},
+		)
+		initialLog.Insert(
+			&rpb.RecordedEvent{
+				NodeId:     2,
+				StateEvent: tickEvent,
+				Time:       20,
+			},
+		)
+		_, err := initialLog.ReadEvent()
+		Expect(err).NotTo(HaveOccurred())
+		_, err = initialLog.ReadEvent()
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("can roundtrip a log", func() {
-		var buffer bytes.Buffer
-		err := eventLog.Write(&buffer)
+		eventLog, err := testengine.ReadEventLog(serializedLog)
 		Expect(err).NotTo(HaveOccurred())
 
-		newEventLog, err := testengine.ReadEventLog(&buffer)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(newEventLog.Name).To(Equal("fake-name"))
-		Expect(newEventLog.Description).To(Equal("fake-description"))
+		Expect(eventLog.List.Len()).To(Equal(2))
 		Expect(proto.Equal(
-			eventLog.FirstEventLogEntry.Event,
-			newEventLog.FirstEventLogEntry.Event,
+			eventLog.List.Front().Value.(*rpb.RecordedEvent),
+			&rpb.RecordedEvent{
+				NodeId:     1,
+				StateEvent: &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}},
+				Time:       10,
+			},
 		)).To(BeTrue())
 		Expect(proto.Equal(
-			eventLog.FirstEventLogEntry.Next.Event,
-			newEventLog.FirstEventLogEntry.Next.Event,
+			eventLog.List.Back().Value.(*rpb.RecordedEvent),
+			&rpb.RecordedEvent{
+				NodeId:     2,
+				StateEvent: &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}},
+				Time:       20,
+			},
 		)).To(BeTrue())
-		Expect(newEventLog.FirstEventLogEntry.Next.Next).To(BeNil())
 	})
-
 })

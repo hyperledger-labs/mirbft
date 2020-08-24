@@ -3,6 +3,7 @@ package testengine_test
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo"
@@ -13,18 +14,28 @@ import (
 
 var _ = Describe("Recorder", func() {
 	var (
-		recorder  *testengine.Recorder
-		recording *testengine.Recording
-		totalReqs uint64
+		recorder      *testengine.Recorder
+		recording     *testengine.Recording
+		totalReqs     uint64
+		recordingFile *os.File
 	)
 
 	BeforeEach(func() {
 		totalReqs = 4 * 200
+
+		tDesc := CurrentGinkgoTestDescription()
+		var err error
+		recordingFile, err = ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
 		if recorder.Logger != nil {
 			recorder.Logger.Sync()
+		}
+
+		if recordingFile != nil {
+			recordingFile.Close()
 		}
 
 		if CurrentGinkgoTestDescription().Failed {
@@ -36,19 +47,11 @@ var _ = Describe("Recorder", func() {
 				fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
 			}
 
-			fmt.Printf("\nWriting EventLog to disk\n")
-			tDesc := CurrentGinkgoTestDescription()
-			tmpFile, err := ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
-			if err != nil {
-				fmt.Printf("Encountered error creating tempfile: %s\n", err)
-				return
-			}
-			defer tmpFile.Close()
-			err = recording.EventLog.Write(tmpFile)
+			fmt.Printf("EventLog available at '%s'\n", recordingFile.Name())
+		} else {
+			err := os.Remove(recordingFile.Name())
 			Expect(err).NotTo(HaveOccurred())
-			fmt.Printf("EventLog available at '%s'\n", tmpFile.Name())
 		}
-
 	})
 
 	When("There is a four node network", func() {
@@ -58,7 +61,7 @@ var _ = Describe("Recorder", func() {
 			recorder.NetworkState.Config.MaxEpochLength = 100000 // XXX this works around a bug in the library for now
 
 			var err error
-			recording, err = recorder.Recording()
+			recording, err = recorder.Recording(recordingFile)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -89,7 +92,7 @@ var _ = Describe("Recorder", func() {
 			recorder = testengine.BasicRecorder(1, 1, 3)
 
 			var err error
-			recording, err = recorder.Recording()
+			recording, err = recorder.Recording(recordingFile)
 			Expect(err).NotTo(HaveOccurred())
 		})
 

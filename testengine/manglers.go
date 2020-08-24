@@ -8,7 +8,7 @@ package testengine
 
 import (
 	pb "github.com/IBM/mirbft/mirbftpb"
-	tpb "github.com/IBM/mirbft/testengine/testenginepb"
+	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -25,8 +25,8 @@ type EventMangling struct {
 	Mangler Mangler
 }
 
-func (em *EventMangling) BeforeStep(random int, el *EventLog) {
-	em.Mangler.BeforeStep(random, el)
+func (em *EventMangling) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+	return em.Mangler.Mangle(random, event)
 }
 
 func (em *EventMangling) AtPercent(percent int) *EventMangling {
@@ -114,20 +114,19 @@ func Duplicate(maxDelay int) *EventMangling {
 
 type DropMangler struct{}
 
-func (DropMangler) BeforeStep(random int, el *EventLog) {
-	el.NextEventLogEntry.Event.Dropped = true
+func (DropMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+	return nil
 }
 
 type DuplicateMangler struct {
 	MaxDelay int
 }
 
-func (dm *DuplicateMangler) BeforeStep(random int, el *EventLog) {
-	clone := proto.Clone(el.NextEventLogEntry.Event).(*tpb.Event)
-	delay := uint64(random % dm.MaxDelay)
+func (dm *DuplicateMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+	clone := proto.Clone(event).(*rpb.RecordedEvent)
+	delay := int64(random % dm.MaxDelay)
 	clone.Time += delay
-	el.Insert(clone)
-	clone.Duplicated = delay
+	return []*rpb.RecordedEvent{event, clone}
 }
 
 // JitterMangler will delay events a random amount of time, up to MaxDelay
@@ -135,41 +134,10 @@ type JitterMangler struct {
 	MaxDelay int
 }
 
-func (jm *JitterMangler) BeforeStep(random int, el *EventLog) {
-	delay := uint64(random % jm.MaxDelay)
-
-	el.NextEventLogEntry.Event.Time += delay
-	event := el.NextEventLogEntry
-	if event.Next != nil && event.Next.Event.Time < event.Event.Time {
-		el.NextEventLogEntry = event.Next
-		if el.FirstEventLogEntry == event {
-			el.FirstEventLogEntry = event.Next
-		}
-	}
-
-	for event.Next != nil && event.Next.Event.Time < event.Event.Time {
-		firstEvent := event
-		secondEvent := event.Next
-		thirdEvent := event.Next.Next
-
-		// Connect the second event to the event before the first
-		if firstEvent.Prev != nil {
-			firstEvent.Prev.Next = secondEvent
-		}
-		secondEvent.Prev = firstEvent.Prev
-
-		// Connect the first event after the second event
-		secondEvent.Next = firstEvent
-		firstEvent.Prev = secondEvent
-
-		// Connect the first event to the third event
-		if thirdEvent != nil {
-			thirdEvent.Prev = firstEvent
-		}
-		firstEvent.Next = thirdEvent
-	}
-
-	event.Event.Delayed = delay
+func (jm *JitterMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+	delay := int64(random % jm.MaxDelay)
+	event.Time += delay
+	return []*rpb.RecordedEvent{event}
 }
 
 type EventTypeFilterMangler struct {
@@ -177,38 +145,36 @@ type EventTypeFilterMangler struct {
 	Mangler Mangler
 }
 
-func (etfm *EventTypeFilterMangler) BeforeStep(random int, el *EventLog) {
-	event := el.NextEventLogEntry.Event
+func (etfm *EventTypeFilterMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
 	switch etfm.Type {
 	case "Receive":
 		_, ok := event.StateEvent.Type.(*pb.StateEvent_Step)
 		if ok {
-			etfm.Mangler.BeforeStep(random, el)
+			return etfm.Mangler.Mangle(random, event)
 		}
 	case "Tick":
 		_, ok := event.StateEvent.Type.(*pb.StateEvent_Tick)
 		if ok {
-			etfm.Mangler.BeforeStep(random, el)
+			return etfm.Mangler.Mangle(random, event)
 		}
 	case "Process":
 		_, ok := event.StateEvent.Type.(*pb.StateEvent_ActionsReceived)
 		if ok {
-			etfm.Mangler.BeforeStep(random, el)
+			return etfm.Mangler.Mangle(random, event)
 		}
 	case "Apply":
 		_, ok := event.StateEvent.Type.(*pb.StateEvent_AddResults)
 		if ok {
-			etfm.Mangler.BeforeStep(random, el)
+			return etfm.Mangler.Mangle(random, event)
 		}
 	case "Propose":
 		_, ok := event.StateEvent.Type.(*pb.StateEvent_Propose)
 		if ok {
-			etfm.Mangler.BeforeStep(random, el)
+			return etfm.Mangler.Mangle(random, event)
 		}
 	default:
-		panic("unknown type for filtering in mangler")
 	}
-
+	return []*rpb.RecordedEvent{event}
 }
 
 type MsgSourceFilterMangler struct {
@@ -216,24 +182,22 @@ type MsgSourceFilterMangler struct {
 	Source  uint64
 }
 
-func (msfm *MsgSourceFilterMangler) BeforeStep(random int, el *EventLog) {
-	event := el.NextEventLogEntry.Event
-
+func (msfm *MsgSourceFilterMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
 	recv, ok := event.StateEvent.Type.(*pb.StateEvent_Step)
 	if !ok {
-		return
+		return []*rpb.RecordedEvent{event}
 	}
 
 	if recv.Step.Source != msfm.Source {
-		return
+		return []*rpb.RecordedEvent{event}
 	}
 
-	if recv.Step.Source == event.Target {
+	if recv.Step.Source == event.NodeId {
 		// Never allow messages from a node to itself to be mangled
-		return
+		return []*rpb.RecordedEvent{event}
 	}
 
-	msfm.Mangler.BeforeStep(random, el)
+	return msfm.Mangler.Mangle(random, event)
 }
 
 type ConditionalMangler struct {
@@ -241,12 +205,12 @@ type ConditionalMangler struct {
 	Condition func() bool
 }
 
-func (cm *ConditionalMangler) BeforeStep(random int, el *EventLog) {
+func (cm *ConditionalMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
 	if !cm.Condition() {
-		return
+		return []*rpb.RecordedEvent{event}
 	}
 
-	cm.Mangler.BeforeStep(random, el)
+	return cm.Mangler.Mangle(random, event)
 }
 
 type ProbabilisticMangler struct {
@@ -254,20 +218,26 @@ type ProbabilisticMangler struct {
 	Percentage int
 }
 
-func (pm *ProbabilisticMangler) BeforeStep(random int, el *EventLog) {
+func (pm *ProbabilisticMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
 	if random%100 > pm.Percentage {
-		return
+		return []*rpb.RecordedEvent{event}
 	}
 
-	pm.Mangler.BeforeStep(random, el)
+	return pm.Mangler.Mangle(random, event)
 }
 
 type CompositeMangler struct {
 	Manglers []Mangler
 }
 
-func (cm *CompositeMangler) BeforeStep(random int, el *EventLog) {
+func (cm *CompositeMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+	events := []*rpb.RecordedEvent{event}
 	for _, mangler := range cm.Manglers {
-		mangler.BeforeStep(random, el)
+		var newEvents []*rpb.RecordedEvent
+		for _, event := range events {
+			newEvents = append(newEvents, mangler.Mangle(random, event)...)
+		}
+		events = newEvents
 	}
+	return events
 }

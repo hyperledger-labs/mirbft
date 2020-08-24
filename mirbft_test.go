@@ -3,6 +3,7 @@ package mirbft_test
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo"
@@ -14,24 +15,34 @@ import (
 
 var _ = Describe("Mirbft", func() {
 	var (
-		recorder  *testengine.Recorder
-		recording *testengine.Recording
+		recorder      *testengine.Recorder
+		recording     *testengine.Recording
+		recordingFile *os.File
 	)
 
 	BeforeEach(func() {
 		recorder = testengine.BasicRecorder(4, 4, 100)
 		Expect(recorder.NetworkState.Config.MaxEpochLength).To(Equal(uint64(200)))
+
+		tDesc := CurrentGinkgoTestDescription()
+		var err error
+		recordingFile, err = ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	JustBeforeEach(func() {
 		var err error
-		recording, err = recorder.Recording()
+		recording, err = recorder.Recording(recordingFile)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
 		if recorder.Logger != nil {
 			recorder.Logger.Sync()
+		}
+
+		if recordingFile != nil {
+			recordingFile.Close()
 		}
 
 		tDesc := CurrentGinkgoTestDescription()
@@ -44,16 +55,10 @@ var _ = Describe("Mirbft", func() {
 				fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
 			}
 
-			fmt.Printf("\nWriting EventLog to disk\n")
-			tmpFile, err := ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
-			if err != nil {
-				fmt.Printf("Encountered error creating tempfile: %s\n", err)
-				return
-			}
-			defer tmpFile.Close()
-			err = recording.EventLog.Write(tmpFile)
+			fmt.Printf("EventLog available at '%s'\n", recordingFile.Name())
+		} else {
+			err := os.Remove(recordingFile.Name())
 			Expect(err).NotTo(HaveOccurred())
-			fmt.Printf("EventLog available at '%s'\n", tmpFile.Name())
 		}
 	})
 
@@ -78,9 +83,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the first node is silenced", func() {
 		BeforeEach(func() {
-			recorder.Manglers = []testengine.Mangler{
-				testengine.Drop().Messages().FromNodes(0),
-			}
+			recorder.Mangler = testengine.Drop().Messages().FromNodes(0)
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
@@ -94,9 +97,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the third node is silenced", func() {
 		BeforeEach(func() {
-			recorder.Manglers = []testengine.Mangler{
-				testengine.Drop().Messages().FromNodes(3),
-			}
+			recorder.Mangler = testengine.Drop().Messages().FromNodes(3)
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
@@ -110,9 +111,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network loses 2 percent of messages", func() {
 		BeforeEach(func() {
-			recorder.Manglers = []testengine.Mangler{
-				testengine.Drop().AtPercent(2).Messages(),
-			}
+			recorder.Mangler = testengine.Drop().AtPercent(2).Messages()
 		})
 
 		PIt("still delivers all requests", func() {
@@ -123,9 +122,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network messages have up to a 30ms jittery delay", func() {
 		BeforeEach(func() {
-			recorder.Manglers = []testengine.Mangler{
-				testengine.Jitter(30).Messages(),
-			}
+			recorder.Mangler = testengine.Jitter(30).Messages()
 		})
 
 		It("still delivers all requests", func() {
@@ -136,9 +133,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network duplicates messages 10 percent of the time", func() {
 		BeforeEach(func() {
-			recorder.Manglers = []testengine.Mangler{
-				testengine.Duplicate(30).AtPercent(10).Messages(),
-			}
+			recorder.Mangler = testengine.Duplicate(30).AtPercent(10).Messages()
 		})
 
 		It("still delivers all requests", func() {

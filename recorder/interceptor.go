@@ -47,7 +47,7 @@ func (i *Interceptor) Intercept(event *pb.StateEvent) {
 
 func (i *Interceptor) Drain(dest io.Writer, doneC <-chan struct{}) error {
 	write := func(eventTime eventTime) error {
-		return writeSizePrefixedProto(dest, &rpb.RecordedEvent{
+		return WriteRecordedEvent(dest, &rpb.RecordedEvent{
 			NodeId:     i.nodeID,
 			Time:       eventTime.time,
 			StateEvent: eventTime.event,
@@ -73,6 +73,10 @@ func (i *Interceptor) Drain(dest io.Writer, doneC <-chan struct{}) error {
 			}
 		}
 	}
+}
+
+func WriteRecordedEvent(writer io.Writer, event *rpb.RecordedEvent) error {
+	return writeSizePrefixedProto(writer, event)
 }
 
 func writeSizePrefixedProto(dest io.Writer, msg proto.Message) error {

@@ -19,6 +19,7 @@ var _ = Describe("Player", func() {
 	)
 
 	BeforeEach(func() {
+		serialized = &bytes.Buffer{}
 		var err error
 		logger, err = zap.NewProduction()
 		Expect(err).NotTo(HaveOccurred())
@@ -26,14 +27,10 @@ var _ = Describe("Player", func() {
 		recorder = testengine.BasicRecorder(4, 4, 20)
 		recorder.NetworkState.Config.MaxEpochLength = 200000 // XXX this works around a bug in the library for now
 
-		recording, err = recorder.Recording()
+		recording, err = recorder.Recording(serialized)
 		Expect(err).NotTo(HaveOccurred())
 
 		_, err = recording.DrainClients(50000)
-		Expect(err).NotTo(HaveOccurred())
-
-		serialized = &bytes.Buffer{}
-		err = recording.EventLog.Write(serialized)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -49,7 +46,7 @@ var _ = Describe("Player", func() {
 		player, err := testengine.NewPlayer(el, logger)
 		Expect(err).NotTo(HaveOccurred())
 
-		for el.NextEventLogEntry != nil {
+		for el.List.Len() > 0 {
 			err = player.Step()
 			Expect(err).NotTo(HaveOccurred())
 		}

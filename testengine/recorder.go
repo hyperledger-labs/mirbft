@@ -8,14 +8,17 @@ package testengine
 
 import (
 	"bytes"
+	"container/list"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"hash"
+	"io"
 	"math/rand"
 
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -161,14 +164,19 @@ type Recorder struct {
 	NetworkState        *pb.NetworkState
 	RecorderNodeConfigs []*RecorderNodeConfig
 	ClientConfigs       []*ClientConfig
-	Manglers            []Mangler
+	Mangler             Mangler
 	Logger              *zap.Logger
 	Hasher              Hasher
 	RandomSeed          int64
 }
 
-func (r *Recorder) Recording() (*Recording, error) {
-	eventLog := &EventLog{}
+func (r *Recorder) Recording(output io.Writer) (*Recording, error) {
+	eventLog := &EventLog{
+		List:    list.New(),
+		Output:  output,
+		Mangler: r.Mangler,
+		Rand:    rand.New(rand.NewSource(r.RandomSeed)),
+	}
 
 	nodes := make([]*RecorderNode, len(r.RecorderNodeConfigs))
 	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
@@ -243,7 +251,7 @@ func (r *Recorder) Recording() (*Recording, error) {
 			3,
 		)
 
-		eventLog.InsertTickEvent(nodeID, uint64(recorderNodeConfig.RuntimeParms.TickInterval))
+		eventLog.InsertTickEvent(nodeID, int64(recorderNodeConfig.RuntimeParms.TickInterval))
 	}
 
 	player, err := NewPlayer(eventLog, r.Logger)
@@ -277,24 +285,22 @@ func (r *Recorder) Recording() (*Recording, error) {
 			}
 			for j := range nodes {
 				client.LastNodeReqNoSend[uint64(j)] = uint64(i)
-				eventLog.InsertProposeEvent(uint64(j), req, client.Config.TxLatency)
+				eventLog.InsertProposeEvent(uint64(j), req, int64(client.Config.TxLatency))
 			}
 		}
 	}
 
 	return &Recording{
 		Hasher:   r.Hasher,
-		EventLog: player.EventLog,
+		EventLog: eventLog,
 		Player:   player,
 		Nodes:    nodes,
 		Clients:  clients,
-		Manglers: r.Manglers,
-		Rand:     rand.New(rand.NewSource(r.RandomSeed)),
 	}, nil
 }
 
 type Mangler interface {
-	BeforeStep(random int, el *EventLog)
+	Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent
 }
 
 type Recording struct {
@@ -303,17 +309,11 @@ type Recording struct {
 	Player   *Player
 	Nodes    []*RecorderNode
 	Clients  []*RecorderClient
-	Manglers []Mangler
-	Rand     *rand.Rand
 }
 
 func (r *Recording) Step() error {
-	if r.EventLog.NextEventLogEntry == nil {
+	if r.EventLog.List.Len() == 0 {
 		return errors.Errorf("event log is empty, nothing to do")
-	}
-
-	for _, mangler := range r.Manglers {
-		mangler.BeforeStep(r.Rand.Int(), r.EventLog)
 	}
 
 	err := r.Player.Step()
@@ -322,18 +322,15 @@ func (r *Recording) Step() error {
 	}
 
 	lastEvent := r.Player.LastEvent
-	if lastEvent.Dropped {
-		return nil
-	}
 
-	node := r.Nodes[int(lastEvent.Target)]
+	node := r.Nodes[int(lastEvent.NodeId)]
 	runtimeParms := node.Config.RuntimeParms
 	playbackNode := node.PlaybackNode
 	nodeState := node.State
 
 	switch lastEvent.StateEvent.Type.(type) {
 	case *pb.StateEvent_Tick:
-		r.EventLog.InsertTickEvent(lastEvent.Target, uint64(runtimeParms.TickInterval))
+		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	case *pb.StateEvent_AddResults:
 		nodeStatus := node.PlaybackNode.Status
 		for _, rw := range nodeStatus.ClientWindows {
@@ -342,13 +339,13 @@ func (r *Recording) Step() error {
 					continue
 				}
 
-				for i := client.LastNodeReqNoSend[lastEvent.Target] + 1; i <= rw.HighWatermark; i++ {
+				for i := client.LastNodeReqNoSend[lastEvent.NodeId] + 1; i <= rw.HighWatermark; i++ {
 					req := client.RequestByReqNo(i)
 					if req == nil {
 						continue
 					}
-					client.LastNodeReqNoSend[lastEvent.Target] = i
-					r.EventLog.InsertProposeEvent(lastEvent.Target, req, client.Config.TxLatency)
+					client.LastNodeReqNoSend[lastEvent.NodeId] = i
+					r.EventLog.InsertProposeEvent(lastEvent.NodeId, req, int64(client.Config.TxLatency))
 				}
 			}
 		}
@@ -356,24 +353,24 @@ func (r *Recording) Step() error {
 	case *pb.StateEvent_Propose:
 	case *pb.StateEvent_ActionsReceived:
 		if !node.AwaitingProcessEvent {
-			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.Target)
+			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.NodeId)
 		}
 		node.AwaitingProcessEvent = false
 		processing := playbackNode.Processing
 		for _, send := range processing.Send {
 			for _, i := range send.Targets {
 				linkLatency := runtimeParms.LinkLatency
-				if uint64(i) == lastEvent.Target {
+				if uint64(i) == lastEvent.NodeId {
 					// There's no latency to send to ourselves
 					linkLatency = 0
 				}
 				r.EventLog.InsertStepEvent(
 					uint64(i),
 					&pb.StateEvent_InboundMsg{
-						Source: lastEvent.Target,
+						Source: lastEvent.NodeId,
 						Msg:    send.Msg,
 					},
-					uint64(linkLatency+runtimeParms.PersistLatency),
+					int64(linkLatency+runtimeParms.PersistLatency),
 				)
 			}
 		}
@@ -394,23 +391,23 @@ func (r *Recording) Step() error {
 			}
 		}
 
-		apply.Checkpoints = nodeState.Commit(processing.Commits, lastEvent.Target)
+		apply.Checkpoints = nodeState.Commit(processing.Commits, lastEvent.NodeId)
 
 		r.EventLog.InsertStateEvent(
-			lastEvent.Target,
+			lastEvent.NodeId,
 			&pb.StateEvent{
 				Type: &pb.StateEvent_AddResults{
 					AddResults: apply,
 				},
 			},
-			uint64(runtimeParms.ReadyLatency),
+			int64(runtimeParms.ReadyLatency),
 		)
 	}
 
 	if playbackNode.Processing == nil &&
 		!isEmpty(playbackNode.Actions) &&
 		!node.AwaitingProcessEvent {
-		r.EventLog.InsertProcess(lastEvent.Target, uint64(runtimeParms.ProcessLatency))
+		r.EventLog.InsertProcess(lastEvent.NodeId, int64(runtimeParms.ProcessLatency))
 		node.AwaitingProcessEvent = true
 	}
 
@@ -427,13 +424,18 @@ func isEmpty(actions *mirbft.Actions) bool {
 // DrainClients will execute the recording until all client requests have committed.
 // It will return with an error if the number of accumulated log entries exceeds timeout.
 // If any step returns an error, this function returns that error.
-func (r *Recording) DrainClients(timeout int) (int, error) {
+func (r *Recording) DrainClients(timeout int) (count int, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.Errorf("panic encountered: %+v", r)
+		}
+	}()
+
 	totalReqs := uint64(0)
 	for _, client := range r.Clients {
 		totalReqs += client.Config.Total
 	}
 
-	count := 0
 	for {
 		count++
 		err := r.Step()
