@@ -46,7 +46,20 @@ type serializer struct {
 func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*serializer, error) {
 	sm := &StateMachine{}
 
-	sm.ApplyEvent(&pb.StateEvent{
+	applyEvent := func(stateEvent *pb.StateEvent) error {
+		if myConfig.EventInterceptor != nil {
+			myConfig.EventInterceptor.Intercept(stateEvent)
+		}
+
+		actions := sm.ApplyEvent(stateEvent)
+		if !actions.isEmpty() {
+			return errors.Errorf("did not expect any actions in response to initialization")
+		}
+
+		return nil
+	}
+
+	err := applyEvent(&pb.StateEvent{
 		Type: &pb.StateEvent_Initialize{
 			Initialize: &pb.StateEvent_InitialParameters{
 				Id:                   myConfig.ID,
@@ -58,6 +71,9 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 			},
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	var index uint64
 	for {
@@ -70,19 +86,27 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 			return nil, errors.Errorf("failed to load persisted from Storage: %s", err)
 		}
 
-		sm.ApplyEvent(&pb.StateEvent{
+		err = applyEvent(&pb.StateEvent{
 			Type: &pb.StateEvent_LoadEntry{
 				LoadEntry: &pb.StateEvent_PersistedEntry{
 					Entry: data,
 				},
 			},
 		})
+		if err != nil {
+			return nil, err
+		}
 		index++
 	}
 
-	sm.ApplyEvent(&pb.StateEvent{
-		Type: &pb.StateEvent_CompleteInitialization{},
+	err = applyEvent(&pb.StateEvent{
+		Type: &pb.StateEvent_CompleteInitialization{
+			CompleteInitialization: &pb.StateEvent_LoadCompleted{},
+		},
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	s := &serializer{
 		actionsC:     make(chan Actions),
@@ -94,6 +118,7 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 		stepC:        make(chan *pb.StateEvent_Step),
 		tickC:        make(chan struct{}),
 		errC:         make(chan struct{}),
+		interceptor:  myConfig.EventInterceptor,
 		stateMachine: sm,
 	}
 	go s.run()
@@ -151,7 +176,6 @@ func (s *serializer) run() {
 					ActionsReceived: &pb.StateEvent_Ready{},
 				},
 			}
-			continue
 		case results := <-s.resultsC:
 			stateEvent = &pb.StateEvent{
 				Type: &pb.StateEvent_AddResults{
@@ -174,6 +198,9 @@ func (s *serializer) run() {
 		}
 
 		if stateEvent != nil {
+			if s.interceptor != nil {
+				s.interceptor.Intercept(stateEvent)
+			}
 			actions.concat(s.stateMachine.ApplyEvent(stateEvent))
 		}
 

@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"io/ioutil"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -23,6 +25,7 @@ import (
 
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/recorder"
 	"github.com/IBM/mirbft/sample"
 
 	"go.uber.org/zap"
@@ -145,6 +148,7 @@ var _ = Describe("StressyTest", func() {
 		proposals = map[string]uint64{}
 
 		doneC = make(chan struct{})
+
 	})
 
 	AfterEach(func() {
@@ -183,7 +187,16 @@ var _ = Describe("StressyTest", func() {
 						return missing[i] < missing[j]
 					})
 					fmt.Printf("Missing entries for %v\n", missing)
+
+					fmt.Printf("\nLog available at %s\n", network.recordingFiles[nodeIndex].Name())
 				}
+
+			}
+
+		} else {
+			for _, recordingFile := range network.recordingFiles {
+				err := os.Remove(recordingFile.Name())
+				Expect(err).NotTo(HaveOccurred())
 			}
 		}
 	})
@@ -256,9 +269,10 @@ var _ = Describe("StressyTest", func() {
 })
 
 type Network struct {
-	nodes      []*mirbft.Node
-	fakeLogs   []*FakeLog
-	processors []*sample.SerialProcessor
+	nodes          []*mirbft.Node
+	recordingFiles []*os.File
+	fakeLogs       []*FakeLog
+	processors     []*sample.SerialProcessor
 }
 
 func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
@@ -270,6 +284,8 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 		networkState.Config.NumberOfBuckets = int32(testConfig.BucketCount)
 	}
 
+	startTime := time.Now()
+
 	for i := range nodes {
 		config := &mirbft.Config{
 			ID:                   uint64(i),
@@ -278,6 +294,13 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 			SuspectTicks:         4,
 			NewEpochTimeoutTicks: 8,
 			BufferSize:           500,
+			EventInterceptor: recorder.NewInterceptor(
+				uint64(i),
+				func() int64 {
+					return time.Since(startTime).Milliseconds()
+				},
+				10000,
+			),
 		}
 
 		storage := &mock.Storage{}
@@ -377,5 +400,20 @@ func (n *Network) GoRunNetwork(doneC <-chan struct{}, wg *sync.WaitGroup) {
 				}
 			}
 		}(i, doneC)
+	}
+
+	wg.Add(len(n.nodes))
+	for i, node := range n.nodes {
+		recordingFile, err := ioutil.TempFile("", fmt.Sprintf("stressy.%d-*.eventlog", i))
+		Expect(err).NotTo(HaveOccurred())
+
+		node := node
+		go func() {
+			defer GinkgoRecover()
+			defer wg.Done()
+			err := node.Config.EventInterceptor.(*recorder.Interceptor).Drain(recordingFile, doneC)
+			Expect(err).NotTo(HaveOccurred())
+			recordingFile.Close()
+		}()
 	}
 }

@@ -45,7 +45,7 @@ func ReadEventLog(source io.Reader) (el *EventLog, err error) {
 	}
 
 	for {
-		stateEvent, err := reader.ReadEvent()
+		event, err := reader.ReadEvent()
 		if err == io.EOF {
 			break
 		}
@@ -53,7 +53,7 @@ func ReadEventLog(source io.Reader) (el *EventLog, err error) {
 			return nil, err
 		}
 
-		eventLog.List.PushBack(stateEvent)
+		eventLog.List.PushBack(event)
 	}
 
 	return eventLog, nil

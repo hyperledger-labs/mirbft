@@ -39,7 +39,7 @@ type Config struct {
 	// make room for new messages
 	BufferSize uint32
 
-	// EventInterceptor, if set, has its Selected method invoked each time the
+	// EventInterceptor, if set, has its Intercept method invoked each time the
 	// state machine undergoes some mutation.  This allows for additional
 	// external insight into the state machine, but comes at a performance cost
 	// and would generally not be enabled outside of a test or debug setting.
