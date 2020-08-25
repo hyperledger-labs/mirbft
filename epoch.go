@@ -134,6 +134,7 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *pb.S
 		lowestUnallocated: lowestUnallocated,
 		lowestUncommitted: lowestUncommitted,
 		outstandingReqs:   outstandingReqs,
+		logger:            logger,
 	}
 }
 
