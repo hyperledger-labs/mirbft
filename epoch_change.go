@@ -165,8 +165,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 		batch, ok := et.batchTracker.getBatch(digest)
 		if !ok {
-			// TODO, perhaps only ask those who have it?
-			actions.concat(et.batchTracker.fetchBatch(seqNo, digest, et.networkConfig.Nodes))
+			actions.concat(et.batchTracker.fetchBatch(seqNo, digest, sources))
 			fetchPending = true
 			continue
 		}
@@ -174,27 +173,25 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		batch.observedSequences[seqNo] = struct{}{}
 
 		for _, requestAck := range batch.requestAcks {
-			cw, ok := et.clientWindows.clientWindow(requestAck.ClientId)
-			if !ok {
-				panic("unknown client, we need state transfer to handle this")
-			}
-
+			var cr *clientRequest
 			for _, nodeID := range sources {
-				cw.ack(NodeID(nodeID), requestAck.ReqNo, requestAck.Digest)
+				cr = et.clientWindows.ack(NodeID(nodeID), requestAck)
 			}
 
-			if cw.request(requestAck.ReqNo).digests[string(requestAck.Digest)].data != nil {
+			if cr.data != nil {
 				continue
 			}
 
 			// We are missing this request data and must fetch before proceeding
 			fetchPending = true
-			// TODO, perhaps only ask those who have it?
-			actions.send(et.networkConfig.Nodes, &pb.Msg{
-				Type: &pb.Msg_FetchRequest{
-					FetchRequest: requestAck,
+			actions.send(
+				sources,
+				&pb.Msg{
+					Type: &pb.Msg_FetchRequest{
+						FetchRequest: requestAck,
+					},
 				},
-			})
+			)
 		}
 	}
 

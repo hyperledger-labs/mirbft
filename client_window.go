@@ -186,13 +186,13 @@ func (cws *clientWindows) applyForwardRequest(source NodeID, msg *pb.ForwardRequ
 	}
 }
 
-func (cws *clientWindows) ack(source NodeID, ack *pb.RequestAck) {
+func (cws *clientWindows) ack(source NodeID, ack *pb.RequestAck) *clientRequest {
 	cw, ok := cws.windows[ack.ClientId]
 	if !ok {
 		panic("dev sanity test")
 	}
 
-	clientReqNo, newlyCorrectReq := cw.ack(source, ack.ReqNo, ack.Digest)
+	clientRequest, clientReqNo, newlyCorrectReq := cw.ack(source, ack.ReqNo, ack.Digest)
 
 	if newlyCorrectReq != nil {
 		cws.correctList.PushBack(&pb.ForwardRequest{
@@ -202,6 +202,8 @@ func (cws *clientWindows) ack(source NodeID, ack *pb.RequestAck) {
 	}
 
 	cws.checkReady(cw, clientReqNo)
+
+	return clientRequest
 }
 
 func (cws *clientWindows) allocate(requestData *pb.Request, digest []byte) {
@@ -359,7 +361,9 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 		el = el.Next()
 
 		if crn.reqNo >= cw.nextReadyMark {
-			panic("dev sanity test")
+			// It's possible that a request we never saw as ready commits
+			// because it was correct, so advance the ready mark
+			cw.nextReadyMark = crn.reqNo
 		}
 
 		cw.reqNoList.Remove(oel)
@@ -387,7 +391,7 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	}
 }
 
-func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) (*clientReqNo, *pb.Request) {
+func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) (*clientRequest, *clientReqNo, *pb.Request) {
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
 	}
@@ -423,7 +427,7 @@ func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) (*client
 		crn.strongRequest = cr
 	}
 
-	return crn, newlyCorrectReq
+	return cr, crn, newlyCorrectReq
 }
 
 func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) (*clientReqNo, *pb.Request) {
