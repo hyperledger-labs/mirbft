@@ -25,49 +25,11 @@ type Log interface {
 	Snap() (id []byte)
 }
 
-type SerialCommitter struct {
-	Log                    Log
-	LastCommittedSeqNo     uint64
-	OutstandingSeqNos      map[uint64]*mirbft.Commit
-	OutstandingCheckpoints map[uint64]struct{}
-}
-
-func (sc *SerialCommitter) Commit(commits []*mirbft.Commit) []*mirbft.CheckpointResult {
-	for _, commit := range commits {
-		// Note, this pattern is easy to understand, but memory inefficient.
-		// A ring buffer of size equal to the log size would produce far less
-		// garbage.
-		sc.OutstandingSeqNos[commit.QEntry.SeqNo] = commit
-	}
-
-	var results []*mirbft.CheckpointResult
-
-	for currentSeqNo := sc.LastCommittedSeqNo + 1; len(sc.OutstandingSeqNos) > 0; currentSeqNo++ {
-		entry, ok := sc.OutstandingSeqNos[currentSeqNo]
-		if !ok {
-			break
-		}
-		sc.Log.Apply(entry.QEntry) // Apply the entry
-		sc.LastCommittedSeqNo = currentSeqNo
-		delete(sc.OutstandingSeqNos, currentSeqNo)
-
-		if entry.Checkpoint {
-			value := sc.Log.Snap()
-			results = append(results, &mirbft.CheckpointResult{
-				Commit: entry,
-				Value:  value,
-			})
-		}
-	}
-
-	return results
-}
-
 type SerialProcessor struct {
-	Link      Link
-	Hasher    Hasher
-	Committer *SerialCommitter
-	Node      *mirbft.Node
+	Link   Link
+	Hasher Hasher
+	Log    Log
+	Node   *mirbft.Node
 }
 
 func (c *SerialProcessor) Persist(actions *mirbft.Actions) {
@@ -103,7 +65,17 @@ func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
 		}
 	}
 
-	actionResults.Checkpoints = c.Committer.Commit(actions.Commits)
+	for _, commit := range actions.Commits {
+		c.Log.Apply(commit.QEntry) // Apply the entry
+
+		if commit.Checkpoint {
+			value := c.Log.Snap()
+			actionResults.Checkpoints = append(actionResults.Checkpoints, &mirbft.CheckpointResult{
+				Commit: commit,
+				Value:  value,
+			})
+		}
+	}
 
 	return actionResults
 }
@@ -112,36 +84,4 @@ func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults
 	c.Persist(actions)
 	c.Transmit(actions)
 	return c.Apply(actions)
-}
-
-type FakeLink struct {
-	Buffers map[uint64]chan *pb.Msg
-}
-
-func NewFakeLink(source uint64, nodes []*mirbft.Node, doneC <-chan struct{}) *FakeLink {
-	buffers := map[uint64]chan *pb.Msg{}
-	for _, node := range nodes {
-		if node.Config.ID == source {
-			continue
-		}
-		buffer := make(chan *pb.Msg, 1000)
-		buffers[node.Config.ID] = buffer
-		go func(node *mirbft.Node) {
-			for {
-				select {
-				case msg := <-buffer:
-					node.Step(context.TODO(), source, msg)
-				case <-doneC:
-					return
-				}
-			}
-		}(node)
-	}
-	return &FakeLink{
-		Buffers: buffers,
-	}
-}
-
-func (fl *FakeLink) Send(dest uint64, msg *pb.Msg) {
-	fl.Buffers[dest] <- msg
 }
