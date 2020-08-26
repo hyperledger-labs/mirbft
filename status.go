@@ -112,117 +112,116 @@ func (s *Status) Pretty() string {
 
 	if s.LowWatermark == s.HighWatermark {
 		buffer.WriteString("=== Empty Watermarks ===\n")
-		return buffer.String()
-	}
-
-	if s.HighWatermark-s.LowWatermark > 10000 {
-		buffer.WriteString(fmt.Sprintf("=== Suspiciously wide watermarks [%d, %d] ===\n", s.LowWatermark, s.HighWatermark))
-		return buffer.String()
-	}
-
-	for i := len(fmt.Sprintf("%d", s.HighWatermark)); i > 0; i-- {
-		magnitude := math.Pow10(i - 1)
-		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
-			buffer.WriteString(fmt.Sprintf(" %d", seqNo/uint64(magnitude)%10))
+	} else {
+		if s.HighWatermark-s.LowWatermark > 10000 {
+			buffer.WriteString(fmt.Sprintf("=== Suspiciously wide watermarks [%d, %d] ===\n", s.LowWatermark, s.HighWatermark))
+			return buffer.String()
 		}
-		buffer.WriteString("\n")
-	}
 
-	for _, nodeStatus := range s.Nodes {
-		hRule()
-		buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeStatus.ID))
-		for bucket, bucketStatus := range nodeStatus.BucketStatuses {
+		for i := len(fmt.Sprintf("%d", s.HighWatermark)); i > 0; i-- {
+			magnitude := math.Pow10(i - 1)
 			for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
-				if seqNo == nodeStatus.LastCheckpoint {
-					buffer.WriteString("|X")
-					continue
+				buffer.WriteString(fmt.Sprintf(" %d", seqNo/uint64(magnitude)%10))
+			}
+			buffer.WriteString("\n")
+		}
+
+		for _, nodeStatus := range s.Nodes {
+			hRule()
+			buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeStatus.ID))
+			for bucket, bucketStatus := range nodeStatus.BucketStatuses {
+				for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
+					if seqNo == nodeStatus.LastCheckpoint {
+						buffer.WriteString("|X")
+						continue
+					}
+
+					if seqNo == bucketStatus.LastCommit {
+						buffer.WriteString("|C")
+						continue
+					}
+
+					if seqNo == bucketStatus.LastPrepare {
+						buffer.WriteString("|P")
+						continue
+					}
+					buffer.WriteString("| ")
 				}
 
-				if seqNo == bucketStatus.LastCommit {
+				if bucketStatus.IsLeader {
+					buffer.WriteString(fmt.Sprintf("| Bucket=%d (Leader)\n", bucket))
+				} else {
+					buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucket))
+				}
+			}
+		}
+
+		hRule()
+		buffer.WriteString("- === Buckets ===\n")
+
+		for _, bucketStatus := range s.Buckets {
+			buffer.WriteString("| ")
+			for _, state := range bucketStatus.Sequences {
+				switch state {
+				case Uninitialized:
+					buffer.WriteString("| ")
+				case Allocated:
+					buffer.WriteString("|A")
+				case PendingRequests:
+					buffer.WriteString("|F")
+				case Preprepared:
+					buffer.WriteString("|Q")
+				case Prepared:
+					buffer.WriteString("|P")
+				case Committed:
 					buffer.WriteString("|C")
-					continue
 				}
-
-				if seqNo == bucketStatus.LastPrepare {
-					buffer.WriteString("|P")
-					continue
-				}
-				buffer.WriteString("| ")
 			}
-
-			if bucketStatus.IsLeader {
-				buffer.WriteString(fmt.Sprintf("| Bucket=%d (Leader)\n", bucket))
+			if bucketStatus.Leader {
+				buffer.WriteString(fmt.Sprintf("| Bucket=%d (LocalLeader)\n", bucketStatus.ID))
 			} else {
-				buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucket))
+				buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucketStatus.ID))
 			}
 		}
-	}
 
-	hRule()
-	buffer.WriteString("- === Buckets ===\n")
-
-	for _, bucketStatus := range s.Buckets {
-		buffer.WriteString("| ")
-		for _, state := range bucketStatus.Sequences {
-			switch state {
-			case Uninitialized:
-				buffer.WriteString("| ")
-			case Allocated:
-				buffer.WriteString("|A")
-			case PendingRequests:
-				buffer.WriteString("|F")
-			case Preprepared:
-				buffer.WriteString("|Q")
-			case Prepared:
-				buffer.WriteString("|P")
-			case Committed:
-				buffer.WriteString("|C")
-			}
-		}
-		if bucketStatus.Leader {
-			buffer.WriteString(fmt.Sprintf("| Bucket=%d (LocalLeader)\n", bucketStatus.ID))
-		} else {
-			buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucketStatus.ID))
-		}
-	}
-
-	hRule()
-	buffer.WriteString("- === Checkpoints ===\n")
-	i := 0
-	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
-		if len(s.Checkpoints) > i {
-			checkpoint := s.Checkpoints[i]
-			if seqNo == checkpoint.SeqNo {
-				buffer.WriteString(fmt.Sprintf("|%d", checkpoint.MaxAgreements))
-				i++
-				continue
-			}
-		}
-		buffer.WriteString("| ")
-	}
-	buffer.WriteString("| Max Agreements\n")
-	i = 0
-	for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
-		if len(s.Checkpoints) > i {
-			checkpoint := s.Checkpoints[i]
-			if seqNo == s.Checkpoints[i].SeqNo/uint64(len(s.Buckets)) {
-				switch {
-				case checkpoint.NetQuorum && !checkpoint.LocalDecision:
-					buffer.WriteString("|N")
-				case checkpoint.NetQuorum && checkpoint.LocalDecision:
-					buffer.WriteString("|G")
-				case !checkpoint.NetQuorum && checkpoint.LocalDecision:
-					buffer.WriteString("|M")
-				default:
-					buffer.WriteString("|P")
+		hRule()
+		buffer.WriteString("- === Checkpoints ===\n")
+		i := 0
+		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
+			if len(s.Checkpoints) > i {
+				checkpoint := s.Checkpoints[i]
+				if seqNo == checkpoint.SeqNo {
+					buffer.WriteString(fmt.Sprintf("|%d", checkpoint.MaxAgreements))
+					i++
+					continue
 				}
-				i++
-				continue
 			}
+			buffer.WriteString("| ")
 		}
-		buffer.WriteString("| ")
+		buffer.WriteString("| Max Agreements\n")
+		i = 0
+		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
+			if len(s.Checkpoints) > i {
+				checkpoint := s.Checkpoints[i]
+				if seqNo == s.Checkpoints[i].SeqNo/uint64(len(s.Buckets)) {
+					switch {
+					case checkpoint.NetQuorum && !checkpoint.LocalDecision:
+						buffer.WriteString("|N")
+					case checkpoint.NetQuorum && checkpoint.LocalDecision:
+						buffer.WriteString("|G")
+					case !checkpoint.NetQuorum && checkpoint.LocalDecision:
+						buffer.WriteString("|M")
+					default:
+						buffer.WriteString("|P")
+					}
+					i++
+					continue
+				}
+			}
+			buffer.WriteString("| ")
+		}
+		buffer.WriteString("| Status\n")
 	}
-	buffer.WriteString("| Status\n")
 
 	hRule()
 	buffer.WriteString("-\n")
