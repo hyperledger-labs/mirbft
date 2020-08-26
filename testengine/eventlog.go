@@ -158,7 +158,3 @@ func (l *EventLog) Insert(initialEvent *rpb.RecordedEvent) {
 		l.List.PushBack(event)
 	}
 }
-
-func (l *EventLog) Count() int {
-	return l.List.Len()
-}

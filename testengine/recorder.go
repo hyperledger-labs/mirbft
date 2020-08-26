@@ -425,11 +425,6 @@ func isEmpty(actions *mirbft.Actions) bool {
 // It will return with an error if the number of accumulated log entries exceeds timeout.
 // If any step returns an error, this function returns that error.
 func (r *Recording) DrainClients(timeout int) (count int, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = errors.Errorf("panic encountered: %+v", r)
-		}
-	}()
 
 	totalReqs := uint64(0)
 	for _, client := range r.Clients {
@@ -455,8 +450,8 @@ func (r *Recording) DrainClients(timeout int) (count int, err error) {
 			return count, nil
 		}
 
-		if r.EventLog.Count() > timeout {
-			return 0, errors.Errorf("timed out after %d entries", r.EventLog.Count())
+		if count > timeout {
+			return 0, errors.Errorf("timed out after %d entries", count)
 		}
 	}
 }
