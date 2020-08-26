@@ -127,10 +127,12 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 		FinalPreprepares: make([][]byte, 2*config.CheckpointInterval),
 	}
 
-	anyNonNil := false
+	anySelected := false
 
 	for seqNoOffset := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(seqNoOffset) + maxCheckpoint.SeqNo + 1
+
+		var selectedEntry *pb.EpochChange_SetEntry
 
 		for _, nodeID := range config.Nodes {
 			nodeID := NodeID(nodeID)
@@ -199,13 +201,13 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 				continue
 			}
 
-			newEpochConfig.FinalPreprepares[seqNoOffset] = entry.Digest
+			selectedEntry = entry
 			break
 		}
 
-		if newEpochConfig.FinalPreprepares[seqNoOffset] != nil {
-			// Some entry from the pSet was selected for this bucketSeq
-			anyNonNil = true
+		if selectedEntry != nil {
+			newEpochConfig.FinalPreprepares[seqNoOffset] = selectedEntry.Digest
+			anySelected = true
 			continue
 		}
 
@@ -226,7 +228,7 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 		}
 	}
 
-	if !anyNonNil {
+	if !anySelected {
 		newEpochConfig.FinalPreprepares = nil
 	}
 
