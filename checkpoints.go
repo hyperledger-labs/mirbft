@@ -159,7 +159,7 @@ func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, val
 
 	referencedCPs := map[uint64]struct{}{}
 
-	for el := ct.activeCheckpoints.Front(); el != nil; el.Next() {
+	for el := ct.activeCheckpoints.Front(); el != nil; el = el.Next() {
 		referencedCPs[el.Value.(*checkpoint).seqNo] = struct{}{}
 	}
 
