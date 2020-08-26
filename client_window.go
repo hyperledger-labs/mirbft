@@ -268,6 +268,10 @@ func (cws *clientWindows) advanceReady(clientWindow *clientWindow) {
 			break
 		}
 
+		if crn.strongRequest.data == nil {
+			break
+		}
+
 		newReadyEntry := &readyEntry{
 			clientReqNo: crn,
 		}
@@ -299,6 +303,7 @@ func (cws *clientWindows) garbageCollect(seqNo uint64) {
 			// do not garbage collect the tail of the log
 			break
 		}
+
 		el.next = &readyEntry{
 			clientReqNo: nextEl.next.clientReqNo,
 			next:        nextEl.next.next,
@@ -485,11 +490,11 @@ func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) (*clien
 	if !ok {
 		cr = &clientRequest{
 			digest:     digest,
-			data:       requestData,
 			agreements: map[NodeID]struct{}{},
 		}
 		crn.digests[string(digest)] = cr
 	}
+	cr.data = requestData
 
 	var newlyCorrectReq *pb.Request
 	if len(cr.agreements) >= someCorrectQuorum(cw.networkConfig) {
