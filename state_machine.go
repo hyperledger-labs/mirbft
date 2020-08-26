@@ -355,7 +355,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 	actions := &Actions{}
 
 	for _, checkpointResult := range results.Checkpoints {
-		// sm.myConfig.Logger.Debug("applying checkpoint result", zap.Int("index", i))
+		// sm.Logger.Debug("applying checkpoint result", zap.Uint64("SeqNo", checkpointResult.SeqNo))
 		actions.concat(sm.checkpointTracker.applyCheckpointResult(
 			checkpointResult.SeqNo,
 			checkpointResult.Value,

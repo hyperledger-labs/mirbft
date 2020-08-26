@@ -9,28 +9,43 @@ package mirbft
 import (
 	"container/list"
 	"fmt"
+	"math"
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
+
+type readyEntry struct {
+	next        *readyEntry
+	clientReqNo *clientReqNo
+}
 
 type clientWindows struct {
 	windows       map[uint64]*clientWindow
 	clients       []uint64
 	networkConfig *pb.NetworkState_Config
 	logger        Logger
-	readyList     *list.List
-	readyMap      map[*clientReqNo]*list.Element
+	readyHead     *readyEntry
+	readyTail     *readyEntry
 	correctList   *list.List // A list of requests which have f+1 ACKs and the requestData
 }
 
 func newClientWindows(persisted *persisted, logger Logger) *clientWindows {
+	maxSeq := uint64(math.MaxUint64)
+	readyAnchor := &readyEntry{
+		clientReqNo: &clientReqNo{
+			// An entry that will never be garbage collected,
+			// to anchor the list
+			committed: &maxSeq,
+		},
+	}
+
 	cws := &clientWindows{
 		logger:      logger,
 		windows:     map[uint64]*clientWindow{},
-		readyList:   list.New(),
-		readyMap:    map[*clientReqNo]*list.Element{},
 		correctList: list.New(),
+		readyHead:   readyAnchor,
+		readyTail:   readyAnchor,
 	}
 
 	clientWindowWidth := uint64(100) // XXX this should be configurable
@@ -244,7 +259,7 @@ func (cws *clientWindows) advanceReady(clientWindow *clientWindow) {
 	for i := clientWindow.nextReadyMark; i <= clientWindow.highWatermark; i++ {
 		crne, ok := clientWindow.reqNoMap[i]
 		if !ok {
-			panic("dev sanity test")
+			panic(fmt.Sprintf("dev sanity test: no mapping from reqNo %d", i))
 		}
 
 		crn := crne.Value.(*clientReqNo)
@@ -253,8 +268,13 @@ func (cws *clientWindows) advanceReady(clientWindow *clientWindow) {
 			break
 		}
 
-		el := cws.readyList.PushBack(crn)
-		cws.readyMap[crn] = el
+		newReadyEntry := &readyEntry{
+			clientReqNo: crn,
+		}
+
+		cws.readyTail.next = newReadyEntry
+		cws.readyTail = newReadyEntry
+
 		clientWindow.nextReadyMark = i + 1
 	}
 }
@@ -265,18 +285,24 @@ func (cws *clientWindows) garbageCollect(seqNo uint64) {
 	}
 
 	// TODO, gc the correctList
+	el := cws.readyHead
+	for el.next != nil {
+		nextEl := el.next
 
-	for el := cws.readyList.Front(); el != nil; {
-		oel := el
-		el = el.Next()
-
-		c := oel.Value.(*clientReqNo).committed
+		c := nextEl.clientReqNo.committed
 		if c == nil || *c > seqNo {
+			el = nextEl
 			continue
 		}
 
-		cws.readyList.Remove(oel)
-		delete(cws.readyMap, oel.Value.(*clientReqNo))
+		if nextEl.next == nil {
+			// do not garbage collect the tail of the log
+			break
+		}
+		el.next = &readyEntry{
+			clientReqNo: nextEl.next.clientReqNo,
+			next:        nextEl.next.next,
+		}
 	}
 }
 
@@ -343,13 +369,20 @@ func newClientWindow(clientID, lowWatermark, highWatermark uint64, networkConfig
 		},
 	}
 
-	cw.garbageCollect(0)
+	for i := lowWatermark; i <= highWatermark; i++ {
+		el := cw.reqNoList.PushBack(&clientReqNo{
+			clientID: cw.clientID,
+			reqNo:    i,
+			digests:  map[string]*clientRequest{},
+		})
+		cw.reqNoMap[i] = el
+	}
 
 	return cw
 }
 
 func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
-	logWidth := cw.highWatermark - cw.lowWatermark
+	removed := uint64(0)
 
 	for el := cw.reqNoList.Front(); el != nil; {
 		crn := el.Value.(*clientReqNo)
@@ -368,20 +401,21 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 
 		cw.reqNoList.Remove(oel)
 		delete(cw.reqNoMap, crn.reqNo)
+		removed++
 	}
 
-	if cw.reqNoList.Len() > 0 {
-		cw.lowWatermark = cw.reqNoList.Front().Value.(*clientReqNo).reqNo
-	}
-	for i := cw.lowWatermark + uint64(cw.reqNoList.Len()); i <= cw.lowWatermark+logWidth; i++ {
+	for i := uint64(1); i <= removed; i++ {
+		reqNo := i + cw.highWatermark
 		el := cw.reqNoList.PushBack(&clientReqNo{
 			clientID: cw.clientID,
-			reqNo:    i,
+			reqNo:    reqNo,
 			digests:  map[string]*clientRequest{},
 		})
-		cw.reqNoMap[i] = el
+		cw.reqNoMap[reqNo] = el
 	}
-	cw.highWatermark = cw.reqNoList.Back().Value.(*clientReqNo).reqNo
+
+	cw.lowWatermark += removed
+	cw.highWatermark += removed
 
 	close(cw.clientWaiter.expired)
 	cw.clientWaiter = &clientWaiter{
