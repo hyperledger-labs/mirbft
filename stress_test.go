@@ -56,13 +56,8 @@ func (nh *NoopHasher) BlockSize() int {
 	return 1
 }
 
-type Transport interface {
-	Send(source, dest uint64, msg *pb.Msg)
-	Link(source uint64) sample.Link
-}
-
 type FakeLink struct {
-	FakeTransport Transport
+	FakeTransport *FakeTransport
 	Source        uint64
 }
 
@@ -71,14 +66,33 @@ func (fl *FakeLink) Send(dest uint64, msg *pb.Msg) {
 }
 
 type FakeTransport struct {
-	Destinations []*mirbft.Node
+	// Buffers is source x dest
+	Buffers [][]chan *pb.Msg
+}
+
+func NewFakeTransport(nodes int) *FakeTransport {
+	buffers := make([][]chan *pb.Msg, nodes)
+	for i := 0; i < nodes; i++ {
+		buffers[i] = make([]chan *pb.Msg, nodes)
+		for j := 0; j < nodes; j++ {
+			buffers[i][j] = make(chan *pb.Msg, 10000)
+		}
+	}
+
+	return &FakeTransport{
+		Buffers: buffers,
+	}
 }
 
 func (ft *FakeTransport) Send(source, dest uint64, msg *pb.Msg) {
-	ft.Destinations[int(dest)].Step(context.Background(), source, msg)
+	select {
+	case ft.Buffers[int(source)][int(dest)] <- msg:
+	default:
+		fmt.Printf("Warning: Dropping message %T from %d to %d\n", msg.Type, source, dest)
+	}
 }
 
-func (ft *FakeTransport) Link(source uint64) sample.Link {
+func (ft *FakeTransport) Link(source uint64) *FakeLink {
 	return &FakeLink{
 		Source:        source,
 		FakeTransport: ft,
@@ -91,7 +105,7 @@ type FakeLog struct {
 }
 
 func (fl *FakeLog) Apply(entry *pb.QEntry) {
-	if entry.Requests == nil {
+	if len(entry.Requests) == 0 {
 		// this is a no-op batch from a tick, or catchup, ignore it
 		return
 	}
@@ -104,9 +118,10 @@ func (fl *FakeLog) Snap() []byte {
 }
 
 type TestConfig struct {
-	NodeCount   int
-	BucketCount int
-	MsgCount    int
+	NodeCount          int
+	BucketCount        int
+	MsgCount           int
+	CheckpointInterval int
 }
 
 func Uint64ToPtr(value uint64) *uint64 {
@@ -157,23 +172,25 @@ var _ = Describe("StressyTest", func() {
 		wg.Wait()
 
 		if CurrentGinkgoTestDescription().Failed {
-			fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
+			fmt.Printf("\n\nPrinting state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
 			Expect(network).NotTo(BeNil())
 
-			for nodeIndex, node := range network.nodes {
-				status, err := node.Status(context.Background())
+			for nodeIndex, replica := range network.TestReplicas {
+				fmt.Printf("\nStatus for node %d\n", nodeIndex)
+				status, err := replica.Node.Status(context.Background())
 				if err != nil && status == nil {
 					fmt.Printf("Could not get status for node %d: %s", nodeIndex, err)
 				} else {
-					fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
+					fmt.Printf("%s\n", status.Pretty())
 				}
-				fmt.Printf("\nFakeLog has %d messages\n", len(network.fakeLogs[nodeIndex].Entries))
 
-				if len(proposals) > len(network.fakeLogs[nodeIndex].Entries)+10 {
-					fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(network.fakeLogs[nodeIndex].Entries))
-				} else if len(proposals) > len(network.fakeLogs[nodeIndex].Entries) {
+				fmt.Printf("\nFakeLog has %d messages\n", len(replica.Log.Entries))
+
+				if len(proposals) > len(replica.Log.Entries)+10 {
+					fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(replica.Log.Entries))
+				} else if len(proposals) > len(replica.Log.Entries) {
 					entries := map[string]struct{}{}
-					for _, entry := range network.fakeLogs[0].Entries {
+					for _, entry := range replica.Log.Entries {
 						entries[string(entry.Requests[0].Digest)] = struct{}{}
 					}
 
@@ -187,32 +204,31 @@ var _ = Describe("StressyTest", func() {
 						return missing[i] < missing[j]
 					})
 					fmt.Printf("Missing entries for %v\n", missing)
-
-					fmt.Printf("\nLog available at %s\n", network.recordingFiles[nodeIndex].Name())
 				}
 
+				fmt.Printf("\nLog available at %s\n", replica.RecordingFile.Name())
 			}
 
 		} else {
-			for _, recordingFile := range network.recordingFiles {
-				err := os.Remove(recordingFile.Name())
+			for _, replica := range network.TestReplicas {
+				err := os.Remove(replica.RecordingFile.Name())
 				Expect(err).NotTo(HaveOccurred())
 			}
 		}
 	})
 
 	DescribeTable("commits all messages", func(testConfig *TestConfig) {
-		network = CreateNetwork(testConfig, logger, doneC)
-
-		network.GoRunNetwork(doneC, &wg)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		clients := make([]*mirbft.ClientProposer, len(network.nodes))
-		for i, node := range network.nodes {
+		network = CreateNetwork(ctx, &wg, testConfig, logger, doneC)
+
+		network.GoRunNetwork(ctx, doneC, &wg)
+
+		proposers := make([]*mirbft.ClientProposer, len(network.TestReplicas))
+		for i, replica := range network.TestReplicas {
 			var err error
-			clients[i], err = node.ClientProposer(ctx, 0)
+			proposers[i], err = replica.Node.ClientProposer(ctx, 0)
 			Expect(err).NotTo(HaveOccurred())
 		}
 
@@ -220,8 +236,8 @@ var _ = Describe("StressyTest", func() {
 		for i := 0; i < testConfig.MsgCount; i++ {
 			proposalUint, proposalBytes := uint64(i), Uint64ToBytes(uint64(i))
 
-			for _, client := range clients {
-				err := client.Propose(ctx, &pb.Request{
+			for _, proposer := range proposers {
+				err := proposer.Propose(ctx, &pb.Request{
 					ClientId: 0,
 					ReqNo:    uint64(i),
 					Data:     proposalBytes,
@@ -235,11 +251,11 @@ var _ = Describe("StressyTest", func() {
 		}
 
 		observations := map[uint64]struct{}{}
-		for j, fakeLog := range network.fakeLogs {
+		for j, replica := range network.TestReplicas {
 			By(fmt.Sprintf("checking for node %d that each message only commits once", j))
 			for len(observations) < testConfig.MsgCount {
 				entry := &pb.QEntry{}
-				Eventually(fakeLog.CommitC).Should(Receive(&entry))
+				Eventually(replica.Log.CommitC).Should(Receive(&entry))
 
 				proposalUint, ok := proposals[string(entry.Requests[0].Digest)]
 				Expect(ok).To(BeTrue())
@@ -261,22 +277,72 @@ var _ = Describe("StressyTest", func() {
 		}),
 
 		PEntry("FourNodeBFT single bucket greenpath", &TestConfig{
-			NodeCount:   4,
-			BucketCount: 1,
-			MsgCount:    1000,
+			NodeCount:          4,
+			BucketCount:        1,
+			CheckpointInterval: 10,
+			MsgCount:           1000,
 		}),
 	)
 })
 
-type Network struct {
-	nodes          []*mirbft.Node
-	recordingFiles []*os.File
-	fakeLogs       []*FakeLog
-	processors     []*sample.SerialProcessor
+type TestReplica struct {
+	Node          *mirbft.Node
+	RecordingFile *os.File
+	Log           *FakeLog
+	Processor     *sample.SerialProcessor
+	FakeTransport *FakeTransport
+	DoneC         <-chan struct{}
 }
 
-func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
-	nodes := make([]*mirbft.Node, testConfig.NodeCount)
+func (tr *TestReplica) Process() error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case actions := <-tr.Node.Ready():
+			results := tr.Processor.Process(&actions)
+			tr.Node.AddResults(*results)
+		case <-tr.Node.Err():
+			_, err := tr.Node.Status(context.Background())
+			if err != mirbft.ErrStopped {
+				return err
+			}
+			return nil
+		case <-ticker.C:
+			tr.Node.Tick()
+		}
+	}
+}
+
+func (tr *TestReplica) DrainRecorder() error {
+	defer tr.RecordingFile.Close()
+	return tr.Node.Config.EventInterceptor.(*recorder.Interceptor).Drain(tr.RecordingFile, tr.DoneC)
+}
+
+func (tr *TestReplica) DrainFrom(j int) func() error {
+	return func() error {
+		sourceBuffer := tr.FakeTransport.Buffers[j][int(tr.Node.Config.ID)]
+		for {
+			select {
+			case msg := <-sourceBuffer:
+				err := tr.Node.Step(context.Background(), uint64(j), msg)
+				if err != nil && err != mirbft.ErrStopped {
+					return err
+				}
+			case <-tr.DoneC:
+				return nil
+			}
+		}
+	}
+}
+
+type Network struct {
+	TestReplicas []*TestReplica
+}
+
+func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
+	transport := NewFakeTransport(testConfig.NodeCount)
 
 	networkState := mirbft.StandardInitialNetworkState(testConfig.NodeCount, 0)
 
@@ -284,14 +350,20 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 		networkState.Config.NumberOfBuckets = int32(testConfig.BucketCount)
 	}
 
-	startTime := time.Now()
+	if testConfig.CheckpointInterval != 0 {
+		networkState.Config.CheckpointInterval = int32(testConfig.CheckpointInterval)
+	}
 
-	for i := range nodes {
+	replicas := make([]*TestReplica, testConfig.NodeCount)
+
+	startTime := time.Now()
+	for i := range replicas {
 		config := &mirbft.Config{
 			ID:                   uint64(i),
 			Logger:               logger.Named(fmt.Sprintf("node%d", i)),
 			BatchSize:            1,
 			SuspectTicks:         4,
+			HeartbeatTicks:       2,
 			NewEpochTimeoutTicks: 8,
 			BufferSize:           500,
 			EventInterceptor: recorder.NewInterceptor(
@@ -302,6 +374,9 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 				10000,
 			),
 		}
+
+		recordingFile, err := ioutil.TempFile("", fmt.Sprintf("stressy.%d-*.eventlog", i))
+		Expect(err).NotTo(HaveOccurred())
 
 		storage := &mock.Storage{}
 		storage.LoadReturnsOnCall(0, &pb.Persistent{
@@ -336,84 +411,50 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 
 		node, err := mirbft.StartNode(config, doneC, storage)
 		Expect(err).NotTo(HaveOccurred())
-		nodes[i] = node
-	}
 
-	var transport Transport = &FakeTransport{
-		Destinations: nodes,
-	}
-
-	fakeLogs := make([]*FakeLog, testConfig.NodeCount)
-	processors := make([]*sample.SerialProcessor, testConfig.NodeCount)
-	for i, node := range nodes {
-		node := node
 		fakeLog := &FakeLog{
 			CommitC: make(chan *pb.QEntry, testConfig.MsgCount),
 		}
 
-		fakeLogs[i] = fakeLog
-
-		processors[i] = &sample.SerialProcessor{
-			Node:   node,
-			Link:   transport.Link(node.Config.ID),
-			Hasher: func() hash.Hash { return &NoopHasher{} },
-			Committer: &sample.SerialCommitter{
-				Log:                    fakeLog,
-				OutstandingSeqNos:      map[uint64]*mirbft.Commit{},
-				OutstandingCheckpoints: map[uint64]struct{}{},
+		replicas[i] = &TestReplica{
+			Node:          node,
+			RecordingFile: recordingFile,
+			Log:           fakeLog,
+			FakeTransport: transport,
+			Processor: &sample.SerialProcessor{
+				Node:   node,
+				Link:   transport.Link(node.Config.ID),
+				Hasher: func() hash.Hash { return &NoopHasher{} },
+				Log:    fakeLog,
 			},
+			DoneC: doneC,
 		}
-
 	}
 
 	return &Network{
-		nodes:      nodes,
-		fakeLogs:   fakeLogs,
-		processors: processors,
+		TestReplicas: replicas,
 	}
 }
 
-func (n *Network) GoRunNetwork(doneC <-chan struct{}, wg *sync.WaitGroup) {
-	wg.Add(len(n.nodes))
-	for i := range n.nodes {
-		go func(i int, doneC <-chan struct{}) {
-			defer GinkgoRecover()
-			defer wg.Done()
-
-			ticker := time.NewTicker(10 * time.Millisecond)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case actions := <-n.nodes[i].Ready():
-					results := n.processors[i].Process(&actions)
-					n.nodes[i].AddResults(*results)
-				case <-n.nodes[i].Err():
-					_, err := n.nodes[i].Status(context.Background())
-					if err != mirbft.ErrStopped {
-						fmt.Printf("Unexpected err: %+v\n", err)
-						Expect(err).NotTo(HaveOccurred())
-					}
-					return
-				case <-ticker.C:
-					n.nodes[i].Tick()
-				}
-			}
-		}(i, doneC)
-	}
-
-	wg.Add(len(n.nodes))
-	for i, node := range n.nodes {
-		recordingFile, err := ioutil.TempFile("", fmt.Sprintf("stressy.%d-*.eventlog", i))
-		Expect(err).NotTo(HaveOccurred())
-
-		node := node
+func (n *Network) GoRunNetwork(context context.Context, doneC <-chan struct{}, wg *sync.WaitGroup) {
+	goWork := func(i int, desc string, work func() error) {
+		wg.Add(1)
 		go func() {
 			defer GinkgoRecover()
 			defer wg.Done()
-			err := node.Config.EventInterceptor.(*recorder.Interceptor).Drain(recordingFile, doneC)
-			Expect(err).NotTo(HaveOccurred())
-			recordingFile.Close()
+			defer fmt.Printf("Node %d: Shutting down go routine %s\n", i, desc)
+			err := work()
+			if err != nil {
+				fmt.Printf("Node %d: Error performing work %s\n", i, desc)
+			}
 		}()
+	}
+
+	for i, testReplica := range n.TestReplicas {
+		goWork(i, "Process", testReplica.Process)
+		goWork(i, "DrainRecorder", testReplica.DrainRecorder)
+		for j := range n.TestReplicas {
+			goWork(i, fmt.Sprintf("DrainTransportFrom_%d", j), testReplica.DrainFrom(j))
+		}
 	}
 }
