@@ -76,7 +76,7 @@ var _ = Describe("Mirbft", func() {
 		})
 
 		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(5000)
+			_, err := recording.DrainClients(500)
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
