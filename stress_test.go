@@ -8,9 +8,9 @@ package mirbft_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"hash"
 	"io"
 	"io/ioutil"
 	"os"
@@ -30,31 +30,6 @@ import (
 
 	"go.uber.org/zap"
 )
-
-type NoopHasher struct {
-	Value []byte
-}
-
-func (nh *NoopHasher) Write(b []byte) (int, error) {
-	nh.Value = append(nh.Value, b...)
-	return len(b), nil
-}
-
-func (nh *NoopHasher) Sum(b []byte) []byte {
-	return append(nh.Value, b...)
-}
-
-func (nh *NoopHasher) Reset() {
-	nh.Value = nil
-}
-
-func (nh *NoopHasher) Size() int {
-	return len(nh.Value)
-}
-
-func (nh *NoopHasher) BlockSize() int {
-	return 1
-}
 
 type FakeLink struct {
 	FakeTransport *FakeTransport
@@ -148,7 +123,7 @@ var _ = Describe("StressyTest", func() {
 	var (
 		doneC     chan struct{}
 		logger    *zap.Logger
-		proposals map[string]uint64
+		proposals map[uint64]*pb.Request
 		wg        sync.WaitGroup
 
 		network *Network
@@ -160,7 +135,7 @@ var _ = Describe("StressyTest", func() {
 		logger, err = zap.NewProduction()
 		Expect(err).NotTo(HaveOccurred())
 
-		proposals = map[string]uint64{}
+		proposals = map[uint64]*pb.Request{}
 
 		doneC = make(chan struct{})
 
@@ -177,8 +152,17 @@ var _ = Describe("StressyTest", func() {
 
 			for nodeIndex, replica := range network.TestReplicas {
 				fmt.Printf("\nStatus for node %d\n", nodeIndex)
+				<-replica.Node.Err() // Make sure the serializer has exited
 				status, err := replica.Node.Status(context.Background())
-				if err != nil && status == nil {
+				Expect(err).To(HaveOccurred())
+
+				if err == mirbft.ErrStopped {
+					fmt.Printf("\nStopped normally\n")
+				} else {
+					fmt.Printf("\nStopped with error: %+v\n", err)
+				}
+
+				if status == nil {
 					fmt.Printf("Could not get status for node %d: %s", nodeIndex, err)
 				} else {
 					fmt.Printf("%s\n", status.Pretty())
@@ -189,21 +173,28 @@ var _ = Describe("StressyTest", func() {
 				if len(proposals) > len(replica.Log.Entries)+10 {
 					fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(replica.Log.Entries))
 				} else if len(proposals) > len(replica.Log.Entries) {
-					entries := map[string]struct{}{}
+					entries := map[uint64]struct{}{}
 					for _, entry := range replica.Log.Entries {
-						entries[string(entry.Requests[0].Digest)] = struct{}{}
+						for _, req := range entry.Requests {
+							entries[BytesToUint64(req.Request.Data)] = struct{}{}
+						}
 					}
 
 					var missing []uint64
-					for proposalKey, proposalUint := range proposals {
-						if _, ok := entries[proposalKey]; !ok {
-							missing = append(missing, proposalUint)
+					for proposalID := range proposals {
+						if _, ok := entries[proposalID]; !ok {
+							missing = append(missing, proposalID)
 						}
 					}
 					sort.Slice(missing, func(i, j int) bool {
 						return missing[i] < missing[j]
 					})
-					fmt.Printf("Missing entries for %v\n", missing)
+
+					fmt.Printf("Missing entries\n")
+					for _, proposalID := range missing {
+						request := proposals[proposalID]
+						fmt.Printf("  ClientID=%d ReqNo=%d\n", request.ClientId, request.ReqNo)
+					}
 				}
 
 				fmt.Printf("\nLog available at %s\n", replica.RecordingFile.Name())
@@ -218,7 +209,7 @@ var _ = Describe("StressyTest", func() {
 	})
 
 	DescribeTable("commits all messages", func(testConfig *TestConfig) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		network = CreateNetwork(ctx, &wg, testConfig, logger, doneC)
@@ -233,21 +224,21 @@ var _ = Describe("StressyTest", func() {
 		}
 
 		Expect(testConfig.MsgCount).NotTo(Equal(0))
+		proposalID := uint64(0)
 		for i := 0; i < testConfig.MsgCount; i++ {
-			proposalUint, proposalBytes := uint64(i), Uint64ToBytes(uint64(i))
+			proposalID++
+			proposal := &pb.Request{
+				ClientId: 0,
+				ReqNo:    uint64(i),
+				Data:     Uint64ToBytes(proposalID),
+			}
 
 			for _, proposer := range proposers {
-				err := proposer.Propose(ctx, &pb.Request{
-					ClientId: 0,
-					ReqNo:    uint64(i),
-					Data:     proposalBytes,
-				})
+				err := proposer.Propose(ctx, proposal)
 				Expect(err).NotTo(HaveOccurred())
 			}
 
-			proposalKey := append(Uint64ToBytes(0), append(Uint64ToBytes(uint64(i)), proposalBytes...)...)
-			Expect(proposals).NotTo(ContainElement(proposalKey))
-			proposals[string(proposalKey)] = proposalUint
+			proposals[proposalID] = proposal
 		}
 
 		observations := map[uint64]struct{}{}
@@ -255,14 +246,15 @@ var _ = Describe("StressyTest", func() {
 			By(fmt.Sprintf("checking for node %d that each message only commits once", j))
 			for len(observations) < testConfig.MsgCount {
 				entry := &pb.QEntry{}
-				Eventually(replica.Log.CommitC).Should(Receive(&entry))
+				Eventually(replica.Log.CommitC, 10*time.Second).Should(Receive(&entry))
 
-				proposalUint, ok := proposals[string(entry.Requests[0].Digest)]
+				proposalID := BytesToUint64(entry.Requests[0].Request.Data)
+				_, ok := proposals[proposalID]
 				Expect(ok).To(BeTrue())
 
-				_, ok = observations[proposalUint]
+				_, ok = observations[proposalID]
 				Expect(ok).To(BeFalse())
-				observations[proposalUint] = struct{}{}
+				observations[proposalID] = struct{}{}
 			}
 		}
 	},
@@ -272,8 +264,9 @@ var _ = Describe("StressyTest", func() {
 		}),
 
 		PEntry("FourNodeBFT greenpath", &TestConfig{
-			NodeCount: 4,
-			MsgCount:  1000,
+			NodeCount:          4,
+			CheckpointInterval: 20,
+			MsgCount:           1000,
 		}),
 
 		PEntry("FourNodeBFT single bucket greenpath", &TestConfig{
@@ -424,7 +417,7 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 			Processor: &sample.SerialProcessor{
 				Node:   node,
 				Link:   transport.Link(node.Config.ID),
-				Hasher: func() hash.Hash { return &NoopHasher{} },
+				Hasher: sha256.New,
 				Log:    fakeLog,
 			},
 			DoneC: doneC,
