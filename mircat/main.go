@@ -101,6 +101,7 @@ type arguments struct {
 	notEventTypes []string
 	stepTypes     []string
 	notStepTypes  []string
+	verboseText   bool
 }
 
 func (a *arguments) execute(output io.Writer) error {
@@ -198,7 +199,7 @@ func (a *arguments) execute(output io.Writer) error {
 			panic("Unknown event type")
 		}
 
-		text, err := textFormat(event, true)
+		text, err := textFormat(event, !a.verboseText)
 		if err != nil {
 			return errors.WithMessage(err, "could not marshal event")
 		}
@@ -216,6 +217,7 @@ func parseArgs(args []string) (*arguments, error) {
 	notEventTypes := app.Flag("notEventType", "Which eventtypes to exclude. (Cannot combine with --eventTypes)").Enums(allEventTypes...)
 	stepTypes := app.Flag("stepType", "Which step message types to report.").Enums(allMsgTypes...)
 	notStepTypes := app.Flag("notStepType", "Which step message types to exclude. (Cannot combine with --stepTypes)").Enums(allMsgTypes...)
+	verboseText := app.Flag("verboseText", "Whether to be verbose (output full bytes) in the text frmatting.").Default("false").Bool()
 
 	_, err := app.Parse(args)
 	if err != nil {
@@ -237,6 +239,7 @@ func parseArgs(args []string) (*arguments, error) {
 		notEventTypes: *notEventTypes,
 		stepTypes:     *stepTypes,
 		notStepTypes:  *notStepTypes,
+		verboseText:   *verboseText,
 	}, nil
 }
 

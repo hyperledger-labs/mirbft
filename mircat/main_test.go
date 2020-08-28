@@ -38,6 +38,7 @@ var _ = Describe("Parsing", func() {
 			"--eventType", "Tick",
 			"--stepType", "Preprepare",
 			"--stepType", "EpochChange",
+			"--verboseText",
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(args.input).NotTo(BeNil())
@@ -45,6 +46,7 @@ var _ = Describe("Parsing", func() {
 		Expect(args.interactive).To(BeTrue())
 		Expect(args.nodeIDs).To(Equal([]uint64{1, 2}))
 		Expect(args.eventTypes).To(Equal([]string{"Step", "Tick"}))
+		Expect(args.verboseText).To(BeTrue())
 	})
 
 	When("both event includes and event excludes are present", func() {
@@ -102,8 +104,8 @@ var _ = Describe("Execution", func() {
 		Expect(output.String()).To(Equal(
 			"[node_id=0 time=0 state_event=[initialize=[id=0 batch_size=1 heartbeat_ticks=2 suspect_ticks=4 new_epoch_timeout_ticks=8 buffer_size=5000]]]\n" +
 				"[node_id=2 time=0 state_event=[initialize=[id=2 batch_size=1 heartbeat_ticks=2 suspect_ticks=4 new_epoch_timeout_ticks=8 buffer_size=5000]]]\n" +
-				"[node_id=0 time=920 state_event=[step=[source=1 msg=[new_epoch=[new_config=[config=[number=1 leaders=0 leaders=1 leaders=2 leaders=3 planned_expiration=200000] starting_checkpoint=[seq_no=0 value=66616b65]] epoch_changes=[node_id=2 digest=9a53f69f] epoch_changes=[node_id=3 digest=9a53f69f] epoch_changes=[node_id=0 digest=9a53f69f]]]]]]\n" +
-				"[node_id=2 time=920 state_event=[step=[source=1 msg=[new_epoch=[new_config=[config=[number=1 leaders=0 leaders=1 leaders=2 leaders=3 planned_expiration=200000] starting_checkpoint=[seq_no=0 value=66616b65]] epoch_changes=[node_id=2 digest=9a53f69f] epoch_changes=[node_id=3 digest=9a53f69f] epoch_changes=[node_id=0 digest=9a53f69f]]]]]]\n" +
+				"[node_id=0 time=920 state_event=[step=[source=1 msg=[new_epoch=[new_config=[config=[number=1 leaders=0 leaders=1 leaders=2 leaders=3 planned_expiration=200000] starting_checkpoint=[seq_no=0 value=66616b65]] epoch_changes=[node_id=0 digest=9a53f69f] epoch_changes=[node_id=2 digest=9a53f69f] epoch_changes=[node_id=3 digest=9a53f69f]]]]]]\n" +
+				"[node_id=2 time=920 state_event=[step=[source=1 msg=[new_epoch=[new_config=[config=[number=1 leaders=0 leaders=1 leaders=2 leaders=3 planned_expiration=200000] starting_checkpoint=[seq_no=0 value=66616b65]] epoch_changes=[node_id=0 digest=9a53f69f] epoch_changes=[node_id=2 digest=9a53f69f] epoch_changes=[node_id=3 digest=9a53f69f]]]]]]\n" +
 				"[node_id=0 time=1720 state_event=[step=[source=0 msg=[checkpoint=[seq_no=20 value=17ac072e]]]]]\n" +
 				"[node_id=0 time=1720 state_event=[step=[source=0 msg=[checkpoint=[seq_no=40 value=e6c88248]]]]]\n" +
 				"[node_id=2 time=1720 state_event=[step=[source=2 msg=[checkpoint=[seq_no=20 value=17ac072e]]]]]\n" +
