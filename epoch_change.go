@@ -77,10 +77,16 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkStat
 	}
 
 	remoteChanges := make([]*pb.NewEpoch_RemoteEpochChange, 0, len(et.changes))
-	for nodeID := range et.strongChanges {
+	for _, nodeID := range et.networkConfig.Nodes {
+		// Deterministic iteration over strong changes
+		_, ok := et.strongChanges[NodeID(nodeID)]
+		if !ok {
+			continue
+		}
+
 		remoteChanges = append(remoteChanges, &pb.NewEpoch_RemoteEpochChange{
 			NodeId: uint64(nodeID),
-			Digest: et.changes[nodeID].strongCert,
+			Digest: et.changes[NodeID(nodeID)].strongCert,
 		})
 	}
 

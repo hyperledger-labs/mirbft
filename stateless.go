@@ -62,7 +62,16 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 
 	var newEpochNumber uint64 // TODO this is super-hacky
 
-	for nodeID, epochChange := range epochChanges {
+	for _, nodeID := range config.Nodes {
+		nodeID := NodeID(nodeID)
+		// Note, it looks like we're re-implementing `range epochChanges` here,
+		// and we are, but doing so in a deterministic order.
+
+		epochChange, ok := epochChanges[nodeID]
+		if !ok {
+			continue
+		}
+
 		newEpochNumber = epochChange.underlying.NewEpoch
 		for _, checkpoint := range epochChange.underlying.Checkpoints {
 
@@ -85,6 +94,7 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 
 		nodesWithLowerWatermark := 0
 		for _, epochChange := range epochChanges {
+			// non-determinism okay here, since incrementing is commutative
 			if epochChange.lowWatermark <= key.SeqNo {
 				nodesWithLowerWatermark++
 			}
@@ -151,6 +161,8 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 
 			a1Count := 0
 			for _, iEpochChange := range epochChanges {
+				// non-determinism once again fine here,
+				// because addition is commutative
 				if iEpochChange.lowWatermark >= seqNo {
 					continue
 				}
@@ -178,6 +190,8 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 
 			a2Count := 0
 			for _, iEpochChange := range epochChanges {
+				// non-determinism once again fine here,
+				// because addition is commutative
 				epochEntries, ok := iEpochChange.qSet[seqNo]
 				if !ok {
 					continue
@@ -213,6 +227,8 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 
 		bCount := 0
 		for _, epochChange := range epochChanges {
+			// non-determinism once again fine here,
+			// because addition is commutative
 			if epochChange.lowWatermark >= seqNo {
 				continue
 			}
