@@ -8,102 +8,91 @@ syntax = "proto3";
 
 package mirbftpb;
 
-option go_package = "github.com/IBM/mirbft/mirbftpb";
-
 // To re-generate, run:
 //   protoc --go_out=. mirbft.proto
 // or simply run go generate
 
-// NetworkState contains the configuration agreed to by all nodes in the network
-// as well as the current client statuses.  NetworkState must be reflected in the
-// state digest for checkpoints.  The easiest way to accomplish this is by serializing
-// the structure and including it in the application state.  Note, when there are a large
-// number of clients, performing a custom serialization may be desirable.
-message NetworkState {
-    message Config {
-        // Nodes represent the active nodeIDs in the network.
-        // The number of nodeIDs corresponds to the size of the network.
-        repeated uint64 nodes = 1;
+// NetworkConfig contains the parameters which must be agreed upon by
+// the entire network.  It must be serialized and reflected in the state
+// snapshots and their corresponding checkpoint values.
+message NetworkConfig {
+    // Nodes represent the active nodeIDs in the network.
+    // The number of nodeIDs corresponds to the size of the network.
+    repeated uint64 nodes = 1;
 
-        // CheckpointInterval is how often checkpoints are taken.  In terms of
-        // of sequence numbers, this is multiplied by the configured number of
-        // buckets, so that it scales naturally as the number of buckets increases
-        // or decreases.
-        int32 checkpoint_interval = 2;
+    // CheckpointInterval is how often checkpoints are taken.  In terms of
+    // of sequence numbers, this is multiplied by the configured number of
+    // buckets, so that it scales naturally as the number of buckets increases
+    // or decreases.
+    int32 checkpoint_interval = 2;
 
-        // MaxEpochLength is the maximum number of sequence numbers which may preprepare
-        // in an epoch.  This is to force bucket rotation even when the system is otherwise
-        // in a healthy state.  Setting this value to uint64_max will effectively disable
-        // graceful epoch changes.
-        uint64 max_epoch_length = 3;
+    // MaxEpochLength is the maximum number of sequence numbers which may preprepare
+    // in an epoch.  This is to force bucket rotation even when the system is otherwise
+    // in a healthy state.  Setting this value to uint64_max will effectively disable
+    // graceful epoch changes.
+    uint64 max_epoch_length = 3;
 
-        // NumberOfBuckets is the number of buckets the network is configured to operate over.
-        // Each bucket is a partition of the request space.  Typically, number of buckets should
-        // be nodes * m, where 'm' is some small constant.  Setting this value to 1 effectively
-        // reduces Mir to PBFT.
-        int32 number_of_buckets = 4;
+    // NumberOfBuckets is the number of buckets the network is configured to operate over.
+    // Each bucket is a partition of the request space.  Typically, number of buckets should
+    // be nodes * m, where 'm' is some small constant.  Setting this value to 1 effectively
+    // reduces Mir to PBFT.
+    int32 number_of_buckets = 4;
 
-        // F is the number of byzantine faults tolerated by the network.
-        // It must be less than len(nodes)/3 (truncated).  The 'F' parameter
-        // need not be maximal, ie, a network of 9 nodes with 'F' set to 1 may
-        // simultaneously tolerate 1 byzantine fault, and 2 crash faults.  Whereas
-        // when F=2, that 9 node network may only tolerate 2 crash faults.  Note
-        // usually, a maximal value makes sense.  For instance in a network of 7
-        // nodes F=1, and F=2 both provide crash tolerance of only 2 nodes.  The
-        // following table summarizes the number of crash faults tolerated for
-        // a given network of size N and number of byzantine faults tolerated F.
-        //
-        //    |           F           |
-        //    | 0 | 1 | 2 | 3 | 4 | 5 |
-        // N --------------------------
-        // 1  | 0 |   |   |   |   |   |
-        // 2  | 0 |   |   |   |   |   |
-        // 3  | 1 |   |   |   |   |   |
-        // 4  | 1 | 1 |   |   |   |   |
-        // 5  | 2 | 1 |   |   |   |   |
-        // 6  | 2 | 1 |   |   |   |   |
-        // 7  | 3 | 2 | 2 |   |   |   |
-        // 8  | 3 | 3 | 2 |   |   |   |
-        // 9  | 4 | 3 | 2 |   |   |   |
-        // 10 | 4 | 4 | 3 | 3 |   |   |
-        // 11 | 5 | 4 | 4 | 3 |   |   |
-        // 12 | 5 | 5 | 4 | 4 |   |   |
-        // 13 | 6 | 5 | 5 | 4 | 4 |   |
-        // 14 | 6 | 6 | 5 | 5 | 4 |   |
-        // 15 | 7 | 6 | 6 | 5 | 5 |   |
-        // 16 | 7 | 7 | 6 | 6 | 5 | 5 |
-        // 17 | 8 | 7 | 7 | 6 | 6 | 5 |
-        int32 f = 5;
-    }
+    // F is the number of byzantine faults tolerated by the network.
+    // It must be less than len(nodes)/3 (truncated).  The 'F' parameter
+    // need not be maximal, ie, a network of 9 nodes with 'F' set to 1 may
+    // simultaneously tolerate 1 byzantine fault, and 2 crash faults.  Whereas
+    // when F=2, that 9 node network may only tolerate 2 crash faults.  Note
+    // usually, a maximal value makes sense.  For instance in a network of 7
+    // nodes F=1, and F=2 both provide crash tolerance of only 2 nodes.  The
+    // following table summarizes the number of crash faults tolerated for
+    // a given network of size N and number of byzantine faults tolerated F.
+    //
+    //    |           F           |
+    //    | 0 | 1 | 2 | 3 | 4 | 5 |
+    // N --------------------------
+    // 1  | 0 |   |   |   |   |   |
+    // 2  | 0 |   |   |   |   |   |
+    // 3  | 1 |   |   |   |   |   |
+    // 4  | 1 | 1 |   |   |   |   |
+    // 5  | 2 | 1 |   |   |   |   |
+    // 6  | 2 | 1 |   |   |   |   |
+    // 7  | 3 | 2 | 2 |   |   |   |
+    // 8  | 3 | 3 | 2 |   |   |   |
+    // 9  | 4 | 3 | 2 |   |   |   |
+    // 10 | 4 | 4 | 3 | 3 |   |   |
+    // 11 | 5 | 4 | 4 | 3 |   |   |
+    // 12 | 5 | 5 | 4 | 4 |   |   |
+    // 13 | 6 | 5 | 5 | 4 | 4 |   |
+    // 14 | 6 | 6 | 5 | 5 | 4 |   |
+    // 15 | 7 | 6 | 6 | 5 | 5 |   |
+    // 16 | 7 | 7 | 6 | 6 | 5 | 5 |
+    // 17 | 8 | 7 | 7 | 6 | 6 | 5 |
+    int32 f = 5;
 
     message Client {
         uint64 id = 1;
-        repeated uint64 bucket_low_watermarks = 2; // TODO, probably can optimize by base low watermark, plus offsets from it, since these will always be small, but add when we address holes in the windows
+        uint64 low_watermark = 2;
     }
 
-    Config config = 1;
-
-    repeated Client clients = 2;
+    repeated Client clients = 6;
 }
 
-// Persistent contains data that should be persited by lib user
-message Persistent {
+// Persisted contains data that should be persited by lib user
+message Persisted {
     oneof type {
         QEntry q_entry = 1;
         PEntry p_entry = 2;
         CEntry c_entry = 3;
-	EpochChange epoch_change = 4;
-	NewEpochConfig new_epoch_echo = 5;
-	NewEpochConfig new_epoch_ready = 6;
-	EpochConfig new_epoch_start = 7; // XXX Probably overkill? See refactoring with a uint64
-	Suspect suspect = 8;
-	// TODO, suspect_ready
+        uint64 end_previous_epoch = 4;
+        EpochConfig begin_new_epoch = 5;
     }
 }
 
 // QEntry is an entry which must be persisted before a batch is Preprepared (ie,
 // before a Preprepare or Prepare message is sent).
 message QEntry {
+    uint64 epoch = 1;
     uint64 seq_no = 2;
     bytes digest = 3;
     repeated ForwardRequest requests = 4;
@@ -112,6 +101,7 @@ message QEntry {
 // PEntry is an entry which must be persisted before a batch is Prepared (ie,
 // before a Commit message is sent).
 message PEntry {
+    uint64 epoch = 1;
     uint64 seq_no = 2;
     bytes digest = 3;
 }
@@ -120,7 +110,7 @@ message PEntry {
 message CEntry {
     uint64 seq_no = 1;
     bytes checkpoint_value = 2;
-    NetworkState network_state = 3;
+    NetworkConfig network_config = 3;
     EpochConfig epoch_config = 4;
 }
 
@@ -293,101 +283,4 @@ message NewEpochEcho {
 // NewEpochReady is for the final round fo the classical Bracha reliable broadcast.
 message NewEpochReady {
     NewEpochConfig new_config = 1;
-}
-
-// StateEvent represents an event occurring inside of the state machine
-// and is used for tracing and debugging purposes only.
-message StateEvent {
-    message InitialParameters {
-        uint64 id = 1;
-        uint32 batch_size = 2;
-        uint32 heartbeat_ticks = 3;
-        uint32 suspect_ticks = 4;
-        uint32 new_epoch_timeout_ticks = 5;
-        uint32 buffer_size = 6;
-    }
-
-    message PersistedEntry {
-        Persistent entry = 1;
-    }
-
-    message LoadCompleted {}
-
-    message ActionResults {
-        repeated HashResult digests = 1;
-        repeated CheckpointResult checkpoints = 2;
-    }
-
-    message Proposal {
-        Request request = 1;
-    }
-
-    message InboundMsg {
-        uint64 source = 1;
-        Msg msg = 2;
-    }
-
-    message TickElapsed {}
-
-    message Ready{}
-
-    oneof type {
-        InitialParameters initialize = 1;
-	PersistedEntry load_entry = 2;
-	LoadCompleted complete_initialization = 3;
-        ActionResults add_results = 4;
-        Proposal propose = 5;
-        InboundMsg step = 6;
-	TickElapsed tick = 7;
-	Ready actions_received = 8;
-    }
-}
-
-message HashResult {
-    message Request {
-        uint64 source = 1;
-        mirbftpb.Request request = 2;
-    }
-
-    message VerifyRequest { 
-        uint64 source = 1;
-        mirbftpb.Request request = 2;
-        bytes expected_digest = 3;
-    }
-
-    message Batch {
-        uint64 source = 1;
-        uint64 epoch = 2;
-        uint64 seq_no = 3;
-        repeated mirbftpb.RequestAck request_acks = 5;
-    }
-
-    message VerifyBatch { 
-        uint64 source = 1;
-        uint64 seq_no = 2;
-        repeated mirbftpb.RequestAck request_acks = 3;
-        bytes expected_digest = 4;
-    }
-
-    message EpochChange {
-        uint64 source = 1;
-        uint64 origin = 2;
-        mirbftpb.EpochChange epoch_change = 3;
-    }
-
-    bytes digest = 1;
-    oneof type {
-        Request request = 2;
-        Batch batch = 3;
-        EpochChange epoch_change = 4;
-        VerifyBatch verify_batch = 5;
-        VerifyRequest verify_request = 6;
-    }
-}
-
-message CheckpointResult {
-        uint64 seq_no = 1;
-        NetworkState network_state = 2;
-        EpochConfig epoch_config = 3;
-        bytes value = 4;
 }
