@@ -147,8 +147,6 @@ func (a *arguments) execute(output io.Writer) error {
 			continue
 		}
 
-		var eventFormat string
-		var eventFormatArgs []interface{}
 		switch et := event.StateEvent.Type.(type) {
 		case *pb.StateEvent_Initialize:
 		case *pb.StateEvent_LoadEntry:
@@ -196,17 +194,15 @@ func (a *arguments) execute(output io.Writer) error {
 			if excludeByType(stepTypeText, a.stepTypes, a.notStepTypes) {
 				continue
 			}
-
-			if eventFormat == "" {
-				eventFormat = "StepType=%s\n"
-				eventFormatArgs = []interface{}{stepTypeText}
-			}
 		default:
 			panic("Unknown event type")
 		}
 
-		fmt.Fprintf(output, "Node=%d EventType=%s ", event.NodeId, eventTypeText)
-		fmt.Fprintf(output, eventFormat, eventFormatArgs...)
+		text, err := textFormat(event, true)
+		if err != nil {
+			return errors.WithMessage(err, "could not marshal event")
+		}
+		fmt.Fprintf(output, string(text))
 		fmt.Fprintf(output, "\n")
 	}
 }
