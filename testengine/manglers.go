@@ -9,7 +9,7 @@ package testengine
 import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 	rpb "github.com/IBM/mirbft/recorder/recorderpb"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 // EventMangling is meant to be an easy way to construct test descriptions.

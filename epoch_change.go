@@ -12,7 +12,7 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/pkg/errors"
 )

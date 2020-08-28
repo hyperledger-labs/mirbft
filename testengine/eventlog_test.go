@@ -13,17 +13,17 @@ import (
 	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 	"github.com/IBM/mirbft/testengine"
 
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 // For this test, place one event log at 'eventlog-1.bin', and another at 'eventlog-2.bin'.
 // This test will identify, and dump as JSON the first difference between the two logs
 var _ = XDescribe("Non-determinism finding test", func() {
-	var jsonMarshaler = &jsonpb.Marshaler{
-		EmitDefaults: true,
-		OrigName:     true,
-		Indent:       "  ",
+	var jsonMarshaler = &protojson.MarshalOptions{
+		EmitUnpopulated: true,
+		UseProtoNames:   true,
+		Indent:          "  ",
 	}
 
 	It("compares the two files", func() {
@@ -46,10 +46,10 @@ var _ = XDescribe("Non-determinism finding test", func() {
 			e2 := logEntry2.Value.(*rpb.RecordedEvent)
 
 			if !proto.Equal(e1, e2) {
-				jLogEntry1, err := jsonMarshaler.MarshalToString(e1)
+				jLogEntry1, err := jsonMarshaler.Marshal(e1)
 				Expect(err).NotTo(HaveOccurred())
 
-				jLogEntry2, err := jsonMarshaler.MarshalToString(e2)
+				jLogEntry2, err := jsonMarshaler.Marshal(e2)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(jLogEntry1).To(MatchJSON(jLogEntry2))

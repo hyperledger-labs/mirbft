@@ -13,7 +13,7 @@ import (
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 type checkpointState int
