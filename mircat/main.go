@@ -203,7 +203,7 @@ func (a *arguments) execute(output io.Writer) error {
 		if err != nil {
 			return errors.WithMessage(err, "could not marshal event")
 		}
-		fmt.Fprintf(output, string(text))
+		fmt.Fprint(output, string(text))
 		fmt.Fprintf(output, "\n")
 	}
 }
