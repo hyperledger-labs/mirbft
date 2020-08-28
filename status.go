@@ -82,15 +82,15 @@ type ClientWindowStatus struct {
 
 func (s *Status) Pretty() string {
 	var buffer bytes.Buffer
-	buffer.WriteString(fmt.Sprintf("===========================================\n"))
+	buffer.WriteString("===========================================\n")
 	buffer.WriteString(fmt.Sprintf("NodeID=%d, LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.NodeID, s.LowWatermark, s.HighWatermark, s.EpochChanger.LastActiveEpoch))
-	buffer.WriteString(fmt.Sprintf("===========================================\n\n"))
+	buffer.WriteString("===========================================\n\n")
 
 	buffer.WriteString("=== Epoch Changer ===\n")
 	buffer.WriteString(fmt.Sprintf("Change is in state: %d, last active epoch %d\n", s.EpochChanger.State, s.EpochChanger.LastActiveEpoch))
 	for _, et := range s.EpochChanger.EpochTargets {
 		buffer.WriteString(fmt.Sprintf("Target Epoch %d:\n", et.Number))
-		buffer.WriteString(fmt.Sprintf("  EpochChanges:\n"))
+		buffer.WriteString("  EpochChanges:\n")
 		for _, ec := range et.EpochChanges {
 			for _, ecm := range ec.Msgs {
 				buffer.WriteString(fmt.Sprintf("    Source=%d Digest=%.4x Acks=%v\n", ec.Source, ecm.Digest, ecm.Acks))

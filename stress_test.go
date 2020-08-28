@@ -99,10 +99,6 @@ type TestConfig struct {
 	CheckpointInterval int
 }
 
-func Uint64ToPtr(value uint64) *uint64 {
-	return &value
-}
-
 func Uint64ToBytes(value uint64) []byte {
 	byteValue := make([]byte, 8)
 	binary.LittleEndian.PutUint64(byteValue, value)
@@ -310,7 +306,7 @@ func (tr *TestReplica) Process() error {
 
 func (tr *TestReplica) DrainRecorder() error {
 	defer tr.RecordingFile.Close()
-	return tr.Node.Config.EventInterceptor.(*recorder.Interceptor).Drain(tr.RecordingFile, tr.DoneC)
+	return tr.Node.Config.EventInterceptor.(*recorder.Interceptor).Drain(tr.RecordingFile)
 }
 
 func (tr *TestReplica) DrainFrom(j int) func() error {
@@ -365,6 +361,7 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 					return time.Since(startTime).Milliseconds()
 				},
 				10000,
+				doneC,
 			),
 		}
 

@@ -14,5 +14,5 @@ require (
 	go.uber.org/zap v1.9.1
 	google.golang.org/protobuf v1.25.0
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
-	honnef.co/go/tools v0.0.0-20190523083050-ea95bdfd59fc
+	honnef.co/go/tools v0.0.1-2020.1.5
 )

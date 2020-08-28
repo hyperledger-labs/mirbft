@@ -23,6 +23,7 @@ type Interceptor struct {
 	timeSource func() int64
 	nodeID     uint64
 	eventC     chan eventTime
+	doneC      <-chan struct{}
 }
 
 type eventTime struct {
@@ -30,22 +31,26 @@ type eventTime struct {
 	time  int64
 }
 
-func NewInterceptor(nodeID uint64, timeSource func() int64, bufferSize int) *Interceptor {
+func NewInterceptor(nodeID uint64, timeSource func() int64, bufferSize int, doneC <-chan struct{}) *Interceptor {
 	return &Interceptor{
 		nodeID:     nodeID,
 		timeSource: timeSource,
 		eventC:     make(chan eventTime, bufferSize),
+		doneC:      doneC,
 	}
 }
 
 func (i *Interceptor) Intercept(event *pb.StateEvent) {
-	i.eventC <- eventTime{
+	select {
+	case i.eventC <- eventTime{
 		event: event,
 		time:  i.timeSource(),
+	}:
+	case <-i.doneC:
 	}
 }
 
-func (i *Interceptor) Drain(dest io.Writer, doneC <-chan struct{}) error {
+func (i *Interceptor) Drain(dest io.Writer) error {
 	write := func(eventTime eventTime) error {
 		return WriteRecordedEvent(dest, &rpb.RecordedEvent{
 			NodeId:     i.nodeID,
@@ -56,7 +61,7 @@ func (i *Interceptor) Drain(dest io.Writer, doneC <-chan struct{}) error {
 
 	for {
 		select {
-		case <-doneC:
+		case <-i.doneC:
 			for {
 				select {
 				case event := <-i.eventC:
