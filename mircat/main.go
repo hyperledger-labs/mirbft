@@ -12,6 +12,7 @@ SPDX-License-Identifier: Apache-2.0
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -92,45 +93,8 @@ func excludedByNodeID(re *rpb.RecordedEvent, nodeIDs []uint64) bool {
 	return true
 }
 
-func excludedAsMessage(se *pb.StateEvent_Step, matchedMsgs, excludedMsgs []string) bool {
-	switch se.Step.Msg.Type.(type) {
-	case *pb.Msg_Preprepare:
-		return excludeByType("Preprepare", matchedMsgs, excludedMsgs)
-	case *pb.Msg_Prepare:
-		return excludeByType("Prepare", matchedMsgs, excludedMsgs)
-	case *pb.Msg_Commit:
-		return excludeByType("Commit", matchedMsgs, excludedMsgs)
-	case *pb.Msg_Checkpoint:
-		return excludeByType("Checkpoint", matchedMsgs, excludedMsgs)
-	case *pb.Msg_Suspect:
-		return excludeByType("Suspect", matchedMsgs, excludedMsgs)
-	case *pb.Msg_EpochChange:
-		return excludeByType("EpochChange", matchedMsgs, excludedMsgs)
-	case *pb.Msg_EpochChangeAck:
-		return excludeByType("EpochChangeAck", matchedMsgs, excludedMsgs)
-	case *pb.Msg_NewEpoch:
-		return excludeByType("NewEpoch", matchedMsgs, excludedMsgs)
-	case *pb.Msg_NewEpochEcho:
-		return excludeByType("NewEpochEcho", matchedMsgs, excludedMsgs)
-	case *pb.Msg_NewEpochReady:
-		return excludeByType("NewEpochReady", matchedMsgs, excludedMsgs)
-	case *pb.Msg_FetchBatch:
-		return excludeByType("FetchBatch", matchedMsgs, excludedMsgs)
-	case *pb.Msg_ForwardBatch:
-		return excludeByType("ForwardBatch", matchedMsgs, excludedMsgs)
-	case *pb.Msg_FetchRequest:
-		return excludeByType("FetchRequest", matchedMsgs, excludedMsgs)
-	case *pb.Msg_ForwardRequest:
-		return excludeByType("ForwardRequest", matchedMsgs, excludedMsgs)
-	case *pb.Msg_RequestAck:
-		return excludeByType("RequestAck", matchedMsgs, excludedMsgs)
-	default:
-		panic("unknown message type")
-	}
-}
-
 type arguments struct {
-	input         *os.File
+	input         io.ReadCloser
 	interactive   bool
 	nodeIDs       []uint64
 	eventTypes    []string
@@ -139,7 +103,7 @@ type arguments struct {
 	notStepTypes  []string
 }
 
-func (a *arguments) execute() error {
+func (a *arguments) execute(output io.Writer) error {
 	defer a.input.Close()
 
 	reader := recorder.NewReader(a.input)
@@ -157,31 +121,93 @@ func (a *arguments) execute() error {
 			continue
 		}
 
-		var exclude bool
-		switch et := event.StateEvent.Type.(type) {
+		var eventTypeText string
+		switch event.StateEvent.Type.(type) {
 		case *pb.StateEvent_Initialize:
-			exclude = excludeByType("Initialize", a.eventTypes, a.notEventTypes)
+			eventTypeText = "Initialize"
 		case *pb.StateEvent_LoadEntry:
-			exclude = excludeByType("LoadEntry", a.eventTypes, a.notEventTypes)
+			eventTypeText = "LoadEntry"
 		case *pb.StateEvent_CompleteInitialization:
-			exclude = excludeByType("CompleteInitialization", a.eventTypes, a.notEventTypes)
+			eventTypeText = "CompleteInitialization"
 		case *pb.StateEvent_Tick:
-			exclude = excludeByType("Tick", a.eventTypes, a.notEventTypes)
+			eventTypeText = "Tick"
 		case *pb.StateEvent_Propose:
-			exclude = excludeByType("Propose", a.eventTypes, a.notEventTypes)
+			eventTypeText = "Propose"
 		case *pb.StateEvent_AddResults:
-			exclude = excludeByType("AddResults", a.eventTypes, a.notEventTypes)
+			eventTypeText = "AddResults"
 		case *pb.StateEvent_ActionsReceived:
-			exclude = excludeByType("ActionsReceived", a.eventTypes, a.notEventTypes)
+			eventTypeText = "ActionsReceived"
 		case *pb.StateEvent_Step:
-			exclude = excludedAsMessage(et, a.stepTypes, a.notStepTypes)
+			eventTypeText = "Step"
 		default:
 			panic("Unknown event type")
 		}
 
-		if exclude {
+		if excludeByType(eventTypeText, a.eventTypes, a.notEventTypes) {
 			continue
 		}
+
+		var eventFormat string
+		var eventFormatArgs []interface{}
+		switch et := event.StateEvent.Type.(type) {
+		case *pb.StateEvent_Initialize:
+		case *pb.StateEvent_LoadEntry:
+		case *pb.StateEvent_CompleteInitialization:
+		case *pb.StateEvent_Tick:
+		case *pb.StateEvent_Propose:
+		case *pb.StateEvent_AddResults:
+		case *pb.StateEvent_ActionsReceived:
+		case *pb.StateEvent_Step:
+			var stepTypeText string
+			switch et.Step.Msg.Type.(type) {
+			case *pb.Msg_Preprepare:
+				stepTypeText = "Preprepare"
+			case *pb.Msg_Prepare:
+				stepTypeText = "Prepare"
+			case *pb.Msg_Commit:
+				stepTypeText = "Commit"
+			case *pb.Msg_Checkpoint:
+				stepTypeText = "Checkpoint"
+			case *pb.Msg_Suspect:
+				stepTypeText = "Suspect"
+			case *pb.Msg_EpochChange:
+				stepTypeText = "EpochChange"
+			case *pb.Msg_EpochChangeAck:
+				stepTypeText = "EpochChangeAck"
+			case *pb.Msg_NewEpoch:
+				stepTypeText = "NewEpoch"
+			case *pb.Msg_NewEpochEcho:
+				stepTypeText = "NewEpochEcho"
+			case *pb.Msg_NewEpochReady:
+				stepTypeText = "NewEpochReady"
+			case *pb.Msg_FetchBatch:
+				stepTypeText = "FetchBatch"
+			case *pb.Msg_ForwardBatch:
+				stepTypeText = "ForwardBatch"
+			case *pb.Msg_FetchRequest:
+				stepTypeText = "FetchRequest"
+			case *pb.Msg_ForwardRequest:
+				stepTypeText = "ForwardRequest"
+			case *pb.Msg_RequestAck:
+				stepTypeText = "RequestAck"
+			default:
+				panic("unknown message type")
+			}
+			if excludeByType(stepTypeText, a.stepTypes, a.notStepTypes) {
+				continue
+			}
+
+			if eventFormat == "" {
+				eventFormat = "StepType=%s\n"
+				eventFormatArgs = []interface{}{stepTypeText}
+			}
+		default:
+			panic("Unknown event type")
+		}
+
+		fmt.Fprintf(output, "Node=%d EventType=%s ", event.NodeId, eventTypeText)
+		fmt.Fprintf(output, eventFormat, eventFormatArgs...)
+		fmt.Fprintf(output, "\n")
 	}
 }
 
@@ -202,9 +228,9 @@ func parseArgs(args []string) (*arguments, error) {
 
 	switch {
 	case *eventTypes != nil && *notEventTypes != nil:
-		return nil, errors.Errorf("Cannot set both --eventTypes and --notEventTypes")
+		return nil, errors.Errorf("cannot set both --eventType and --notEventType")
 	case *stepTypes != nil && *notStepTypes != nil:
-		return nil, errors.Errorf("Cannot set both --stepTypes and --notStepTypes")
+		return nil, errors.Errorf("cannot set both --stepType and --notStepType")
 	}
 
 	return &arguments{
@@ -222,7 +248,7 @@ func main() {
 	kingpin.Version("0.0.1")
 	args, err := parseArgs(os.Args[1:])
 	if err != nil {
-		kingpin.Fatalf("%s, try --help", err)
+		kingpin.Fatalf("Error, %s, try --help", err)
 	}
-	args.execute()
+	args.execute(os.Stdout)
 }
