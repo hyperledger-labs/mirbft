@@ -14,7 +14,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-type epochChanger struct {
+type epochTracker struct {
 	activeEpoch   *epochTarget
 	persisted     *persisted
 	networkConfig *pb.NetworkState_Config
@@ -30,8 +30,8 @@ func newEpochChanger(
 	myConfig *pb.StateEvent_InitialParameters,
 	batchTracker *batchTracker,
 	clientWindows *clientWindows,
-) *epochChanger {
-	ec := &epochChanger{
+) *epochTracker {
+	ec := &epochTracker{
 		persisted:     persisted,
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
@@ -66,11 +66,11 @@ func newEpochChanger(
 	return ec
 }
 
-func (ec *epochChanger) tick() *Actions {
+func (ec *epochTracker) tick() *Actions {
 	return ec.activeEpoch.tick()
 }
 
-func (ec *epochChanger) target(epoch uint64) *epochTarget {
+func (ec *epochTracker) target(epoch uint64) *epochTarget {
 	// TODO, we need to garbage collect in responst to
 	// spammy suspicions and epoch changes.  Basically
 	// if every suspect/epoch change has a corresponding
@@ -98,7 +98,7 @@ func (ec *epochChanger) target(epoch uint64) *epochTarget {
 	return target
 }
 
-func (ec *epochChanger) setPendingTarget(target *epochTarget) {
+func (ec *epochTracker) setPendingTarget(target *epochTarget) {
 	for number := range ec.targets {
 		if number < target.number {
 			delete(ec.targets, number)
@@ -107,7 +107,7 @@ func (ec *epochChanger) setPendingTarget(target *epochTarget) {
 	ec.activeEpoch = target
 }
 
-func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
+func (ec *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
 	target := ec.target(epoch)
 	target.applySuspectMsg(source)
 	if target.state < done {
@@ -130,7 +130,7 @@ func (ec *epochChanger) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 }
 
 /*
-func (ec *epochChanger) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
+func (ec *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 	if ec.lastActiveEpoch == nil {
 		panic("this shouldn't happen")
 	}
@@ -181,7 +181,7 @@ func (ec *epochChanger) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 }
 */
 
-func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
+func (ec *epochTracker) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
 	actions := &Actions{}
 	if source != NodeID(ec.myConfig.Id) {
 		// We don't want to echo our own EpochChange message,
@@ -205,18 +205,18 @@ func (ec *epochChanger) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) 
 	return actions.concat(target.applyEpochChangeAckMsg(source, source, msg))
 }
 
-func (ec *epochChanger) applyEpochChangeDigest(epochChange *pb.HashResult_EpochChange, digest []byte) *Actions {
+func (ec *epochTracker) applyEpochChangeDigest(epochChange *pb.HashResult_EpochChange, digest []byte) *Actions {
 	// TODO, fix all this stuttering and repitition
 	target := ec.target(epochChange.EpochChange.NewEpoch)
 	return target.applyEpochChangeDigest(epochChange, digest)
 }
 
-func (ec *epochChanger) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
+func (ec *epochTracker) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
 	target := ec.target(ack.EpochChange.NewEpoch)
 	return target.applyEpochChangeAckMsg(source, NodeID(ack.Originator), ack.EpochChange)
 }
 
-func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
+func (ec *epochTracker) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 	target := ec.target(msg.NewConfig.Config.Number)
 	return target.applyNewEpochMsg(msg)
 }
@@ -240,17 +240,17 @@ func (ec *epochChanger) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 // upon receiving 2t + 1 messages (READY, m):
 // r-deliver(m)
 
-func (ec *epochChanger) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
+func (ec *epochTracker) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
 	target := ec.target(msg.NewConfig.Config.Number)
 	return target.applyNewEpochEchoMsg(source, msg)
 }
 
-func (ec *epochChanger) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
+func (ec *epochTracker) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
 	target := ec.target(msg.NewConfig.Config.Number)
 	return target.applyNewEpochReadyMsg(source, msg)
 }
 
-func (ec *epochChanger) status() *EpochChangerStatus {
+func (ec *epochTracker) status() *EpochChangerStatus {
 	targets := make([]*EpochTargetStatus, 0, len(ec.targets))
 	for number, target := range ec.targets {
 		ts := target.status()

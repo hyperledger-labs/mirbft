@@ -42,7 +42,7 @@ type StateMachine struct {
 	activeEpoch       *epoch
 	batchTracker      *batchTracker
 	checkpointTracker *checkpointTracker
-	epochChanger      *epochChanger
+	epochTracker      *epochTracker
 	persisted         *persisted
 }
 
@@ -106,7 +106,7 @@ func (sm *StateMachine) completeInitialization() {
 
 	sm.batchTracker = newBatchTracker(sm.persisted)
 
-	sm.epochChanger = newEpochChanger(
+	sm.epochTracker = newEpochChanger(
 		sm.persisted,
 		sm.networkConfig,
 		sm.myConfig,
@@ -229,12 +229,12 @@ func (sm *StateMachine) advance(actions *Actions) *Actions {
 		sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
 	}
 
-	if sm.epochChanger.activeEpoch.state != ready {
+	if sm.epochTracker.activeEpoch.state != ready {
 		return actions
 	}
 
 	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig, sm.Logger)
-	sm.epochChanger.activeEpoch.state = inProgress
+	sm.epochTracker.activeEpoch.state = inProgress
 	for _, nodeMsgs := range sm.nodeMsgs {
 		nodeMsgs.setActiveEpoch(sm.activeEpoch)
 	}
@@ -291,15 +291,15 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			case *pb.Msg_Suspect:
 				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 			case *pb.Msg_EpochChange:
-				actions.concat(sm.epochChanger.applyEpochChangeMsg(source, innerMsg.EpochChange))
+				actions.concat(sm.epochTracker.applyEpochChangeMsg(source, innerMsg.EpochChange))
 			case *pb.Msg_EpochChangeAck:
-				actions.concat(sm.epochChanger.applyEpochChangeAckMsg(source, innerMsg.EpochChangeAck))
+				actions.concat(sm.epochTracker.applyEpochChangeAckMsg(source, innerMsg.EpochChangeAck))
 			case *pb.Msg_NewEpoch:
-				actions.concat(sm.epochChanger.applyNewEpochMsg(innerMsg.NewEpoch))
+				actions.concat(sm.epochTracker.applyNewEpochMsg(innerMsg.NewEpoch))
 			case *pb.Msg_NewEpochEcho:
-				actions.concat(sm.epochChanger.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho))
+				actions.concat(sm.epochTracker.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho))
 			case *pb.Msg_NewEpochReady:
-				actions.concat(sm.epochChanger.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
+				actions.concat(sm.epochTracker.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
 			default:
 				// This should be unreachable, as the nodeMsgs filters based on type as well
 				panic(fmt.Sprintf("unexpected bad message type %T, should have been detected earlier", msg.Type))
@@ -313,7 +313,7 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 }
 
 func (sm *StateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
-	epochChange := sm.epochChanger.applySuspectMsg(source, epoch)
+	epochChange := sm.epochTracker.applySuspectMsg(source, epoch)
 	if epochChange == nil {
 		return &Actions{}
 	}
@@ -404,17 +404,17 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 				// XXX this should not panic, but put to make dev easier
 			}
 			sm.clientWindows.allocate(request.Request, hashResult.Digest)
-			if sm.epochChanger.activeEpoch.state == fetching {
-				actions.concat(sm.epochChanger.activeEpoch.fetchNewEpochState())
+			if sm.epochTracker.activeEpoch.state == fetching {
+				actions.concat(sm.epochTracker.activeEpoch.fetchNewEpochState())
 			}
 		case *pb.HashResult_EpochChange_:
 			epochChange := hashType.EpochChange
-			actions.concat(sm.epochChanger.applyEpochChangeDigest(epochChange, hashResult.Digest))
+			actions.concat(sm.epochTracker.applyEpochChangeDigest(epochChange, hashResult.Digest))
 		case *pb.HashResult_VerifyBatch_:
 			verifyBatch := hashType.VerifyBatch
 			sm.batchTracker.applyVerifyBatchHashResult(hashResult.Digest, verifyBatch)
-			if !sm.batchTracker.hasFetchInFlight() && sm.epochChanger.activeEpoch.state == fetching {
-				actions.concat(sm.epochChanger.activeEpoch.fetchNewEpochState())
+			if !sm.batchTracker.hasFetchInFlight() && sm.epochTracker.activeEpoch.state == fetching {
+				actions.concat(sm.epochTracker.activeEpoch.fetchNewEpochState())
 			}
 		default:
 			panic("no hash result type set")
@@ -442,7 +442,7 @@ func (sm *StateMachine) tick() *Actions {
 		actions.concat(sm.activeEpoch.tick())
 	}
 
-	return actions.concat(sm.epochChanger.tick())
+	return actions.concat(sm.epochTracker.tick())
 }
 
 func (sm *StateMachine) Status() *Status {
@@ -488,7 +488,7 @@ func (sm *StateMachine) Status() *Status {
 		NodeID:        sm.myConfig.Id,
 		LowWatermark:  lowWatermark,
 		HighWatermark: highWatermark,
-		EpochChanger:  sm.epochChanger.status(),
+		EpochChanger:  sm.epochTracker.status(),
 		ClientWindows: clientWindowsStatus,
 		Buckets:       buckets,
 		Checkpoints:   checkpoints,
