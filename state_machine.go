@@ -124,6 +124,8 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		}
 	}
 
+	actions := &Actions{}
+
 	switch event := stateEvent.Type.(type) {
 	case *pb.StateEvent_Initialize:
 		sm.initialize(event.Initialize)
@@ -136,20 +138,20 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		return sm.tick()
 	case *pb.StateEvent_Step:
 		assertInitialized()
-		return sm.step(
+		actions.concat(sm.step(
 			NodeID(event.Step.Source),
 			event.Step.Msg,
-		)
+		))
 	case *pb.StateEvent_Propose:
 		assertInitialized()
-		return sm.propose(
+		actions.concat(sm.propose(
 			event.Propose.Request,
-		)
+		))
 	case *pb.StateEvent_AddResults:
 		assertInitialized()
-		return sm.processResults(
+		actions.concat(sm.processResults(
 			event.AddResults,
-		)
+		))
 	case *pb.StateEvent_ActionsReceived:
 		// This is a bit odd, in that it's a no-op, but it's harmless
 		// and allows for much more insightful playback events (allowing
@@ -158,7 +160,13 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}
 
-	return &Actions{}
+	if sm.activeEpoch == nil {
+		return actions
+	}
+
+	actions.concat(sm.activeEpoch.outstandingReqs.advanceRequests())
+	return actions.concat(sm.activeEpoch.drainProposer())
+
 }
 
 func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
@@ -226,7 +234,6 @@ func (sm *StateMachine) advance(actions *Actions) *Actions {
 	}
 
 	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig, sm.Logger)
-	actions.concat(sm.activeEpoch.drainProposer())
 	sm.epochChanger.activeEpoch.state = inProgress
 	for _, nodeMsgs := range sm.nodeMsgs {
 		nodeMsgs.setActiveEpoch(sm.activeEpoch)
@@ -250,7 +257,7 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			switch innerMsg := msg.Type.(type) {
 			case *pb.Msg_Preprepare:
 				msg := innerMsg.Preprepare
-				actions.concat(sm.applyPreprepareMsg(source, msg))
+				actions.concat(sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
 			case *pb.Msg_Prepare:
 				msg := innerMsg.Prepare
 				actions.concat(sm.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
@@ -261,8 +268,9 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 				msg := innerMsg.Checkpoint
 				actions.concat(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
 			case *pb.Msg_RequestAck:
+				// TODO, make sure nodeMsgs ignores this if client is not defined
 				msg := innerMsg.RequestAck
-				actions.concat(sm.applyRequestAckMsg(source, msg))
+				sm.clientWindows.ack(source, msg)
 			case *pb.Msg_FetchBatch:
 				msg := innerMsg.FetchBatch
 				actions.concat(sm.batchTracker.replyFetchBatch(uint64(source), msg.SeqNo, msg.Digest))
@@ -302,10 +310,6 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			return actions
 		}
 	}
-}
-
-func (sm *StateMachine) applyPreprepareMsg(source NodeID, msg *pb.Preprepare) *Actions {
-	return sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch)
 }
 
 func (sm *StateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
@@ -392,14 +396,14 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 					},
 				},
 			)
-			actions.concat(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
+			sm.clientWindows.allocate(request.Request, hashResult.Digest)
 		case *pb.HashResult_VerifyRequest_:
 			request := hashType.VerifyRequest
 			if !bytes.Equal(request.ExpectedDigest, hashResult.Digest) {
 				panic("byzantine")
 				// XXX this should not panic, but put to make dev easier
 			}
-			actions.concat(sm.applyDigestedValidRequest(hashResult.Digest, request.Request))
+			sm.clientWindows.allocate(request.Request, hashResult.Digest)
 			if sm.epochChanger.activeEpoch.state == fetching {
 				actions.concat(sm.epochChanger.activeEpoch.fetchNewEpochState())
 			}
@@ -420,30 +424,6 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 	actions.concat(sm.drainNodeMsgs())
 
 	return sm.advance(actions)
-}
-
-func (sm *StateMachine) applyRequestAckMsg(source NodeID, ack *pb.RequestAck) *Actions {
-	// TODO, make sure nodeMsgs ignores this if client is not defined
-
-	sm.clientWindows.ack(source, ack)
-
-	if sm.activeEpoch == nil {
-		return &Actions{}
-	}
-
-	actions := sm.activeEpoch.outstandingReqs.advanceRequests()
-	return actions.concat(sm.activeEpoch.drainProposer())
-}
-
-func (sm *StateMachine) applyDigestedValidRequest(digest []byte, requestData *pb.Request) *Actions {
-	sm.clientWindows.allocate(requestData, digest)
-
-	if sm.activeEpoch == nil {
-		return &Actions{}
-	}
-
-	actions := sm.activeEpoch.outstandingReqs.advanceRequests()
-	return actions.concat(sm.activeEpoch.drainProposer())
 }
 
 func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
