@@ -252,6 +252,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 }
 
 func (et *epochTarget) tick() *Actions {
+	et.stateTicks++
 	switch et.state {
 	case prepending:
 		return et.tickPrepending()
@@ -284,8 +285,6 @@ func (et *epochTarget) tickPrepending() *Actions {
 
 		return &Actions{}
 	}
-
-	et.stateTicks = 0
 
 	if et.isLeader {
 		return (&Actions{}).send(
@@ -394,6 +393,7 @@ func (et *epochTarget) checkEpochQuorum() *Actions {
 		return &Actions{}
 	}
 
+	et.stateTicks = 0
 	et.state = pending
 
 	if et.isLeader {

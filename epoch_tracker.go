@@ -145,10 +145,7 @@ func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 
 	newTarget.myLeaderChoice = []uint64{et.myConfig.Id}
 
-	return et.persisted.addEpochChange(epochChange)
-
-	/* // XXX if we send this right away, it's trigger state transfer... but that seems like a bug
-	actions.send(
+	return et.persisted.addEpochChange(epochChange).send(
 		et.networkConfig.Nodes,
 		&pb.Msg{
 			Type: &pb.Msg_EpochChange{
@@ -156,7 +153,6 @@ func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 			},
 		},
 	)
-	*/
 }
 
 func (et *epochTracker) applyPreprepareMsg(source NodeID, epoch, seqNo uint64, batch []*pb.RequestAck) *Actions {
