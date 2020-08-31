@@ -73,7 +73,7 @@ func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error
 		}
 
 		if _, ok := checkpoints[checkpoint.SeqNo]; ok {
-			return nil, errors.Errorf("epoch change contained duplicated seqnos for %d", checkpoint.SeqNo)
+			return nil, errors.Errorf("epoch change checkpoints contained duplicated seqnos for %d", checkpoint.SeqNo)
 		}
 	}
 

@@ -39,7 +39,6 @@ type StateMachine struct {
 	nodeMsgs      map[NodeID]*nodeMsgs
 	clientWindows *clientWindows
 
-	activeEpoch       *activeEpoch
 	batchTracker      *batchTracker
 	checkpointTracker *checkpointTracker
 	epochTracker      *epochTracker
@@ -109,6 +108,7 @@ func (sm *StateMachine) completeInitialization() {
 	sm.epochTracker = newEpochChanger(
 		sm.persisted,
 		sm.networkConfig,
+		sm.Logger,
 		sm.myConfig,
 		sm.batchTracker,
 		sm.clientWindows,
@@ -129,10 +129,13 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	switch event := stateEvent.Type.(type) {
 	case *pb.StateEvent_Initialize:
 		sm.initialize(event.Initialize)
+		return &Actions{}
 	case *pb.StateEvent_LoadEntry:
 		sm.applyPersisted(event.LoadEntry.Entry)
+		return &Actions{}
 	case *pb.StateEvent_CompleteInitialization:
 		sm.completeInitialization()
+		return &Actions{}
 	case *pb.StateEvent_Tick:
 		assertInitialized()
 		return sm.tick()
@@ -160,12 +163,12 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}
 
-	if sm.activeEpoch == nil {
+	if sm.epochTracker.currentEpoch.activeEpoch == nil {
 		return actions
 	}
 
-	actions.concat(sm.activeEpoch.outstandingReqs.advanceRequests())
-	return actions.concat(sm.activeEpoch.drainProposer())
+	actions.concat(sm.epochTracker.currentEpoch.activeEpoch.outstandingReqs.advanceRequests())
+	return actions.concat(sm.epochTracker.currentEpoch.activeEpoch.drainProposer())
 
 }
 
@@ -229,14 +232,14 @@ func (sm *StateMachine) advance(actions *Actions) *Actions {
 		sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
 	}
 
-	if sm.epochTracker.currentEpoch.state != ready {
+	if sm.epochTracker.currentEpoch.state != inProgress {
 		return actions
 	}
 
-	sm.activeEpoch = newActiveEpoch(sm.persisted, sm.clientWindows, sm.myConfig, sm.Logger)
-	sm.epochTracker.currentEpoch.state = inProgress
 	for _, nodeMsgs := range sm.nodeMsgs {
-		nodeMsgs.setActiveEpoch(sm.activeEpoch)
+		if nodeMsgs.epochMsgs == nil { // TODO, remove this hack
+			nodeMsgs.setActiveEpoch(sm.epochTracker.currentEpoch.activeEpoch)
+		}
 	}
 
 	return actions
@@ -257,13 +260,13 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			switch innerMsg := msg.Type.(type) {
 			case *pb.Msg_Preprepare:
 				msg := innerMsg.Preprepare
-				actions.concat(sm.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
+				actions.concat(sm.epochTracker.currentEpoch.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
 			case *pb.Msg_Prepare:
 				msg := innerMsg.Prepare
-				actions.concat(sm.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
+				actions.concat(sm.epochTracker.currentEpoch.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
 			case *pb.Msg_Commit:
 				msg := innerMsg.Commit
-				actions.concat(sm.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
+				actions.concat(sm.epochTracker.currentEpoch.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
 			case *pb.Msg_Checkpoint:
 				msg := innerMsg.Checkpoint
 				actions.concat(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
@@ -321,7 +324,6 @@ func (sm *StateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 	for _, nodeMsgs := range sm.nodeMsgs {
 		nodeMsgs.setActiveEpoch(nil)
 	}
-	sm.activeEpoch = nil
 
 	actions := sm.persisted.addEpochChange(epochChange) // TODO, this is an awkward spot
 
@@ -351,7 +353,7 @@ func (sm *StateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 		sm.batchTracker.truncate(newLow - uint64(sm.networkConfig.CheckpointInterval))
 	}
 	sm.persisted.truncate(newLow)
-	actions := sm.activeEpoch.moveWatermarks(newLow)
+	actions := sm.epochTracker.currentEpoch.activeEpoch.moveWatermarks(newLow)
 	return actions.concat(sm.drainNodeMsgs())
 }
 
@@ -374,14 +376,14 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 			batch := hashType.Batch
 			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
 
-			if sm.activeEpoch != nil && batch.Epoch != sm.activeEpoch.epochConfig.Number {
+			if sm.epochTracker.currentEpoch.activeEpoch != nil && batch.Epoch != sm.epochTracker.currentEpoch.activeEpoch.epochConfig.Number {
 				continue
 			}
 
 			// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
 			seqNo := batch.SeqNo
 			// TODO, rename applyProcessResult to something better
-			actions.concat(sm.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
+			actions.concat(sm.epochTracker.currentEpoch.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
 		case *pb.HashResult_Request_:
 			request := hashType.Request
 			actions.send(
@@ -438,8 +440,8 @@ func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
 func (sm *StateMachine) tick() *Actions {
 	actions := &Actions{}
 
-	if sm.activeEpoch != nil {
-		actions.concat(sm.activeEpoch.tick())
+	if sm.epochTracker.currentEpoch.activeEpoch != nil {
+		actions.concat(sm.epochTracker.currentEpoch.activeEpoch.tick())
 	}
 
 	return actions.concat(sm.epochTracker.tick())
@@ -470,8 +472,8 @@ func (sm *StateMachine) Status() *Status {
 	var buckets []*BucketStatus
 	var lowWatermark, highWatermark uint64
 
-	if sm.activeEpoch != nil {
-		epoch := sm.activeEpoch
+	if sm.epochTracker.currentEpoch.activeEpoch != nil {
+		epoch := sm.epochTracker.currentEpoch.activeEpoch
 
 		buckets = epoch.status()
 

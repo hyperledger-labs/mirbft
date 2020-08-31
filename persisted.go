@@ -210,18 +210,36 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 		NewEpoch: newEpoch,
 	}
 
-	var logEpoch uint64
+	// To avoid putting redundant entries into the pSet, we count
+	// how many are in the log for each sequence so that we may
+	// skip all but the last entry for each sequence number
+	pSkips := map[uint64]int{}
+	for head := p.logHead; head != nil; head = head.next {
+		d, ok := head.entry.Type.(*pb.Persistent_PEntry)
+		if !ok {
+			continue
+		}
+		count := pSkips[d.PEntry.SeqNo]
+		pSkips[d.PEntry.SeqNo] = count + 1
+	}
+
+	var logEpoch *uint64
 	for head := p.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_PEntry:
+			count := pSkips[d.PEntry.SeqNo]
+			if count != 1 {
+				pSkips[d.PEntry.SeqNo] = count - 1
+				continue
+			}
 			epochChange.PSet = append(epochChange.PSet, &pb.EpochChange_SetEntry{
-				Epoch:  logEpoch,
+				Epoch:  *logEpoch,
 				SeqNo:  d.PEntry.SeqNo,
 				Digest: d.PEntry.Digest,
 			})
 		case *pb.Persistent_QEntry:
 			epochChange.QSet = append(epochChange.QSet, &pb.EpochChange_SetEntry{
-				Epoch:  logEpoch,
+				Epoch:  *logEpoch,
 				SeqNo:  d.QEntry.SeqNo,
 				Digest: d.QEntry.Digest,
 			})
@@ -230,11 +248,14 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 				SeqNo: d.CEntry.SeqNo,
 				Value: d.CEntry.CheckpointValue,
 			})
-		case *pb.Persistent_EpochChange:
-			if logEpoch+1 != d.EpochChange.NewEpoch {
-				panic("dev sanity test")
+			if logEpoch == nil {
+				logEpoch = &d.CEntry.EpochConfig.Number
 			}
-			logEpoch = d.EpochChange.NewEpoch
+		case *pb.Persistent_EpochChange:
+			if *logEpoch+1 != d.EpochChange.NewEpoch {
+				panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", d.EpochChange.NewEpoch, logEpoch))
+			}
+			logEpoch = &d.EpochChange.NewEpoch
 		}
 	}
 

@@ -18,6 +18,7 @@ type epochTracker struct {
 	currentEpoch  *epochTarget
 	persisted     *persisted
 	networkConfig *pb.NetworkState_Config
+	logger        Logger
 	myConfig      *pb.StateEvent_InitialParameters
 	batchTracker  *batchTracker
 	clientWindows *clientWindows
@@ -27,6 +28,7 @@ type epochTracker struct {
 func newEpochChanger(
 	persisted *persisted,
 	networkConfig *pb.NetworkState_Config,
+	logger Logger,
 	myConfig *pb.StateEvent_InitialParameters,
 	batchTracker *batchTracker,
 	clientWindows *clientWindows,
@@ -89,6 +91,7 @@ func (ec *epochTracker) target(epoch uint64) *epochTarget {
 			isLeader:      epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.Id,
 			persisted:     ec.persisted,
 			networkConfig: ec.networkConfig,
+			logger:        ec.logger,
 			myConfig:      ec.myConfig,
 			batchTracker:  ec.batchTracker,
 			clientWindows: ec.clientWindows,

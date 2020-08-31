@@ -40,6 +40,7 @@ type epochTarget struct {
 	strongChanges map[NodeID]*parsedEpochChange
 	echos         map[*pb.NewEpochConfig]map[NodeID]struct{}
 	readies       map[*pb.NewEpochConfig]map[NodeID]struct{}
+	activeEpoch   *activeEpoch
 	suspicions    map[NodeID]struct{}
 
 	persisted       *persisted
@@ -50,6 +51,7 @@ type epochTarget struct {
 	networkNewEpoch *pb.NewEpochConfig // The NewEpoch msg as received via the bracha broadcast
 	isLeader        bool
 
+	logger        Logger
 	networkConfig *pb.NetworkState_Config
 	myConfig      *pb.StateEvent_InitialParameters
 	batchTracker  *batchTracker
@@ -592,6 +594,9 @@ func (et *epochTarget) advanceState() *Actions {
 		case readying: // Have received a quorum of echos, waiting a on qourum of readies
 			actions.concat(et.checkNewEpochReadyQuorum())
 		case ready: // New epoch is ready to begin
+			et.activeEpoch = newActiveEpoch(et.persisted, et.clientWindows, et.myConfig, et.logger)
+			et.state = inProgress
+
 		case inProgress: // No pending change
 		case done: // We have sent an epoch change, ending this epoch for us
 		default:
