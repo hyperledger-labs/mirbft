@@ -8,6 +8,8 @@ package mirbft
 
 import (
 	"bytes"
+	"fmt"
+
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
@@ -44,6 +46,19 @@ func newBatchTracker(persisted *persisted) *batchTracker {
 	}
 
 	return bt
+}
+
+func (bt *batchTracker) step(source NodeID, msg *pb.Msg) *Actions {
+	switch innerMsg := msg.Type.(type) {
+	case *pb.Msg_FetchBatch:
+		msg := innerMsg.FetchBatch
+		return bt.replyFetchBatch(uint64(source), msg.SeqNo, msg.Digest)
+	case *pb.Msg_ForwardBatch:
+		msg := innerMsg.ForwardBatch
+		return bt.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.RequestAcks)
+	default:
+		panic(fmt.Sprintf("unexpected bad batch message type %T, this indicates a bug", msg.Type))
+	}
 }
 
 func (bt *batchTracker) truncate(seqNo uint64) {

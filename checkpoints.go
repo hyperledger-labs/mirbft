@@ -9,6 +9,7 @@ package mirbft
 import (
 	"bytes"
 	"container/list"
+	"fmt"
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -75,6 +76,16 @@ func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialP
 	ct.garbageCollect()
 
 	return ct
+}
+
+func (ct *checkpointTracker) step(source NodeID, msg *pb.Msg) {
+	switch innerMsg := msg.Type.(type) {
+	case *pb.Msg_Checkpoint:
+		msg := innerMsg.Checkpoint
+		ct.applyCheckpointMsg(source, msg.SeqNo, msg.Value)
+	default:
+		panic(fmt.Sprintf("unexpected bad checkpoint message type %T, this indicates a bug", msg.Type))
+	}
 }
 
 func (ct *checkpointTracker) garbageCollect() uint64 {

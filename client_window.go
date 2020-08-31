@@ -28,9 +28,10 @@ type clientWindows struct {
 	readyHead     *readyEntry
 	readyTail     *readyEntry
 	correctList   *list.List // A list of requests which have f+1 ACKs and the requestData
+	myConfig      *pb.StateEvent_InitialParameters
 }
 
-func newClientWindows(persisted *persisted, logger Logger) *clientWindows {
+func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientWindows {
 	maxSeq := uint64(math.MaxUint64)
 	readyAnchor := &readyEntry{
 		clientReqNo: &clientReqNo{
@@ -46,6 +47,7 @@ func newClientWindows(persisted *persisted, logger Logger) *clientWindows {
 		correctList: list.New(),
 		readyHead:   readyAnchor,
 		readyTail:   readyAnchor,
+		myConfig:    myConfig,
 	}
 
 	clientWindowWidth := uint64(100) // XXX this should be configurable
@@ -93,6 +95,28 @@ func newClientWindows(persisted *persisted, logger Logger) *clientWindows {
 	}
 
 	return cws
+}
+
+func (cws *clientWindows) step(source NodeID, msg *pb.Msg) *Actions {
+	switch innerMsg := msg.Type.(type) {
+	case *pb.Msg_RequestAck:
+		// TODO, make sure nodeMsgs ignores this if client is not defined
+		cws.ack(source, innerMsg.RequestAck)
+		return &Actions{}
+	case *pb.Msg_FetchRequest:
+		msg := innerMsg.FetchRequest
+		return cws.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest)
+	case *pb.Msg_ForwardRequest:
+		if source == NodeID(cws.myConfig.Id) {
+			// We've already pre-processed this
+			// TODO, once we implement unicasting to only those
+			// who don't know this should go away.
+			return &Actions{}
+		}
+		return cws.applyForwardRequest(source, innerMsg.ForwardRequest)
+	default:
+		panic(fmt.Sprintf("unexpected bad client window message type %T, this indicates a bug", msg.Type))
+	}
 }
 
 func (cws *clientWindows) clientConfigs() []*pb.NetworkState_Client { // XXX I think this needs to take a seqno?

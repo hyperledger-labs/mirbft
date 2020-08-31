@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"fmt"
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -69,6 +70,34 @@ func newEpochChanger(
 	}
 
 	return et
+}
+
+func (et *epochTracker) step(source NodeID, msg *pb.Msg) *Actions {
+	switch innerMsg := msg.Type.(type) {
+	case *pb.Msg_Preprepare:
+		msg := innerMsg.Preprepare
+		return et.applyPreprepareMsg(source, msg.Epoch, msg.SeqNo, msg.Batch)
+	case *pb.Msg_Prepare:
+		msg := innerMsg.Prepare
+		return et.applyPrepareMsg(source, msg.Epoch, msg.SeqNo, msg.Digest)
+	case *pb.Msg_Commit:
+		msg := innerMsg.Commit
+		return et.applyCommitMsg(source, msg.Epoch, msg.SeqNo, msg.Digest)
+	case *pb.Msg_Suspect:
+		return et.applySuspectMsg(source, innerMsg.Suspect.Epoch)
+	case *pb.Msg_EpochChange:
+		return et.applyEpochChangeMsg(source, innerMsg.EpochChange)
+	case *pb.Msg_EpochChangeAck:
+		return et.applyEpochChangeAckMsg(source, innerMsg.EpochChangeAck)
+	case *pb.Msg_NewEpoch:
+		return et.applyNewEpochMsg(innerMsg.NewEpoch)
+	case *pb.Msg_NewEpochEcho:
+		return et.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho)
+	case *pb.Msg_NewEpochReady:
+		return et.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady)
+	default:
+		panic(fmt.Sprintf("unexpected bad epoch message type %T, this indicates a bug", msg.Type))
+	}
 }
 
 func (et *epochTracker) applyBatchHashResult(epoch, seqNo uint64, digest []byte) *Actions {

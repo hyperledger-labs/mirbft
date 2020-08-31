@@ -27,9 +27,6 @@ const (
 // This structure should almost never be initialized directly but should instead
 // be allocated via StartNode.
 type StateMachine struct {
-	// Logger XXX this is a weird place/way to initialize the logger, since
-	// we go and reference it through myConfig at the moment, but, it's the
-	// only non-serializable part of the config.
 	Logger Logger
 
 	state StateMachineState
@@ -94,7 +91,7 @@ func (sm *StateMachine) completeInitialization() {
 	}
 
 	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig)
-	sm.clientWindows = newClientWindows(sm.persisted, sm.Logger)
+	sm.clientWindows = newClientWindows(sm.persisted, sm.myConfig, sm.Logger)
 
 	sm.networkConfig = sm.checkpointTracker.networkConfig
 
@@ -162,6 +159,19 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		// us to tie action results to a particular set of actions)
 	default:
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
+	}
+
+	if sm.checkpointTracker.state == cpsGarbageCollectable {
+		newLow := sm.checkpointTracker.garbageCollect()
+
+		sm.clientWindows.garbageCollect(newLow)
+		if newLow > uint64(sm.networkConfig.CheckpointInterval) {
+			// Note, we leave an extra checkpoint worth of batches around, to help
+			// during epoch change.
+			sm.batchTracker.truncate(newLow - uint64(sm.networkConfig.CheckpointInterval))
+		}
+		sm.persisted.truncate(newLow)
+		actions.concat(sm.epochTracker.moveWatermarks(newLow))
 	}
 
 	actions.concat(sm.epochTracker.currentEpoch.advanceState())
@@ -240,52 +250,37 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			}
 			moreActions = true
 
-			switch innerMsg := msg.Type.(type) {
-			case *pb.Msg_Preprepare:
-				msg := innerMsg.Preprepare
-				actions.concat(sm.epochTracker.applyPreprepareMsg(source, msg.Epoch, msg.SeqNo, msg.Batch))
-			case *pb.Msg_Prepare:
-				msg := innerMsg.Prepare
-				actions.concat(sm.epochTracker.applyPrepareMsg(source, msg.Epoch, msg.SeqNo, msg.Digest))
-			case *pb.Msg_Commit:
-				msg := innerMsg.Commit
-				actions.concat(sm.epochTracker.applyCommitMsg(source, msg.Epoch, msg.SeqNo, msg.Digest))
+			switch msg.Type.(type) {
 			case *pb.Msg_Checkpoint:
-				msg := innerMsg.Checkpoint
-				actions.concat(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
+				sm.checkpointTracker.step(source, msg)
 			case *pb.Msg_RequestAck:
-				// TODO, make sure nodeMsgs ignores this if client is not defined
-				msg := innerMsg.RequestAck
-				sm.clientWindows.ack(source, msg)
-			case *pb.Msg_FetchBatch:
-				msg := innerMsg.FetchBatch
-				actions.concat(sm.batchTracker.replyFetchBatch(uint64(source), msg.SeqNo, msg.Digest))
+				actions.concat(sm.clientWindows.step(source, msg))
 			case *pb.Msg_FetchRequest:
-				msg := innerMsg.FetchRequest
-				actions.concat(sm.clientWindows.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest))
-			case *pb.Msg_ForwardBatch:
-				msg := innerMsg.ForwardBatch
-				actions.concat(sm.batchTracker.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.RequestAcks))
+				actions.concat(sm.clientWindows.step(source, msg))
 			case *pb.Msg_ForwardRequest:
-				if source == NodeID(sm.myConfig.Id) {
-					// We've already pre-processed this
-					// TODO, once we implement unicasting to only those
-					// who don't know this should go away.
-					continue
-				}
-				actions.concat(sm.clientWindows.applyForwardRequest(source, innerMsg.ForwardRequest))
+				actions.concat(sm.clientWindows.step(source, msg))
+			case *pb.Msg_FetchBatch:
+				actions.concat(sm.batchTracker.step(source, msg))
+			case *pb.Msg_ForwardBatch:
+				actions.concat(sm.batchTracker.step(source, msg))
+			case *pb.Msg_Preprepare:
+				actions.concat(sm.epochTracker.step(source, msg))
+			case *pb.Msg_Prepare:
+				actions.concat(sm.epochTracker.step(source, msg))
+			case *pb.Msg_Commit:
+				actions.concat(sm.epochTracker.step(source, msg))
 			case *pb.Msg_Suspect:
-				actions.concat(sm.epochTracker.applySuspectMsg(source, innerMsg.Suspect.Epoch))
+				actions.concat(sm.epochTracker.step(source, msg))
 			case *pb.Msg_EpochChange:
-				actions.concat(sm.epochTracker.applyEpochChangeMsg(source, innerMsg.EpochChange))
+				actions.concat(sm.epochTracker.step(source, msg))
 			case *pb.Msg_EpochChangeAck:
-				actions.concat(sm.epochTracker.applyEpochChangeAckMsg(source, innerMsg.EpochChangeAck))
+				actions.concat(sm.epochTracker.step(source, msg))
 			case *pb.Msg_NewEpoch:
-				actions.concat(sm.epochTracker.applyNewEpochMsg(innerMsg.NewEpoch))
+				actions.concat(sm.epochTracker.step(source, msg))
 			case *pb.Msg_NewEpochEcho:
-				actions.concat(sm.epochTracker.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho))
+				actions.concat(sm.epochTracker.step(source, msg))
 			case *pb.Msg_NewEpochReady:
-				actions.concat(sm.epochTracker.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady))
+				actions.concat(sm.epochTracker.step(source, msg))
 			default:
 				// This should be unreachable, as the nodeMsgs filters based on type as well
 				panic(fmt.Sprintf("unexpected bad message type %T, should have been detected earlier", msg.Type))
@@ -296,26 +291,6 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			return actions
 		}
 	}
-}
-
-func (sm *StateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
-	sm.checkpointTracker.applyCheckpointMsg(source, seqNo, value)
-
-	if sm.checkpointTracker.state != cpsGarbageCollectable {
-		return &Actions{}
-	}
-
-	newLow := sm.checkpointTracker.garbageCollect()
-
-	sm.clientWindows.garbageCollect(newLow)
-	if newLow > uint64(sm.networkConfig.CheckpointInterval) {
-		// Note, we leave an extra checkpoint worth of batches around, to help
-		// during epoch change.
-		sm.batchTracker.truncate(newLow - uint64(sm.networkConfig.CheckpointInterval))
-	}
-	sm.persisted.truncate(newLow)
-	actions := sm.epochTracker.moveWatermarks(newLow)
-	return actions.concat(sm.drainNodeMsgs())
 }
 
 func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Actions {
