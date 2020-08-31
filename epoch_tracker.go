@@ -33,7 +33,7 @@ func newEpochChanger(
 	batchTracker *batchTracker,
 	clientWindows *clientWindows,
 ) *epochTracker {
-	ec := &epochTracker{
+	et := &epochTracker{
 		persisted:     persisted,
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
@@ -46,8 +46,8 @@ func newEpochChanger(
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_CEntry:
 			cEntry := d.CEntry
-			ec.currentEpoch = ec.target(cEntry.EpochConfig.Number)
-			ec.currentEpoch.state = ready
+			et.currentEpoch = et.target(cEntry.EpochConfig.Number)
+			et.currentEpoch.state = ready
 		case *pb.Persistent_EpochChange:
 			epochChange := d.EpochChange
 			parsedEpochChange, err := newParsedEpochChange(epochChange)
@@ -55,9 +55,9 @@ func newEpochChanger(
 				panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 			}
 
-			ec.currentEpoch = ec.target(epochChange.NewEpoch)
-			ec.currentEpoch.myEpochChange = parsedEpochChange
-			ec.currentEpoch.myLeaderChoice = networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
+			et.currentEpoch = et.target(epochChange.NewEpoch)
+			et.currentEpoch.myEpochChange = parsedEpochChange
+			et.currentEpoch.myLeaderChoice = networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
 		case *pb.Persistent_NewEpochEcho:
 		case *pb.Persistent_NewEpochReady:
 		case *pb.Persistent_NewEpochStart:
@@ -65,21 +65,21 @@ func newEpochChanger(
 		}
 	}
 
-	return ec
+	return et
 }
 
-func (ec *epochTracker) tick() *Actions {
-	return ec.currentEpoch.tick()
+func (et *epochTracker) tick() *Actions {
+	return et.currentEpoch.tick()
 }
 
-func (ec *epochTracker) target(epoch uint64) *epochTarget {
-	// TODO, we need to garbage collect in responst to
+func (et *epochTracker) target(epoch uint64) *epochTarget {
+	// TODO, we need to garbage collett in responst to
 	// spammy suspicions and epoch changes.  Basically
-	// if every suspect/epoch change has a corresponding
+	// if every suspett/epoch change has a corresponding
 	// higher epoch sibling for that node in a later epoch
 	// then we should clean up.
 
-	target, ok := ec.targets[epoch]
+	target, ok := et.targets[epoch]
 	if !ok {
 		target = &epochTarget{
 			number:        epoch,
@@ -88,68 +88,68 @@ func (ec *epochTracker) target(epoch uint64) *epochTarget {
 			strongChanges: map[NodeID]*parsedEpochChange{},
 			echos:         map[*pb.NewEpochConfig]map[NodeID]struct{}{},
 			readies:       map[*pb.NewEpochConfig]map[NodeID]struct{}{},
-			isLeader:      epoch%uint64(len(ec.networkConfig.Nodes)) == ec.myConfig.Id,
-			persisted:     ec.persisted,
-			networkConfig: ec.networkConfig,
-			logger:        ec.logger,
-			myConfig:      ec.myConfig,
-			batchTracker:  ec.batchTracker,
-			clientWindows: ec.clientWindows,
+			isLeader:      epoch%uint64(len(et.networkConfig.Nodes)) == et.myConfig.Id,
+			persisted:     et.persisted,
+			networkConfig: et.networkConfig,
+			logger:        et.logger,
+			myConfig:      et.myConfig,
+			batchTracker:  et.batchTracker,
+			clientWindows: et.clientWindows,
 		}
-		ec.targets[epoch] = target
+		et.targets[epoch] = target
 	}
 	return target
 }
 
-func (ec *epochTracker) setPendingTarget(target *epochTarget) {
-	for number := range ec.targets {
+func (et *epochTracker) setPendingTarget(target *epochTarget) {
+	for number := range et.targets {
 		if number < target.number {
-			delete(ec.targets, number)
+			delete(et.targets, number)
 		}
 	}
-	ec.currentEpoch = target
+	et.currentEpoch = target
 }
 
-func (ec *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
-	target := ec.target(epoch)
+func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
+	target := et.target(epoch)
 	target.applySuspectMsg(source)
 	if target.state < done {
 		return nil
 	}
 
-	epochChange := ec.persisted.constructEpochChange(epoch + 1)
+	epochChange := et.persisted.constructEpochChange(epoch + 1)
 
-	newTarget := ec.target(epoch + 1)
-	ec.setPendingTarget(newTarget)
+	newTarget := et.target(epoch + 1)
+	et.setPendingTarget(newTarget)
 	var err error
 	newTarget.myEpochChange, err = newParsedEpochChange(epochChange)
 	if err != nil {
 		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 	}
 
-	newTarget.myLeaderChoice = []uint64{ec.myConfig.Id}
+	newTarget.myLeaderChoice = []uint64{et.myConfig.Id}
 
 	return epochChange
 }
 
 /*
-func (ec *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
-	if ec.lastActiveEpoch == nil {
+func (et *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
+	if et.lastActiveEpoch == nil {
 		panic("this shouldn't happen")
 	}
 
-	oldLeaders := ec.lastActiveEpoch.config.leaders
+	oldLeaders := et.lastActiveEpoch.config.leaders
 	if len(oldLeaders) == 1 {
-		return []uint64{ec.myConfig.ID}
+		return []uint64{et.myConfig.ID}
 	}
 
 	// XXX the below logic is definitely wrong, it doesn't always result in a node
 	// being kicked.
 
 	var badNode uint64
-	if ec.lastActiveEpoch.config.number+1 == epochChange.underlying.NewEpoch {
+	if et.lastActiveEpoch.config.number+1 == epochChange.underlying.NewEpoch {
 		var lowestEntry uint64
-		for i := epochChange.lowWatermark + 1; i < epochChange.lowWatermark+uint64(ec.networkConfig.CheckpointInterval)*2; i++ {
+		for i := epochChange.lowWatermark + 1; i < epochChange.lowWatermark+uint64(et.networkConfig.ChetkpointInterval)*2; i++ {
 			if _, ok := epochChange.pSet[i]; !ok {
 				lowestEntry = i
 				break
@@ -159,16 +159,16 @@ func (ec *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 		if lowestEntry == 0 {
 			// All of the sequence numbers within the watermarks prepared, so it's
 			// unclear why the epoch failed, eliminate the previous epoch leader
-			badNode = ec.lastActiveEpoch.config.number % uint64(len(ec.networkConfig.Nodes))
+			badNode = et.lastActiveEpoch.config.number % uint64(len(et.networkConfig.Nodes))
 		} else {
-			bucket := ec.lastActiveEpoch.config.seqToBucket(lowestEntry)
-			badNode = uint64(ec.lastActiveEpoch.config.buckets[bucket])
+			bucket := et.lastActiveEpoch.config.seqToBucket(lowestEntry)
+			badNode = uint64(et.lastActiveEpoch.config.buckets[bucket])
 		}
 	} else {
 		// If we never saw the last epoch start, we assume
 		// that replica must be faulty.
 		// Subtraction on epoch number is safe, as for epoch 0, lastActiveEpoch is nil
-		badNode = (epochChange.underlying.NewEpoch - 1) % uint64(len(ec.networkConfig.Nodes))
+		badNode = (epochChange.underlying.NewEpoch - 1) % uint64(len(et.networkConfig.Nodes))
 	}
 
 	newLeaders := make([]uint64, 0, len(oldLeaders)-1)
@@ -184,13 +184,13 @@ func (ec *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 }
 */
 
-func (ec *epochTracker) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
+func (et *epochTracker) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
 	actions := &Actions{}
-	if source != NodeID(ec.myConfig.Id) {
-		// We don't want to echo our own EpochChange message,
+	if source != NodeID(et.myConfig.Id) {
+		// We don't want to etho our own EpochChange message,
 		// as we already broadcast/rebroadcast it.
 		actions.send(
-			ec.networkConfig.Nodes,
+			et.networkConfig.Nodes,
 			&pb.Msg{
 				Type: &pb.Msg_EpochChangeAck{
 					EpochChangeAck: &pb.EpochChangeAck{
@@ -204,23 +204,23 @@ func (ec *epochTracker) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) 
 
 	// TODO, we could get away with one type of message, an 'EpochChange'
 	// with an 'Origin', but it's a little less clear reading messages on the wire.
-	target := ec.target(msg.NewEpoch)
+	target := et.target(msg.NewEpoch)
 	return actions.concat(target.applyEpochChangeAckMsg(source, source, msg))
 }
 
-func (ec *epochTracker) applyEpochChangeDigest(epochChange *pb.HashResult_EpochChange, digest []byte) *Actions {
+func (et *epochTracker) applyEpochChangeDigest(epochChange *pb.HashResult_EpochChange, digest []byte) *Actions {
 	// TODO, fix all this stuttering and repitition
-	target := ec.target(epochChange.EpochChange.NewEpoch)
+	target := et.target(epochChange.EpochChange.NewEpoch)
 	return target.applyEpochChangeDigest(epochChange, digest)
 }
 
-func (ec *epochTracker) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
-	target := ec.target(ack.EpochChange.NewEpoch)
+func (et *epochTracker) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
+	target := et.target(ack.EpochChange.NewEpoch)
 	return target.applyEpochChangeAckMsg(source, NodeID(ack.Originator), ack.EpochChange)
 }
 
-func (ec *epochTracker) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
-	target := ec.target(msg.NewConfig.Config.Number)
+func (et *epochTracker) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
+	target := et.target(msg.NewConfig.Config.Number)
 	return target.applyNewEpochMsg(msg)
 }
 
@@ -230,32 +230,32 @@ func (ec *epochTracker) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 // upon r-broadcast(m): // only Ps
 // send message (SEND, m) to all
 //
-// upon receiving a message (SEND, m) from Ps:
+// upon reteiving a message (SEND, m) from Ps:
 // send message (ECHO, m) to all
 //
-// upon receiving ceil((n+t+1)/2)
+// upon reteiving ceil((n+t+1)/2)
 // e messages(ECHO, m) and not having sent a READY message:
 // send message (READY, m) to all
 //
-// upon receiving t+1 messages(READY, m) and not having sent a READY message:
+// upon reteiving t+1 messages(READY, m) and not having sent a READY message:
 // send message (READY, m) to all
 //
-// upon receiving 2t + 1 messages (READY, m):
+// upon reteiving 2t + 1 messages (READY, m):
 // r-deliver(m)
 
-func (ec *epochTracker) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
-	target := ec.target(msg.NewConfig.Config.Number)
+func (et *epochTracker) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
+	target := et.target(msg.NewConfig.Config.Number)
 	return target.applyNewEpochEchoMsg(source, msg)
 }
 
-func (ec *epochTracker) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
-	target := ec.target(msg.NewConfig.Config.Number)
+func (et *epochTracker) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
+	target := et.target(msg.NewConfig.Config.Number)
 	return target.applyNewEpochReadyMsg(source, msg)
 }
 
-func (ec *epochTracker) status() *EpochChangerStatus {
-	targets := make([]*EpochTargetStatus, 0, len(ec.targets))
-	for number, target := range ec.targets {
+func (et *epochTracker) status() *EpochChangerStatus {
+	targets := make([]*EpochTargetStatus, 0, len(et.targets))
+	for number, target := range et.targets {
 		ts := target.status()
 		ts.Number = number
 		targets = append(targets, ts)
@@ -265,8 +265,8 @@ func (ec *epochTracker) status() *EpochChangerStatus {
 	})
 
 	return &EpochChangerStatus{
-		LastActiveEpoch: ec.currentEpoch.number,
-		State:           ec.currentEpoch.state,
+		LastActiveEpoch: et.currentEpoch.number,
+		State:           et.currentEpoch.state,
 		EpochTargets:    targets,
 	}
 }
