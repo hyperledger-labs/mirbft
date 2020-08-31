@@ -503,7 +503,6 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 		et.state = readying
 
 		actions := et.persisted.addNewEpochReady(msg.NewConfig)
-		// TODO Pset?
 
 		actions.send(
 			et.networkConfig.Nodes,
@@ -600,6 +599,8 @@ func (et *epochTarget) advanceState() *Actions {
 			et.state = inProgress
 
 		case inProgress: // No pending change
+			actions.concat(et.activeEpoch.outstandingReqs.advanceRequests())
+			actions.concat(et.activeEpoch.drainProposer())
 		case done: // We have sent an epoch change, ending this epoch for us
 		default:
 			panic("dev sanity test")

@@ -163,13 +163,33 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}
 
-	if sm.epochTracker.currentEpoch.activeEpoch == nil {
-		return actions
+	actions.concat(sm.epochTracker.currentEpoch.advanceState())
+
+	for _, commit := range actions.Commits {
+		for _, fr := range commit.QEntry.Requests {
+			cw, ok := sm.clientWindows.clientWindow(fr.Request.ClientId)
+			if !ok {
+				panic("we never should have committed this without the client available")
+			}
+			cw.request(fr.Request.ReqNo).committed = &commit.QEntry.SeqNo
+		}
+
+		checkpoint := commit.QEntry.SeqNo%uint64(sm.networkConfig.CheckpointInterval) == 0
+
+		if checkpoint {
+			commit.Checkpoint = true
+			commit.NetworkState = &pb.NetworkState{
+				Clients: sm.clientWindows.clientConfigs(),
+				Config:  sm.networkConfig,
+			}
+		} else {
+			commit.EpochConfig = nil
+		}
+
+		sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
 	}
 
-	actions.concat(sm.epochTracker.currentEpoch.activeEpoch.outstandingReqs.advanceRequests())
-	return actions.concat(sm.epochTracker.currentEpoch.activeEpoch.drainProposer())
-
+	return actions
 }
 
 func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
@@ -208,29 +228,6 @@ func (sm *StateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 }
 
 func (sm *StateMachine) advance(actions *Actions) *Actions {
-	for _, commit := range actions.Commits {
-		for _, fr := range commit.QEntry.Requests {
-			cw, ok := sm.clientWindows.clientWindow(fr.Request.ClientId)
-			if !ok {
-				panic("we never should have committed this without the client available")
-			}
-			cw.request(fr.Request.ReqNo).committed = &commit.QEntry.SeqNo
-		}
-
-		checkpoint := commit.QEntry.SeqNo%uint64(sm.networkConfig.CheckpointInterval) == 0
-
-		if checkpoint {
-			commit.Checkpoint = true
-			commit.NetworkState = &pb.NetworkState{
-				Clients: sm.clientWindows.clientConfigs(),
-				Config:  sm.networkConfig,
-			}
-		} else {
-			commit.EpochConfig = nil
-		}
-
-		sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
-	}
 
 	if sm.epochTracker.currentEpoch.state != inProgress {
 		return actions
