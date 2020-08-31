@@ -17,8 +17,10 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 	"gopkg.in/alecthomas/kingpin.v2"
 
+	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/recorder"
 	rpb "github.com/IBM/mirbft/recorder/recorderpb"
@@ -104,8 +106,38 @@ type arguments struct {
 	verboseText   bool
 }
 
+type stateMachines struct {
+	logger *zap.Logger
+	nodes  map[uint64]*mirbft.StateMachine
+}
+
+func newStateMachines() *stateMachines {
+	logger, err := zap.NewProduction()
+	if err != nil {
+		panic(err)
+	}
+	return &stateMachines{
+		logger: logger,
+		nodes:  map[uint64]*mirbft.StateMachine{},
+	}
+}
+
+func (s *stateMachines) apply(event *rpb.RecordedEvent) {
+	node, ok := s.nodes[event.NodeId]
+	if !ok {
+		node = &mirbft.StateMachine{
+			Logger: s.logger.Named(fmt.Sprintf("node%d", event.NodeId)),
+		}
+		s.nodes[event.NodeId] = node
+	}
+
+	node.ApplyEvent(event.StateEvent)
+}
+
 func (a *arguments) execute(output io.Writer) error {
 	defer a.input.Close()
+
+	s := newStateMachines()
 
 	reader := recorder.NewReader(a.input)
 	for {
@@ -120,6 +152,10 @@ func (a *arguments) execute(output io.Writer) error {
 
 		if excludedByNodeID(event, a.nodeIDs) {
 			continue
+		}
+
+		if a.interactive {
+			s.apply(event)
 		}
 
 		var eventTypeText string

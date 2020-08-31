@@ -91,10 +91,11 @@ var _ = Describe("Execution", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		args = &arguments{
-			input:      ioutil.NopCloser(logBytes),
-			nodeIDs:    []uint64{0, 2},
-			eventTypes: []string{"Step", "Initialize"},
-			stepTypes:  []string{"Checkpoint", "NewEpoch"},
+			input:       ioutil.NopCloser(logBytes),
+			nodeIDs:     []uint64{0, 2},
+			eventTypes:  []string{"Step", "Initialize"},
+			stepTypes:   []string{"Checkpoint", "NewEpoch"},
+			interactive: true,
 		}
 	})
 
