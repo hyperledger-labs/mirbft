@@ -132,6 +132,30 @@ func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 	return epochChange
 }
 
+func (et *epochTracker) applyPreprepareMsg(source NodeID, epoch, seqNo uint64, batch []*pb.RequestAck) *Actions {
+	if epoch != et.currentEpoch.number {
+		panic("TODO handle me")
+	}
+
+	return et.currentEpoch.activeEpoch.applyPreprepareMsg(source, seqNo, batch)
+}
+
+func (et *epochTracker) applyPrepareMsg(source NodeID, epoch, seqNo uint64, digest []byte) *Actions {
+	if epoch != et.currentEpoch.number {
+		panic("TODO handle me")
+	}
+
+	return et.currentEpoch.activeEpoch.applyPrepareMsg(source, seqNo, digest)
+}
+
+func (et *epochTracker) applyCommitMsg(source NodeID, epoch, seqNo uint64, digest []byte) *Actions {
+	if epoch != et.currentEpoch.number {
+		panic("TODO handle me")
+	}
+
+	return et.currentEpoch.activeEpoch.applyCommitMsg(source, seqNo, digest)
+}
+
 /*
 func (et *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 	if et.lastActiveEpoch == nil {

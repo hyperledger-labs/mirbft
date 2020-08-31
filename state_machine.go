@@ -260,13 +260,13 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			switch innerMsg := msg.Type.(type) {
 			case *pb.Msg_Preprepare:
 				msg := innerMsg.Preprepare
-				actions.concat(sm.epochTracker.currentEpoch.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
+				actions.concat(sm.epochTracker.applyPreprepareMsg(source, msg.Epoch, msg.SeqNo, msg.Batch))
 			case *pb.Msg_Prepare:
 				msg := innerMsg.Prepare
-				actions.concat(sm.epochTracker.currentEpoch.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
+				actions.concat(sm.epochTracker.applyPrepareMsg(source, msg.Epoch, msg.SeqNo, msg.Digest))
 			case *pb.Msg_Commit:
 				msg := innerMsg.Commit
-				actions.concat(sm.epochTracker.currentEpoch.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
+				actions.concat(sm.epochTracker.applyCommitMsg(source, msg.Epoch, msg.SeqNo, msg.Digest))
 			case *pb.Msg_Checkpoint:
 				msg := innerMsg.Checkpoint
 				actions.concat(sm.checkpointMsg(source, msg.SeqNo, msg.Value))
