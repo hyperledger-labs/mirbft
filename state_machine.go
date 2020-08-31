@@ -138,7 +138,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		return &Actions{}
 	case *pb.StateEvent_Tick:
 		assertInitialized()
-		return sm.tick()
+		return sm.epochTracker.tick()
 	case *pb.StateEvent_Step:
 		assertInitialized()
 		actions.concat(sm.step(
@@ -435,16 +435,6 @@ func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
 	}
 
 	return clientWindow.clientWaiter
-}
-
-func (sm *StateMachine) tick() *Actions {
-	actions := &Actions{}
-
-	if sm.epochTracker.currentEpoch.activeEpoch != nil {
-		actions.concat(sm.epochTracker.currentEpoch.activeEpoch.tick())
-	}
-
-	return actions.concat(sm.epochTracker.tick())
 }
 
 func (sm *StateMachine) Status() *Status {

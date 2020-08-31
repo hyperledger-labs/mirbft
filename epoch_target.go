@@ -257,6 +257,8 @@ func (et *epochTarget) tick() *Actions {
 		return et.tickPrepending()
 	case pending:
 		return et.tickPending()
+	case inProgress:
+		return et.activeEpoch.tick()
 	default: // case done:
 	}
 
