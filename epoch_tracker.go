@@ -68,6 +68,15 @@ func newEpochChanger(
 	return et
 }
 
+func (et *epochTracker) applyBatchHashResult(epoch, seqNo uint64, digest []byte) *Actions {
+	if epoch != et.currentEpoch.number || et.currentEpoch.state != inProgress {
+		// TODO, should we try to see if it applies to the current epoch?
+		return &Actions{}
+	}
+
+	return et.currentEpoch.activeEpoch.applyBatchHashResult(seqNo, digest)
+}
+
 func (et *epochTracker) tick() *Actions {
 	return et.currentEpoch.tick()
 }

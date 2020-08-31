@@ -375,15 +375,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 		case *pb.HashResult_Batch_:
 			batch := hashType.Batch
 			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
-
-			if sm.epochTracker.currentEpoch.activeEpoch != nil && batch.Epoch != sm.epochTracker.currentEpoch.activeEpoch.epochConfig.Number {
-				continue
-			}
-
-			// sm.myConfig.Logger.Debug("applying digest result", zap.Int("index", i))
-			seqNo := batch.SeqNo
-			// TODO, rename applyProcessResult to something better
-			actions.concat(sm.epochTracker.currentEpoch.activeEpoch.applyProcessResult(seqNo, hashResult.Digest))
+			actions.concat(sm.epochTracker.applyBatchHashResult(batch.Epoch, batch.SeqNo, hashResult.Digest))
 		case *pb.HashResult_Request_:
 			request := hashType.Request
 			actions.send(

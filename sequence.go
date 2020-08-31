@@ -132,7 +132,7 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.Forw
 	if len(requestAcks) == 0 {
 		// This is a no-op batch, no need to compute a digest
 		s.state = Ready
-		return s.applyProcessResult(nil)
+		return s.applyBatchHashResult(nil)
 	}
 
 	data := make([][]byte, len(requestAcks))
@@ -183,7 +183,7 @@ func (s *sequence) checkRequests() {
 	s.state = Ready
 }
 
-func (s *sequence) applyProcessResult(digest []byte) *Actions {
+func (s *sequence) applyBatchHashResult(digest []byte) *Actions {
 
 	s.digest = digest
 

@@ -288,14 +288,14 @@ func (e *activeEpoch) drainProposer() *Actions {
 	return actions
 }
 
-func (e *activeEpoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
+func (e *activeEpoch) applyBatchHashResult(seqNo uint64, digest []byte) *Actions {
 	seq, _, err := e.getSequence(seqNo)
 	if err != nil {
 		e.logger.Error(err.Error())
 		return &Actions{}
 	}
 
-	return seq.applyProcessResult(digest)
+	return seq.applyBatchHashResult(digest)
 }
 
 func (e *activeEpoch) tick() *Actions {

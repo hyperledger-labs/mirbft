@@ -139,7 +139,7 @@ var _ = XDescribe("sequence", func() {
 		})
 	})
 
-	Describe("applyProcessResult", func() {
+	Describe("applyBatchHashResult", func() {
 		BeforeEach(func() {
 			s.state = Allocated
 			s.batch = []*pb.RequestAck{
@@ -157,7 +157,7 @@ var _ = XDescribe("sequence", func() {
 		})
 
 		It("transitions from Allocated to Preprepared", func() {
-			actions := s.applyProcessResult([]byte("digest"))
+			actions := s.applyBatchHashResult([]byte("digest"))
 			Expect(actions).To(Equal(&Actions{
 				Send: []Send{
 					{
@@ -236,7 +236,7 @@ var _ = XDescribe("sequence", func() {
 
 			It("does not transition the state and panics", func() {
 				badTransition := func() {
-					s.applyProcessResult([]byte("digest"))
+					s.applyBatchHashResult([]byte("digest"))
 				}
 				Expect(badTransition).To(Panic())
 				Expect(s.state).To(Equal(Prepared))
