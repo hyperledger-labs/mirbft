@@ -15,7 +15,7 @@ import (
 )
 
 type epochTracker struct {
-	activeEpoch   *epochTarget
+	currentEpoch  *epochTarget
 	persisted     *persisted
 	networkConfig *pb.NetworkState_Config
 	myConfig      *pb.StateEvent_InitialParameters
@@ -44,8 +44,8 @@ func newEpochChanger(
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_CEntry:
 			cEntry := d.CEntry
-			ec.activeEpoch = ec.target(cEntry.EpochConfig.Number)
-			ec.activeEpoch.state = ready
+			ec.currentEpoch = ec.target(cEntry.EpochConfig.Number)
+			ec.currentEpoch.state = ready
 		case *pb.Persistent_EpochChange:
 			epochChange := d.EpochChange
 			parsedEpochChange, err := newParsedEpochChange(epochChange)
@@ -53,9 +53,9 @@ func newEpochChanger(
 				panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 			}
 
-			ec.activeEpoch = ec.target(epochChange.NewEpoch)
-			ec.activeEpoch.myEpochChange = parsedEpochChange
-			ec.activeEpoch.myLeaderChoice = networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
+			ec.currentEpoch = ec.target(epochChange.NewEpoch)
+			ec.currentEpoch.myEpochChange = parsedEpochChange
+			ec.currentEpoch.myLeaderChoice = networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
 		case *pb.Persistent_NewEpochEcho:
 		case *pb.Persistent_NewEpochReady:
 		case *pb.Persistent_NewEpochStart:
@@ -67,7 +67,7 @@ func newEpochChanger(
 }
 
 func (ec *epochTracker) tick() *Actions {
-	return ec.activeEpoch.tick()
+	return ec.currentEpoch.tick()
 }
 
 func (ec *epochTracker) target(epoch uint64) *epochTarget {
@@ -104,7 +104,7 @@ func (ec *epochTracker) setPendingTarget(target *epochTarget) {
 			delete(ec.targets, number)
 		}
 	}
-	ec.activeEpoch = target
+	ec.currentEpoch = target
 }
 
 func (ec *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
@@ -262,8 +262,8 @@ func (ec *epochTracker) status() *EpochChangerStatus {
 	})
 
 	return &EpochChangerStatus{
-		LastActiveEpoch: ec.activeEpoch.number,
-		State:           ec.activeEpoch.state,
+		LastActiveEpoch: ec.currentEpoch.number,
+		State:           ec.currentEpoch.state,
 		EpochTargets:    targets,
 	}
 }
