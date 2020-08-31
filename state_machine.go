@@ -314,7 +314,7 @@ func (sm *StateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte)
 		sm.batchTracker.truncate(newLow - uint64(sm.networkConfig.CheckpointInterval))
 	}
 	sm.persisted.truncate(newLow)
-	actions := sm.epochTracker.currentEpoch.activeEpoch.moveWatermarks(newLow)
+	actions := sm.epochTracker.moveWatermarks(newLow)
 	return actions.concat(sm.drainNodeMsgs())
 }
 

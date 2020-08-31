@@ -179,6 +179,14 @@ func (et *epochTracker) applyCommitMsg(source NodeID, epoch, seqNo uint64, diges
 	return et.currentEpoch.activeEpoch.applyCommitMsg(source, seqNo, digest)
 }
 
+func (et *epochTracker) moveWatermarks(seqNo uint64) *Actions {
+	if et.currentEpoch.state != inProgress {
+		return &Actions{}
+	}
+
+	return et.currentEpoch.activeEpoch.moveWatermarks(seqNo)
+}
+
 /*
 func (et *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 	if et.lastActiveEpoch == nil {
