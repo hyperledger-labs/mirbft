@@ -23,6 +23,7 @@ type epochTracker struct {
 	batchTracker  *batchTracker
 	clientWindows *clientWindows
 	targets       map[uint64]*epochTarget
+	nodeMsgs      map[NodeID]*nodeMsgs
 }
 
 func newEpochChanger(
@@ -32,6 +33,7 @@ func newEpochChanger(
 	myConfig *pb.StateEvent_InitialParameters,
 	batchTracker *batchTracker,
 	clientWindows *clientWindows,
+	nodeMsgs map[NodeID]*nodeMsgs,
 ) *epochTracker {
 	et := &epochTracker{
 		persisted:     persisted,
@@ -40,6 +42,7 @@ func newEpochChanger(
 		batchTracker:  batchTracker,
 		clientWindows: clientWindows,
 		targets:       map[uint64]*epochTarget{},
+		nodeMsgs:      nodeMsgs, // XXX hack
 	}
 
 	for head := persisted.logHead; head != nil; head = head.next {
@@ -119,17 +122,21 @@ func (et *epochTracker) setPendingTarget(target *epochTarget) {
 	et.currentEpoch = target
 }
 
-func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochChange {
+func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 	target := et.target(epoch)
 	target.applySuspectMsg(source)
 	if target.state < done {
-		return nil
+		return &Actions{}
 	}
 
 	epochChange := et.persisted.constructEpochChange(epoch + 1)
 
 	newTarget := et.target(epoch + 1)
 	et.setPendingTarget(newTarget)
+	for _, nodeMsgs := range et.nodeMsgs {
+		nodeMsgs.setActiveEpoch(nil)
+	}
+
 	var err error
 	newTarget.myEpochChange, err = newParsedEpochChange(epochChange)
 	if err != nil {
@@ -138,7 +145,18 @@ func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *pb.EpochCh
 
 	newTarget.myLeaderChoice = []uint64{et.myConfig.Id}
 
-	return epochChange
+	return et.persisted.addEpochChange(epochChange)
+
+	/* // XXX if we send this right away, it's trigger state transfer... but that seems like a bug
+	actions.send(
+		et.networkConfig.Nodes,
+		&pb.Msg{
+			Type: &pb.Msg_EpochChange{
+				EpochChange: epochChange,
+			},
+		},
+	)
+	*/
 }
 
 func (et *epochTracker) applyPreprepareMsg(source NodeID, epoch, seqNo uint64, batch []*pb.RequestAck) *Actions {
@@ -283,7 +301,16 @@ func (et *epochTracker) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho
 
 func (et *epochTracker) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
 	target := et.target(msg.NewConfig.Config.Number)
-	return target.applyNewEpochReadyMsg(source, msg)
+	oldState := target.state
+	actions := target.applyNewEpochReadyMsg(source, msg)
+
+	if oldState != target.state && target.state == inProgress {
+		for _, nodeMsgs := range et.nodeMsgs {
+			nodeMsgs.setActiveEpoch(target.activeEpoch)
+		}
+	}
+
+	return actions
 }
 
 func (et *epochTracker) status() *EpochChangerStatus {

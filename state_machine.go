@@ -112,6 +112,7 @@ func (sm *StateMachine) completeInitialization() {
 		sm.myConfig,
 		sm.batchTracker,
 		sm.clientWindows,
+		sm.nodeMsgs, // XXX temporary
 	)
 
 	sm.state = smInitialized
@@ -224,22 +225,7 @@ func (sm *StateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
 
 	nodeMsgs.ingest(outerMsg)
 
-	return sm.advance(sm.drainNodeMsgs())
-}
-
-func (sm *StateMachine) advance(actions *Actions) *Actions {
-
-	if sm.epochTracker.currentEpoch.state != inProgress {
-		return actions
-	}
-
-	for _, nodeMsgs := range sm.nodeMsgs {
-		if nodeMsgs.epochMsgs == nil { // TODO, remove this hack
-			nodeMsgs.setActiveEpoch(sm.epochTracker.currentEpoch.activeEpoch)
-		}
-	}
-
-	return actions
+	return sm.drainNodeMsgs()
 }
 
 func (sm *StateMachine) drainNodeMsgs() *Actions {
@@ -289,7 +275,7 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 				}
 				actions.concat(sm.clientWindows.applyForwardRequest(source, innerMsg.ForwardRequest))
 			case *pb.Msg_Suspect:
-				sm.applySuspectMsg(source, innerMsg.Suspect.Epoch)
+				actions.concat(sm.epochTracker.applySuspectMsg(source, innerMsg.Suspect.Epoch))
 			case *pb.Msg_EpochChange:
 				actions.concat(sm.epochTracker.applyEpochChangeMsg(source, innerMsg.EpochChange))
 			case *pb.Msg_EpochChangeAck:
@@ -310,28 +296,6 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			return actions
 		}
 	}
-}
-
-func (sm *StateMachine) applySuspectMsg(source NodeID, epoch uint64) *Actions {
-	epochChange := sm.epochTracker.applySuspectMsg(source, epoch)
-	if epochChange == nil {
-		return &Actions{}
-	}
-
-	for _, nodeMsgs := range sm.nodeMsgs {
-		nodeMsgs.setActiveEpoch(nil)
-	}
-
-	actions := sm.persisted.addEpochChange(epochChange) // TODO, this is an awkward spot
-
-	return actions.send(
-		sm.networkConfig.Nodes,
-		&pb.Msg{
-			Type: &pb.Msg_EpochChange{
-				EpochChange: epochChange,
-			},
-		},
-	)
 }
 
 func (sm *StateMachine) checkpointMsg(source NodeID, seqNo uint64, value []byte) *Actions {
@@ -414,7 +378,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 
 	actions.concat(sm.drainNodeMsgs())
 
-	return sm.advance(actions)
+	return actions
 }
 
 func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
