@@ -13,7 +13,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-type epoch struct {
+type activeEpoch struct {
 	epochConfig   *pb.EpochConfig
 	networkConfig *pb.NetworkState_Config
 	myConfig      *pb.StateEvent_InitialParameters
@@ -34,7 +34,7 @@ type epoch struct {
 	ticksSinceProgress  uint32
 }
 
-func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *pb.StateEvent_InitialParameters, logger Logger) *epoch {
+func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *pb.StateEvent_InitialParameters, logger Logger) *activeEpoch {
 	var startingEntry *logEntry
 	var maxCheckpoint *pb.CEntry
 	var epochConfig *pb.EpochConfig
@@ -123,7 +123,7 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *pb.S
 
 	proposer := newProposer(myConfig, clientWindows, buckets)
 
-	return &epoch{
+	return &activeEpoch{
 		buckets:           buckets,
 		myConfig:          myConfig,
 		epochConfig:       epochConfig,
@@ -138,7 +138,11 @@ func newEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *pb.S
 	}
 }
 
-func (e *epoch) getSequence(seqNo uint64) (*sequence, int, error) {
+func (e *activeEpoch) seqToBucket(seqNo uint64) BucketID {
+	return seqToBucket(seqNo, e.epochConfig, e.networkConfig)
+}
+
+func (e *activeEpoch) getSequence(seqNo uint64) (*sequence, int, error) {
 	if seqNo < e.lowWatermark() || seqNo > e.highWatermark() {
 		return nil, 0, errors.Errorf("requested seq no (%d) is out of range [%d - %d]",
 			seqNo, e.lowWatermark(), e.highWatermark())
@@ -150,7 +154,7 @@ func (e *epoch) getSequence(seqNo uint64) (*sequence, int, error) {
 	return e.sequences[offset], offset, nil
 }
 
-func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.RequestAck) *Actions {
+func (e *activeEpoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.RequestAck) *Actions {
 	seq, offset, err := e.getSequence(seqNo)
 	if err != nil {
 		e.logger.Error(err.Error())
@@ -180,7 +184,7 @@ func (e *epoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.Requ
 	return actions
 }
 
-func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
+func (e *activeEpoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
 	seq, _, err := e.getSequence(seqNo)
 	if err != nil {
 		e.logger.Error(err.Error())
@@ -189,7 +193,7 @@ func (e *epoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Act
 	return seq.applyPrepareMsg(source, digest)
 }
 
-func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
+func (e *activeEpoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
 	seq, offset, err := e.getSequence(seqNo)
 	if err != nil {
 		e.logger.Error(err.Error())
@@ -219,7 +223,7 @@ func (e *epoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Acti
 	return actions
 }
 
-func (e *epoch) moveWatermarks(seqNo uint64) *Actions {
+func (e *activeEpoch) moveWatermarks(seqNo uint64) *Actions {
 	ci := int(e.networkConfig.CheckpointInterval)
 	if seqNo+1 < e.lowWatermark()+uint64(ci) {
 		return &Actions{}
@@ -252,7 +256,7 @@ func (e *epoch) moveWatermarks(seqNo uint64) *Actions {
 	return e.drainProposer()
 }
 
-func (e *epoch) drainProposer() *Actions {
+func (e *activeEpoch) drainProposer() *Actions {
 	actions := &Actions{}
 
 	for bucketID, ownerID := range e.buckets {
@@ -284,7 +288,7 @@ func (e *epoch) drainProposer() *Actions {
 	return actions
 }
 
-func (e *epoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
+func (e *activeEpoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
 	seq, _, err := e.getSequence(seqNo)
 	if err != nil {
 		e.logger.Error(err.Error())
@@ -294,7 +298,7 @@ func (e *epoch) applyProcessResult(seqNo uint64, digest []byte) *Actions {
 	return seq.applyProcessResult(digest)
 }
 
-func (e *epoch) tick() *Actions {
+func (e *activeEpoch) tick() *Actions {
 	if e.lastCommittedAtTick < e.persisted.lastCommitted {
 		e.lastCommittedAtTick = e.persisted.lastCommitted
 		e.ticksSinceProgress = 0
@@ -351,15 +355,15 @@ func (e *epoch) tick() *Actions {
 	return actions
 }
 
-func (e *epoch) lowWatermark() uint64 {
+func (e *activeEpoch) lowWatermark() uint64 {
 	return e.sequences[0].seqNo
 }
 
-func (e *epoch) highWatermark() uint64 {
+func (e *activeEpoch) highWatermark() uint64 {
 	return e.sequences[len(e.sequences)-1].seqNo
 }
 
-func (e *epoch) status() []*BucketStatus {
+func (e *activeEpoch) status() []*BucketStatus {
 	buckets := make([]*BucketStatus, len(e.buckets))
 	for i := range buckets {
 		bucket := &BucketStatus{

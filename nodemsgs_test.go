@@ -59,7 +59,7 @@ var _ = Describe("NodeMsg", func() {
 
 	Context("process", func() {
 		JustBeforeEach(func() {
-			nodeMsgs.setActiveEpoch(&epoch{
+			nodeMsgs.setActiveEpoch(&activeEpoch{
 				epochConfig:   defaultEpochConfig,
 				networkConfig: networkConfig,
 			})
@@ -97,7 +97,7 @@ var _ = Describe("NodeMsg", func() {
 				nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Preprepare{}})
 				nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 5}}})
 				Expect(nodeMsgs.buffer.Len()).To(Equal(1))
-				nodeMsgs.setActiveEpoch(&epoch{
+				nodeMsgs.setActiveEpoch(&activeEpoch{
 					epochConfig:   &pb.EpochConfig{Number: 6},
 					networkConfig: networkConfig,
 				})

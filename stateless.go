@@ -44,10 +44,6 @@ func seqToBucket(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkState_Config) B
 	return BucketID((seqNo - initialSequence(ec, nc)) % uint64(nc.NumberOfBuckets))
 }
 
-func (e *epoch) seqToBucket(seqNo uint64) BucketID {
-	return seqToBucket(seqNo, e.epochConfig, e.networkConfig)
-}
-
 func seqToColumn(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkState_Config) uint64 {
 	return (seqNo-initialSequence(ec, nc))/uint64(nc.NumberOfBuckets) + 1
 }

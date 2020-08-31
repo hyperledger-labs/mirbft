@@ -86,7 +86,7 @@ type epochMsgs struct {
 	myConfig      *pb.StateEvent_InitialParameters
 	epochConfig   *pb.EpochConfig
 	networkConfig *pb.NetworkState_Config
-	epoch         *epoch
+	epoch         *activeEpoch
 	clientWindows *clientWindows
 
 	// next maintains the info about the next expected messages for
@@ -117,7 +117,7 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, logger Lo
 	}
 }
 
-func (n *nodeMsgs) setActiveEpoch(epoch *epoch) {
+func (n *nodeMsgs) setActiveEpoch(epoch *activeEpoch) {
 	if epoch == nil {
 		n.epochMsgs = nil
 		return
@@ -267,7 +267,7 @@ func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
 	}
 }
 
-func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *epoch, myConfig *pb.StateEvent_InitialParameters) *epochMsgs {
+func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *activeEpoch, myConfig *pb.StateEvent_InitialParameters) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
 	for bucketID, leaderID := range epoch.buckets {
 		nm := &nextMsg{

@@ -39,7 +39,7 @@ type StateMachine struct {
 	nodeMsgs      map[NodeID]*nodeMsgs
 	clientWindows *clientWindows
 
-	activeEpoch       *epoch
+	activeEpoch       *activeEpoch
 	batchTracker      *batchTracker
 	checkpointTracker *checkpointTracker
 	epochTracker      *epochTracker
@@ -233,7 +233,7 @@ func (sm *StateMachine) advance(actions *Actions) *Actions {
 		return actions
 	}
 
-	sm.activeEpoch = newEpoch(sm.persisted, sm.clientWindows, sm.myConfig, sm.Logger)
+	sm.activeEpoch = newActiveEpoch(sm.persisted, sm.clientWindows, sm.myConfig, sm.Logger)
 	sm.epochTracker.currentEpoch.state = inProgress
 	for _, nodeMsgs := range sm.nodeMsgs {
 		nodeMsgs.setActiveEpoch(sm.activeEpoch)
