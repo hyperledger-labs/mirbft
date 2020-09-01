@@ -245,6 +245,12 @@ func (sm *StateMachine) step(source NodeID, msg *pb.Msg) *Actions {
 	case *pb.Msg_Checkpoint:
 		sm.checkpointTracker.step(source, msg)
 		return &Actions{}
+	case *pb.Msg_FetchBatch:
+		// TODO decide if we want some buffering?
+		return sm.batchTracker.step(source, msg)
+	case *pb.Msg_ForwardBatch:
+		// TODO decide if we want some buffering?
+		return sm.batchTracker.step(source, msg)
 	}
 
 	nodeMsgs, ok := sm.nodeMsgs[source]
@@ -270,10 +276,6 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			moreActions = true
 
 			switch msg.Type.(type) {
-			case *pb.Msg_FetchBatch:
-				actions.concat(sm.batchTracker.step(source, msg))
-			case *pb.Msg_ForwardBatch:
-				actions.concat(sm.batchTracker.step(source, msg))
 			case *pb.Msg_Preprepare:
 				actions.concat(sm.epochTracker.step(source, msg))
 			case *pb.Msg_Prepare:
