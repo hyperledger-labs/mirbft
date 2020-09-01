@@ -70,7 +70,7 @@ var _ = Describe("NodeMsg", func() {
 			nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 4}}})
 			nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 4}}})
 			Expect(nodeMsgs.next()).To(BeNil())
-			Expect(nodeMsgs.buffer.Len()).To(BeZero())
+			Expect(nodeMsgs.buffer.buffer.Len()).To(BeZero())
 		})
 
 		It("returns at first current message", func() {
@@ -83,7 +83,7 @@ var _ = Describe("NodeMsg", func() {
 	Context("buffer", func() {
 		It("stores incoming messages", func() {
 			// buffer is nil
-			Expect(nodeMsgs.buffer.Len()).To(BeZero())
+			Expect(nodeMsgs.buffer.buffer.Len()).To(BeZero())
 			Expect(nodeMsgs.next()).To(BeNil())
 
 		})
@@ -96,13 +96,13 @@ var _ = Describe("NodeMsg", func() {
 			It("drops oldest msg", func() {
 				nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Preprepare{}})
 				nodeMsgs.ingest(&pb.Msg{Type: &pb.Msg_Prepare{Prepare: &pb.Prepare{Epoch: 5}}})
-				Expect(nodeMsgs.buffer.Len()).To(Equal(1))
+				Expect(nodeMsgs.buffer.buffer.Len()).To(Equal(1))
 				nodeMsgs.setActiveEpoch(&activeEpoch{
 					epochConfig:   &pb.EpochConfig{Number: 6},
 					networkConfig: networkConfig,
 				})
 				Expect(nodeMsgs.next()).To(BeNil())
-				Expect(nodeMsgs.buffer.Len()).To(Equal(0))
+				Expect(nodeMsgs.buffer.buffer.Len()).To(Equal(0))
 			})
 		})
 	})

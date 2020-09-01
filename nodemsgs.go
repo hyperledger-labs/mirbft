@@ -73,13 +73,13 @@ const (
 type nodeMsgs struct {
 	id             NodeID
 	oddities       *oddities
-	buffer         *list.List
 	epochMsgs      *epochMsgs
-	logger         Logger
-	myConfig       *pb.StateEvent_InitialParameters
 	networkConfig  *pb.NetworkState_Config
 	clientWindows  *clientWindows
 	nextCheckpoint uint64
+	buffer         *msgBuffer
+	logger         Logger
+	myConfig       *pb.StateEvent_InitialParameters
 }
 
 type epochMsgs struct {
@@ -92,6 +92,45 @@ type epochMsgs struct {
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
 	next map[BucketID]*nextMsg
+}
+
+// TODO base this buffer on size, not count
+type msgBuffer struct {
+	buffer   *list.List
+	logger   Logger
+	myConfig *pb.StateEvent_InitialParameters
+}
+
+func (mb *msgBuffer) store(msg *pb.Msg) {
+	mb.buffer.PushBack(msg)
+	if uint32(mb.buffer.Len()) > mb.myConfig.BufferSize {
+		e := mb.buffer.Front()
+		mb.buffer.Remove(e)
+	}
+}
+
+func (mb *msgBuffer) next(filter func(*pb.Msg) applyable) *pb.Msg {
+	e := mb.buffer.Front()
+	if e == nil {
+		return nil
+	}
+
+	for e != nil {
+		msg := e.Value.(*pb.Msg)
+		switch filter(msg) {
+		case past:
+			x := e
+			e = e.Next() // get next before removing current
+			mb.buffer.Remove(x)
+		case current:
+			mb.buffer.Remove(e)
+			return msg
+		case future:
+			e = e.Next()
+		}
+	}
+
+	return nil
 }
 
 type nextMsg struct {
@@ -111,9 +150,13 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, logger Lo
 		// XXX we should initialize this properly, sort of like the above
 		nextCheckpoint: uint64(networkConfig.CheckpointInterval),
 		clientWindows:  clientWindows,
-		buffer:         list.New(),
-		myConfig:       myConfig,
-		networkConfig:  networkConfig,
+		buffer: &msgBuffer{
+			buffer:   list.New(),
+			logger:   logger,
+			myConfig: myConfig,
+		},
+		myConfig:      myConfig,
+		networkConfig: networkConfig,
 	}
 }
 
@@ -129,11 +172,7 @@ func (n *nodeMsgs) setActiveEpoch(epoch *activeEpoch) {
 // may immediately become available to read from next(), or it may be enqueued
 // for future consumption
 func (n *nodeMsgs) ingest(outerMsg *pb.Msg) {
-	n.buffer.PushBack(outerMsg)
-	if uint32(n.buffer.Len()) > n.myConfig.BufferSize {
-		e := n.buffer.Front()
-		n.buffer.Remove(e)
-	}
+	n.buffer.store(outerMsg)
 }
 
 func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
@@ -220,30 +259,7 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 }
 
 func (n *nodeMsgs) next() *pb.Msg {
-	e := n.buffer.Front()
-	if e == nil {
-		return nil
-	}
-
-	for e != nil {
-		msg := e.Value.(*pb.Msg)
-		switch n.process(msg) {
-		case past:
-			n.oddities.alreadyProcessed(n.id, msg)
-			x := e
-			e = e.Next() // get next before removing current
-			n.buffer.Remove(x)
-		case current:
-			n.buffer.Remove(e)
-			return msg
-		case future:
-			// TODO, this is too aggressive, but useful for debugging
-			n.logger.Debug("deferring apply as it's from the future", logBasics(n.id, msg)...)
-			e = e.Next()
-		}
-	}
-
-	return nil
+	return n.buffer.next(n.process)
 }
 
 func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
