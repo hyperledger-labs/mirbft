@@ -62,6 +62,7 @@ func newSequence(owner NodeID, epoch, seqNo uint64, persisted *persisted, networ
 		seqNo:         seqNo,
 		epoch:         epoch,
 		myConfig:      myConfig,
+		logger:        logger,
 		networkConfig: networkConfig,
 		persisted:     persisted,
 		state:         Uninitialized,

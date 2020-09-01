@@ -78,7 +78,25 @@ func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialP
 	return ct
 }
 
+func (ct *checkpointTracker) filter(msg *pb.Msg) applyable {
+	switch {
+	case msg.Type.(*pb.Msg_Checkpoint).Checkpoint.SeqNo < ct.activeCheckpoints.Front().Value.(*checkpoint).seqNo:
+		return past
+	default:
+		return current
+		// TODO, have notion of future... but also process
+	}
+}
+
 func (ct *checkpointTracker) step(source NodeID, msg *pb.Msg) {
+	if ct.filter(msg) != current {
+		return
+	}
+
+	ct.applyMsg(source, msg)
+}
+
+func (ct *checkpointTracker) applyMsg(source NodeID, msg *pb.Msg) {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_Checkpoint:
 		msg := innerMsg.Checkpoint

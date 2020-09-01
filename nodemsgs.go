@@ -60,7 +60,6 @@ const (
 //      network we require that sequences arrive as (1, 5, 9, 13, ...) or (2, 6, 10, 14, ...), or (3, 7, ...)
 //      etc.).  We may want to revist the decision to buffer these, but it is a relatively lightweight way
 //      to ensure that we do not allow duplication of these messages from a node.
-//   2) Checkpoint messages.  This is only the Checkpoint message.  Checkpoint messages below the low watermark
 //      should be marked as in the past.
 //   3) Client request related messages
 //      (TODO, this needs work at the moment, but this would include the 'Forward' message as of today)
@@ -71,15 +70,14 @@ const (
 //      is only valid for an Epoch which is not prepending yet.  TODO, this area is a bit under development at
 //      the moment, and needs to implement epoch-change fetching, so this will likely change a small bit.
 type nodeMsgs struct {
-	id             NodeID
-	oddities       *oddities
-	epochMsgs      *epochMsgs
-	networkConfig  *pb.NetworkState_Config
-	clientWindows  *clientWindows
-	nextCheckpoint uint64
-	buffer         *msgBuffer
-	logger         Logger
-	myConfig       *pb.StateEvent_InitialParameters
+	id            NodeID
+	oddities      *oddities
+	epochMsgs     *epochMsgs
+	networkConfig *pb.NetworkState_Config
+	clientWindows *clientWindows
+	buffer        *msgBuffer
+	logger        Logger
+	myConfig      *pb.StateEvent_InitialParameters
 }
 
 type epochMsgs struct {
@@ -154,13 +152,10 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, logger Lo
 		oddities: oddities,
 		logger:   logger,
 
-		// nextCheckpoint: epochConfig.lowWatermark + epochConfig.checkpointInterval,
-		// XXX we should initialize this properly, sort of like the above
-		nextCheckpoint: uint64(networkConfig.CheckpointInterval),
-		clientWindows:  clientWindows,
-		buffer:         newMsgBuffer(myConfig, logger),
-		myConfig:       myConfig,
-		networkConfig:  networkConfig,
+		clientWindows: clientWindows,
+		buffer:        newMsgBuffer(myConfig, logger),
+		myConfig:      myConfig,
+		networkConfig: networkConfig,
 	}
 }
 
@@ -190,8 +185,6 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		epoch = innerMsg.Commit.Epoch
 	case *pb.Msg_Suspect:
 		return current // TODO, at least detect past
-	case *pb.Msg_Checkpoint:
-		return n.processCheckpoint(innerMsg.Checkpoint)
 	case *pb.Msg_FetchBatch:
 		return current // TODO decide if this is actually current
 	case *pb.Msg_ForwardBatch:
@@ -234,27 +227,6 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 
 func (n *nodeMsgs) next() *pb.Msg {
 	return n.buffer.next(n.process)
-}
-
-func (n *nodeMsgs) processCheckpoint(msg *pb.Checkpoint) applyable {
-	switch {
-	case n.nextCheckpoint > msg.SeqNo:
-		return past
-	case n.nextCheckpoint == msg.SeqNo:
-		if n.epochMsgs == nil {
-			return future
-		}
-		for _, next := range n.epochMsgs.next {
-			if next.commit < n.epochMsgs.seqToColumn(msg.SeqNo) {
-				return future
-			}
-		}
-
-		n.nextCheckpoint = msg.SeqNo + uint64(n.networkConfig.CheckpointInterval)
-		return current
-	default:
-		return future
-	}
 }
 
 func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *activeEpoch, myConfig *pb.StateEvent_InitialParameters) *epochMsgs {
@@ -411,8 +383,7 @@ func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
 func (n *nodeMsgs) status() *NodeStatus {
 	if n.epochMsgs == nil {
 		return &NodeStatus{
-			ID:             uint64(n.id),
-			LastCheckpoint: uint64(n.nextCheckpoint) - uint64(n.networkConfig.CheckpointInterval),
+			ID: uint64(n.id),
 		}
 	}
 

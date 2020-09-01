@@ -597,7 +597,11 @@ func (et *epochTarget) advanceState() *Actions {
 		case ready: // New epoch is ready to begin
 			et.activeEpoch = newActiveEpoch(et.persisted, et.clientWindows, et.myConfig, et.logger)
 			et.state = inProgress
-
+			// It's important not to step through into the next state transition,
+			// as we must commit the seqs proposed by other replicas in previous
+			// epochs prior to attempting to propose our own (and potentially
+			// re-proposing the same rquests)
+			return actions
 		case inProgress: // No pending change
 			actions.concat(et.activeEpoch.outstandingReqs.advanceRequests())
 			actions.concat(et.activeEpoch.drainProposer())

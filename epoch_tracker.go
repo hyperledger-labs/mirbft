@@ -27,7 +27,7 @@ type epochTracker struct {
 	nodeMsgs      map[NodeID]*nodeMsgs
 }
 
-func newEpochChanger(
+func newEpochTracker(
 	persisted *persisted,
 	networkConfig *pb.NetworkState_Config,
 	logger Logger,
@@ -40,6 +40,7 @@ func newEpochChanger(
 		persisted:     persisted,
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
+		logger:        logger,
 		batchTracker:  batchTracker,
 		clientWindows: clientWindows,
 		targets:       map[uint64]*epochTarget{},

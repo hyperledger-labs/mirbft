@@ -403,7 +403,9 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 		Expect(err).NotTo(HaveOccurred())
 
 		fakeLog := &FakeLog{
-			CommitC: make(chan *pb.QEntry, testConfig.MsgCount),
+			// We make the CommitC excessive, to prevent deadlock
+			// in case of bugs this test would otherwise catch.
+			CommitC: make(chan *pb.QEntry, 5*testConfig.MsgCount),
 		}
 
 		replicas[i] = &TestReplica{

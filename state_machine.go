@@ -102,7 +102,7 @@ func (sm *StateMachine) completeInitialization() {
 
 	sm.batchTracker = newBatchTracker(sm.persisted)
 
-	sm.epochTracker = newEpochChanger(
+	sm.epochTracker = newEpochTracker(
 		sm.persisted,
 		sm.networkConfig,
 		sm.Logger,
@@ -136,7 +136,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		return &Actions{}
 	case *pb.StateEvent_Tick:
 		assertInitialized()
-		return sm.epochTracker.tick()
+		actions.concat(sm.epochTracker.tick())
 	case *pb.StateEvent_Step:
 		assertInitialized()
 		actions.concat(sm.step(
@@ -157,6 +157,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		// This is a bit odd, in that it's a no-op, but it's harmless
 		// and allows for much more insightful playback events (allowing
 		// us to tie action results to a particular set of actions)
+		return &Actions{}
 	default:
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}
@@ -174,30 +175,35 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		actions.concat(sm.epochTracker.moveWatermarks(newLow))
 	}
 
-	actions.concat(sm.epochTracker.currentEpoch.advanceState())
-
-	for _, commit := range actions.Commits {
-		for _, fr := range commit.QEntry.Requests {
-			cw, ok := sm.clientWindows.clientWindow(fr.Request.ClientId)
-			if !ok {
-				panic("we never should have committed this without the client available")
+	loopActions := actions
+	for !loopActions.isEmpty() {
+		for _, commit := range loopActions.Commits {
+			for _, fr := range commit.QEntry.Requests {
+				cw, ok := sm.clientWindows.clientWindow(fr.Request.ClientId)
+				if !ok {
+					panic("we never should have committed this without the client available")
+				}
+				cw.request(fr.Request.ReqNo).committed = &commit.QEntry.SeqNo
+				// sm.Logger.Info(fmt.Sprintf("Committing %d.%d at seqno=%d", fr.Request.ClientId, fr.Request.ReqNo, commit.QEntry.SeqNo))
 			}
-			cw.request(fr.Request.ReqNo).committed = &commit.QEntry.SeqNo
+
+			checkpoint := commit.QEntry.SeqNo%uint64(sm.networkConfig.CheckpointInterval) == 0
+
+			if checkpoint {
+				commit.Checkpoint = true
+				commit.NetworkState = &pb.NetworkState{
+					Clients: sm.clientWindows.clientConfigs(),
+					Config:  sm.networkConfig,
+				}
+			} else {
+				commit.EpochConfig = nil
+			}
+
+			sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
 		}
 
-		checkpoint := commit.QEntry.SeqNo%uint64(sm.networkConfig.CheckpointInterval) == 0
-
-		if checkpoint {
-			commit.Checkpoint = true
-			commit.NetworkState = &pb.NetworkState{
-				Clients: sm.clientWindows.clientConfigs(),
-				Config:  sm.networkConfig,
-			}
-		} else {
-			commit.EpochConfig = nil
-		}
-
-		sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
+		loopActions = sm.epochTracker.currentEpoch.advanceState()
+		actions.concat(loopActions)
 	}
 
 	return actions
@@ -236,6 +242,9 @@ func (sm *StateMachine) step(source NodeID, msg *pb.Msg) *Actions {
 		return actions.concat(sm.clientWindows.step(source, msg))
 	case *pb.Msg_ForwardRequest:
 		return actions.concat(sm.clientWindows.step(source, msg))
+	case *pb.Msg_Checkpoint:
+		sm.checkpointTracker.step(source, msg)
+		return &Actions{}
 	}
 
 	nodeMsgs, ok := sm.nodeMsgs[source]
@@ -261,8 +270,6 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			moreActions = true
 
 			switch msg.Type.(type) {
-			case *pb.Msg_Checkpoint:
-				sm.checkpointTracker.step(source, msg)
 			case *pb.Msg_FetchBatch:
 				actions.concat(sm.batchTracker.step(source, msg))
 			case *pb.Msg_ForwardBatch:

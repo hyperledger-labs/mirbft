@@ -224,33 +224,27 @@ func (e *activeEpoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte)
 }
 
 func (e *activeEpoch) moveWatermarks(seqNo uint64) *Actions {
-	ci := int(e.networkConfig.CheckpointInterval)
-	if seqNo+1 < e.lowWatermark()+uint64(ci) {
-		return &Actions{}
-	} else if seqNo+1 > e.lowWatermark()+uint64(ci) {
-		panic(fmt.Sprintf("dev sanity test: expected seqNo=%d, got seqNo=%d", e.lowWatermark()+uint64(ci), seqNo+1))
-	}
+	for _, seq := range e.sequences {
+		if seq.seqNo > seqNo {
+			break
+		}
 
-	e.sequences = e.sequences[ci:]
-	e.lowestUncommitted -= ci
-	for i := range e.lowestUnallocated {
-		e.lowestUnallocated[i] -= ci
-	}
+		// XXX this is really a pretty inefficient
+		// we can and should do better
+		e.sequences = e.sequences[1:]
+		for i := range e.lowestUnallocated {
+			e.lowestUnallocated[i]--
+		}
+		e.lowestUncommitted--
 
-	if seqNo+3*uint64(ci)-1 == e.epochConfig.PlannedExpiration {
-		e.ending = true
-		return &Actions{}
-	}
-
-	for i := 0; i < ci; i++ {
-		seqNo := seqNo + uint64(2*ci+i+1)
+		newSeqNo := e.sequences[len(e.sequences)-1].seqNo + 1
 		epoch := e.epochConfig.Number
-		owner := e.buckets[e.seqToBucket(seqNo)]
-		e.sequences = append(e.sequences, newSequence(owner, epoch, seqNo, e.persisted, e.networkConfig, e.myConfig, e.logger))
-	}
-
-	if e.highWatermark()-e.lowWatermark() != uint64(ci)*3-1 {
-		panic(fmt.Sprintf("dev sanity test: low=%d high=%d width=%d", e.lowWatermark(), e.highWatermark(), ci*3))
+		owner := e.buckets[e.seqToBucket(newSeqNo)]
+		e.sequences = append(e.sequences, newSequence(owner, epoch, newSeqNo, e.persisted, e.networkConfig, e.myConfig, e.logger))
+		if newSeqNo == e.epochConfig.PlannedExpiration {
+			e.ending = true
+			break
+		}
 	}
 
 	return e.drainProposer()
