@@ -70,28 +70,62 @@ func newEpochTracker(
 	return et
 }
 
-func (et *epochTracker) step(source NodeID, msg *pb.Msg) *Actions {
+func epochForMsg(msg *pb.Msg) uint64 {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_Preprepare:
-		return et.currentEpoch.step(source, msg)
+		return innerMsg.Preprepare.Epoch
 	case *pb.Msg_Prepare:
-		return et.currentEpoch.step(source, msg)
+		return innerMsg.Prepare.Epoch
 	case *pb.Msg_Commit:
-		return et.currentEpoch.step(source, msg)
+		return innerMsg.Commit.Epoch
+	case *pb.Msg_Suspect:
+		return innerMsg.Suspect.Epoch
+	case *pb.Msg_EpochChange:
+		return innerMsg.EpochChange.NewEpoch
+	case *pb.Msg_EpochChangeAck:
+		return innerMsg.EpochChangeAck.EpochChange.NewEpoch
+	case *pb.Msg_NewEpoch:
+		return innerMsg.NewEpoch.NewConfig.Config.Number
+	case *pb.Msg_NewEpochEcho:
+		return innerMsg.NewEpochEcho.NewConfig.Config.Number
+	case *pb.Msg_NewEpochReady:
+		return innerMsg.NewEpochReady.NewConfig.Config.Number
+	default:
+		panic(fmt.Sprintf("unexpected bad epoch message type %T, this indicates a bug", msg.Type))
+	}
+}
+
+func (et *epochTracker) step(source NodeID, msg *pb.Msg) *Actions {
+	epochNumber := epochForMsg(msg)
+	if epochNumber < et.currentEpoch.number {
+		return &Actions{}
+	}
+
+	target := et.target(epochNumber)
+
+	switch innerMsg := msg.Type.(type) {
+	case *pb.Msg_Preprepare:
+		return target.step(source, msg)
+	case *pb.Msg_Prepare:
+		return target.step(source, msg)
+	case *pb.Msg_Commit:
+		return target.step(source, msg)
 	case *pb.Msg_Suspect:
 		return et.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 	case *pb.Msg_EpochChange:
-		return et.applyEpochChangeMsg(source, innerMsg.EpochChange)
+		return target.applyEpochChangeMsg(source, innerMsg.EpochChange)
 	case *pb.Msg_EpochChangeAck:
-		return et.applyEpochChangeAckMsg(source, innerMsg.EpochChangeAck)
+		return target.applyEpochChangeAckMsg(source, NodeID(innerMsg.EpochChangeAck.Originator), innerMsg.EpochChangeAck.EpochChange)
 	case *pb.Msg_NewEpoch:
-		// XXX filter this out, like:
-		// innerMsg.NewEpoch.NewConfig.Config.Number%uint64(len(n.networkConfig.Nodes)) != uint64(n.id)
-		return et.applyNewEpochMsg(innerMsg.NewEpoch)
+		if epochNumber%uint64(len(et.networkConfig.Nodes)) != uint64(source) {
+			// TODO, log oddity
+			return &Actions{}
+		}
+		return target.applyNewEpochMsg(innerMsg.NewEpoch)
 	case *pb.Msg_NewEpochEcho:
-		return et.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho)
+		return target.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho)
 	case *pb.Msg_NewEpochReady:
-		return et.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady)
+		return target.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady)
 	default:
 		panic(fmt.Sprintf("unexpected bad epoch message type %T, this indicates a bug", msg.Type))
 	}
@@ -232,44 +266,14 @@ func (et *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 }
 */
 
-func (et *epochTracker) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
-	actions := &Actions{}
-	if source != NodeID(et.myConfig.Id) {
-		// We don't want to etho our own EpochChange message,
-		// as we already broadcast/rebroadcast it.
-		actions.send(
-			et.networkConfig.Nodes,
-			&pb.Msg{
-				Type: &pb.Msg_EpochChangeAck{
-					EpochChangeAck: &pb.EpochChangeAck{
-						Originator:  uint64(source),
-						EpochChange: msg,
-					},
-				},
-			},
-		)
+func (et *epochTracker) applyEpochChangeDigest(hashResult *pb.HashResult_EpochChange, digest []byte) *Actions {
+	targetNumber := hashResult.EpochChange.NewEpoch
+	if targetNumber < et.currentEpoch.number {
+		// This is a state change, let's ignore it
+		return &Actions{}
 	}
-
-	// TODO, we could get away with one type of message, an 'EpochChange'
-	// with an 'Origin', but it's a little less clear reading messages on the wire.
-	target := et.target(msg.NewEpoch)
-	return actions.concat(target.applyEpochChangeAckMsg(source, source, msg))
-}
-
-func (et *epochTracker) applyEpochChangeDigest(epochChange *pb.HashResult_EpochChange, digest []byte) *Actions {
-	// TODO, fix all this stuttering and repitition
-	target := et.target(epochChange.EpochChange.NewEpoch)
-	return target.applyEpochChangeDigest(epochChange, digest)
-}
-
-func (et *epochTracker) applyEpochChangeAckMsg(source NodeID, ack *pb.EpochChangeAck) *Actions {
-	target := et.target(ack.EpochChange.NewEpoch)
-	return target.applyEpochChangeAckMsg(source, NodeID(ack.Originator), ack.EpochChange)
-}
-
-func (et *epochTracker) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
-	target := et.target(msg.NewConfig.Config.Number)
-	return target.applyNewEpochMsg(msg)
+	target := et.target(targetNumber)
+	return target.applyEpochChangeDigest(hashResult, digest)
 }
 
 // Summary of Bracha reliable broadcast from:
@@ -290,17 +294,6 @@ func (et *epochTracker) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 //
 // upon reteiving 2t + 1 messages (READY, m):
 // r-deliver(m)
-
-func (et *epochTracker) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
-	target := et.target(msg.NewConfig.Config.Number)
-	return target.applyNewEpochEchoMsg(source, msg)
-}
-
-func (et *epochTracker) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
-	target := et.target(msg.NewConfig.Config.Number)
-	actions := target.applyNewEpochReadyMsg(source, msg)
-	return actions
-}
 
 func (et *epochTracker) status() *EpochChangerStatus {
 	targets := make([]*EpochTargetStatus, 0, len(et.targets))

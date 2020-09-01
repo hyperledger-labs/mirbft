@@ -85,8 +85,8 @@ type oddities struct {
 }
 
 type oddity struct {
-	invalid          uint64
-	alreadyProcessed uint64
+	invalid uint64
+	// alreadyProcessed uint64
 	// aboveWatermarks uint64
 	// belowWatermarks uint64
 	// wrongEpoch      uint64
@@ -105,12 +105,13 @@ func (o *oddities) getNode(nodeID NodeID) *oddity {
 	return od
 }
 
+// TODO enable again when we add back these checks
+/*
 func (o *oddities) alreadyProcessed(source NodeID, msg *pb.Msg) {
 	o.logger.Debug("already processed message", logBasics(source, msg)...)
 	o.getNode(source).alreadyProcessed++
 }
 
-/* // TODO enable again when we add back these checks
 func (o *oddities) aboveWatermarks(source NodeID, msg *pb.Msg) {
 	o.logger.Warn("received message above watermarks", logBasics(source, msg)...)
 	o.getNode(source).aboveWatermarks++
@@ -120,7 +121,6 @@ func (o *oddities) belowWatermarks(source NodeID, msg *pb.Msg) {
 	o.logger.Warn("received message below watermarks", logBasics(source, msg)...)
 	o.getNode(source).belowWatermarks++
 }
-
 */
 
 func (o *oddities) invalidMessage(source NodeID, msg *pb.Msg) {

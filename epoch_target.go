@@ -420,6 +420,28 @@ func (et *epochTarget) tickPending() *Actions {
 	return &Actions{}
 }
 
+func (et *epochTarget) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
+	actions := &Actions{}
+	if source != NodeID(et.myConfig.Id) {
+		// We don't want to echo our own EpochChange message,
+		// as we already broadcast/rebroadcast it.
+		actions.send(
+			et.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_EpochChangeAck{
+					EpochChangeAck: &pb.EpochChangeAck{
+						Originator:  uint64(source),
+						EpochChange: msg,
+					},
+				},
+			},
+		)
+	}
+
+	// Automatically apply an ACK from the originator
+	return actions.concat(et.applyEpochChangeAckMsg(source, source, msg))
+}
+
 func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, origin NodeID, msg *pb.EpochChange) *Actions {
 	// TODO, make sure nodemsgs prevents us from receiving an epoch change twice
 	hashRequest := &HashRequest{
