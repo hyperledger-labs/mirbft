@@ -149,6 +149,10 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}
 
+	// A nice guarantee we have, is that for any given event, at most, one watermark movement is
+	// required.  It is not possible for the watermarks to move twice, as it would require
+	// new checkpoint messages from ourselves, which necessarily can only exist after the
+	// commits for those sequences have been returned.
 	if sm.checkpointTracker.state == cpsGarbageCollectable {
 		newLow := sm.checkpointTracker.garbageCollect()
 
@@ -163,7 +167,12 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	}
 
 	loopActions := actions
-	for !loopActions.isEmpty() {
+	for {
+		// We note all of the commits that occured in response to the current event
+		// as well as any watermark movement.  Then, based on this information we
+		// may continue to iterate the state machine, and do so, so long as
+		// attempting to advance the state causes new actions.
+
 		for _, commit := range loopActions.Commits {
 			for _, fr := range commit.QEntry.Requests {
 				cw, ok := sm.clientWindows.clientWindow(fr.Request.ClientId)
@@ -176,6 +185,9 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 
 			checkpoint := commit.QEntry.SeqNo%uint64(sm.networkConfig.CheckpointInterval) == 0
 
+			// If this commit lands on a checkpoint boundary, we note the committed
+			// network state and set the flag.  Otherwise, we will not need to reference
+			// the epoch config in the returned result, so we nil it.
 			if checkpoint {
 				commit.Checkpoint = true
 				commit.NetworkState = &pb.NetworkState{
@@ -189,7 +201,11 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 			sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
 		}
 
-		loopActions = sm.epochTracker.currentEpoch.advanceState()
+		loopActions = sm.epochTracker.advanceState()
+		if loopActions.isEmpty() {
+			break
+		}
+
 		actions.concat(loopActions)
 	}
 

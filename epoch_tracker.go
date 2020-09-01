@@ -70,6 +70,34 @@ func newEpochTracker(
 	return et
 }
 
+func (et *epochTracker) advanceState() *Actions {
+	if et.currentEpoch.state < done {
+		return et.currentEpoch.advanceState()
+	}
+
+	epochChange := et.persisted.constructEpochChange(et.currentEpoch.number + 1)
+
+	newTarget := et.target(et.currentEpoch.number + 1)
+	et.setCurrentEpoch(newTarget)
+
+	myEpochChange, err := newParsedEpochChange(epochChange)
+	if err != nil {
+		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
+	}
+
+	newTarget.myEpochChange = myEpochChange
+	newTarget.myLeaderChoice = []uint64{et.myConfig.Id} // XXX, wrong
+
+	return et.persisted.addEpochChange(epochChange).send(
+		et.networkConfig.Nodes,
+		&pb.Msg{
+			Type: &pb.Msg_EpochChange{
+				EpochChange: epochChange,
+			},
+		},
+	)
+}
+
 func epochForMsg(msg *pb.Msg) uint64 {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_Preprepare:
@@ -111,7 +139,8 @@ func (et *epochTracker) step(source NodeID, msg *pb.Msg) *Actions {
 	case *pb.Msg_Commit:
 		return target.step(source, msg)
 	case *pb.Msg_Suspect:
-		return et.applySuspectMsg(source, innerMsg.Suspect.Epoch)
+		target.applySuspectMsg(source)
+		return &Actions{}
 	case *pb.Msg_EpochChange:
 		return target.applyEpochChangeMsg(source, innerMsg.EpochChange)
 	case *pb.Msg_EpochChangeAck:
@@ -167,47 +196,13 @@ func (et *epochTracker) target(epoch uint64) *epochTarget {
 	return target
 }
 
-func (et *epochTracker) setPendingTarget(target *epochTarget) {
+func (et *epochTracker) setCurrentEpoch(target *epochTarget) {
 	for number := range et.targets {
 		if number < target.number {
 			delete(et.targets, number)
 		}
 	}
 	et.currentEpoch = target
-}
-
-func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *Actions {
-	if et.currentEpoch.number > epoch {
-		return &Actions{}
-	}
-
-	target := et.target(epoch)
-	target.applySuspectMsg(source)
-	if target.state < done {
-		return &Actions{}
-	}
-
-	epochChange := et.persisted.constructEpochChange(epoch + 1)
-
-	newTarget := et.target(epoch + 1)
-	et.setPendingTarget(newTarget)
-
-	var err error
-	newTarget.myEpochChange, err = newParsedEpochChange(epochChange)
-	if err != nil {
-		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
-	}
-
-	newTarget.myLeaderChoice = []uint64{et.myConfig.Id}
-
-	return et.persisted.addEpochChange(epochChange).send(
-		et.networkConfig.Nodes,
-		&pb.Msg{
-			Type: &pb.Msg_EpochChange{
-				EpochChange: epochChange,
-			},
-		},
-	)
 }
 
 func (et *epochTracker) moveWatermarks(seqNo uint64) *Actions {

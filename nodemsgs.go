@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"container/list"
+	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
@@ -108,7 +109,8 @@ func (mb *msgBuffer) store(msg *pb.Msg) {
 	mb.buffer.PushBack(msg)
 	if uint32(mb.buffer.Len()) > mb.myConfig.BufferSize {
 		e := mb.buffer.Front()
-		mb.buffer.Remove(e)
+		oldMsg := mb.buffer.Remove(e).(*pb.Msg)
+		mb.logger.Warn(fmt.Sprintf("dropping message of type %T", oldMsg))
 	}
 }
 
