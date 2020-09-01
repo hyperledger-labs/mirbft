@@ -125,21 +125,15 @@ func (et *epochTracker) target(epoch uint64) *epochTarget {
 
 	target, ok := et.targets[epoch]
 	if !ok {
-		target = &epochTarget{
-			number:        epoch,
-			suspicions:    map[NodeID]struct{}{},
-			changes:       map[NodeID]*epochChange{},
-			strongChanges: map[NodeID]*parsedEpochChange{},
-			echos:         map[*pb.NewEpochConfig]map[NodeID]struct{}{},
-			readies:       map[*pb.NewEpochConfig]map[NodeID]struct{}{},
-			isLeader:      epoch%uint64(len(et.networkConfig.Nodes)) == et.myConfig.Id,
-			persisted:     et.persisted,
-			networkConfig: et.networkConfig,
-			logger:        et.logger,
-			myConfig:      et.myConfig,
-			batchTracker:  et.batchTracker,
-			clientWindows: et.clientWindows,
-		}
+		target = newEpochTarget(
+			epoch,
+			et.persisted,
+			et.clientWindows,
+			et.batchTracker,
+			et.networkConfig,
+			et.myConfig,
+			et.logger,
+		)
 		et.targets[epoch] = target
 	}
 	return target

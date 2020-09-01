@@ -33,17 +33,15 @@ const (
 // to transition to this target, and may not have information like the
 // epoch configuration
 type epochTarget struct {
-	state         epochTargetState
-	stateTicks    uint64
-	number        uint64
-	changes       map[NodeID]*epochChange
-	strongChanges map[NodeID]*parsedEpochChange
-	echos         map[*pb.NewEpochConfig]map[NodeID]struct{}
-	readies       map[*pb.NewEpochConfig]map[NodeID]struct{}
-	activeEpoch   *activeEpoch
-	suspicions    map[NodeID]struct{}
-
-	persisted       *persisted
+	state           epochTargetState
+	stateTicks      uint64
+	number          uint64
+	changes         map[NodeID]*epochChange
+	strongChanges   map[NodeID]*parsedEpochChange
+	echos           map[*pb.NewEpochConfig]map[NodeID]struct{}
+	readies         map[*pb.NewEpochConfig]map[NodeID]struct{}
+	activeEpoch     *activeEpoch
+	suspicions      map[NodeID]struct{}
 	myNewEpoch      *pb.NewEpoch // The NewEpoch msg we computed from the epoch changes we know of
 	myEpochChange   *parsedEpochChange
 	myLeaderChoice  []uint64           // Set along with myEpochChange
@@ -51,11 +49,38 @@ type epochTarget struct {
 	networkNewEpoch *pb.NewEpochConfig // The NewEpoch msg as received via the bracha broadcast
 	isLeader        bool
 
-	logger        Logger
+	persisted     *persisted
+	clientWindows *clientWindows
+	batchTracker  *batchTracker
 	networkConfig *pb.NetworkState_Config
 	myConfig      *pb.StateEvent_InitialParameters
-	batchTracker  *batchTracker
-	clientWindows *clientWindows
+	logger        Logger
+}
+
+func newEpochTarget(
+	number uint64,
+	persisted *persisted,
+	clientWindows *clientWindows,
+	batchTracker *batchTracker,
+	networkConfig *pb.NetworkState_Config,
+	myConfig *pb.StateEvent_InitialParameters,
+	logger Logger,
+) *epochTarget {
+	return &epochTarget{
+		number:        number,
+		suspicions:    map[NodeID]struct{}{},
+		changes:       map[NodeID]*epochChange{},
+		strongChanges: map[NodeID]*parsedEpochChange{},
+		echos:         map[*pb.NewEpochConfig]map[NodeID]struct{}{},
+		readies:       map[*pb.NewEpochConfig]map[NodeID]struct{}{},
+		isLeader:      number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
+		persisted:     persisted,
+		clientWindows: clientWindows,
+		batchTracker:  batchTracker,
+		networkConfig: networkConfig,
+		myConfig:      myConfig,
+		logger:        logger,
+	}
 }
 
 func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkState_Config) *pb.NewEpoch {
