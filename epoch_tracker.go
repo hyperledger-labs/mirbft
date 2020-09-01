@@ -91,6 +91,8 @@ func (et *epochTracker) step(source NodeID, msg *pb.Msg) *Actions {
 	case *pb.Msg_EpochChangeAck:
 		return et.applyEpochChangeAckMsg(source, innerMsg.EpochChangeAck)
 	case *pb.Msg_NewEpoch:
+		// XXX filter this out, like:
+		// innerMsg.NewEpoch.NewConfig.Config.Number%uint64(len(n.networkConfig.Nodes)) != uint64(n.id)
 		return et.applyNewEpochMsg(innerMsg.NewEpoch)
 	case *pb.Msg_NewEpochEcho:
 		return et.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho)

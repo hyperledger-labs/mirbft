@@ -251,6 +251,18 @@ func (sm *StateMachine) step(source NodeID, msg *pb.Msg) *Actions {
 	case *pb.Msg_ForwardBatch:
 		// TODO decide if we want some buffering?
 		return sm.batchTracker.step(source, msg)
+	case *pb.Msg_Suspect:
+		return sm.epochTracker.step(source, msg)
+	case *pb.Msg_EpochChange:
+		return sm.epochTracker.step(source, msg)
+	case *pb.Msg_EpochChangeAck:
+		return sm.epochTracker.step(source, msg)
+	case *pb.Msg_NewEpoch:
+		return sm.epochTracker.step(source, msg)
+	case *pb.Msg_NewEpochEcho:
+		return sm.epochTracker.step(source, msg)
+	case *pb.Msg_NewEpochReady:
+		return sm.epochTracker.step(source, msg)
 	}
 
 	nodeMsgs, ok := sm.nodeMsgs[source]
@@ -281,18 +293,6 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			case *pb.Msg_Prepare:
 				actions.concat(sm.epochTracker.step(source, msg))
 			case *pb.Msg_Commit:
-				actions.concat(sm.epochTracker.step(source, msg))
-			case *pb.Msg_Suspect:
-				actions.concat(sm.epochTracker.step(source, msg))
-			case *pb.Msg_EpochChange:
-				actions.concat(sm.epochTracker.step(source, msg))
-			case *pb.Msg_EpochChangeAck:
-				actions.concat(sm.epochTracker.step(source, msg))
-			case *pb.Msg_NewEpoch:
-				actions.concat(sm.epochTracker.step(source, msg))
-			case *pb.Msg_NewEpochEcho:
-				actions.concat(sm.epochTracker.step(source, msg))
-			case *pb.Msg_NewEpochReady:
 				actions.concat(sm.epochTracker.step(source, msg))
 			default:
 				// This should be unreachable, as the nodeMsgs filters based on type as well
