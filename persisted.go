@@ -253,7 +253,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 			}
 		case *pb.Persistent_EpochChange:
 			if *logEpoch+1 != d.EpochChange.NewEpoch {
-				panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", d.EpochChange.NewEpoch, logEpoch))
+				panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", d.EpochChange.NewEpoch, *logEpoch))
 			}
 			logEpoch = &d.EpochChange.NewEpoch
 		}

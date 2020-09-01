@@ -11,8 +11,6 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-
-	"go.uber.org/zap"
 )
 
 type StateMachineState int
@@ -33,7 +31,6 @@ type StateMachine struct {
 
 	myConfig      *pb.StateEvent_InitialParameters
 	networkConfig *pb.NetworkState_Config
-	nodeMsgs      map[NodeID]*nodeMsgs
 	clientWindows *clientWindows
 
 	batchTracker      *batchTracker
@@ -86,19 +83,10 @@ func (sm *StateMachine) completeInitialization() {
 	sm.persisted.truncate(checkpoints[0].SeqNo)
 	sm.persisted.lastCommitted = checkpoints[len(checkpoints)-1].SeqNo
 
-	oddities := &oddities{
-		logger: sm.Logger,
-	}
-
 	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig)
 	sm.clientWindows = newClientWindows(sm.persisted, sm.myConfig, sm.Logger)
 
 	sm.networkConfig = sm.checkpointTracker.networkConfig
-
-	sm.nodeMsgs = map[NodeID]*nodeMsgs{}
-	for _, id := range sm.networkConfig.Nodes {
-		sm.nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), sm.networkConfig, sm.Logger, sm.myConfig, oddities)
-	}
 
 	sm.batchTracker = newBatchTracker(sm.persisted)
 
@@ -109,7 +97,6 @@ func (sm *StateMachine) completeInitialization() {
 		sm.myConfig,
 		sm.batchTracker,
 		sm.clientWindows,
-		sm.nodeMsgs, // XXX temporary
 	)
 
 	sm.state = smInitialized
@@ -263,46 +250,14 @@ func (sm *StateMachine) step(source NodeID, msg *pb.Msg) *Actions {
 		return sm.epochTracker.step(source, msg)
 	case *pb.Msg_NewEpochReady:
 		return sm.epochTracker.step(source, msg)
-	}
-
-	nodeMsgs, ok := sm.nodeMsgs[source]
-	if !ok {
-		sm.Logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
-	}
-
-	nodeMsgs.ingest(msg)
-
-	return sm.drainNodeMsgs()
-}
-
-func (sm *StateMachine) drainNodeMsgs() *Actions {
-	actions := &Actions{}
-
-	for {
-		moreActions := false
-		for source, nodeMsgs := range sm.nodeMsgs {
-			msg := nodeMsgs.next()
-			if msg == nil {
-				continue
-			}
-			moreActions = true
-
-			switch msg.Type.(type) {
-			case *pb.Msg_Preprepare:
-				actions.concat(sm.epochTracker.step(source, msg))
-			case *pb.Msg_Prepare:
-				actions.concat(sm.epochTracker.step(source, msg))
-			case *pb.Msg_Commit:
-				actions.concat(sm.epochTracker.step(source, msg))
-			default:
-				// This should be unreachable, as the nodeMsgs filters based on type as well
-				panic(fmt.Sprintf("unexpected bad message type %T, should have been detected earlier", msg.Type))
-			}
-		}
-
-		if !moreActions {
-			return actions
-		}
+	case *pb.Msg_Preprepare:
+		return sm.epochTracker.step(source, msg)
+	case *pb.Msg_Prepare:
+		return sm.epochTracker.step(source, msg)
+	case *pb.Msg_Commit:
+		return sm.epochTracker.step(source, msg)
+	default:
+		panic(fmt.Sprintf("unexpected bad message type %T", msg.Type))
 	}
 }
 
@@ -364,8 +319,6 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 		}
 	}
 
-	actions.concat(sm.drainNodeMsgs())
-
 	return actions
 }
 
@@ -395,7 +348,7 @@ func (sm *StateMachine) Status() *Status {
 	nodes := make([]*NodeStatus, len(sm.networkConfig.Nodes))
 	for i, nodeID := range sm.networkConfig.Nodes {
 		nodeID := NodeID(nodeID)
-		nodes[i] = sm.nodeMsgs[nodeID].status()
+		nodes[i] = sm.epochTracker.currentEpoch.nodeMsgs[nodeID].status()
 	}
 
 	checkpoints := sm.checkpointTracker.status()

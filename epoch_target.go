@@ -12,6 +12,7 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -49,6 +50,7 @@ type epochTarget struct {
 	networkNewEpoch *pb.NewEpochConfig // The NewEpoch msg as received via the bracha broadcast
 	isLeader        bool
 
+	nodeMsgs      map[NodeID]*nodeMsgs
 	persisted     *persisted
 	clientWindows *clientWindows
 	batchTracker  *batchTracker
@@ -66,6 +68,17 @@ func newEpochTarget(
 	myConfig *pb.StateEvent_InitialParameters,
 	logger Logger,
 ) *epochTarget {
+	// TODO if we like this pattern, it should get passed down from
+	// state machine, but, leaving here for refactor purposes
+	oddities := &oddities{
+		logger: logger,
+	}
+
+	nodeMsgs := map[NodeID]*nodeMsgs{}
+	for _, id := range networkConfig.Nodes {
+		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, logger, myConfig, oddities)
+	}
+
 	return &epochTarget{
 		number:        number,
 		suspicions:    map[NodeID]struct{}{},
@@ -74,12 +87,59 @@ func newEpochTarget(
 		echos:         map[*pb.NewEpochConfig]map[NodeID]struct{}{},
 		readies:       map[*pb.NewEpochConfig]map[NodeID]struct{}{},
 		isLeader:      number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
+		nodeMsgs:      nodeMsgs,
 		persisted:     persisted,
 		clientWindows: clientWindows,
 		batchTracker:  batchTracker,
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
 		logger:        logger,
+	}
+}
+
+func (et *epochTarget) step(source NodeID, msg *pb.Msg) *Actions {
+	nodeMsgs, ok := et.nodeMsgs[source]
+	if !ok {
+		et.logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
+	}
+
+	nodeMsgs.ingest(msg)
+
+	return et.drainNodeMsgs()
+}
+
+func (et *epochTarget) drainNodeMsgs() *Actions {
+	actions := &Actions{}
+
+	for {
+		moreActions := false
+		for _, id := range et.networkConfig.Nodes {
+			source := NodeID(id)
+			nodeMsgs := et.nodeMsgs[source]
+			msg := nodeMsgs.next()
+			if msg == nil {
+				continue
+			}
+			moreActions = true
+
+			switch innerMsg := msg.Type.(type) {
+			case *pb.Msg_Preprepare:
+				msg := innerMsg.Preprepare
+				return et.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch)
+			case *pb.Msg_Prepare:
+				msg := innerMsg.Prepare
+				return et.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest)
+			case *pb.Msg_Commit:
+				msg := innerMsg.Commit
+				return et.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest)
+			default:
+				panic("unexpected type")
+			}
+		}
+
+		if !moreActions {
+			return actions
+		}
 	}
 }
 
@@ -626,11 +686,18 @@ func (et *epochTarget) advanceState() *Actions {
 			// as we must commit the seqs proposed by other replicas in previous
 			// epochs prior to attempting to propose our own (and potentially
 			// re-proposing the same rquests)
+			for _, nodeMsgs := range et.nodeMsgs {
+				nodeMsgs.setActiveEpoch(et.activeEpoch)
+			}
 			return actions
 		case inProgress: // No pending change
 			actions.concat(et.activeEpoch.outstandingReqs.advanceRequests())
 			actions.concat(et.activeEpoch.drainProposer())
+			actions.concat(et.drainNodeMsgs())
 		case done: // We have sent an epoch change, ending this epoch for us
+			for _, nodeMsgs := range et.nodeMsgs {
+				nodeMsgs.setActiveEpoch(nil)
+			}
 		default:
 			panic("dev sanity test")
 		}
@@ -638,6 +705,16 @@ func (et *epochTarget) advanceState() *Actions {
 			return actions
 		}
 	}
+}
+
+func (et *epochTarget) moveWatermarks(seqNo uint64) *Actions {
+	if et.state != inProgress {
+		return &Actions{}
+	}
+
+	actions := et.activeEpoch.moveWatermarks(seqNo)
+
+	return actions.concat(et.drainNodeMsgs())
 }
 
 func (et *epochTarget) applySuspectMsg(source NodeID) {

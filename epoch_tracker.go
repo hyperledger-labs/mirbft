@@ -24,7 +24,6 @@ type epochTracker struct {
 	batchTracker  *batchTracker
 	clientWindows *clientWindows
 	targets       map[uint64]*epochTarget
-	nodeMsgs      map[NodeID]*nodeMsgs
 }
 
 func newEpochTracker(
@@ -34,7 +33,6 @@ func newEpochTracker(
 	myConfig *pb.StateEvent_InitialParameters,
 	batchTracker *batchTracker,
 	clientWindows *clientWindows,
-	nodeMsgs map[NodeID]*nodeMsgs,
 ) *epochTracker {
 	et := &epochTracker{
 		persisted:     persisted,
@@ -44,7 +42,6 @@ func newEpochTracker(
 		batchTracker:  batchTracker,
 		clientWindows: clientWindows,
 		targets:       map[uint64]*epochTarget{},
-		nodeMsgs:      nodeMsgs, // XXX hack
 	}
 
 	for head := persisted.logHead; head != nil; head = head.next {
@@ -76,14 +73,11 @@ func newEpochTracker(
 func (et *epochTracker) step(source NodeID, msg *pb.Msg) *Actions {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_Preprepare:
-		msg := innerMsg.Preprepare
-		return et.applyPreprepareMsg(source, msg.Epoch, msg.SeqNo, msg.Batch)
+		return et.currentEpoch.step(source, msg)
 	case *pb.Msg_Prepare:
-		msg := innerMsg.Prepare
-		return et.applyPrepareMsg(source, msg.Epoch, msg.SeqNo, msg.Digest)
+		return et.currentEpoch.step(source, msg)
 	case *pb.Msg_Commit:
-		msg := innerMsg.Commit
-		return et.applyCommitMsg(source, msg.Epoch, msg.SeqNo, msg.Digest)
+		return et.currentEpoch.step(source, msg)
 	case *pb.Msg_Suspect:
 		return et.applySuspectMsg(source, innerMsg.Suspect.Epoch)
 	case *pb.Msg_EpochChange:
@@ -149,6 +143,10 @@ func (et *epochTracker) setPendingTarget(target *epochTarget) {
 }
 
 func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *Actions {
+	if et.currentEpoch.number > epoch {
+		return &Actions{}
+	}
+
 	target := et.target(epoch)
 	target.applySuspectMsg(source)
 	if target.state < done {
@@ -159,9 +157,6 @@ func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 
 	newTarget := et.target(epoch + 1)
 	et.setPendingTarget(newTarget)
-	for _, nodeMsgs := range et.nodeMsgs {
-		nodeMsgs.setActiveEpoch(nil)
-	}
 
 	var err error
 	newTarget.myEpochChange, err = newParsedEpochChange(epochChange)
@@ -181,36 +176,8 @@ func (et *epochTracker) applySuspectMsg(source NodeID, epoch uint64) *Actions {
 	)
 }
 
-func (et *epochTracker) applyPreprepareMsg(source NodeID, epoch, seqNo uint64, batch []*pb.RequestAck) *Actions {
-	if epoch != et.currentEpoch.number {
-		panic("TODO handle me")
-	}
-
-	return et.currentEpoch.activeEpoch.applyPreprepareMsg(source, seqNo, batch)
-}
-
-func (et *epochTracker) applyPrepareMsg(source NodeID, epoch, seqNo uint64, digest []byte) *Actions {
-	if epoch != et.currentEpoch.number {
-		panic("TODO handle me")
-	}
-
-	return et.currentEpoch.activeEpoch.applyPrepareMsg(source, seqNo, digest)
-}
-
-func (et *epochTracker) applyCommitMsg(source NodeID, epoch, seqNo uint64, digest []byte) *Actions {
-	if epoch != et.currentEpoch.number {
-		panic("TODO handle me")
-	}
-
-	return et.currentEpoch.activeEpoch.applyCommitMsg(source, seqNo, digest)
-}
-
 func (et *epochTracker) moveWatermarks(seqNo uint64) *Actions {
-	if et.currentEpoch.state != inProgress {
-		return &Actions{}
-	}
-
-	return et.currentEpoch.activeEpoch.moveWatermarks(seqNo)
+	return et.currentEpoch.moveWatermarks(seqNo)
 }
 
 /*
@@ -331,15 +298,7 @@ func (et *epochTracker) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho
 
 func (et *epochTracker) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
 	target := et.target(msg.NewConfig.Config.Number)
-	oldState := target.state
 	actions := target.applyNewEpochReadyMsg(source, msg)
-
-	if oldState != target.state && target.state == inProgress {
-		for _, nodeMsgs := range et.nodeMsgs {
-			nodeMsgs.setActiveEpoch(target.activeEpoch)
-		}
-	}
-
 	return actions
 }
 

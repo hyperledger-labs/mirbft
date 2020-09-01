@@ -92,8 +92,13 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 		switch d := logEntry.entry.Type.(type) {
 		case *pb.Persistent_QEntry:
 			offset := int(d.QEntry.SeqNo-maxCheckpoint.SeqNo) - 1
-			if offset < 0 || offset >= len(sequences) {
-				panic("should never be possible") // TODO, improve
+			if offset < 0 {
+				// The epoch change selected an earlier checkpoint as its base
+				// but we have already committed this entry, skipping.
+				continue
+			}
+			if offset >= len(sequences) {
+				panic(fmt.Sprintf("should never be possible, QEntry seqNo=%d but started from checkpoint %d with log width of %d", d.QEntry.SeqNo, maxCheckpoint.SeqNo, len(sequences)))
 			}
 			bucket := seqToBucket(d.QEntry.SeqNo, epochConfig, networkConfig)
 			err := outstandingReqs.applyBatch(bucket, d.QEntry.Requests)
@@ -107,8 +112,13 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 			sequences[offset].state = Preprepared
 		case *pb.Persistent_PEntry:
 			offset := int(d.PEntry.SeqNo-maxCheckpoint.SeqNo) - 1
-			if offset < 0 || offset >= len(sequences) {
-				panic("should never be possible") // TODO, improve
+			if offset < 0 {
+				// The epoch change selected an earlier checkpoint as its base
+				// but we have already committed this entry, skipping.
+				continue
+			}
+			if offset >= len(sequences) {
+				panic(fmt.Sprintf("should never be possible, QEntry seqNo=%d but started from checkpoint %d with log width of %d", d.PEntry.SeqNo, maxCheckpoint.SeqNo, len(sequences)))
 			}
 
 			if persisted.lastCommitted >= d.PEntry.SeqNo {

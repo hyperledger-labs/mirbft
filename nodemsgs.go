@@ -274,7 +274,7 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 	switch {
 	case !next.leader:
 		return invalid
-	case next.prepare > n.seqToColumn(msg.SeqNo):
+	case next.prepare > n.seqToColumn(msg.SeqNo) || msg.SeqNo < n.epoch.lowWatermark():
 		return past
 	case next.prepare == n.seqToColumn(msg.SeqNo):
 		next.prepare++
@@ -297,7 +297,7 @@ func (n *epochMsgs) processPrepare(msg *pb.Prepare) applyable {
 	switch {
 	case next.leader:
 		return invalid
-	case next.prepare > n.seqToColumn(msg.SeqNo):
+	case next.prepare > n.seqToColumn(msg.SeqNo) || msg.SeqNo < n.epoch.lowWatermark():
 		return past
 	case next.prepare == n.seqToColumn(msg.SeqNo):
 		next.prepare++
@@ -318,7 +318,7 @@ func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
 	}
 
 	switch {
-	case next.commit > n.seqToColumn(msg.SeqNo):
+	case next.commit > n.seqToColumn(msg.SeqNo) || msg.SeqNo < n.epoch.lowWatermark():
 		return past
 	case next.commit == n.seqToColumn(msg.SeqNo) && next.prepare > next.commit:
 		next.commit++
