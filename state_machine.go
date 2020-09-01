@@ -227,13 +227,23 @@ func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
 	}
 }
 
-func (sm *StateMachine) step(source NodeID, outerMsg *pb.Msg) *Actions {
+func (sm *StateMachine) step(source NodeID, msg *pb.Msg) *Actions {
+	actions := &Actions{}
+	switch msg.Type.(type) {
+	case *pb.Msg_RequestAck:
+		return actions.concat(sm.clientWindows.step(source, msg))
+	case *pb.Msg_FetchRequest:
+		return actions.concat(sm.clientWindows.step(source, msg))
+	case *pb.Msg_ForwardRequest:
+		return actions.concat(sm.clientWindows.step(source, msg))
+	}
+
 	nodeMsgs, ok := sm.nodeMsgs[source]
 	if !ok {
 		sm.Logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
 	}
 
-	nodeMsgs.ingest(outerMsg)
+	nodeMsgs.ingest(msg)
 
 	return sm.drainNodeMsgs()
 }
@@ -253,12 +263,6 @@ func (sm *StateMachine) drainNodeMsgs() *Actions {
 			switch msg.Type.(type) {
 			case *pb.Msg_Checkpoint:
 				sm.checkpointTracker.step(source, msg)
-			case *pb.Msg_RequestAck:
-				actions.concat(sm.clientWindows.step(source, msg))
-			case *pb.Msg_FetchRequest:
-				actions.concat(sm.clientWindows.step(source, msg))
-			case *pb.Msg_ForwardRequest:
-				actions.concat(sm.clientWindows.step(source, msg))
 			case *pb.Msg_FetchBatch:
 				actions.concat(sm.batchTracker.step(source, msg))
 			case *pb.Msg_ForwardBatch:

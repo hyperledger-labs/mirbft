@@ -101,6 +101,14 @@ type msgBuffer struct {
 	myConfig *pb.StateEvent_InitialParameters
 }
 
+func newMsgBuffer(myConfig *pb.StateEvent_InitialParameters, logger Logger) *msgBuffer {
+	return &msgBuffer{
+		buffer:   list.New(),
+		logger:   logger,
+		myConfig: myConfig,
+	}
+}
+
 func (mb *msgBuffer) store(msg *pb.Msg) {
 	mb.buffer.PushBack(msg)
 	if uint32(mb.buffer.Len()) > mb.myConfig.BufferSize {
@@ -150,13 +158,9 @@ func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, logger Lo
 		// XXX we should initialize this properly, sort of like the above
 		nextCheckpoint: uint64(networkConfig.CheckpointInterval),
 		clientWindows:  clientWindows,
-		buffer: &msgBuffer{
-			buffer:   list.New(),
-			logger:   logger,
-			myConfig: myConfig,
-		},
-		myConfig:      myConfig,
-		networkConfig: networkConfig,
+		buffer:         newMsgBuffer(myConfig, logger),
+		myConfig:       myConfig,
+		networkConfig:  networkConfig,
 	}
 }
 
@@ -188,40 +192,10 @@ func (n *nodeMsgs) process(outerMsg *pb.Msg) applyable {
 		return current // TODO, at least detect past
 	case *pb.Msg_Checkpoint:
 		return n.processCheckpoint(innerMsg.Checkpoint)
-	case *pb.Msg_RequestAck:
-		ack := innerMsg.RequestAck
-		clientWindow, ok := n.clientWindows.clientWindow(ack.ClientId)
-		if !ok {
-			return future
-		}
-		switch {
-		case clientWindow.lowWatermark > ack.ReqNo:
-			return past
-		case clientWindow.highWatermark < ack.ReqNo:
-			return future
-		default:
-			return current
-		}
-	case *pb.Msg_FetchRequest:
-		return current // TODO decide if this is actually current
 	case *pb.Msg_FetchBatch:
 		return current // TODO decide if this is actually current
 	case *pb.Msg_ForwardBatch:
 		return current // TODO decide if this is actually current
-	case *pb.Msg_ForwardRequest:
-		requestData := innerMsg.ForwardRequest.Request
-		clientWindow, ok := n.clientWindows.clientWindow(requestData.ClientId)
-		if !ok {
-			return future
-		}
-		switch {
-		case clientWindow.lowWatermark > requestData.ReqNo:
-			return past
-		case clientWindow.highWatermark < requestData.ReqNo:
-			return future
-		default:
-			return current
-		}
 	case *pb.Msg_EpochChange:
 		return current // TODO, decide if this is actually current
 	case *pb.Msg_EpochChangeAck:

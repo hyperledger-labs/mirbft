@@ -24,6 +24,7 @@ type clientWindows struct {
 	windows       map[uint64]*clientWindow
 	clients       []uint64
 	networkConfig *pb.NetworkState_Config
+	msgBuffers    map[NodeID]*msgBuffer
 	logger        Logger
 	readyHead     *readyEntry
 	readyTail     *readyEntry
@@ -48,6 +49,7 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 		readyHead:   readyAnchor,
 		readyTail:   readyAnchor,
 		myConfig:    myConfig,
+		msgBuffers:  map[NodeID]*msgBuffer{},
 	}
 
 	clientWindowWidth := uint64(100) // XXX this should be configurable
@@ -94,10 +96,66 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 		cws.advanceReady(cws.windows[clientID])
 	}
 
+	for _, id := range cws.networkConfig.Nodes {
+		cws.msgBuffers[NodeID(id)] = newMsgBuffer(myConfig, logger)
+	}
+
 	return cws
 }
 
+func (cws *clientWindows) filter(msg *pb.Msg) applyable {
+	switch innerMsg := msg.Type.(type) {
+	case *pb.Msg_RequestAck:
+		// TODO, prevent ack spam of multiple msg digests from the same node
+		ack := innerMsg.RequestAck
+		clientWindow, ok := cws.clientWindow(ack.ClientId)
+		if !ok {
+			return future
+		}
+		switch {
+		case clientWindow.lowWatermark > ack.ReqNo:
+			return past
+		case clientWindow.highWatermark < ack.ReqNo:
+			return future
+		default:
+			return current
+		}
+	case *pb.Msg_FetchRequest:
+		return current // TODO decide if this is actually current
+	case *pb.Msg_ForwardRequest:
+		requestData := innerMsg.ForwardRequest.Request
+		clientWindow, ok := cws.clientWindow(requestData.ClientId)
+		if !ok {
+			return future
+		}
+		switch {
+		case clientWindow.lowWatermark > requestData.ReqNo:
+			return past
+		case clientWindow.highWatermark < requestData.ReqNo:
+			return future
+		default:
+			return current
+		}
+	default:
+		panic(fmt.Sprintf("unexpected bad client window message type %T, this indicates a bug", msg.Type))
+	}
+}
+
 func (cws *clientWindows) step(source NodeID, msg *pb.Msg) *Actions {
+	switch cws.filter(msg) {
+	case past:
+		// discard
+		return &Actions{}
+	case future:
+		cws.msgBuffers[source].store(msg)
+		return &Actions{}
+	}
+
+	// current
+	return cws.applyMsg(source, msg)
+}
+
+func (cws *clientWindows) applyMsg(source NodeID, msg *pb.Msg) *Actions {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_RequestAck:
 		// TODO, make sure nodeMsgs ignores this if client is not defined
@@ -331,6 +389,18 @@ func (cws *clientWindows) garbageCollect(seqNo uint64) {
 		el.next = &readyEntry{
 			clientReqNo: nextEl.next.clientReqNo,
 			next:        nextEl.next.next,
+		}
+	}
+
+	for _, nodeID := range cws.networkConfig.Nodes {
+		msgBuffer := cws.msgBuffers[NodeID(nodeID)]
+		for {
+			// TODO, really inefficient
+			msg := msgBuffer.next(cws.filter)
+			if msg == nil {
+				break
+			}
+			cws.applyMsg(NodeID(nodeID), msg)
 		}
 	}
 }
