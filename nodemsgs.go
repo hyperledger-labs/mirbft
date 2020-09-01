@@ -8,7 +8,6 @@ package mirbft
 
 import (
 	"container/list"
-	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
@@ -74,7 +73,6 @@ type nodeMsgs struct {
 	oddities      *oddities
 	epochMsgs     *epochMsgs
 	networkConfig *pb.NetworkState_Config
-	clientWindows *clientWindows
 	buffer        *msgBuffer
 	logger        Logger
 	myConfig      *pb.StateEvent_InitialParameters
@@ -85,7 +83,6 @@ type epochMsgs struct {
 	epochConfig   *pb.EpochConfig
 	networkConfig *pb.NetworkState_Config
 	epoch         *activeEpoch
-	clientWindows *clientWindows
 
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
@@ -149,14 +146,13 @@ type nextMsg struct {
 	commit  uint64
 }
 
-func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, logger Logger, myConfig *pb.StateEvent_InitialParameters, clientWindows *clientWindows, oddities *oddities) *nodeMsgs {
+func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, logger Logger, myConfig *pb.StateEvent_InitialParameters, oddities *oddities) *nodeMsgs {
 
 	return &nodeMsgs{
 		id:       nodeID,
 		oddities: oddities,
 		logger:   logger,
 
-		clientWindows: clientWindows,
 		buffer:        newMsgBuffer(myConfig, logger),
 		myConfig:      myConfig,
 		networkConfig: networkConfig,
@@ -168,7 +164,7 @@ func (n *nodeMsgs) setActiveEpoch(epoch *activeEpoch) {
 		n.epochMsgs = nil
 		return
 	}
-	n.epochMsgs = newEpochMsgs(n.id, n.clientWindows, epoch, n.myConfig)
+	n.epochMsgs = newEpochMsgs(n.id, epoch, n.myConfig)
 }
 
 // ingest the message for management by the nodeMsgs.  This message
@@ -214,7 +210,7 @@ func (n *nodeMsgs) next() *pb.Msg {
 	return n.buffer.next(n.process)
 }
 
-func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *activeEpoch, myConfig *pb.StateEvent_InitialParameters) *epochMsgs {
+func newEpochMsgs(nodeID NodeID, epoch *activeEpoch, myConfig *pb.StateEvent_InitialParameters) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
 	for bucketID, leaderID := range epoch.buckets {
 		nm := &nextMsg{
@@ -236,7 +232,6 @@ func newEpochMsgs(nodeID NodeID, clientWindows *clientWindows, epoch *activeEpoc
 	}
 
 	return &epochMsgs{
-		clientWindows: clientWindows,
 		myConfig:      myConfig,
 		epochConfig:   epoch.epochConfig,
 		networkConfig: epoch.networkConfig,
@@ -275,30 +270,6 @@ func (n *epochMsgs) processPreprepare(msg *pb.Preprepare) applyable {
 	if msg.SeqNo > n.epoch.highWatermark() {
 		return future
 	}
-
-	for _, batchEntry := range msg.Batch {
-		clientWindow, ok := n.clientWindows.clientWindow(batchEntry.ClientId)
-		if !ok {
-			return future
-		}
-
-		if batchEntry.ReqNo < clientWindow.lowWatermark {
-			return past
-		}
-
-		if batchEntry.ReqNo > clientWindow.highWatermark {
-			return future
-		}
-
-		request := clientWindow.request(batchEntry.ReqNo)
-		if request == nil {
-			// XXX, this is a dirty hack which assumes eventually,
-			// all requests arrive, it does not handle byzantine behavior.
-			return future
-		}
-	}
-	// fmt.Printf("  PROCESSING ASDF: next.Preprepare=%d and n.seqToColumn(%d)=%d initialSequence=%d maxEpochLength=%d, plannedExpiration=%d epoch=%d\n", next.prepare, msg.SeqNo, n.seqToColumn(msg.SeqNo), initialSequence(n.epochConfig, n.networkConfig), n.networkConfig.MaxEpochLength, n.epochConfig.PlannedExpiration, n.epochConfig.Number)
-	_ = fmt.Printf
 
 	switch {
 	case !next.leader:

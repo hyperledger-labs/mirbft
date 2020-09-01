@@ -97,7 +97,7 @@ func (sm *StateMachine) completeInitialization() {
 
 	sm.nodeMsgs = map[NodeID]*nodeMsgs{}
 	for _, id := range sm.networkConfig.Nodes {
-		sm.nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), sm.networkConfig, sm.Logger, sm.myConfig, sm.clientWindows, oddities)
+		sm.nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), sm.networkConfig, sm.Logger, sm.myConfig, oddities)
 	}
 
 	sm.batchTracker = newBatchTracker(sm.persisted)
