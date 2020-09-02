@@ -83,7 +83,7 @@ func (sm *StateMachine) completeInitialization() {
 	sm.persisted.truncate(checkpoints[0].SeqNo)
 	sm.persisted.lastCommitted = checkpoints[len(checkpoints)-1].SeqNo
 
-	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig)
+	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig, sm.Logger)
 	sm.clientWindows = newClientWindows(sm.persisted, sm.myConfig, sm.Logger)
 
 	sm.networkConfig = sm.checkpointTracker.networkConfig
@@ -184,7 +184,6 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 			}
 
 			checkpoint := commit.QEntry.SeqNo%uint64(sm.networkConfig.CheckpointInterval) == 0
-
 			// If this commit lands on a checkpoint boundary, we note the committed
 			// network state and set the flag.  Otherwise, we will not need to reference
 			// the epoch config in the returned result, so we nil it.

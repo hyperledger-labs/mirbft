@@ -32,13 +32,14 @@ type checkpointTracker struct {
 	highestCheckpoints map[NodeID]uint64
 	checkpointMap      map[uint64]*checkpoint
 	activeCheckpoints  *list.List
+	msgBuffers         map[NodeID]*msgBuffer
 
 	networkConfig *pb.NetworkState_Config
 	persisted     *persisted
 	myConfig      *pb.StateEvent_InitialParameters
 }
 
-func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialParameters) *checkpointTracker {
+func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *checkpointTracker {
 	ct := &checkpointTracker{
 		highestCheckpoints: map[NodeID]uint64{},
 		checkpointMap:      map[uint64]*checkpoint{},
@@ -46,6 +47,7 @@ func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialP
 		persisted:          persisted,
 		state:              cpsIdle,
 		activeCheckpoints:  list.New(),
+		msgBuffers:         map[NodeID]*msgBuffer{},
 	}
 
 	for head := persisted.logHead; head != nil; head = head.next {
@@ -67,6 +69,10 @@ func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialP
 		}
 	}
 
+	for _, nodeID := range ct.networkConfig.Nodes {
+		ct.msgBuffers[NodeID(nodeID)] = newMsgBuffer(myConfig, logger)
+	}
+
 	if ct.activeCheckpoints.Len() == 0 {
 		panic("no checkpoints in log")
 	}
@@ -79,9 +85,13 @@ func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialP
 }
 
 func (ct *checkpointTracker) filter(msg *pb.Msg) applyable {
+	cpMsg := msg.Type.(*pb.Msg_Checkpoint).Checkpoint
+
 	switch {
-	case msg.Type.(*pb.Msg_Checkpoint).Checkpoint.SeqNo < ct.activeCheckpoints.Front().Value.(*checkpoint).seqNo:
+	case cpMsg.SeqNo < ct.activeCheckpoints.Front().Value.(*checkpoint).seqNo:
 		return past
+	case cpMsg.SeqNo > ct.highWatermark():
+		return future
 	default:
 		return current
 		// TODO, have notion of future... but also process
@@ -89,11 +99,15 @@ func (ct *checkpointTracker) filter(msg *pb.Msg) applyable {
 }
 
 func (ct *checkpointTracker) step(source NodeID, msg *pb.Msg) {
-	if ct.filter(msg) != current {
+	switch ct.filter(msg) {
+	case past:
 		return
+	case future:
+		ct.msgBuffers[source].store(msg)
+		fallthrough
+	case current:
+		ct.applyMsg(source, msg)
 	}
-
-	ct.applyMsg(source, msg)
 }
 
 func (ct *checkpointTracker) applyMsg(source NodeID, msg *pb.Msg) {
@@ -125,6 +139,18 @@ func (ct *checkpointTracker) garbageCollect() uint64 {
 	for ct.activeCheckpoints.Len() < 3 {
 		nextCpSeq := ct.highWatermark() + uint64(ct.networkConfig.CheckpointInterval)
 		ct.activeCheckpoints.PushBack(ct.checkpoint(nextCpSeq))
+	}
+
+	for _, nodeID := range ct.networkConfig.Nodes {
+		msgBuffer := ct.msgBuffers[NodeID(nodeID)]
+		for {
+			msg := msgBuffer.next(ct.filter)
+			if msg == nil {
+				break
+			}
+
+			ct.applyMsg(NodeID(nodeID), msg)
+		}
 	}
 
 	ct.state = cpsIdle
