@@ -84,6 +84,7 @@ type epochMsgs struct {
 	epochConfig   *pb.EpochConfig
 	networkConfig *pb.NetworkState_Config
 	epoch         *activeEpoch
+	id            NodeID
 
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
@@ -239,6 +240,20 @@ func newEpochMsgs(nodeID NodeID, epoch *activeEpoch, myConfig *pb.StateEvent_Ini
 		networkConfig: epoch.networkConfig,
 		epoch:         epoch,
 		next:          next,
+		id:            nodeID,
+	}
+}
+
+func (n *epochMsgs) moveWatermarks(seqNo uint64) {
+	for i := seqNo + 1; i < seqNo+1+uint64(len(n.next)); i++ {
+		next := n.next[n.seqToBucket(i)]
+		column := n.seqToColumn(i)
+		if next.prepare < column {
+			next.prepare = column
+		}
+		if next.commit < column {
+			next.commit = column
+		}
 	}
 }
 

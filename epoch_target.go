@@ -735,6 +735,9 @@ func (et *epochTarget) moveWatermarks(seqNo uint64) *Actions {
 	}
 
 	actions := et.activeEpoch.moveWatermarks(seqNo)
+	for _, nodeMsgs := range et.nodeMsgs {
+		nodeMsgs.epochMsgs.moveWatermarks(seqNo)
+	}
 
 	return actions.concat(et.drainNodeMsgs())
 }
