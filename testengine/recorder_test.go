@@ -68,21 +68,20 @@ var _ = Describe("Recorder", func() {
 		It("Executes and produces a log", func() {
 			count, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(46994))
+			Expect(count).To(Equal(47006))
 
 			fmt.Printf("Executing test required a log of %d events\n", count)
 
 			for _, node := range recording.Nodes {
 				status := node.PlaybackNode.StateMachine.Status()
 				Expect(status.EpochChanger.LastActiveEpoch).To(Equal(uint64(1)))
-				Expect(status.EpochChanger.EpochTargets).To(HaveLen(2))
-				Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
+				Expect(status.EpochChanger.EpochTargets).To(HaveLen(1))
 				Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
 				Expect(node.State.Length).To(Equal(totalReqs))
 				Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
 
 				// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
-				Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("105dd39693d8df1564db08fb0d2e5e3e04abf267039d5ae2a02f66af19cdb34b"))
+				Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("da16dfe9948fda2694e0825338d874cba74757fadd311f330ce15635fcafeee0"))
 			}
 		})
 	})
@@ -99,7 +98,7 @@ var _ = Describe("Recorder", func() {
 		It("still executes and produces a log", func() {
 			count, err := recording.DrainClients(100)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(50))
+			Expect(count).To(Equal(53))
 		})
 	})
 })
