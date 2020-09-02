@@ -259,13 +259,13 @@ var _ = Describe("StressyTest", func() {
 			MsgCount:  1000,
 		}),
 
-		PEntry("FourNodeBFT greenpath", &TestConfig{
+		Entry("FourNodeBFT greenpath", &TestConfig{
 			NodeCount:          4,
 			CheckpointInterval: 20,
 			MsgCount:           1000,
 		}),
 
-		PEntry("FourNodeBFT single bucket greenpath", &TestConfig{
+		Entry("FourNodeBFT single bucket greenpath", &TestConfig{
 			NodeCount:          4,
 			BucketCount:        1,
 			CheckpointInterval: 10,

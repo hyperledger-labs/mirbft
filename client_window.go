@@ -309,6 +309,13 @@ func (cws *clientWindows) allocate(requestData *pb.Request, digest []byte) {
 		panic("dev sanity test")
 	}
 
+	if requestData.ReqNo < cw.lowWatermark {
+		// This can happen when the primary and the client send us a request
+		// concurrently, we can process both in parallel, one returns before
+		// the other, and, the watermarks have already moved on
+		return
+	}
+
 	clientReqNo, newlyCorrectReq := cw.allocate(requestData, digest)
 
 	if newlyCorrectReq != nil {
