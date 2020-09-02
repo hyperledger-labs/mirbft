@@ -747,6 +747,79 @@ func (et *epochTarget) applySuspectMsg(source NodeID) {
 	}
 }
 
+func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucketStatus []*BucketStatus) {
+	if et.activeEpoch != nil {
+		bucketStatus = et.activeEpoch.status()
+		lowWatermark = et.activeEpoch.lowWatermark()
+		highWatermark = et.activeEpoch.highWatermark()
+		return
+	}
+
+	bucketStatus = make([]*BucketStatus, int(et.networkConfig.NumberOfBuckets))
+	for i := range bucketStatus {
+		bucketStatus[i] = &BucketStatus{
+			ID:        uint64(i),
+			Sequences: make([]SequenceState, logWidth(et.networkConfig)/len(bucketStatus)+1),
+		}
+	}
+
+	setStatus := func(seqNo uint64, status SequenceState) {
+		bucket := int(seqToBucket(seqNo, et.networkConfig))
+		column := int(seqNo-lowWatermark) / len(bucketStatus)
+		if column >= len(bucketStatus[bucket].Sequences) {
+			// XXX this is a nasty case which can happen sometimes,
+			// when we've begun echoing a new epoch, before we have
+			// actually executed through the checkpoint selected as
+			// the base for the new epoch.  Working on a solution
+			// but as this is simply status, ignoring
+			return
+		}
+		bucketStatus[bucket].Sequences[column] = status
+	}
+
+	if et.state <= fetching {
+		lowWatermark = et.myEpochChange.lowWatermark + 1
+		highWatermark = lowWatermark + uint64(logWidth(et.networkConfig))
+		for seqNo := range et.myEpochChange.qSet {
+			setStatus(seqNo, Preprepared)
+		}
+
+		for seqNo := range et.myEpochChange.pSet {
+			setStatus(seqNo, Prepared)
+		}
+
+		for seqNo := lowWatermark; seqNo <= et.persisted.lastCommitted; seqNo++ {
+			setStatus(seqNo, Committed)
+		}
+		return
+	}
+
+	// We are echoing or better, so leaderNewEpoch is set
+
+	lowWatermark = et.leaderNewEpoch.NewConfig.StartingCheckpoint.SeqNo + 1
+	highWatermark = lowWatermark + uint64(logWidth(et.networkConfig))
+
+	for seqNo := lowWatermark; seqNo <= highWatermark; seqNo++ {
+		var state SequenceState
+
+		if et.state == echoing {
+			state = Preprepared
+		}
+
+		if et.state == readying {
+			state = Prepared
+		}
+
+		if seqNo <= et.persisted.lastCommitted || et.state == ready {
+			state = Committed
+		}
+
+		setStatus(seqNo, state)
+	}
+
+	return
+}
+
 func (et *epochTarget) status() *EpochTargetStatus {
 	status := &EpochTargetStatus{
 		EpochChanges: make([]*EpochChangeStatus, 0, len(et.changes)),

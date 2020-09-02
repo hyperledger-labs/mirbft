@@ -367,24 +367,9 @@ func (sm *StateMachine) Status() *Status {
 		nodes[i] = sm.epochTracker.currentEpoch.nodeMsgs[nodeID].status()
 	}
 
+	lowWatermark, highWatermark, bucketStatus := sm.epochTracker.currentEpoch.bucketStatus()
+
 	checkpoints := sm.checkpointTracker.status()
-
-	var buckets []*BucketStatus
-	var lowWatermark, highWatermark uint64
-
-	if sm.epochTracker.currentEpoch.activeEpoch != nil {
-		epoch := sm.epochTracker.currentEpoch.activeEpoch
-
-		buckets = epoch.status()
-
-		lowWatermark = epoch.lowWatermark() - 1
-		highWatermark = epoch.highWatermark()
-	} else {
-		buckets = make([]*BucketStatus, sm.networkConfig.NumberOfBuckets)
-		for i := range buckets {
-			buckets[i] = &BucketStatus{ID: uint64(i)}
-		}
-	}
 
 	return &Status{
 		NodeID:        sm.myConfig.Id,
@@ -392,7 +377,7 @@ func (sm *StateMachine) Status() *Status {
 		HighWatermark: highWatermark,
 		EpochChanger:  sm.epochTracker.status(),
 		ClientWindows: clientWindowsStatus,
-		Buckets:       buckets,
+		Buckets:       bucketStatus,
 		Checkpoints:   checkpoints,
 		Nodes:         nodes,
 	}

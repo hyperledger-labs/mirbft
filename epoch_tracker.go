@@ -57,8 +57,7 @@ func newEpochTracker(
 				panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 			}
 
-			et.currentEpoch = et.target(epochChange.NewEpoch)
-			et.currentEpoch.myEpochChange = parsedEpochChange
+			et.setCurrentEpoch(et.target(epochChange.NewEpoch), parsedEpochChange)
 			et.currentEpoch.myLeaderChoice = networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
 		case *pb.Persistent_NewEpochEcho:
 		case *pb.Persistent_NewEpochReady:
@@ -77,15 +76,13 @@ func (et *epochTracker) advanceState() *Actions {
 
 	epochChange := et.persisted.constructEpochChange(et.currentEpoch.number + 1)
 
-	newTarget := et.target(et.currentEpoch.number + 1)
-	et.setCurrentEpoch(newTarget)
-
 	myEpochChange, err := newParsedEpochChange(epochChange)
 	if err != nil {
 		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 	}
 
-	newTarget.myEpochChange = myEpochChange
+	newTarget := et.target(et.currentEpoch.number + 1)
+	et.setCurrentEpoch(newTarget, myEpochChange)
 	newTarget.myLeaderChoice = []uint64{et.myConfig.Id} // XXX, wrong
 
 	return et.persisted.addEpochChange(epochChange).send(
@@ -174,9 +171,9 @@ func (et *epochTracker) tick() *Actions {
 }
 
 func (et *epochTracker) target(epoch uint64) *epochTarget {
-	// TODO, we need to garbage collett in responst to
+	// TODO, we need to garbage collect in responst to
 	// spammy suspicions and epoch changes.  Basically
-	// if every suspett/epoch change has a corresponding
+	// if every suspect/epoch change has a corresponding
 	// higher epoch sibling for that node in a later epoch
 	// then we should clean up.
 
@@ -196,12 +193,13 @@ func (et *epochTracker) target(epoch uint64) *epochTarget {
 	return target
 }
 
-func (et *epochTracker) setCurrentEpoch(target *epochTarget) {
+func (et *epochTracker) setCurrentEpoch(target *epochTarget, myEpochChange *parsedEpochChange) {
 	for number := range et.targets {
 		if number < target.number {
 			delete(et.targets, number)
 		}
 	}
+	target.myEpochChange = myEpochChange
 	et.currentEpoch = target
 }
 
