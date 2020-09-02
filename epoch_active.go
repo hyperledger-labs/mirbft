@@ -77,13 +77,13 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 
 	lowestUnallocated := make([]int, len(buckets))
 	for i := range lowestUnallocated {
-		lowestUnallocated[int(seqToBucket(maxCheckpoint.SeqNo+uint64(i+1), epochConfig, networkConfig))] = i
+		lowestUnallocated[int(seqToBucket(maxCheckpoint.SeqNo+uint64(i+1), networkConfig))] = i
 	}
 
 	sequences := make([]*sequence, logWidth(networkConfig))
 	for i := range sequences {
 		seqNo := maxCheckpoint.SeqNo + uint64(i+1)
-		bucket := seqToBucket(seqNo, epochConfig, networkConfig)
+		bucket := seqToBucket(seqNo, networkConfig)
 		owner := buckets[bucket]
 		sequences[i] = newSequence(owner, epochConfig.Number, seqNo, persisted, networkConfig, myConfig, logger)
 	}
@@ -100,7 +100,7 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 			if offset >= len(sequences) {
 				panic(fmt.Sprintf("should never be possible, QEntry seqNo=%d but started from checkpoint %d with log width of %d", d.QEntry.SeqNo, maxCheckpoint.SeqNo, len(sequences)))
 			}
-			bucket := seqToBucket(d.QEntry.SeqNo, epochConfig, networkConfig)
+			bucket := seqToBucket(d.QEntry.SeqNo, networkConfig)
 			err := outstandingReqs.applyBatch(bucket, d.QEntry.Requests)
 			if err != nil {
 				panic(fmt.Sprintf("need to handle holes: %s", err))
@@ -149,7 +149,7 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 }
 
 func (e *activeEpoch) seqToBucket(seqNo uint64) BucketID {
-	return seqToBucket(seqNo, e.epochConfig, e.networkConfig)
+	return seqToBucket(seqNo, e.networkConfig)
 }
 
 func (e *activeEpoch) getSequence(seqNo uint64) (*sequence, int, error) {
@@ -373,11 +373,13 @@ func (e *activeEpoch) status() []*BucketStatus {
 		bucket := &BucketStatus{
 			ID:        uint64(i),
 			Leader:    e.buckets[BucketID(i)] == NodeID(e.myConfig.Id),
-			Sequences: make([]SequenceState, 0, len(e.sequences)/len(buckets)),
+			Sequences: make([]SequenceState, logWidth(e.networkConfig)/len(buckets)),
 		}
 
+		k := 0
 		for j := i; j < len(e.sequences); j = j + len(buckets) {
-			bucket.Sequences = append(bucket.Sequences, e.sequences[j].state)
+			bucket.Sequences[k] = e.sequences[j].state
+			k++
 		}
 
 		buckets[i] = bucket

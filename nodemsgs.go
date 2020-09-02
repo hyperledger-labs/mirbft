@@ -256,7 +256,7 @@ func (n *epochMsgs) process(outerMsg *pb.Msg) applyable {
 }
 
 func (em *epochMsgs) seqToBucket(seqNo uint64) BucketID {
-	return seqToBucket(seqNo, em.epochConfig, em.networkConfig)
+	return seqToBucket(seqNo, em.networkConfig)
 }
 
 func (em *epochMsgs) seqToColumn(seqNo uint64) uint64 {
