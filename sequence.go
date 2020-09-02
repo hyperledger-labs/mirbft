@@ -171,6 +171,8 @@ func (s *sequence) satisfyOutstanding(fr *pb.ForwardRequest) *Actions {
 		panic("dev sanity check")
 	}
 
+	delete(s.outstandingReqs, string(fr.Digest))
+
 	s.forwardReqs[i] = fr
 
 	return s.advanceState()
