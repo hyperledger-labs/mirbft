@@ -97,6 +97,8 @@ type TestConfig struct {
 	BucketCount        int
 	MsgCount           int
 	CheckpointInterval int
+	BatchSize          uint32
+	ClientWidth        uint32
 }
 
 func Uint64ToBytes(value uint64) []byte {
@@ -244,13 +246,15 @@ var _ = Describe("StressyTest", func() {
 				entry := &pb.QEntry{}
 				Eventually(replica.Log.CommitC, 10*time.Second).Should(Receive(&entry))
 
-				proposalID := BytesToUint64(entry.Requests[0].Request.Data)
-				_, ok := proposals[proposalID]
-				Expect(ok).To(BeTrue())
+				for _, req := range entry.Requests {
+					proposalID := BytesToUint64(req.Request.Data)
+					_, ok := proposals[proposalID]
+					Expect(ok).To(BeTrue())
 
-				_, ok = observations[proposalID]
-				Expect(ok).To(BeFalse())
-				observations[proposalID] = struct{}{}
+					_, ok = observations[proposalID]
+					Expect(ok).To(BeFalse())
+					observations[proposalID] = struct{}{}
+				}
 			}
 		}
 	},
@@ -270,6 +274,15 @@ var _ = Describe("StressyTest", func() {
 			BucketCount:        1,
 			CheckpointInterval: 10,
 			MsgCount:           1000,
+		}),
+
+		Entry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
+			NodeCount:          4,
+			BucketCount:        1,
+			CheckpointInterval: 10,
+			BatchSize:          10,
+			ClientWidth:        1000,
+			MsgCount:           10000,
 		}),
 	)
 })
@@ -343,6 +356,12 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 		networkState.Config.CheckpointInterval = int32(testConfig.CheckpointInterval)
 	}
 
+	if testConfig.ClientWidth != 0 {
+		for _, client := range networkState.Clients {
+			client.Width = testConfig.ClientWidth
+		}
+	}
+
 	replicas := make([]*TestReplica, testConfig.NodeCount)
 
 	startTime := time.Now()
@@ -363,6 +382,10 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 				10000,
 				doneC,
 			),
+		}
+
+		if testConfig.BatchSize != 0 {
+			config.BatchSize = testConfig.BatchSize
 		}
 
 		recordingFile, err := ioutil.TempFile("", fmt.Sprintf("stressy.%d-*.eventlog", i))
