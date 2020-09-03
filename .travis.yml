@@ -8,7 +8,7 @@ matrix:
 
 env:
   - GO111MODULE=on
-  - MIRBFT_TEST_CONTEXT_TIMEOUT=90s
+
 install: true
 
 before_script:
@@ -16,5 +16,5 @@ before_script:
   - go install honnef.co/go/tools/cmd/staticcheck
 
 script:
-  - ginkgo -r --randomizeAllSpecs --randomizeSuites --race --trace
+  - MIRBFT_TEST_CONTEXT_TIMEOUT=90s ginkgo -r --randomizeAllSpecs --randomizeSuites --race --trace
   - staticcheck ./...
