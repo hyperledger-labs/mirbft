@@ -21,15 +21,15 @@ import (
 type epochTargetState int
 
 const (
-	prepending = iota // Have sent an epoch-change, but waiting for a quorum
-	pending           // Have a quorum of epoch-change messages, waits on new-epoch
-	verifying         // Have a new view message but it references epoch changes we cannot yet verify
-	fetching          // Have received and verified a new epoch messages, and are waiting to get state
-	echoing           // Have received and validated a new-epoch, waiting for a quorum of echos
-	readying          // Have received a quorum of echos, waiting a on qourum of readies
-	ready             // New epoch is ready to begin
-	inProgress        // No pending change
-	done              // We have sent an epoch change, ending this epoch for us
+	etPrepending = iota // Have sent an epoch-change, but waiting for a quorum
+	etPending           // Have a quorum of epoch-change messages, waits on new-epoch
+	etVerifying         // Have a new view message but it references epoch changes we cannot yet verify
+	etFetching          // Have received and verified a new epoch messages, and are waiting to get state
+	etEchoing           // Have received and validated a new-epoch, waiting for a quorum of echos
+	etReadying          // Have received a quorum of echos, waiting a on qourum of readies
+	etReady             // New epoch is ready to begin
+	etInProgress        // No pending change
+	etDone              // We have sent an epoch change, ending this epoch for us
 )
 
 // epochTarget is like an epoch, but this node need not have agreed
@@ -216,7 +216,7 @@ func (et *epochTarget) verifyNewEpochState() *Actions {
 		return &Actions{}
 	}
 
-	et.state = fetching
+	et.state = etFetching
 
 	return et.advanceState()
 }
@@ -292,7 +292,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		return actions
 	}
 
-	et.state = echoing
+	et.state = etEchoing
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
@@ -341,11 +341,11 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 func (et *epochTarget) tick() *Actions {
 	et.stateTicks++
 	switch et.state {
-	case prepending:
+	case etPrepending:
 		return et.tickPrepending()
-	case pending:
+	case etPending:
 		return et.tickPending()
-	case inProgress:
+	case etInProgress:
 		return et.activeEpoch.tick()
 	default: // case done:
 	}
@@ -503,7 +503,7 @@ func (et *epochTarget) checkEpochQuorum() *Actions {
 	}
 
 	et.stateTicks = 0
-	et.state = pending
+	et.state = etPending
 
 	if et.isLeader {
 		return (&Actions{}).send(
@@ -551,7 +551,7 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 			continue
 		}
 
-		et.state = readying
+		et.state = etReadying
 
 		for i, digest := range config.FinalPreprepares {
 			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
@@ -579,7 +579,7 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 }
 
 func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochReady) *Actions {
-	if et.state > readying {
+	if et.state > etReadying {
 		// We've already accepted the epoch config, move along
 		return &Actions{}
 	}
@@ -604,12 +604,12 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochRead
 		return &Actions{}
 	}
 
-	if et.state < echoing {
+	if et.state < etEchoing {
 		return et.advanceState()
 	}
 
-	if et.state < readying {
-		et.state = readying
+	if et.state < etReadying {
+		et.state = etReadying
 
 		actions := et.persisted.addNewEpochReady(msg.NewConfig)
 
@@ -636,7 +636,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 			continue
 		}
 
-		et.state = ready
+		et.state = etReady
 
 		et.networkNewEpoch = config
 
@@ -688,24 +688,24 @@ func (et *epochTarget) advanceState() *Actions {
 	for {
 		oldState := et.state
 		switch et.state {
-		case prepending: // Have sent an epoch-change, but waiting for a quorum
+		case etPrepending: // Have sent an epoch-change, but waiting for a quorum
 			actions.concat(et.checkEpochQuorum())
-		case pending: // Have a quorum of epoch-change messages, waits on new-epoch
+		case etPending: // Have a quorum of epoch-change messages, waits on new-epoch
 			if et.leaderNewEpoch == nil {
 				return actions
 			}
-			et.state = verifying
-		case verifying: // Have a new view message but it references epoch changes we cannot yet verify
+			et.state = etVerifying
+		case etVerifying: // Have a new view message but it references epoch changes we cannot yet verify
 			actions.concat(et.verifyNewEpochState())
-		case fetching: // Have received and verified a new epoch messages, and are waiting to get state
+		case etFetching: // Have received and verified a new epoch messages, and are waiting to get state
 			actions.concat(et.fetchNewEpochState())
-		case echoing: // Have received and validated a new-epoch, waiting for a quorum of echos
+		case etEchoing: // Have received and validated a new-epoch, waiting for a quorum of echos
 			actions.concat(et.checkNewEpochEchoQuorum())
-		case readying: // Have received a quorum of echos, waiting a on qourum of readies
+		case etReadying: // Have received a quorum of echos, waiting a on qourum of readies
 			actions.concat(et.checkNewEpochReadyQuorum())
-		case ready: // New epoch is ready to begin
+		case etReady: // New epoch is ready to begin
 			et.activeEpoch = newActiveEpoch(et.persisted, et.clientWindows, et.myConfig, et.logger)
-			et.state = inProgress
+			et.state = etInProgress
 			// It's important not to step through into the next state transition,
 			// as we must commit the seqs proposed by other replicas in previous
 			// epochs prior to attempting to propose our own (and potentially
@@ -714,11 +714,11 @@ func (et *epochTarget) advanceState() *Actions {
 				nodeMsgs.setActiveEpoch(et.activeEpoch)
 			}
 			return actions
-		case inProgress: // No pending change
+		case etInProgress: // No pending change
 			actions.concat(et.activeEpoch.outstandingReqs.advanceRequests())
 			actions.concat(et.activeEpoch.drainProposer())
 			actions.concat(et.drainNodeMsgs())
-		case done: // We have sent an epoch change, ending this epoch for us
+		case etDone: // We have sent an epoch change, ending this epoch for us
 			for _, nodeMsgs := range et.nodeMsgs {
 				nodeMsgs.setActiveEpoch(nil)
 			}
@@ -732,7 +732,7 @@ func (et *epochTarget) advanceState() *Actions {
 }
 
 func (et *epochTarget) moveWatermarks(seqNo uint64) *Actions {
-	if et.state != inProgress {
+	if et.state != etInProgress {
 		return &Actions{}
 	}
 
@@ -748,7 +748,7 @@ func (et *epochTarget) applySuspectMsg(source nodeID) {
 	et.suspicions[source] = struct{}{}
 
 	if len(et.suspicions) >= intersectionQuorum(et.networkConfig) {
-		et.state = done
+		et.state = etDone
 	}
 }
 
@@ -782,7 +782,7 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 		bucketStatus[bucket].Sequences[column] = status
 	}
 
-	if et.state <= fetching {
+	if et.state <= etFetching {
 		lowWatermark = et.myEpochChange.lowWatermark + 1
 		highWatermark = lowWatermark + uint64(logWidth(et.networkConfig))
 		for seqNo := range et.myEpochChange.qSet {
@@ -807,15 +807,15 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 	for seqNo := lowWatermark; seqNo <= highWatermark; seqNo++ {
 		var state status.SequenceState
 
-		if et.state == echoing {
+		if et.state == etEchoing {
 			state = status.SequencePreprepared
 		}
 
-		if et.state == readying {
+		if et.state == etReadying {
 			state = status.SequencePrepared
 		}
 
-		if seqNo <= et.persisted.lastCommitted || et.state == ready {
+		if seqNo <= et.persisted.lastCommitted || et.state == etReady {
 			state = status.SequenceCommitted
 		}
 

@@ -50,7 +50,7 @@ func newEpochTracker(
 		case *pb.Persistent_CEntry:
 			cEntry := d.CEntry
 			et.currentEpoch = et.target(cEntry.EpochConfig.Number)
-			et.currentEpoch.state = ready
+			et.currentEpoch.state = etReady
 		case *pb.Persistent_EpochChange:
 			epochChange := d.EpochChange
 			parsedEpochChange, err := newParsedEpochChange(epochChange)
@@ -71,7 +71,7 @@ func newEpochTracker(
 }
 
 func (et *epochTracker) advanceState() *Actions {
-	if et.currentEpoch.state < done {
+	if et.currentEpoch.state < etDone {
 		return et.currentEpoch.advanceState()
 	}
 
@@ -159,7 +159,7 @@ func (et *epochTracker) step(source nodeID, msg *pb.Msg) *Actions {
 }
 
 func (et *epochTracker) applyBatchHashResult(epoch, seqNo uint64, digest []byte) *Actions {
-	if epoch != et.currentEpoch.number || et.currentEpoch.state != inProgress {
+	if epoch != et.currentEpoch.number || et.currentEpoch.state != etInProgress {
 		// TODO, should we try to see if it applies to the current epoch?
 		return &Actions{}
 	}

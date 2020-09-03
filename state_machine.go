@@ -328,7 +328,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 				// XXX this should not panic, but put to make dev easier
 			}
 			sm.clientWindows.allocate(request.Request, hashResult.Digest)
-			if sm.epochTracker.currentEpoch.state == fetching {
+			if sm.epochTracker.currentEpoch.state == etFetching {
 				actions.concat(sm.epochTracker.currentEpoch.fetchNewEpochState())
 			}
 		case *pb.HashResult_EpochChange_:
@@ -337,7 +337,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 		case *pb.HashResult_VerifyBatch_:
 			verifyBatch := hashType.VerifyBatch
 			sm.batchTracker.applyVerifyBatchHashResult(hashResult.Digest, verifyBatch)
-			if !sm.batchTracker.hasFetchInFlight() && sm.epochTracker.currentEpoch.state == fetching {
+			if !sm.batchTracker.hasFetchInFlight() && sm.epochTracker.currentEpoch.state == etFetching {
 				actions.concat(sm.epochTracker.currentEpoch.fetchNewEpochState())
 			}
 		default:
