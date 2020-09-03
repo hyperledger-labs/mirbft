@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"io/ioutil"
 
 	. "github.com/onsi/ginkgo"
@@ -17,11 +18,13 @@ var _ = Describe("Parsing", func() {
 
 	BeforeEach(func() {
 		logBytes = &bytes.Buffer{}
+		gzWriter := gzip.NewWriter(logBytes)
+		defer gzWriter.Close()
 
 		recorder := testengine.BasicRecorder(4, 4, 20)
 		recorder.NetworkState.Config.MaxEpochLength = 200000 // XXX this works around a bug in the library for now
 
-		recording, err := recorder.Recording(logBytes)
+		recording, err := recorder.Recording(gzWriter)
 		Expect(err).NotTo(HaveOccurred())
 
 		_, err = recording.DrainClients(5000)
@@ -80,11 +83,13 @@ var _ = Describe("Execution", func() {
 	BeforeEach(func() {
 		logBytes = &bytes.Buffer{}
 		output = &bytes.Buffer{}
+		gzWriter := gzip.NewWriter(logBytes)
+		defer gzWriter.Close()
 
 		recorder := testengine.BasicRecorder(4, 4, 20)
 		recorder.NetworkState.Config.MaxEpochLength = 200000 // XXX this works around a bug in the library for now
 
-		recording, err := recorder.Recording(logBytes)
+		recording, err := recorder.Recording(gzWriter)
 		Expect(err).NotTo(HaveOccurred())
 
 		_, err = recording.DrainClients(5000)

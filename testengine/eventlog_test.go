@@ -2,6 +2,7 @@ package testengine_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"container/list"
 	"fmt"
 	"os"
@@ -79,8 +80,11 @@ var _ = Describe("Eventlog", func() {
 
 	BeforeEach(func() {
 		serializedLog = &bytes.Buffer{}
+		gzw := gzip.NewWriter(serializedLog)
+		defer gzw.Close()
+
 		initialLog := testengine.EventLog{
-			Output: serializedLog,
+			Output: gzw,
 			List:   list.New(),
 		}
 		initialLog.Insert(

@@ -1,6 +1,7 @@
 package testengine_test
 
 import (
+	"compress/gzip"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -18,6 +19,7 @@ var _ = Describe("Recorder", func() {
 		recording     *testengine.Recording
 		totalReqs     uint64
 		recordingFile *os.File
+		gzWriter      *gzip.Writer
 	)
 
 	BeforeEach(func() {
@@ -27,11 +29,17 @@ var _ = Describe("Recorder", func() {
 		var err error
 		recordingFile, err = ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
 		Expect(err).NotTo(HaveOccurred())
+
+		gzWriter = gzip.NewWriter(recordingFile)
 	})
 
 	AfterEach(func() {
 		if recorder.Logger != nil {
 			recorder.Logger.Sync()
+		}
+
+		if gzWriter != nil {
+			gzWriter.Close()
 		}
 
 		if recordingFile != nil {
@@ -61,7 +69,7 @@ var _ = Describe("Recorder", func() {
 			recorder.NetworkState.Config.MaxEpochLength = 100000 // XXX this works around a bug in the library for now
 
 			var err error
-			recording, err = recorder.Recording(recordingFile)
+			recording, err = recorder.Recording(gzWriter)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -91,7 +99,7 @@ var _ = Describe("Recorder", func() {
 			recorder = testengine.BasicRecorder(1, 1, 3)
 
 			var err error
-			recording, err = recorder.Recording(recordingFile)
+			recording, err = recorder.Recording(gzWriter)
 			Expect(err).NotTo(HaveOccurred())
 		})
 

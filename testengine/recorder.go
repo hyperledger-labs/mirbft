@@ -8,12 +8,12 @@ package testengine
 
 import (
 	"bytes"
+	"compress/gzip"
 	"container/list"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"hash"
-	"io"
 	"math/rand"
 
 	"github.com/IBM/mirbft"
@@ -170,7 +170,7 @@ type Recorder struct {
 	RandomSeed          int64
 }
 
-func (r *Recorder) Recording(output io.Writer) (*Recording, error) {
+func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	eventLog := &EventLog{
 		List:    list.New(),
 		Output:  output,

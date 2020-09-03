@@ -9,6 +9,7 @@ package recorder
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"io"
 
@@ -51,8 +52,11 @@ func (i *Interceptor) Intercept(event *pb.StateEvent) {
 }
 
 func (i *Interceptor) Drain(dest io.Writer) error {
+	gzWriter := gzip.NewWriter(dest)
+	defer gzWriter.Close()
+
 	write := func(eventTime eventTime) error {
-		return WriteRecordedEvent(dest, &rpb.RecordedEvent{
+		return WriteRecordedEvent(gzWriter, &rpb.RecordedEvent{
 			NodeId:     i.nodeID,
 			Time:       eventTime.time,
 			StateEvent: eventTime.event,
@@ -104,21 +108,29 @@ func writeSizePrefixedProto(dest io.Writer, msg proto.Message) error {
 }
 
 type Reader struct {
-	buffer *bytes.Buffer
-	source *bufio.Reader
+	buffer   *bytes.Buffer
+	gzReader *gzip.Reader
+	source   *bufio.Reader
 }
 
-func NewReader(source io.Reader) *Reader {
-	return &Reader{
-		buffer: &bytes.Buffer{},
-		source: bufio.NewReader(source),
+func NewReader(source io.Reader) (*Reader, error) {
+	gzReader, err := gzip.NewReader(source)
+	if err != nil {
+		return nil, errors.WithMessage(err, "could not read source as a gzip stream")
 	}
+
+	return &Reader{
+		buffer:   &bytes.Buffer{},
+		gzReader: gzReader,
+		source:   bufio.NewReader(gzReader),
+	}, nil
 }
 
 func (r *Reader) ReadEvent() (*rpb.RecordedEvent, error) {
 	re := &rpb.RecordedEvent{}
 	err := readSizePrefixedProto(r.source, re, r.buffer)
 	if err == io.EOF {
+		r.gzReader.Close()
 		return re, err
 	}
 	if err != nil {

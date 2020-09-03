@@ -139,7 +139,10 @@ func (a *arguments) execute(output io.Writer) error {
 
 	s := newStateMachines()
 
-	reader := recorder.NewReader(a.input)
+	reader, err := recorder.NewReader(a.input)
+	if err != nil {
+		return errors.WithMessage(err, "bad input file")
+	}
 	for {
 		event, err := reader.ReadEvent()
 		if err != nil {

@@ -2,6 +2,7 @@ package testengine_test
 
 import (
 	"bytes"
+	"compress/gzip"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -20,6 +21,9 @@ var _ = Describe("Player", func() {
 
 	BeforeEach(func() {
 		serialized = &bytes.Buffer{}
+		gzw := gzip.NewWriter(serialized)
+		defer gzw.Close()
+
 		var err error
 		logger, err = zap.NewProduction()
 		Expect(err).NotTo(HaveOccurred())
@@ -27,7 +31,7 @@ var _ = Describe("Player", func() {
 		recorder = testengine.BasicRecorder(4, 4, 20)
 		recorder.NetworkState.Config.MaxEpochLength = 200000 // XXX this works around a bug in the library for now
 
-		recording, err = recorder.Recording(serialized)
+		recording, err = recorder.Recording(gzw)
 		Expect(err).NotTo(HaveOccurred())
 
 		_, err = recording.DrainClients(50000)

@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package testengine
 
 import (
+	"compress/gzip"
 	"container/list"
 	"io"
 	"math/rand"
@@ -35,11 +36,14 @@ type EventLog struct {
 	Mangler Mangler
 
 	// Output is optionally a place to serialize RecordedEvents when consumed.
-	Output io.Writer
+	Output *gzip.Writer
 }
 
 func ReadEventLog(source io.Reader) (el *EventLog, err error) {
-	reader := recorder.NewReader(source)
+	reader, err := recorder.NewReader(source)
+	if err != nil {
+		return nil, err
+	}
 	eventLog := &EventLog{
 		List: list.New(),
 	}

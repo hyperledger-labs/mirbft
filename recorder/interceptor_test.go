@@ -57,7 +57,7 @@ var _ = Describe("Interceptor", func() {
 		close(doneC)
 		Eventually(goDone).Should(BeClosed())
 
-		Expect(output.Len()).To(Equal(18))
+		Expect(output.Len()).To(Equal(35))
 	})
 
 	It("blocks when the buffer space is exceeded", func() {
@@ -80,7 +80,7 @@ var _ = Describe("Interceptor", func() {
 		close(doneC)
 		err := interceptor.Drain(output)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(output.Len()).To(Equal(27))
+		Expect(output.Len()).To(Equal(35))
 	})
 
 	It("can be read back with a Reader", func() {
@@ -88,7 +88,8 @@ var _ = Describe("Interceptor", func() {
 		err := interceptor.Drain(output)
 		Expect(err).NotTo(HaveOccurred())
 
-		reader := recorder.NewReader(output)
+		reader, err := recorder.NewReader(output)
+		Expect(err).NotTo(HaveOccurred())
 
 		recordedTickEvent := &rpb.RecordedEvent{
 			NodeId:     1,
@@ -117,10 +118,8 @@ var _ = Describe("Interceptor", func() {
 		})
 
 		It("reading returns an error", func() {
-			reader := recorder.NewReader(output)
-
-			_, err := reader.ReadEvent()
-			Expect(err).To(MatchError("error reading event: could not read message: EOF"))
+			_, err := recorder.NewReader(output)
+			Expect(err).To(MatchError("could not read source as a gzip stream: unexpected EOF"))
 		})
 	})
 })

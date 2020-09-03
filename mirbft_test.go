@@ -1,6 +1,7 @@
 package mirbft_test
 
 import (
+	"compress/gzip"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -18,6 +19,7 @@ var _ = Describe("Mirbft", func() {
 		recorder      *testengine.Recorder
 		recording     *testengine.Recording
 		recordingFile *os.File
+		gzWriter      *gzip.Writer
 	)
 
 	BeforeEach(func() {
@@ -28,17 +30,23 @@ var _ = Describe("Mirbft", func() {
 		var err error
 		recordingFile, err = ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
 		Expect(err).NotTo(HaveOccurred())
+
+		gzWriter = gzip.NewWriter(recordingFile)
 	})
 
 	JustBeforeEach(func() {
 		var err error
-		recording, err = recorder.Recording(recordingFile)
+		recording, err = recorder.Recording(gzWriter)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
 		if recorder.Logger != nil {
 			recorder.Logger.Sync()
+		}
+
+		if gzWriter != nil {
+			gzWriter.Close()
 		}
 
 		if recordingFile != nil {
