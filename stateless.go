@@ -122,18 +122,18 @@ func seqToColumn(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkState_Config) u
 	return (seqNo-initialSequence(ec, nc))/uint64(nc.NumberOfBuckets) + 1
 }
 
-func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64, epochChanges map[NodeID]*parsedEpochChange) *pb.NewEpochConfig {
+func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64, epochChanges map[nodeID]*parsedEpochChange) *pb.NewEpochConfig {
 	type checkpointKey struct {
 		SeqNo uint64
 		Value string
 	}
 
-	checkpoints := map[checkpointKey][]NodeID{}
+	checkpoints := map[checkpointKey][]nodeID{}
 
 	var newEpochNumber uint64 // TODO this is super-hacky
 
-	for _, nodeID := range config.Nodes {
-		nodeID := NodeID(nodeID)
+	for _, id := range config.Nodes {
+		nodeID := nodeID(id)
 		// Note, it looks like we're re-implementing `range epochChanges` here,
 		// and we are, but doing so in a deterministic order.
 
@@ -214,8 +214,8 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 
 		var selectedEntry *pb.EpochChange_SetEntry
 
-		for _, nodeID := range config.Nodes {
-			nodeID := NodeID(nodeID)
+		for _, id := range config.Nodes {
+			nodeID := nodeID(id)
 			// Note, it looks like we're re-implementing `range epochChanges` here,
 			// and we are, but doing so in a deterministic order.
 

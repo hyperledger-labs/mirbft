@@ -32,7 +32,7 @@ type clientWindows struct {
 	windows       map[uint64]*clientWindow
 	clients       []uint64
 	networkConfig *pb.NetworkState_Config
-	msgBuffers    map[NodeID]*msgBuffer
+	msgBuffers    map[nodeID]*msgBuffer
 	logger        Logger
 	readyHead     *readyEntry
 	readyTail     *readyEntry
@@ -57,7 +57,7 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 		readyHead:   readyAnchor,
 		readyTail:   readyAnchor,
 		myConfig:    myConfig,
-		msgBuffers:  map[NodeID]*msgBuffer{},
+		msgBuffers:  map[nodeID]*msgBuffer{},
 	}
 
 	batches := map[string][]*pb.ForwardRequest{}
@@ -96,7 +96,7 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 	}
 
 	for _, id := range cws.networkConfig.Nodes {
-		cws.msgBuffers[NodeID(id)] = newMsgBuffer(myConfig, logger)
+		cws.msgBuffers[nodeID(id)] = newMsgBuffer(myConfig, logger)
 	}
 
 	return cws
@@ -140,7 +140,7 @@ func (cws *clientWindows) filter(msg *pb.Msg) applyable {
 	}
 }
 
-func (cws *clientWindows) step(source NodeID, msg *pb.Msg) *Actions {
+func (cws *clientWindows) step(source nodeID, msg *pb.Msg) *Actions {
 	switch cws.filter(msg) {
 	case past:
 		// discard
@@ -154,7 +154,7 @@ func (cws *clientWindows) step(source NodeID, msg *pb.Msg) *Actions {
 	return cws.applyMsg(source, msg)
 }
 
-func (cws *clientWindows) applyMsg(source NodeID, msg *pb.Msg) *Actions {
+func (cws *clientWindows) applyMsg(source nodeID, msg *pb.Msg) *Actions {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_RequestAck:
 		// TODO, make sure nodeMsgs ignores this if client is not defined
@@ -164,7 +164,7 @@ func (cws *clientWindows) applyMsg(source NodeID, msg *pb.Msg) *Actions {
 		msg := innerMsg.FetchRequest
 		return cws.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest)
 	case *pb.Msg_ForwardRequest:
-		if source == NodeID(cws.myConfig.Id) {
+		if source == nodeID(cws.myConfig.Id) {
 			// We've already pre-processed this
 			// TODO, once we implement unicasting to only those
 			// who don't know this should go away.
@@ -249,7 +249,7 @@ func (cws *clientWindows) clientConfigs() []*pb.NetworkState_Client {
 	return clients
 }
 
-func (cws *clientWindows) replyFetchRequest(source NodeID, clientID, reqNo uint64, digest []byte) *Actions {
+func (cws *clientWindows) replyFetchRequest(source nodeID, clientID, reqNo uint64, digest []byte) *Actions {
 	cw, ok := cws.clientWindow(clientID)
 	if !ok {
 		return &Actions{}
@@ -282,7 +282,7 @@ func (cws *clientWindows) replyFetchRequest(source NodeID, clientID, reqNo uint6
 	)
 }
 
-func (cws *clientWindows) applyForwardRequest(source NodeID, msg *pb.ForwardRequest) *Actions {
+func (cws *clientWindows) applyForwardRequest(source nodeID, msg *pb.ForwardRequest) *Actions {
 	cw, ok := cws.clientWindow(msg.Request.ClientId)
 	if !ok {
 		// TODO log oddity
@@ -320,7 +320,7 @@ func (cws *clientWindows) applyForwardRequest(source NodeID, msg *pb.ForwardRequ
 	}
 }
 
-func (cws *clientWindows) ack(source NodeID, ack *pb.RequestAck) *clientRequest {
+func (cws *clientWindows) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 	cw, ok := cws.windows[ack.ClientId]
 	if !ok {
 		panic("dev sanity test")
@@ -436,15 +436,15 @@ func (cws *clientWindows) garbageCollect(seqNo uint64) {
 		}
 	}
 
-	for _, nodeID := range cws.networkConfig.Nodes {
-		msgBuffer := cws.msgBuffers[NodeID(nodeID)]
+	for _, id := range cws.networkConfig.Nodes {
+		msgBuffer := cws.msgBuffers[nodeID(id)]
 		for {
 			// TODO, really inefficient
 			msg := msgBuffer.next(cws.filter)
 			if msg == nil {
 				break
 			}
-			cws.applyMsg(NodeID(nodeID), msg)
+			cws.applyMsg(nodeID(id), msg)
 		}
 	}
 }
@@ -474,7 +474,7 @@ type clientReqNo struct {
 type clientRequest struct {
 	digest     []byte
 	data       *pb.Request
-	agreements map[NodeID]struct{}
+	agreements map[nodeID]struct{}
 }
 
 type clientWindow struct {
@@ -580,7 +580,7 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	}
 }
 
-func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) (*clientRequest, *clientReqNo, *pb.Request) {
+func (cw *clientWindow) ack(source nodeID, reqNo uint64, digest []byte) (*clientRequest, *clientReqNo, *pb.Request) {
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
 	}
@@ -600,7 +600,7 @@ func (cw *clientWindow) ack(source NodeID, reqNo uint64, digest []byte) (*client
 	if !ok {
 		cr = &clientRequest{
 			digest:     digest,
-			agreements: map[NodeID]struct{}{},
+			agreements: map[nodeID]struct{}{},
 		}
 		crn.digests[string(digest)] = cr
 	}
@@ -640,7 +640,7 @@ func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) (*clien
 	if !ok {
 		cr = &clientRequest{
 			digest:     digest,
-			agreements: map[NodeID]struct{}{},
+			agreements: map[nodeID]struct{}{},
 		}
 		crn.digests[string(digest)] = cr
 	}

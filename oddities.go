@@ -17,13 +17,13 @@ const (
 	SeqNoLog   = "SeqNo"
 	ReqNoLog   = "ReqNo"
 	EpochLog   = "Epoch"
-	NodeIDLog  = "NodeID"
+	nodeIDLog  = "nodeID"
 	MsgTypeLog = "MsgType"
 )
 
-func logBasics(source NodeID, msg *pb.Msg) []zap.Field {
+func logBasics(source nodeID, msg *pb.Msg) []zap.Field {
 	fields := []zap.Field{
-		zap.Uint64(NodeIDLog, uint64(source)),
+		zap.Uint64(nodeIDLog, uint64(source)),
 	}
 
 	switch innerMsg := msg.Type.(type) {
@@ -81,7 +81,7 @@ func logBasics(source NodeID, msg *pb.Msg) []zap.Field {
 // byzantine behavior, misconfiguration, or bugs.
 type oddities struct {
 	logger Logger
-	nodes  map[NodeID]*oddity
+	nodes  map[nodeID]*oddity
 }
 
 type oddity struct {
@@ -92,38 +92,38 @@ type oddity struct {
 	// wrongEpoch      uint64
 }
 
-func (o *oddities) getNode(nodeID NodeID) *oddity {
+func (o *oddities) getNode(id nodeID) *oddity {
 	if o.nodes == nil {
-		o.nodes = map[NodeID]*oddity{}
+		o.nodes = map[nodeID]*oddity{}
 	}
 
-	od, ok := o.nodes[nodeID]
+	od, ok := o.nodes[id]
 	if !ok {
 		od = &oddity{}
-		o.nodes[nodeID] = od
+		o.nodes[id] = od
 	}
 	return od
 }
 
 // TODO enable again when we add back these checks
 /*
-func (o *oddities) alreadyProcessed(source NodeID, msg *pb.Msg) {
+func (o *oddities) alreadyProcessed(source nodeID, msg *pb.Msg) {
 	o.logger.Debug("already processed message", logBasics(source, msg)...)
 	o.getNode(source).alreadyProcessed++
 }
 
-func (o *oddities) aboveWatermarks(source NodeID, msg *pb.Msg) {
+func (o *oddities) aboveWatermarks(source nodeID, msg *pb.Msg) {
 	o.logger.Warn("received message above watermarks", logBasics(source, msg)...)
 	o.getNode(source).aboveWatermarks++
 }
 
-func (o *oddities) belowWatermarks(source NodeID, msg *pb.Msg) {
+func (o *oddities) belowWatermarks(source nodeID, msg *pb.Msg) {
 	o.logger.Warn("received message below watermarks", logBasics(source, msg)...)
 	o.getNode(source).belowWatermarks++
 }
 */
 
-func (o *oddities) invalidMessage(source NodeID, msg *pb.Msg) {
+func (o *oddities) invalidMessage(source nodeID, msg *pb.Msg) {
 	o.logger.Error("invalid message", logBasics(source, msg)...)
 	o.getNode(source).invalid++
 }

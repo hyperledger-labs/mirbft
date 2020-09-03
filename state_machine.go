@@ -14,10 +14,20 @@ import (
 	"github.com/IBM/mirbft/status"
 )
 
-type StateMachineState int
+// BucketID is the identifier for a bucket.  It is a simple alias to a uint64, but
+// is used to help disambiguate function signatures which accept multiple uint64
+// values with different meanings.
+type BucketID uint64
+
+// nodeID represents the identifier assigned to a node.  It is a simple alias to a uint64, but
+// is used to help disambiguate function signatures which accept multiple uint64
+// values with different meanings.
+type nodeID uint64
+
+type stateMachineState int
 
 const (
-	smUninitialized StateMachineState = iota
+	smUninitialized stateMachineState = iota
 	smLoadingPersisted
 	smInitialized
 )
@@ -28,7 +38,7 @@ const (
 type StateMachine struct {
 	Logger Logger
 
-	state StateMachineState
+	state stateMachineState
 
 	myConfig      *pb.StateEvent_InitialParameters
 	networkConfig *pb.NetworkState_Config
@@ -128,7 +138,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	case *pb.StateEvent_Step:
 		assertInitialized()
 		actions.concat(sm.step(
-			NodeID(event.Step.Source),
+			nodeID(event.Step.Source),
 			event.Step.Msg,
 		))
 	case *pb.StateEvent_Propose:
@@ -236,7 +246,7 @@ func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
 	}
 }
 
-func (sm *StateMachine) step(source NodeID, msg *pb.Msg) *Actions {
+func (sm *StateMachine) step(source nodeID, msg *pb.Msg) *Actions {
 	actions := &Actions{}
 	switch msg.Type.(type) {
 	case *pb.Msg_RequestAck:
@@ -362,8 +372,8 @@ func (sm *StateMachine) Status() *status.StateMachine {
 	}
 
 	nodes := make([]*status.NodeBuffer, len(sm.networkConfig.Nodes))
-	for i, nodeID := range sm.networkConfig.Nodes {
-		nodeID := NodeID(nodeID)
+	for i, id := range sm.networkConfig.Nodes {
+		nodeID := nodeID(id)
 		nodes[i] = sm.epochTracker.currentEpoch.nodeMsgs[nodeID].status()
 	}
 

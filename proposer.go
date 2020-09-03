@@ -32,10 +32,10 @@ type proposalBucket struct {
 	bucketID     BucketID
 }
 
-func newProposer(myConfig *pb.StateEvent_InitialParameters, clientWindows *clientWindows, buckets map[BucketID]NodeID) *proposer {
+func newProposer(myConfig *pb.StateEvent_InitialParameters, clientWindows *clientWindows, buckets map[BucketID]nodeID) *proposer {
 	proposalBuckets := map[BucketID]*proposalBucket{}
-	for bucketID, nodeID := range buckets {
-		if nodeID != NodeID(myConfig.Id) {
+	for bucketID, id := range buckets {
+		if id != nodeID(myConfig.Id) {
 			continue
 		}
 		proposalBuckets[bucketID] = &proposalBucket{

@@ -30,8 +30,8 @@ var _ = XDescribe("sequence", func() {
 			epoch:    4,
 			seqNo:    5,
 			owner:    0,
-			prepares: map[string]map[NodeID]struct{}{},
-			commits:  map[string]map[NodeID]struct{}{},
+			prepares: map[string]map[nodeID]struct{}{},
+			commits:  map[string]map[nodeID]struct{}{},
 		}
 	})
 
@@ -249,7 +249,7 @@ var _ = XDescribe("sequence", func() {
 		BeforeEach(func() {
 			s.state = sequencePreprepared
 			s.digest = []byte("digest")
-			s.prepares["digest"] = map[NodeID]struct{}{
+			s.prepares["digest"] = map[nodeID]struct{}{
 				1: {},
 				2: {},
 			}

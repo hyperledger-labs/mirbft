@@ -30,10 +30,10 @@ const (
 type checkpointTracker struct {
 	state checkpointState
 
-	highestCheckpoints map[NodeID]uint64
+	highestCheckpoints map[nodeID]uint64
 	checkpointMap      map[uint64]*checkpoint
 	activeCheckpoints  *list.List
-	msgBuffers         map[NodeID]*msgBuffer
+	msgBuffers         map[nodeID]*msgBuffer
 
 	networkConfig *pb.NetworkState_Config
 	persisted     *persisted
@@ -42,13 +42,13 @@ type checkpointTracker struct {
 
 func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *checkpointTracker {
 	ct := &checkpointTracker{
-		highestCheckpoints: map[NodeID]uint64{},
+		highestCheckpoints: map[nodeID]uint64{},
 		checkpointMap:      map[uint64]*checkpoint{},
 		myConfig:           myConfig,
 		persisted:          persisted,
 		state:              cpsIdle,
 		activeCheckpoints:  list.New(),
-		msgBuffers:         map[NodeID]*msgBuffer{},
+		msgBuffers:         map[nodeID]*msgBuffer{},
 	}
 
 	for head := persisted.logHead; head != nil; head = head.next {
@@ -65,13 +65,13 @@ func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialP
 			}
 			cp := ct.checkpoint(cEntry.SeqNo)
 			cp.nextState = cEntry.NetworkState
-			cp.applyCheckpointMsg(NodeID(myConfig.Id), cEntry.CheckpointValue)
+			cp.applyCheckpointMsg(nodeID(myConfig.Id), cEntry.CheckpointValue)
 			ct.activeCheckpoints.PushBack(cp)
 		}
 	}
 
-	for _, nodeID := range ct.networkConfig.Nodes {
-		ct.msgBuffers[NodeID(nodeID)] = newMsgBuffer(myConfig, logger)
+	for _, id := range ct.networkConfig.Nodes {
+		ct.msgBuffers[nodeID(id)] = newMsgBuffer(myConfig, logger)
 	}
 
 	if ct.activeCheckpoints.Len() == 0 {
@@ -99,7 +99,7 @@ func (ct *checkpointTracker) filter(msg *pb.Msg) applyable {
 	}
 }
 
-func (ct *checkpointTracker) step(source NodeID, msg *pb.Msg) {
+func (ct *checkpointTracker) step(source nodeID, msg *pb.Msg) {
 	switch ct.filter(msg) {
 	case past:
 		return
@@ -111,7 +111,7 @@ func (ct *checkpointTracker) step(source NodeID, msg *pb.Msg) {
 	}
 }
 
-func (ct *checkpointTracker) applyMsg(source NodeID, msg *pb.Msg) {
+func (ct *checkpointTracker) applyMsg(source nodeID, msg *pb.Msg) {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_Checkpoint:
 		msg := innerMsg.Checkpoint
@@ -142,15 +142,15 @@ func (ct *checkpointTracker) garbageCollect() uint64 {
 		ct.activeCheckpoints.PushBack(ct.checkpoint(nextCpSeq))
 	}
 
-	for _, nodeID := range ct.networkConfig.Nodes {
-		msgBuffer := ct.msgBuffers[NodeID(nodeID)]
+	for _, id := range ct.networkConfig.Nodes {
+		msgBuffer := ct.msgBuffers[nodeID(id)]
 		for {
 			msg := msgBuffer.next(ct.filter)
 			if msg == nil {
 				break
 			}
 
-			ct.applyMsg(NodeID(nodeID), msg)
+			ct.applyMsg(nodeID(id), msg)
 		}
 	}
 
@@ -181,7 +181,7 @@ func (ct *checkpointTracker) lowWatermark() uint64 {
 	return ct.activeCheckpoints.Front().Value.(*checkpoint).seqNo
 }
 
-func (ct *checkpointTracker) applyCheckpointMsg(source NodeID, seqNo uint64, value []byte) {
+func (ct *checkpointTracker) applyCheckpointMsg(source nodeID, seqNo uint64, value []byte) {
 	if seqNo < ct.lowWatermark() {
 		// We're already past this point
 		return
@@ -255,7 +255,7 @@ type checkpoint struct {
 	verifyingConfig *pb.NetworkState_Config
 	persisted       *persisted
 
-	values         map[string][]NodeID
+	values         map[string][]nodeID
 	committedValue []byte
 	myValue        []byte
 	nextState      *pb.NetworkState
@@ -263,9 +263,9 @@ type checkpoint struct {
 	obsolete       bool
 }
 
-func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
+func (cw *checkpoint) applyCheckpointMsg(source nodeID, value []byte) bool {
 	if cw.values == nil {
-		cw.values = map[string][]NodeID{}
+		cw.values = map[string][]nodeID{}
 	}
 
 	stateChange := false
@@ -279,7 +279,7 @@ func (cw *checkpoint) applyCheckpointMsg(source NodeID, value []byte) bool {
 		cw.committedValue = value
 	}
 
-	if source == NodeID(cw.myConfig.Id) {
+	if source == nodeID(cw.myConfig.Id) {
 		cw.myValue = value
 	}
 

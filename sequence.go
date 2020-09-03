@@ -24,7 +24,7 @@ const (
 )
 
 type sequence struct {
-	owner NodeID
+	owner nodeID
 	seqNo uint64
 	epoch uint64
 
@@ -52,11 +52,11 @@ type sequence struct {
 	// digest is the computed digest of the batch, may not be set until state > sequenceReady
 	digest []byte
 
-	prepares map[string]map[NodeID]struct{}
-	commits  map[string]map[NodeID]struct{}
+	prepares map[string]map[nodeID]struct{}
+	commits  map[string]map[nodeID]struct{}
 }
 
-func newSequence(owner NodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *pb.NetworkState_Config, myConfig *pb.StateEvent_InitialParameters, logger Logger) *sequence {
+func newSequence(owner nodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *pb.NetworkState_Config, myConfig *pb.StateEvent_InitialParameters, logger Logger) *sequence {
 	return &sequence{
 		owner:         owner,
 		seqNo:         seqNo,
@@ -66,8 +66,8 @@ func newSequence(owner NodeID, epoch, seqNo uint64, persisted *persisted, networ
 		networkConfig: networkConfig,
 		persisted:     persisted,
 		state:         sequenceUninitialized,
-		prepares:      map[string]map[NodeID]struct{}{},
-		commits:       map[string]map[NodeID]struct{}{},
+		prepares:      map[string]map[nodeID]struct{}{},
+		commits:       map[string]map[nodeID]struct{}{},
 	}
 }
 
@@ -250,11 +250,11 @@ func (s *sequence) prepare() *Actions {
 	return actions.concat(s.persisted.addQEntry(s.qEntry))
 }
 
-func (s *sequence) applyPrepareMsg(source NodeID, digest []byte) *Actions {
+func (s *sequence) applyPrepareMsg(source nodeID, digest []byte) *Actions {
 	// TODO, if the digest is known, mark a mismatch as oddity
 	agreements := s.prepares[string(digest)]
 	if agreements == nil {
-		agreements = map[NodeID]struct{}{}
+		agreements = map[nodeID]struct{}{}
 		s.prepares[string(digest)] = agreements
 	}
 	agreements[source] = struct{}{}
@@ -267,7 +267,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 	agreements := s.prepares[string(s.digest)]
 	// Do not prepare unless we have sent our prepare as well
 	// as this ensures we've persisted our qSet
-	if _, ok := agreements[NodeID(s.myConfig.Id)]; !ok {
+	if _, ok := agreements[nodeID(s.myConfig.Id)]; !ok {
 		return &Actions{}
 	}
 
@@ -301,11 +301,11 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 	return actions.concat(s.persisted.addPEntry(pEntry))
 }
 
-func (s *sequence) applyCommitMsg(source NodeID, digest []byte) *Actions {
+func (s *sequence) applyCommitMsg(source nodeID, digest []byte) *Actions {
 	// TODO, if the digest is known, mark a mismatch as oddity
 	agreements := s.commits[string(digest)]
 	if agreements == nil {
-		agreements = map[NodeID]struct{}{}
+		agreements = map[nodeID]struct{}{}
 		s.commits[string(digest)] = agreements
 	}
 	agreements[source] = struct{}{}
@@ -317,7 +317,7 @@ func (s *sequence) checkCommitQuorum() {
 	agreements := s.commits[string(s.digest)]
 	// Do not commit unless we have sent a commit
 	// and therefore already have persisted our pSet and qSet
-	if _, ok := agreements[NodeID(s.myConfig.Id)]; !ok {
+	if _, ok := agreements[nodeID(s.myConfig.Id)]; !ok {
 		return
 	}
 

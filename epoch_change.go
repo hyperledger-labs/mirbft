@@ -26,7 +26,7 @@ type epochChange struct {
 	strongCert []byte
 }
 
-func (ec *epochChange) addMsg(source NodeID, msg *pb.EpochChange, digest []byte) {
+func (ec *epochChange) addMsg(source nodeID, msg *pb.EpochChange, digest []byte) {
 	if ec.parsedByDigest == nil {
 		ec.parsedByDigest = map[string]*parsedEpochChange{}
 	}
@@ -57,7 +57,7 @@ type parsedEpochChange struct {
 	qSet         map[uint64]map[uint64][]byte        // TODO, maybe make a real type?
 	lowWatermark uint64
 
-	acks map[NodeID]struct{}
+	acks map[nodeID]struct{}
 }
 
 func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error) {
@@ -111,7 +111,7 @@ func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error
 		lowWatermark: lowWatermark,
 		pSet:         pSet,
 		qSet:         qSet,
-		acks:         map[NodeID]struct{}{},
+		acks:         map[nodeID]struct{}{},
 	}, nil
 }
 

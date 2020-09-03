@@ -71,7 +71,7 @@ const (
 //      is only valid for an Epoch which is not prepending yet.  TODO, this area is a bit under development at
 //      the moment, and needs to implement epoch-change fetching, so this will likely change a small bit.
 type nodeMsgs struct {
-	id            NodeID
+	id            nodeID
 	oddities      *oddities
 	epochMsgs     *epochMsgs
 	networkConfig *pb.NetworkState_Config
@@ -85,7 +85,7 @@ type epochMsgs struct {
 	epochConfig   *pb.EpochConfig
 	networkConfig *pb.NetworkState_Config
 	epoch         *activeEpoch
-	id            NodeID
+	id            nodeID
 
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
@@ -150,7 +150,7 @@ type nextMsg struct {
 	commit  uint64
 }
 
-func newNodeMsgs(nodeID NodeID, networkConfig *pb.NetworkState_Config, logger Logger, myConfig *pb.StateEvent_InitialParameters, oddities *oddities) *nodeMsgs {
+func newNodeMsgs(nodeID nodeID, networkConfig *pb.NetworkState_Config, logger Logger, myConfig *pb.StateEvent_InitialParameters, oddities *oddities) *nodeMsgs {
 
 	return &nodeMsgs{
 		id:       nodeID,
@@ -214,7 +214,7 @@ func (n *nodeMsgs) next() *pb.Msg {
 	return n.buffer.next(n.process)
 }
 
-func newEpochMsgs(nodeID NodeID, epoch *activeEpoch, myConfig *pb.StateEvent_InitialParameters) *epochMsgs {
+func newEpochMsgs(nodeID nodeID, epoch *activeEpoch, myConfig *pb.StateEvent_InitialParameters) *epochMsgs {
 	next := map[BucketID]*nextMsg{}
 	for bucketID, leaderID := range epoch.buckets {
 		nm := &nextMsg{

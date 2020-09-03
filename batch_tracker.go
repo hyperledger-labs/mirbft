@@ -48,7 +48,7 @@ func newBatchTracker(persisted *persisted) *batchTracker {
 	return bt
 }
 
-func (bt *batchTracker) step(source NodeID, msg *pb.Msg) *Actions {
+func (bt *batchTracker) step(source nodeID, msg *pb.Msg) *Actions {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_FetchBatch:
 		msg := innerMsg.FetchBatch
@@ -144,7 +144,7 @@ func (bt *batchTracker) replyFetchBatch(source uint64, seqNo uint64, digest []by
 	)
 }
 
-func (bt *batchTracker) applyForwardBatchMsg(source NodeID, seqNo uint64, digest []byte, requestAcks []*pb.RequestAck) *Actions {
+func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest []byte, requestAcks []*pb.RequestAck) *Actions {
 	_, ok := bt.fetchInFlight[string(digest)]
 	if !ok {
 		// We did not request this batch digest, so we don't know if we can trust it, discard

@@ -24,28 +24,6 @@ import (
 
 var ErrStopped = fmt.Errorf("stopped at caller request")
 
-// BucketID is the identifier for a bucket.  It is a simple alias to a uint64, but
-// is used to help disambiguate function signatures which accept multiple uint64
-// values with different meanings.
-type BucketID uint64
-
-// EpochNo represents an epoch number.  It is a simple alias to a uint64, but
-// is used to help disambiguate function signatures which accept multiple uint64
-// values with different meanings.
-type EpochNo uint64
-
-// NodeID represents the identifier assigned to a node.  It is a simple alias to a uint64, but
-// is used to help disambiguate function signatures which accept multiple uint64
-// values with different meanings.
-type NodeID uint64
-
-// Replica represents a node in the network.  Although network state is maintained internally
-// after bootstrapping, the replica info must be supplied at boostrap.
-type Replica struct {
-	// ID is the NodeID for the replica.
-	ID uint64
-}
-
 // Node is the local instance of the MirBFT state machine through which the calling application
 // proposes new messages, receives delegated actions, and returns action results.
 // The methods exposed on Node are all thread safe, though typically, a single loop handles

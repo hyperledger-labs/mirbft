@@ -24,7 +24,7 @@ type activeEpoch struct {
 	proposer        *proposer
 	persisted       *persisted
 
-	buckets   map[BucketID]NodeID
+	buckets   map[BucketID]nodeID
 	sequences []*sequence
 
 	ending            bool // set when this epoch about to end gracefully
@@ -57,7 +57,7 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 
 	outstandingReqs := newOutstandingReqs(clientWindows, maxCheckpoint.NetworkState)
 
-	buckets := map[BucketID]NodeID{}
+	buckets := map[BucketID]nodeID{}
 
 	leaders := map[uint64]struct{}{}
 	for _, leader := range epochConfig.Leaders {
@@ -69,10 +69,10 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 		bucketID := BucketID(i)
 		leader := networkConfig.Nodes[(uint64(i)+epochConfig.Number)%uint64(len(networkConfig.Nodes))]
 		if _, ok := leaders[leader]; !ok {
-			buckets[bucketID] = NodeID(epochConfig.Leaders[overflowIndex%len(epochConfig.Leaders)])
+			buckets[bucketID] = nodeID(epochConfig.Leaders[overflowIndex%len(epochConfig.Leaders)])
 			overflowIndex++
 		} else {
-			buckets[bucketID] = NodeID(leader)
+			buckets[bucketID] = nodeID(leader)
 		}
 	}
 
@@ -165,14 +165,14 @@ func (e *activeEpoch) getSequence(seqNo uint64) (*sequence, int, error) {
 	return e.sequences[offset], offset, nil
 }
 
-func (e *activeEpoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*pb.RequestAck) *Actions {
+func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*pb.RequestAck) *Actions {
 	seq, offset, err := e.getSequence(seqNo)
 	if err != nil {
 		e.logger.Error(err.Error())
 		return &Actions{}
 	}
 
-	if seq.owner == NodeID(e.myConfig.Id) {
+	if seq.owner == nodeID(e.myConfig.Id) {
 		// We already performed the unallocated movement when we allocated the seq
 		return seq.applyPrepareMsg(source, seq.digest)
 	}
@@ -195,7 +195,7 @@ func (e *activeEpoch) applyPreprepareMsg(source NodeID, seqNo uint64, batch []*p
 	return actions
 }
 
-func (e *activeEpoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
+func (e *activeEpoch) applyPrepareMsg(source nodeID, seqNo uint64, digest []byte) *Actions {
 	seq, _, err := e.getSequence(seqNo)
 	if err != nil {
 		e.logger.Error(err.Error())
@@ -204,7 +204,7 @@ func (e *activeEpoch) applyPrepareMsg(source NodeID, seqNo uint64, digest []byte
 	return seq.applyPrepareMsg(source, digest)
 }
 
-func (e *activeEpoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte) *Actions {
+func (e *activeEpoch) applyCommitMsg(source nodeID, seqNo uint64, digest []byte) *Actions {
 	seq, offset, err := e.getSequence(seqNo)
 	if err != nil {
 		e.logger.Error(err.Error())
@@ -278,7 +278,7 @@ func (e *activeEpoch) drainProposer() *Actions {
 	actions := &Actions{}
 
 	for bucketID, ownerID := range e.buckets {
-		if ownerID != NodeID(e.myConfig.Id) {
+		if ownerID != nodeID(e.myConfig.Id) {
 			continue
 		}
 
@@ -347,7 +347,7 @@ func (e *activeEpoch) tick() *Actions {
 			continue
 		}
 
-		if e.buckets[BucketID(bucketID)] != NodeID(e.myConfig.Id) {
+		if e.buckets[BucketID(bucketID)] != nodeID(e.myConfig.Id) {
 			continue
 		}
 
@@ -386,7 +386,7 @@ func (e *activeEpoch) status() []*status.Bucket {
 	for i := range buckets {
 		bucket := &status.Bucket{
 			ID:        uint64(i),
-			Leader:    e.buckets[BucketID(i)] == NodeID(e.myConfig.Id),
+			Leader:    e.buckets[BucketID(i)] == nodeID(e.myConfig.Id),
 			Sequences: make([]status.SequenceState, logWidth(e.networkConfig)/len(buckets)),
 		}
 

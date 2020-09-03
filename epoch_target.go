@@ -39,12 +39,12 @@ type epochTarget struct {
 	state           epochTargetState
 	stateTicks      uint64
 	number          uint64
-	changes         map[NodeID]*epochChange
-	strongChanges   map[NodeID]*parsedEpochChange
-	echos           map[*pb.NewEpochConfig]map[NodeID]struct{}
-	readies         map[*pb.NewEpochConfig]map[NodeID]struct{}
+	changes         map[nodeID]*epochChange
+	strongChanges   map[nodeID]*parsedEpochChange
+	echos           map[*pb.NewEpochConfig]map[nodeID]struct{}
+	readies         map[*pb.NewEpochConfig]map[nodeID]struct{}
 	activeEpoch     *activeEpoch
-	suspicions      map[NodeID]struct{}
+	suspicions      map[nodeID]struct{}
 	myNewEpoch      *pb.NewEpoch // The NewEpoch msg we computed from the epoch changes we know of
 	myEpochChange   *parsedEpochChange
 	myLeaderChoice  []uint64           // Set along with myEpochChange
@@ -52,7 +52,7 @@ type epochTarget struct {
 	networkNewEpoch *pb.NewEpochConfig // The NewEpoch msg as received via the bracha broadcast
 	isLeader        bool
 
-	nodeMsgs      map[NodeID]*nodeMsgs
+	nodeMsgs      map[nodeID]*nodeMsgs
 	persisted     *persisted
 	clientWindows *clientWindows
 	batchTracker  *batchTracker
@@ -76,18 +76,18 @@ func newEpochTarget(
 		logger: logger,
 	}
 
-	nodeMsgs := map[NodeID]*nodeMsgs{}
+	nodeMsgs := map[nodeID]*nodeMsgs{}
 	for _, id := range networkConfig.Nodes {
-		nodeMsgs[NodeID(id)] = newNodeMsgs(NodeID(id), networkConfig, logger, myConfig, oddities)
+		nodeMsgs[nodeID(id)] = newNodeMsgs(nodeID(id), networkConfig, logger, myConfig, oddities)
 	}
 
 	return &epochTarget{
 		number:        number,
-		suspicions:    map[NodeID]struct{}{},
-		changes:       map[NodeID]*epochChange{},
-		strongChanges: map[NodeID]*parsedEpochChange{},
-		echos:         map[*pb.NewEpochConfig]map[NodeID]struct{}{},
-		readies:       map[*pb.NewEpochConfig]map[NodeID]struct{}{},
+		suspicions:    map[nodeID]struct{}{},
+		changes:       map[nodeID]*epochChange{},
+		strongChanges: map[nodeID]*parsedEpochChange{},
+		echos:         map[*pb.NewEpochConfig]map[nodeID]struct{}{},
+		readies:       map[*pb.NewEpochConfig]map[nodeID]struct{}{},
 		isLeader:      number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
 		nodeMsgs:      nodeMsgs,
 		persisted:     persisted,
@@ -99,7 +99,7 @@ func newEpochTarget(
 	}
 }
 
-func (et *epochTarget) step(source NodeID, msg *pb.Msg) *Actions {
+func (et *epochTarget) step(source nodeID, msg *pb.Msg) *Actions {
 	nodeMsgs, ok := et.nodeMsgs[source]
 	if !ok {
 		et.logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
@@ -116,7 +116,7 @@ func (et *epochTarget) drainNodeMsgs() *Actions {
 	for {
 		moreActions := false
 		for _, id := range et.networkConfig.Nodes {
-			source := NodeID(id)
+			source := nodeID(id)
 			nodeMsgs := et.nodeMsgs[source]
 			msg := nodeMsgs.next()
 			if msg == nil {
@@ -146,7 +146,7 @@ func (et *epochTarget) drainNodeMsgs() *Actions {
 }
 
 func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkState_Config) *pb.NewEpoch {
-	filteredStrongChanges := map[NodeID]*parsedEpochChange{}
+	filteredStrongChanges := map[nodeID]*parsedEpochChange{}
 	for nodeID, change := range et.strongChanges {
 		if change.underlying == nil {
 			continue
@@ -164,16 +164,16 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkStat
 	}
 
 	remoteChanges := make([]*pb.NewEpoch_RemoteEpochChange, 0, len(et.changes))
-	for _, nodeID := range et.networkConfig.Nodes {
+	for _, id := range et.networkConfig.Nodes {
 		// Deterministic iteration over strong changes
-		_, ok := et.strongChanges[NodeID(nodeID)]
+		_, ok := et.strongChanges[nodeID(id)]
 		if !ok {
 			continue
 		}
 
 		remoteChanges = append(remoteChanges, &pb.NewEpoch_RemoteEpochChange{
-			NodeId: uint64(nodeID),
-			Digest: et.changes[NodeID(nodeID)].strongCert,
+			NodeId: uint64(id),
+			Digest: et.changes[nodeID(id)].strongCert,
 		})
 	}
 
@@ -184,14 +184,14 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkStat
 }
 
 func (et *epochTarget) verifyNewEpochState() *Actions {
-	epochChanges := map[NodeID]*parsedEpochChange{}
+	epochChanges := map[nodeID]*parsedEpochChange{}
 	for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
-		if _, ok := epochChanges[NodeID(remoteEpochChange.NodeId)]; ok {
+		if _, ok := epochChanges[nodeID(remoteEpochChange.NodeId)]; ok {
 			// TODO, references multiple epoch changes from the same node, malformed, log oddity
 			return &Actions{}
 		}
 
-		change, ok := et.changes[NodeID(remoteEpochChange.NodeId)]
+		change, ok := et.changes[nodeID(remoteEpochChange.NodeId)]
 		if !ok {
 			// Either the primary is lying, or, we simply don't have enough information yet.
 			return &Actions{}
@@ -202,7 +202,7 @@ func (et *epochTarget) verifyNewEpochState() *Actions {
 			return &Actions{}
 		}
 
-		epochChanges[NodeID(remoteEpochChange.NodeId)] = parsedChange
+		epochChanges[nodeID(remoteEpochChange.NodeId)] = parsedChange
 	}
 
 	// TODO, validate the planned expiration makes sense
@@ -242,7 +242,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		var sources []uint64
 		for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
 			// Previous state verified these exist
-			change := et.changes[NodeID(remoteEpochChange.NodeId)]
+			change := et.changes[nodeID(remoteEpochChange.NodeId)]
 			parsedChange := change.parsedByDigest[string(remoteEpochChange.Digest)]
 			for _, qEntryDigest := range parsedChange.qSet[seqNo] {
 				if bytes.Equal(qEntryDigest, digest) {
@@ -267,8 +267,8 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 		for _, requestAck := range batch.requestAcks {
 			var cr *clientRequest
-			for _, nodeID := range sources {
-				cr = et.clientWindows.ack(NodeID(nodeID), requestAck)
+			for _, id := range sources {
+				cr = et.clientWindows.ack(nodeID(id), requestAck)
 			}
 
 			if cr.data != nil {
@@ -422,9 +422,9 @@ func (et *epochTarget) tickPending() *Actions {
 	return &Actions{}
 }
 
-func (et *epochTarget) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *Actions {
+func (et *epochTarget) applyEpochChangeMsg(source nodeID, msg *pb.EpochChange) *Actions {
 	actions := &Actions{}
-	if source != NodeID(et.myConfig.Id) {
+	if source != nodeID(et.myConfig.Id) {
 		// We don't want to echo our own EpochChange message,
 		// as we already broadcast/rebroadcast it.
 		actions.send(
@@ -444,7 +444,7 @@ func (et *epochTarget) applyEpochChangeMsg(source NodeID, msg *pb.EpochChange) *
 	return actions.concat(et.applyEpochChangeAckMsg(source, source, msg))
 }
 
-func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, origin NodeID, msg *pb.EpochChange) *Actions {
+func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg *pb.EpochChange) *Actions {
 	// TODO, make sure nodemsgs prevents us from receiving an epoch change twice
 	hashRequest := &HashRequest{
 		Data: epochChangeHashData(msg),
@@ -465,8 +465,8 @@ func (et *epochTarget) applyEpochChangeAckMsg(source NodeID, origin NodeID, msg 
 }
 
 func (et *epochTarget) applyEpochChangeDigest(processedChange *pb.HashResult_EpochChange, digest []byte) *Actions {
-	originNode := NodeID(processedChange.Origin)
-	sourceNode := NodeID(processedChange.Source)
+	originNode := nodeID(processedChange.Origin)
+	sourceNode := nodeID(processedChange.Source)
 
 	change, ok := et.changes[originNode]
 	if !ok {
@@ -524,8 +524,8 @@ func (et *epochTarget) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 	return et.advanceState()
 }
 
-func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho) *Actions {
-	var msgEchos map[NodeID]struct{}
+func (et *epochTarget) applyNewEpochEchoMsg(source nodeID, msg *pb.NewEpochEcho) *Actions {
+	var msgEchos map[nodeID]struct{}
 
 	for config, echos := range et.echos {
 		if proto.Equal(config, msg.NewConfig) {
@@ -535,7 +535,7 @@ func (et *epochTarget) applyNewEpochEchoMsg(source NodeID, msg *pb.NewEpochEcho)
 	}
 
 	if msgEchos == nil {
-		msgEchos = map[NodeID]struct{}{}
+		msgEchos = map[nodeID]struct{}{}
 		et.echos[msg.NewConfig] = msgEchos
 	}
 
@@ -578,13 +578,13 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 	return actions
 }
 
-func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochReady) *Actions {
+func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochReady) *Actions {
 	if et.state > readying {
 		// We've already accepted the epoch config, move along
 		return &Actions{}
 	}
 
-	var msgReadies map[NodeID]struct{}
+	var msgReadies map[nodeID]struct{}
 
 	for config, readies := range et.readies {
 		if proto.Equal(config, msg.NewConfig) {
@@ -594,7 +594,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source NodeID, msg *pb.NewEpochRead
 	}
 
 	if msgReadies == nil {
-		msgReadies = map[NodeID]struct{}{}
+		msgReadies = map[nodeID]struct{}{}
 		et.readies[msg.NewConfig] = msgReadies
 	}
 
@@ -744,7 +744,7 @@ func (et *epochTarget) moveWatermarks(seqNo uint64) *Actions {
 	return actions.concat(et.drainNodeMsgs())
 }
 
-func (et *epochTarget) applySuspectMsg(source NodeID) {
+func (et *epochTarget) applySuspectMsg(source nodeID) {
 	et.suspicions[source] = struct{}{}
 
 	if len(et.suspicions) >= intersectionQuorum(et.networkConfig) {

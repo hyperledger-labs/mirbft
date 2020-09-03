@@ -121,7 +121,7 @@ func epochForMsg(msg *pb.Msg) uint64 {
 	}
 }
 
-func (et *epochTracker) step(source NodeID, msg *pb.Msg) *Actions {
+func (et *epochTracker) step(source nodeID, msg *pb.Msg) *Actions {
 	epochNumber := epochForMsg(msg)
 	if epochNumber < et.currentEpoch.number {
 		return &Actions{}
@@ -142,7 +142,7 @@ func (et *epochTracker) step(source NodeID, msg *pb.Msg) *Actions {
 	case *pb.Msg_EpochChange:
 		return target.applyEpochChangeMsg(source, innerMsg.EpochChange)
 	case *pb.Msg_EpochChangeAck:
-		return target.applyEpochChangeAckMsg(source, NodeID(innerMsg.EpochChangeAck.Originator), innerMsg.EpochChangeAck.EpochChange)
+		return target.applyEpochChangeAckMsg(source, nodeID(innerMsg.EpochChangeAck.Originator), innerMsg.EpochChangeAck.EpochChange)
 	case *pb.Msg_NewEpoch:
 		if epochNumber%uint64(len(et.networkConfig.Nodes)) != uint64(source) {
 			// TODO, log oddity
