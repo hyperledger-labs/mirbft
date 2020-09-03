@@ -207,7 +207,7 @@ var _ = Describe("StressyTest", func() {
 	})
 
 	DescribeTable("commits all messages", func(testConfig *TestConfig) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), ContextTimeout)
 		defer cancel()
 
 		network = CreateNetwork(ctx, &wg, testConfig, logger, doneC)

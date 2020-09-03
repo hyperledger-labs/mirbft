@@ -676,12 +676,15 @@ func (cw *clientWindow) request(reqNo uint64) *clientReqNo {
 func (cw *clientWindow) status() *ClientWindowStatus {
 	allocated := make([]uint64, cw.reqNoList.Len())
 	i := 0
+	lastNonZero := 0
 	for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
 		crn := el.Value.(*clientReqNo)
 		if crn.committed != nil {
 			allocated[i] = 2 // TODO, actually report the seqno it committed to
+			lastNonZero = i
 		} else if len(crn.digests) > 0 {
 			allocated[i] = 1
+			lastNonZero = i
 		}
 		i++
 	}
@@ -689,6 +692,6 @@ func (cw *clientWindow) status() *ClientWindowStatus {
 	return &ClientWindowStatus{
 		LowWatermark:  cw.lowWatermark,
 		HighWatermark: cw.highWatermark,
-		Allocated:     allocated,
+		Allocated:     allocated[:lastNonZero+1],
 	}
 }

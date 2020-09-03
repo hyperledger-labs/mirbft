@@ -8,7 +8,7 @@ matrix:
 
 env:
   - GO111MODULE=on
-
+  - MIRBFT_TEST_CONTEXT_TIMEOUT=90s
 install: true
 
 before_script:
