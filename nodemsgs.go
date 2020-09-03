@@ -89,7 +89,7 @@ type epochMsgs struct {
 
 	// next maintains the info about the next expected messages for
 	// a particular bucket.
-	next map[BucketID]*nextMsg
+	next map[bucketID]*nextMsg
 }
 
 // TODO base this buffer on size, not count
@@ -215,7 +215,7 @@ func (n *nodeMsgs) next() *pb.Msg {
 }
 
 func newEpochMsgs(nodeID nodeID, epoch *activeEpoch, myConfig *pb.StateEvent_InitialParameters) *epochMsgs {
-	next := map[BucketID]*nextMsg{}
+	next := map[bucketID]*nextMsg{}
 	for bucketID, leaderID := range epoch.buckets {
 		nm := &nextMsg{
 			leader:  nodeID == leaderID,
@@ -271,7 +271,7 @@ func (n *epochMsgs) process(outerMsg *pb.Msg) applyable {
 	panic("programming error, unreachable")
 }
 
-func (em *epochMsgs) seqToBucket(seqNo uint64) BucketID {
+func (em *epochMsgs) seqToBucket(seqNo uint64) bucketID {
 	return seqToBucket(seqNo, em.networkConfig)
 }
 
@@ -354,10 +354,10 @@ func (n *nodeMsgs) status() *status.NodeBuffer {
 	}
 
 	bucketStatuses := make([]status.NodeBucket, len(n.epochMsgs.next))
-	for bucketID := range bucketStatuses {
-		nextMsg := n.epochMsgs.next[BucketID(bucketID)]
-		bucketStatuses[bucketID] = status.NodeBucket{
-			BucketID:    bucketID,
+	for bid := range bucketStatuses {
+		nextMsg := n.epochMsgs.next[bucketID(bid)]
+		bucketStatuses[bid] = status.NodeBucket{
+			BucketID:    bid,
 			IsLeader:    nextMsg.leader,
 			LastPrepare: uint64(nextMsg.prepare - 1), // No underflow is possible, we start at seq 1
 			LastCommit:  uint64(nextMsg.commit - 1),

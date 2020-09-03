@@ -24,7 +24,7 @@ type activeEpoch struct {
 	proposer        *proposer
 	persisted       *persisted
 
-	buckets   map[BucketID]nodeID
+	buckets   map[bucketID]nodeID
 	sequences []*sequence
 
 	ending            bool // set when this epoch about to end gracefully
@@ -57,7 +57,7 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 
 	outstandingReqs := newOutstandingReqs(clientWindows, maxCheckpoint.NetworkState)
 
-	buckets := map[BucketID]nodeID{}
+	buckets := map[bucketID]nodeID{}
 
 	leaders := map[uint64]struct{}{}
 	for _, leader := range epochConfig.Leaders {
@@ -66,7 +66,7 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 
 	overflowIndex := 0 // TODO, this should probably start after the last assigned node
 	for i := 0; i < int(networkConfig.NumberOfBuckets); i++ {
-		bucketID := BucketID(i)
+		bucketID := bucketID(i)
 		leader := networkConfig.Nodes[(uint64(i)+epochConfig.Number)%uint64(len(networkConfig.Nodes))]
 		if _, ok := leaders[leader]; !ok {
 			buckets[bucketID] = nodeID(epochConfig.Leaders[overflowIndex%len(epochConfig.Leaders)])
@@ -149,7 +149,7 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 	}
 }
 
-func (e *activeEpoch) seqToBucket(seqNo uint64) BucketID {
+func (e *activeEpoch) seqToBucket(seqNo uint64) bucketID {
 	return seqToBucket(seqNo, e.networkConfig)
 }
 
@@ -342,12 +342,12 @@ func (e *activeEpoch) tick() *Actions {
 		return actions
 	}
 
-	for bucketID, index := range e.lowestUnallocated {
+	for bid, index := range e.lowestUnallocated {
 		if index >= len(e.sequences) {
 			continue
 		}
 
-		if e.buckets[BucketID(bucketID)] != nodeID(e.myConfig.Id) {
+		if e.buckets[bucketID(bid)] != nodeID(e.myConfig.Id) {
 			continue
 		}
 
@@ -357,7 +357,7 @@ func (e *activeEpoch) tick() *Actions {
 
 		seq := e.sequences[index]
 
-		prb := e.proposer.proposalBucket(BucketID(bucketID))
+		prb := e.proposer.proposalBucket(bucketID(bid))
 
 		var clientReqs []*clientRequest
 
@@ -367,7 +367,7 @@ func (e *activeEpoch) tick() *Actions {
 
 		actions.concat(seq.allocateAsOwner(clientReqs))
 
-		e.lowestUnallocated[int(bucketID)] += len(e.buckets)
+		e.lowestUnallocated[bid] += len(e.buckets)
 	}
 
 	return actions
@@ -386,7 +386,7 @@ func (e *activeEpoch) status() []*status.Bucket {
 	for i := range buckets {
 		bucket := &status.Bucket{
 			ID:        uint64(i),
-			Leader:    e.buckets[BucketID(i)] == nodeID(e.myConfig.Id),
+			Leader:    e.buckets[bucketID(i)] == nodeID(e.myConfig.Id),
 			Sequences: make([]status.SequenceState, logWidth(e.networkConfig)/len(buckets)),
 		}
 

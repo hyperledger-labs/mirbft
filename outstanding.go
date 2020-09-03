@@ -16,7 +16,7 @@ import (
 func newOutstandingReqs(clientWindows *clientWindows, networkState *pb.NetworkState) *allOutstandingReqs {
 	ao := &allOutstandingReqs{
 		numBuckets:          uint64(networkState.Config.NumberOfBuckets),
-		buckets:             map[BucketID]*bucketOutstandingReqs{},
+		buckets:             map[bucketID]*bucketOutstandingReqs{},
 		correctRequests:     map[string]*pb.ForwardRequest{},
 		outstandingRequests: map[string]*sequence{},
 		clientWindows:       clientWindows,
@@ -24,7 +24,7 @@ func newOutstandingReqs(clientWindows *clientWindows, networkState *pb.NetworkSt
 
 	numBuckets := int(networkState.Config.NumberOfBuckets)
 
-	for i := BucketID(0); i < BucketID(numBuckets); i++ {
+	for i := bucketID(0); i < bucketID(numBuckets); i++ {
 		bo := &bucketOutstandingReqs{
 			clients: map[uint64]*clientOutstandingReqs{},
 		}
@@ -76,7 +76,7 @@ func newOutstandingReqs(clientWindows *clientWindows, networkState *pb.NetworkSt
 
 type allOutstandingReqs struct {
 	numBuckets          uint64
-	buckets             map[BucketID]*bucketOutstandingReqs
+	buckets             map[bucketID]*bucketOutstandingReqs
 	clientWindows       *clientWindows
 	lastCorrectReq      *list.Element
 	correctRequests     map[string]*pb.ForwardRequest
@@ -121,7 +121,7 @@ func (ao *allOutstandingReqs) advanceRequests() *Actions {
 	}
 }
 
-func (ao *allOutstandingReqs) applyBatch(bucket BucketID, batch []*pb.ForwardRequest) error {
+func (ao *allOutstandingReqs) applyBatch(bucket bucketID, batch []*pb.ForwardRequest) error {
 	bo, ok := ao.buckets[bucket]
 	if !ok {
 		panic("dev sanity test")
@@ -144,7 +144,7 @@ func (ao *allOutstandingReqs) applyBatch(bucket BucketID, batch []*pb.ForwardReq
 }
 
 // TODO, bucket probably can/should be stored in the *sequence
-func (ao *allOutstandingReqs) applyAcks(bucket BucketID, seq *sequence, batch []*pb.RequestAck) (*Actions, error) {
+func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []*pb.RequestAck) (*Actions, error) {
 	bo, ok := ao.buckets[bucket]
 	if !ok {
 		panic("dev sanity test")

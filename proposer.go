@@ -21,7 +21,7 @@ func uint64ToBytes(value uint64) []byte {
 type proposer struct {
 	myConfig *pb.StateEvent_InitialParameters
 
-	proposalBuckets map[BucketID]*proposalBucket
+	proposalBuckets map[bucketID]*proposalBucket
 }
 
 type proposalBucket struct {
@@ -29,11 +29,11 @@ type proposalBucket struct {
 	lastReadyReq *readyEntry
 	requestCount uint32
 	pending      []*clientRequest
-	bucketID     BucketID
+	bucketID     bucketID
 }
 
-func newProposer(myConfig *pb.StateEvent_InitialParameters, clientWindows *clientWindows, buckets map[BucketID]nodeID) *proposer {
-	proposalBuckets := map[BucketID]*proposalBucket{}
+func newProposer(myConfig *pb.StateEvent_InitialParameters, clientWindows *clientWindows, buckets map[bucketID]nodeID) *proposer {
+	proposalBuckets := map[bucketID]*proposalBucket{}
 	for bucketID, id := range buckets {
 		if id != nodeID(myConfig.Id) {
 			continue
@@ -53,7 +53,7 @@ func newProposer(myConfig *pb.StateEvent_InitialParameters, clientWindows *clien
 	}
 }
 
-func (p *proposer) proposalBucket(bucketID BucketID) *proposalBucket {
+func (p *proposer) proposalBucket(bucketID bucketID) *proposalBucket {
 	return p.proposalBuckets[bucketID]
 }
 
@@ -71,7 +71,7 @@ func (prb *proposalBucket) advance() {
 			continue
 		}
 
-		bucket := BucketID((crn.reqNo + crn.clientID) % uint64(prb.totalBuckets))
+		bucket := bucketID((crn.reqNo + crn.clientID) % uint64(prb.totalBuckets))
 
 		if bucket != prb.bucketID {
 			continue

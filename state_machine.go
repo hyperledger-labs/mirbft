@@ -14,10 +14,10 @@ import (
 	"github.com/IBM/mirbft/status"
 )
 
-// BucketID is the identifier for a bucket.  It is a simple alias to a uint64, but
+// bucketID is the identifier for a bucket.  It is a simple alias to a uint64, but
 // is used to help disambiguate function signatures which accept multiple uint64
 // values with different meanings.
-type BucketID uint64
+type bucketID uint64
 
 // nodeID represents the identifier assigned to a node.  It is a simple alias to a uint64, but
 // is used to help disambiguate function signatures which accept multiple uint64
