@@ -13,6 +13,7 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
 )
 
 var zeroPtr *uint64
@@ -673,7 +674,7 @@ func (cw *clientWindow) request(reqNo uint64) *clientReqNo {
 	return cw.reqNoMap[reqNo].Value.(*clientReqNo)
 }
 
-func (cw *clientWindow) status() *ClientWindowStatus {
+func (cw *clientWindow) status() *status.ClientTracker {
 	allocated := make([]uint64, cw.reqNoList.Len())
 	i := 0
 	lastNonZero := 0
@@ -689,7 +690,7 @@ func (cw *clientWindow) status() *ClientWindowStatus {
 		i++
 	}
 
-	return &ClientWindowStatus{
+	return &status.ClientTracker{
 		LowWatermark:  cw.lowWatermark,
 		HighWatermark: cw.highWatermark,
 		Allocated:     allocated[:lastNonZero+1],

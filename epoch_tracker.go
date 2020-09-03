@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
 
 	"github.com/pkg/errors"
 )
@@ -288,8 +289,8 @@ func (et *epochTracker) applyEpochChangeDigest(hashResult *pb.HashResult_EpochCh
 // upon reteiving 2t + 1 messages (READY, m):
 // r-deliver(m)
 
-func (et *epochTracker) status() *EpochChangerStatus {
-	targets := make([]*EpochTargetStatus, 0, len(et.targets))
+func (et *epochTracker) status() *status.EpochTracker {
+	targets := make([]*status.EpochTarget, 0, len(et.targets))
 	for number, target := range et.targets {
 		ts := target.status()
 		ts.Number = number
@@ -299,9 +300,9 @@ func (et *epochTracker) status() *EpochChangerStatus {
 		return targets[i].Number < targets[j].Number
 	})
 
-	return &EpochChangerStatus{
+	return &status.EpochTracker{
 		LastActiveEpoch: et.currentEpoch.number,
-		State:           et.currentEpoch.state,
+		State:           status.EpochTargetState(et.currentEpoch.state),
 		EpochTargets:    targets,
 	}
 }

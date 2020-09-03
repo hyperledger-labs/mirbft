@@ -82,9 +82,9 @@ var _ = Describe("Recorder", func() {
 
 			for _, node := range recording.Nodes {
 				status := node.PlaybackNode.StateMachine.Status()
-				Expect(status.EpochChanger.LastActiveEpoch).To(Equal(uint64(1)))
-				Expect(status.EpochChanger.EpochTargets).To(HaveLen(1))
-				Expect(status.EpochChanger.EpochTargets[0].Suspicions).To(BeEmpty())
+				Expect(status.EpochTracker.LastActiveEpoch).To(Equal(uint64(1)))
+				Expect(status.EpochTracker.EpochTargets).To(HaveLen(1))
+				Expect(status.EpochTracker.EpochTargets[0].Suspicions).To(BeEmpty())
 				Expect(node.State.Length).To(Equal(totalReqs))
 				Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
 

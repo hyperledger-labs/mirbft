@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
 	"github.com/pkg/errors"
 )
 
@@ -109,7 +110,7 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 			lowestUnallocated[bucket] = offset + len(buckets)
 			sequences[offset].qEntry = d.QEntry
 			sequences[offset].digest = d.QEntry.Digest
-			sequences[offset].state = Preprepared
+			sequences[offset].state = sequencePreprepared
 		case *pb.Persistent_PEntry:
 			offset := int(d.PEntry.SeqNo-maxCheckpoint.SeqNo) - 1
 			if offset < 0 {
@@ -122,9 +123,9 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 			}
 
 			if persisted.lastCommitted >= d.PEntry.SeqNo {
-				sequences[offset].state = Committed
+				sequences[offset].state = sequenceCommitted
 			} else {
-				sequences[offset].state = Prepared
+				sequences[offset].state = sequencePrepared
 			}
 		}
 	}
@@ -211,14 +212,14 @@ func (e *activeEpoch) applyCommitMsg(source NodeID, seqNo uint64, digest []byte)
 	}
 
 	seq.applyCommitMsg(source, digest)
-	if seq.state != Committed || offset != e.lowestUncommitted {
+	if seq.state != sequenceCommitted || offset != e.lowestUncommitted {
 		return &Actions{}
 	}
 
 	actions := &Actions{}
 
 	for e.lowestUncommitted < len(e.sequences) {
-		if e.sequences[e.lowestUncommitted].state != Committed {
+		if e.sequences[e.lowestUncommitted].state != sequenceCommitted {
 			break
 		}
 
@@ -258,7 +259,7 @@ func (e *activeEpoch) moveWatermarks(seqNo uint64) *Actions {
 
 	var lowestUncommitted *int
 	for i, seq := range e.sequences {
-		if seq.state != Committed {
+		if seq.state != sequenceCommitted {
 			lowestUncommitted = &i
 			break
 		}
@@ -380,18 +381,18 @@ func (e *activeEpoch) highWatermark() uint64 {
 	return e.sequences[len(e.sequences)-1].seqNo
 }
 
-func (e *activeEpoch) status() []*BucketStatus {
-	buckets := make([]*BucketStatus, len(e.buckets))
+func (e *activeEpoch) status() []*status.Bucket {
+	buckets := make([]*status.Bucket, len(e.buckets))
 	for i := range buckets {
-		bucket := &BucketStatus{
+		bucket := &status.Bucket{
 			ID:        uint64(i),
 			Leader:    e.buckets[BucketID(i)] == NodeID(e.myConfig.Id),
-			Sequences: make([]SequenceState, logWidth(e.networkConfig)/len(buckets)),
+			Sequences: make([]status.SequenceState, logWidth(e.networkConfig)/len(buckets)),
 		}
 
 		k := 0
 		for j := i; j < len(e.sequences); j = j + len(buckets) {
-			bucket.Sequences[k] = e.sequences[j].state
+			bucket.Sequences[k] = status.SequenceState(e.sequences[j].state)
 			k++
 		}
 

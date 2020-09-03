@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
 
 	"github.com/pkg/errors"
 	// "go.uber.org/zap"
@@ -29,7 +30,7 @@ type serializer struct {
 	clientC  chan *clientReq
 	propC    chan *pb.StateEvent_Proposal
 	resultsC chan *pb.StateEvent_ActionResults
-	statusC  chan chan<- *Status
+	statusC  chan chan<- *status.StateMachine
 	stepC    chan *pb.StateEvent_Step
 	tickC    chan struct{}
 	errC     chan struct{}
@@ -38,7 +39,7 @@ type serializer struct {
 
 	exitMutex    sync.Mutex
 	exitErr      error
-	exitStatus   *Status
+	exitStatus   *status.StateMachine
 	stateMachine *StateMachine
 }
 
@@ -115,7 +116,7 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 		propC:        make(chan *pb.StateEvent_Proposal),
 		clientC:      make(chan *clientReq),
 		resultsC:     make(chan *pb.StateEvent_ActionResults),
-		statusC:      make(chan chan<- *Status),
+		statusC:      make(chan chan<- *status.StateMachine),
 		stepC:        make(chan *pb.StateEvent_Step),
 		tickC:        make(chan struct{}),
 		errC:         make(chan struct{}),

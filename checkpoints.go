@@ -13,6 +13,7 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -233,8 +234,8 @@ func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte, e
 	return ct.checkpoint(seqNo).applyCheckpointResult(value, epochConfig, nextConfig)
 }
 
-func (ct *checkpointTracker) status() []*CheckpointStatus {
-	result := make([]*CheckpointStatus, len(ct.checkpointMap))
+func (ct *checkpointTracker) status() []*status.Checkpoint {
+	result := make([]*status.Checkpoint, len(ct.checkpointMap))
 	i := 0
 	for _, cp := range ct.checkpointMap {
 		result[i] = cp.status()
@@ -326,14 +327,14 @@ func (cw *checkpoint) applyCheckpointResult(value []byte, epochConfig *pb.EpochC
 	}))
 }
 
-func (cw *checkpoint) status() *CheckpointStatus {
+func (cw *checkpoint) status() *status.Checkpoint {
 	maxAgreements := 0
 	for _, nodes := range cw.values {
 		if len(nodes) > maxAgreements {
 			maxAgreements = len(nodes)
 		}
 	}
-	return &CheckpointStatus{
+	return &status.Checkpoint{
 		SeqNo:         cw.seqNo,
 		MaxAgreements: maxAgreements,
 		NetQuorum:     cw.committedValue != nil,

@@ -12,6 +12,8 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
+
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
@@ -750,7 +752,7 @@ func (et *epochTarget) applySuspectMsg(source NodeID) {
 	}
 }
 
-func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucketStatus []*BucketStatus) {
+func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucketStatus []*status.Bucket) {
 	if et.activeEpoch != nil {
 		bucketStatus = et.activeEpoch.status()
 		lowWatermark = et.activeEpoch.lowWatermark()
@@ -758,15 +760,15 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 		return
 	}
 
-	bucketStatus = make([]*BucketStatus, int(et.networkConfig.NumberOfBuckets))
+	bucketStatus = make([]*status.Bucket, int(et.networkConfig.NumberOfBuckets))
 	for i := range bucketStatus {
-		bucketStatus[i] = &BucketStatus{
+		bucketStatus[i] = &status.Bucket{
 			ID:        uint64(i),
-			Sequences: make([]SequenceState, logWidth(et.networkConfig)/len(bucketStatus)+1),
+			Sequences: make([]status.SequenceState, logWidth(et.networkConfig)/len(bucketStatus)+1),
 		}
 	}
 
-	setStatus := func(seqNo uint64, status SequenceState) {
+	setStatus := func(seqNo uint64, status status.SequenceState) {
 		bucket := int(seqToBucket(seqNo, et.networkConfig))
 		column := int(seqNo-lowWatermark) / len(bucketStatus)
 		if column >= len(bucketStatus[bucket].Sequences) {
@@ -784,15 +786,15 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 		lowWatermark = et.myEpochChange.lowWatermark + 1
 		highWatermark = lowWatermark + uint64(logWidth(et.networkConfig))
 		for seqNo := range et.myEpochChange.qSet {
-			setStatus(seqNo, Preprepared)
+			setStatus(seqNo, status.SequencePreprepared)
 		}
 
 		for seqNo := range et.myEpochChange.pSet {
-			setStatus(seqNo, Prepared)
+			setStatus(seqNo, status.SequencePrepared)
 		}
 
 		for seqNo := lowWatermark; seqNo <= et.persisted.lastCommitted; seqNo++ {
-			setStatus(seqNo, Committed)
+			setStatus(seqNo, status.SequenceCommitted)
 		}
 		return
 	}
@@ -803,18 +805,18 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 	highWatermark = lowWatermark + uint64(logWidth(et.networkConfig))
 
 	for seqNo := lowWatermark; seqNo <= highWatermark; seqNo++ {
-		var state SequenceState
+		var state status.SequenceState
 
 		if et.state == echoing {
-			state = Preprepared
+			state = status.SequencePreprepared
 		}
 
 		if et.state == readying {
-			state = Prepared
+			state = status.SequencePrepared
 		}
 
 		if seqNo <= et.persisted.lastCommitted || et.state == ready {
-			state = Committed
+			state = status.SequenceCommitted
 		}
 
 		setStatus(seqNo, state)
@@ -823,46 +825,46 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 	return
 }
 
-func (et *epochTarget) status() *EpochTargetStatus {
-	status := &EpochTargetStatus{
-		EpochChanges: make([]*EpochChangeStatus, 0, len(et.changes)),
+func (et *epochTarget) status() *status.EpochTarget {
+	result := &status.EpochTarget{
+		EpochChanges: make([]*status.EpochChange, 0, len(et.changes)),
 		Echos:        make([]uint64, 0, len(et.echos)),
 		Readies:      make([]uint64, 0, len(et.readies)),
 		Suspicions:   make([]uint64, 0, len(et.suspicions)),
 	}
 
 	for node, change := range et.changes {
-		status.EpochChanges = append(status.EpochChanges, change.status(uint64(node)))
+		result.EpochChanges = append(result.EpochChanges, change.status(uint64(node)))
 	}
-	sort.Slice(status.EpochChanges, func(i, j int) bool {
-		return status.EpochChanges[i].Source < status.EpochChanges[j].Source
+	sort.Slice(result.EpochChanges, func(i, j int) bool {
+		return result.EpochChanges[i].Source < result.EpochChanges[j].Source
 	})
 
 	for _, echoMsgs := range et.echos {
 		for node := range echoMsgs {
-			status.Echos = append(status.Echos, uint64(node))
+			result.Echos = append(result.Echos, uint64(node))
 		}
 	}
 
-	sort.Slice(status.Echos, func(i, j int) bool {
-		return status.Echos[i] < status.Echos[j]
+	sort.Slice(result.Echos, func(i, j int) bool {
+		return result.Echos[i] < result.Echos[j]
 	})
 
 	for _, readyMsgs := range et.readies {
 		for node := range readyMsgs {
-			status.Readies = append(status.Readies, uint64(node))
+			result.Readies = append(result.Readies, uint64(node))
 		}
 	}
-	sort.Slice(status.Readies, func(i, j int) bool {
-		return status.Readies[i] < status.Readies[j]
+	sort.Slice(result.Readies, func(i, j int) bool {
+		return result.Readies[i] < result.Readies[j]
 	})
 
 	for node := range et.suspicions {
-		status.Suspicions = append(status.Suspicions, uint64(node))
+		result.Suspicions = append(result.Suspicions, uint64(node))
 	}
-	sort.Slice(status.Suspicions, func(i, j int) bool {
-		return status.Suspicions[i] < status.Suspicions[j]
+	sort.Slice(result.Suspicions, func(i, j int) bool {
+		return result.Suspicions[i] < result.Suspicions[j]
 	})
 
-	return status
+	return result
 }

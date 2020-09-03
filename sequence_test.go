@@ -86,7 +86,7 @@ var _ = XDescribe("sequence", func() {
 				},
 			}))
 
-			Expect(s.state).To(Equal(Allocated))
+			Expect(s.state).To(Equal(sequenceAllocated))
 			Expect(s.batch).To(Equal(
 				[]*clientRequest{
 					{
@@ -111,7 +111,7 @@ var _ = XDescribe("sequence", func() {
 
 		When("the current state is not Unknown", func() {
 			BeforeEach(func() {
-				s.state = Prepared
+				s.state = sequencePrepared
 			})
 
 			It("does not transition and instead panics", func() {
@@ -134,14 +134,14 @@ var _ = XDescribe("sequence", func() {
 					)
 				}
 				Expect(badTransition).To(Panic())
-				Expect(s.state).To(Equal(Prepared))
+				Expect(s.state).To(Equal(sequencePrepared))
 			})
 		})
 	})
 
 	Describe("applyBatchHashResult", func() {
 		BeforeEach(func() {
-			s.state = Allocated
+			s.state = sequenceAllocated
 			s.batch = []*pb.RequestAck{
 				{
 					ClientId: 9,
@@ -203,7 +203,7 @@ var _ = XDescribe("sequence", func() {
 				},
 			}))
 			Expect(s.digest).To(Equal([]byte("digest")))
-			Expect(s.state).To(Equal(Preprepared))
+			Expect(s.state).To(Equal(sequencePreprepared))
 			Expect(s.qEntry).To(Equal(&pb.QEntry{
 				SeqNo:  5,
 				Digest: []byte("digest"),
@@ -231,7 +231,7 @@ var _ = XDescribe("sequence", func() {
 
 		When("the state is not Allocated", func() {
 			BeforeEach(func() {
-				s.state = Prepared
+				s.state = sequencePrepared
 			})
 
 			It("does not transition the state and panics", func() {
@@ -239,7 +239,7 @@ var _ = XDescribe("sequence", func() {
 					s.applyBatchHashResult([]byte("digest"))
 				}
 				Expect(badTransition).To(Panic())
-				Expect(s.state).To(Equal(Prepared))
+				Expect(s.state).To(Equal(sequencePrepared))
 			})
 		})
 
@@ -247,7 +247,7 @@ var _ = XDescribe("sequence", func() {
 
 	Describe("applyPrepareMsg", func() {
 		BeforeEach(func() {
-			s.state = Preprepared
+			s.state = sequencePreprepared
 			s.digest = []byte("digest")
 			s.prepares["digest"] = map[NodeID]struct{}{
 				1: {},

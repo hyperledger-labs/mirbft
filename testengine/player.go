@@ -12,6 +12,7 @@ import (
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 	rpb "github.com/IBM/mirbft/recorder/recorderpb"
+	"github.com/IBM/mirbft/status"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -25,7 +26,7 @@ type PlaybackNode struct {
 	StateMachine *mirbft.StateMachine
 	Processing   *mirbft.Actions
 	Actions      *mirbft.Actions
-	Status       *mirbft.Status
+	Status       *status.StateMachine
 }
 
 type Player struct {

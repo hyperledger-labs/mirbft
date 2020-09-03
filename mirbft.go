@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
 	"github.com/pkg/errors"
 )
 
@@ -273,8 +274,8 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 // exits for any other reason, then a best effort is made to return the last (and final) status.
 // This final status may be relied upon if it is non-nil.  If the serializer exited at the user's
 // request (because the done channel was closed), then ErrStopped is returned.
-func (n *Node) Status(ctx context.Context) (*Status, error) {
-	statusC := make(chan *Status, 1)
+func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
+	statusC := make(chan *status.StateMachine, 1)
 
 	select {
 	case <-ctx.Done():

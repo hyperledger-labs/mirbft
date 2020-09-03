@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
 
 	"github.com/pkg/errors"
 )
@@ -114,35 +115,35 @@ func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error
 	}, nil
 }
 
-func (ec *epochChange) status(source uint64) *EpochChangeStatus {
-	status := &EpochChangeStatus{
+func (ec *epochChange) status(source uint64) *status.EpochChange {
+	result := &status.EpochChange{
 		Source: source,
-		Msgs:   make([]*EpochChangeMsgStatus, len(ec.parsedByDigest)),
+		Msgs:   make([]*status.EpochChangeMsg, len(ec.parsedByDigest)),
 	}
 
 	i := 0
 	for digest, parsedEpochChange := range ec.parsedByDigest {
-		status.Msgs[i] = &EpochChangeMsgStatus{
+		result.Msgs[i] = &status.EpochChangeMsg{
 			Digest: []byte(digest),
 			Acks:   make([]uint64, len(parsedEpochChange.acks)),
 		}
 
 		j := 0
 		for acker := range parsedEpochChange.acks {
-			status.Msgs[i].Acks[j] = uint64(acker)
+			result.Msgs[i].Acks[j] = uint64(acker)
 			j++
 		}
 
-		sort.Slice(status.Msgs[i].Acks, func(k, l int) bool {
-			return status.Msgs[i].Acks[k] < status.Msgs[i].Acks[l]
+		sort.Slice(result.Msgs[i].Acks, func(k, l int) bool {
+			return result.Msgs[i].Acks[k] < result.Msgs[i].Acks[l]
 		})
 
 		i++
 	}
 
-	sort.Slice(status.Msgs, func(i, j int) bool {
-		return string(status.Msgs[i].Digest) < string(status.Msgs[j].Digest)
+	sort.Slice(result.Msgs, func(i, j int) bool {
+		return string(result.Msgs[i].Digest) < string(result.Msgs[j].Digest)
 	})
 
-	return status
+	return result
 }

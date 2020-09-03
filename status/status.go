@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package mirbft
+package status
 
 import (
 	"bytes"
@@ -12,83 +12,141 @@ import (
 	"math"
 )
 
-type Status struct {
-	NodeID        uint64                `json:"node_id"`
-	LowWatermark  uint64                `json:"low_watermark"`
-	HighWatermark uint64                `json:"high_watermark"`
-	EpochChanger  *EpochChangerStatus   `json:"epoch_changer"`
-	Nodes         []*NodeStatus         `json:"nodes"`
-	Buckets       []*BucketStatus       `json:"buckets"`
-	Checkpoints   []*CheckpointStatus   `json:"checkpoints"`
-	ClientWindows []*ClientWindowStatus `json:"request_windows"`
+type EpochTargetState int
+
+const (
+	// EpochPrepending indicates we have sent an epoch-change, but waiting for a quorum
+	EpochPrepending = iota
+
+	// EpochPending indicates that we have a quorum of epoch-change messages, waits on new-epoch
+	EpochPending
+
+	// EpochVerifying indicates we have received a new view message but it references epoch changes we cannot yet verify
+	EpochVerifying
+
+	// EpochFetching indicates we have received and verified a new epoch messages, and are waiting to get state
+	EpochFetching
+
+	// EpochEchoing indicates we have received and validated a new-epoch, waiting for a quorum of echos
+	EpochEchoing
+
+	// EpochReadying indicates we have received a quorum of echos, waiting a on qourum of readies
+	EpochReadying
+
+	// EpochReady indicates the new epoch is ready to begin
+	EpochReady
+
+	// EpochInProgress indicates the epoch is currently active
+	EpochInProgress
+
+	// EpochDone indicates this epoch has ended, either gracefully or because we sent an epoch change
+	EpochDone
+)
+
+type SequenceState int
+
+const (
+	// SequenceUnitialized indicates no batch has been assigned to this sequence.
+	SequenceUninitialized SequenceState = iota
+
+	// SequenceAllocated indicates that a potentially valid batch has been assigned to this sequence.
+	SequenceAllocated
+
+	// SequencePendingRequests indicates that we are waiting for missing requests to arrive or be validated.
+	SequencePendingRequests
+
+	// SequenceReady indicates that we have all requests and are ready to proceed with the 3-phase commit.
+	SequenceReady
+
+	// SequencePreprepared indicates that we have sent a Prepare/Preprepare as follow/leader respectively.
+	SequencePreprepared
+
+	// SequencePreprepared indicates that we have sent a Commit message.
+	SequencePrepared
+
+	// SequenceCommitted indicates that we have a quorum of commit messages and the sequence is
+	// eligible to commit.  Note though, that all prior sequences must commit prior to the consumer
+	// seeing this commit event.
+	SequenceCommitted
+)
+
+type StateMachine struct {
+	NodeID        uint64           `json:"node_id"`
+	LowWatermark  uint64           `json:"low_watermark"`
+	HighWatermark uint64           `json:"high_watermark"`
+	EpochTracker  *EpochTracker    `json:"epoch_tracker"`
+	NodeBuffers   []*NodeBuffer    `json:"node_buffers"`
+	Buckets       []*Bucket        `json:"buckets"`
+	Checkpoints   []*Checkpoint    `json:"checkpoints"`
+	ClientWindows []*ClientTracker `json:"client_tracker"`
 }
 
-type BucketStatus struct {
+type Bucket struct {
 	ID        uint64          `json:"id"`
 	Leader    bool            `json:"leader"`
 	Sequences []SequenceState `json:"sequences"`
 }
 
-type CheckpointStatus struct {
+type Checkpoint struct {
 	SeqNo         uint64 `json:"seq_no"`
 	MaxAgreements int    `json:"max_agreements"`
 	NetQuorum     bool   `json:"net_quorum"`
 	LocalDecision bool   `json:"local_decision"`
 }
 
-type EpochChangerStatus struct {
-	State           epochTargetState     `json:"state"` // TODO, export or untype
-	LastActiveEpoch uint64               `json:"last_active_epoch"`
-	EpochTargets    []*EpochTargetStatus `json:"epoch_targets"`
+type EpochTracker struct {
+	State           EpochTargetState `json:"state"` // TODO, move into epoch target
+	LastActiveEpoch uint64           `json:"last_active_epoch"`
+	EpochTargets    []*EpochTarget   `json:"epoch_targets"`
 }
 
-type EpochTargetStatus struct {
-	Number       uint64               `json:"number"`
-	EpochChanges []*EpochChangeStatus `json:"epoch_changes"`
-	Echos        []uint64             `json:"echos"`
-	Readies      []uint64             `json:"readies"`
-	Suspicions   []uint64             `json:"suspicions"`
+type EpochTarget struct {
+	Number       uint64         `json:"number"`
+	EpochChanges []*EpochChange `json:"epoch_changes"`
+	Echos        []uint64       `json:"echos"`
+	Readies      []uint64       `json:"readies"`
+	Suspicions   []uint64       `json:"suspicions"`
 }
 
-type EpochChangeStatus struct {
-	Source uint64                  `json:"source"`
-	Msgs   []*EpochChangeMsgStatus `json:"Msgs"`
+type EpochChange struct {
+	Source uint64            `json:"source"`
+	Msgs   []*EpochChangeMsg `json:"messages"`
 }
 
-type EpochChangeMsgStatus struct {
+type EpochChangeMsg struct {
 	Digest []byte   `json:"digest"`
 	Acks   []uint64 `json:"acks"`
 }
 
-type NodeStatus struct {
-	ID             uint64             `json:"id"`
-	BucketStatuses []NodeBucketStatus `json:"bucket_statuses"`
-	LastCheckpoint uint64             `json:"last_checkpoint"`
+type NodeBuffer struct {
+	ID             uint64       `json:"id"`
+	Buckets        []NodeBucket `json:"buckets"`
+	LastCheckpoint uint64       `json:"last_checkpoint"`
 }
 
-type NodeBucketStatus struct {
+type NodeBucket struct {
 	BucketID    int    `json:"bucket_id"`
 	IsLeader    bool   `json:"is_leader"`
 	LastPrepare uint64 `json:"last_prepare"`
 	LastCommit  uint64 `json:"last_commit"`
 }
 
-type ClientWindowStatus struct {
+type ClientTracker struct {
 	ClientID      uint64   `json:"client_id"`
 	LowWatermark  uint64   `json:"low_watermark"`
 	HighWatermark uint64   `json:"high_watermark"`
 	Allocated     []uint64 `json:"allocated"`
 }
 
-func (s *Status) Pretty() string {
+func (s *StateMachine) Pretty() string {
 	var buffer bytes.Buffer
 	buffer.WriteString("===========================================\n")
-	buffer.WriteString(fmt.Sprintf("NodeID=%d, LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.NodeID, s.LowWatermark, s.HighWatermark, s.EpochChanger.LastActiveEpoch))
+	buffer.WriteString(fmt.Sprintf("NodeID=%d, LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.NodeID, s.LowWatermark, s.HighWatermark, s.EpochTracker.LastActiveEpoch))
 	buffer.WriteString("===========================================\n\n")
 
 	buffer.WriteString("=== Epoch Changer ===\n")
-	buffer.WriteString(fmt.Sprintf("Change is in state: %d, last active epoch %d\n", s.EpochChanger.State, s.EpochChanger.LastActiveEpoch))
-	for _, et := range s.EpochChanger.EpochTargets {
+	buffer.WriteString(fmt.Sprintf("Change is in state: %d, last active epoch %d\n", s.EpochTracker.State, s.EpochTracker.LastActiveEpoch))
+	for _, et := range s.EpochTracker.EpochTargets {
 		buffer.WriteString(fmt.Sprintf("Target Epoch %d:\n", et.Number))
 		buffer.WriteString("  EpochChanges:\n")
 		for _, ec := range et.EpochChanges {
@@ -126,12 +184,12 @@ func (s *Status) Pretty() string {
 			buffer.WriteString("\n")
 		}
 
-		for _, nodeStatus := range s.Nodes {
+		for _, nodeBuffer := range s.NodeBuffers {
 			hRule()
-			buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeStatus.ID))
-			for bucket, bucketStatus := range nodeStatus.BucketStatuses {
+			buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeBuffer.ID))
+			for bucket, bucketStatus := range nodeBuffer.Buckets {
 				for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
-					if seqNo == nodeStatus.LastCheckpoint {
+					if seqNo == nodeBuffer.LastCheckpoint {
 						buffer.WriteString("|X")
 						continue
 					}
@@ -159,28 +217,30 @@ func (s *Status) Pretty() string {
 		hRule()
 		buffer.WriteString("- === Buckets ===\n")
 
-		for _, bucketStatus := range s.Buckets {
+		for _, bucketBuffer := range s.Buckets {
 			buffer.WriteString("| ")
-			for _, state := range bucketStatus.Sequences {
+			for _, state := range bucketBuffer.Sequences {
 				switch state {
-				case Uninitialized:
+				case SequenceUninitialized:
 					buffer.WriteString("| ")
-				case Allocated:
+				case SequenceAllocated:
 					buffer.WriteString("|A")
-				case PendingRequests:
+				case SequencePendingRequests:
 					buffer.WriteString("|F")
-				case Preprepared:
+				case SequenceReady:
+					buffer.WriteString("|R")
+				case SequencePreprepared:
 					buffer.WriteString("|Q")
-				case Prepared:
+				case SequencePrepared:
 					buffer.WriteString("|P")
-				case Committed:
+				case SequenceCommitted:
 					buffer.WriteString("|C")
 				}
 			}
-			if bucketStatus.Leader {
-				buffer.WriteString(fmt.Sprintf("| Bucket=%d (LocalLeader)\n", bucketStatus.ID))
+			if bucketBuffer.Leader {
+				buffer.WriteString(fmt.Sprintf("| Bucket=%d (LocalLeader)\n", bucketBuffer.ID))
 			} else {
-				buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucketStatus.ID))
+				buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucketBuffer.ID))
 			}
 		}
 

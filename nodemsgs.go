@@ -11,6 +11,7 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
 )
 
 type applyable int
@@ -223,10 +224,10 @@ func newEpochMsgs(nodeID NodeID, epoch *activeEpoch, myConfig *pb.StateEvent_Ini
 		}
 
 		for i := int(bucketID); i < len(epoch.sequences); i += len(epoch.buckets) {
-			if epoch.sequences[i].state >= Prepared {
+			if epoch.sequences[i].state >= sequencePrepared {
 				nm.prepare++
 			}
-			if epoch.sequences[i].state == Committed {
+			if epoch.sequences[i].state == sequenceCommitted {
 				nm.commit++
 			}
 		}
@@ -345,17 +346,17 @@ func (n *epochMsgs) processCommit(msg *pb.Commit) applyable {
 	}
 }
 
-func (n *nodeMsgs) status() *NodeStatus {
+func (n *nodeMsgs) status() *status.NodeBuffer {
 	if n.epochMsgs == nil {
-		return &NodeStatus{
+		return &status.NodeBuffer{
 			ID: uint64(n.id),
 		}
 	}
 
-	bucketStatuses := make([]NodeBucketStatus, len(n.epochMsgs.next))
+	bucketStatuses := make([]status.NodeBucket, len(n.epochMsgs.next))
 	for bucketID := range bucketStatuses {
 		nextMsg := n.epochMsgs.next[BucketID(bucketID)]
-		bucketStatuses[bucketID] = NodeBucketStatus{
+		bucketStatuses[bucketID] = status.NodeBucket{
 			BucketID:    bucketID,
 			IsLeader:    nextMsg.leader,
 			LastPrepare: uint64(nextMsg.prepare - 1), // No underflow is possible, we start at seq 1
@@ -363,8 +364,8 @@ func (n *nodeMsgs) status() *NodeStatus {
 		}
 	}
 
-	return &NodeStatus{
-		ID:             uint64(n.id),
-		BucketStatuses: bucketStatuses,
+	return &status.NodeBuffer{
+		ID:      uint64(n.id),
+		Buckets: bucketStatuses,
 	}
 }

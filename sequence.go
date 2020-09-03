@@ -11,16 +11,16 @@ import (
 	"go.uber.org/zap"
 )
 
-type SequenceState int
+type sequenceState int
 
 const (
-	Uninitialized SequenceState = iota
-	Allocated
-	PendingRequests
-	Ready
-	Preprepared
-	Prepared
-	Committed
+	sequenceUninitialized sequenceState = iota
+	sequenceAllocated
+	sequencePendingRequests
+	sequenceReady
+	sequencePreprepared
+	sequencePrepared
+	sequenceCommitted
 )
 
 type sequence struct {
@@ -32,24 +32,24 @@ type sequence struct {
 	logger        Logger
 	networkConfig *pb.NetworkState_Config
 
-	state SequenceState
+	state sequenceState
 
 	persisted *persisted
 
-	// qEntry is unset until after state >= Preprepared
+	// qEntry is unset until after state >= sequencePreprepared
 	qEntry *pb.QEntry
 
-	// batch is not set until after state >= Allocated
+	// batch is not set until after state >= sequenceAllocated
 	batch []*pb.RequestAck
 
-	// outstandingReqs is not set until after state >= Allocated and may never be set
+	// outstandingReqs is not set until after state >= sequenceAllocated and may never be set
 	// it is a map from request digest to index in the forwardReqs slice
 	outstandingReqs map[string]int
 
-	// forwardReqs is corresponding Requests reference in the batch, not available until state >= Ready
+	// forwardReqs is corresponding Requests reference in the batch, not available until state >= sequenceReady
 	forwardReqs []*pb.ForwardRequest
 
-	// digest is the computed digest of the batch, may not be set until state > Ready
+	// digest is the computed digest of the batch, may not be set until state > sequenceReady
 	digest []byte
 
 	prepares map[string]map[NodeID]struct{}
@@ -65,7 +65,7 @@ func newSequence(owner NodeID, epoch, seqNo uint64, persisted *persisted, networ
 		logger:        logger,
 		networkConfig: networkConfig,
 		persisted:     persisted,
-		state:         Uninitialized,
+		state:         sequenceUninitialized,
 		prepares:      map[string]map[NodeID]struct{}{},
 		commits:       map[string]map[NodeID]struct{}{},
 	}
@@ -76,19 +76,19 @@ func (s *sequence) advanceState() *Actions {
 	for {
 		oldState := s.state
 		switch s.state {
-		case Uninitialized:
-		case Allocated:
-		case PendingRequests:
+		case sequenceUninitialized:
+		case sequenceAllocated:
+		case sequencePendingRequests:
 			s.checkRequests()
-		case Ready:
+		case sequenceReady:
 			if s.digest != nil || len(s.batch) == 0 {
 				actions.concat(s.prepare())
 			}
-		case Preprepared:
+		case sequencePreprepared:
 			actions.concat(s.checkPrepareQuorum())
-		case Prepared:
+		case sequencePrepared:
 			s.checkCommitQuorum()
-		case Committed:
+		case sequenceCommitted:
 		}
 		if s.state == oldState {
 			return actions
@@ -118,21 +118,21 @@ func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *Actions {
 }
 
 // allocate reserves this sequence in this epoch for a set of requests.
-// If the state machine is not in the Uninitialized state, it returns an error.  Otherwise,
-// It transitions to Preprepared and returns a ValidationRequest message.
+// If the state machine is not in the uninitialized state, it returns an error.  Otherwise,
+// It transitions to preprepared and returns a ValidationRequest message.
 func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.ForwardRequest, outstandingReqs map[string]int) *Actions {
-	if s.state != Uninitialized {
+	if s.state != sequenceUninitialized {
 		s.logger.Panic("illegal state for allocate", zap.Int("State", int(s.state)), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
 	}
 
-	s.state = Allocated
+	s.state = sequenceAllocated
 	s.batch = requestAcks
 	s.forwardReqs = forwardReqs
 	s.outstandingReqs = outstandingReqs
 
 	if len(requestAcks) == 0 {
 		// This is a no-op batch, no need to compute a digest
-		s.state = Ready
+		s.state = sequenceReady
 		return s.applyBatchHashResult(nil)
 	}
 
@@ -160,7 +160,7 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.Forw
 		},
 	}
 
-	s.state = PendingRequests
+	s.state = sequencePendingRequests
 
 	return actions.concat(s.advanceState())
 }
@@ -183,7 +183,7 @@ func (s *sequence) checkRequests() {
 		return
 	}
 
-	s.state = Ready
+	s.state = sequenceReady
 }
 
 func (s *sequence) applyBatchHashResult(digest []byte) *Actions {
@@ -200,7 +200,7 @@ func (s *sequence) prepare() *Actions {
 		Requests: s.forwardReqs,
 	}
 
-	s.state = Preprepared
+	s.state = sequencePreprepared
 
 	var actions *Actions
 
@@ -279,7 +279,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 		return &Actions{}
 	}
 
-	s.state = Prepared
+	s.state = sequencePrepared
 
 	pEntry := &pb.PEntry{
 		SeqNo:  s.seqNo,
@@ -327,5 +327,5 @@ func (s *sequence) checkCommitQuorum() {
 		return
 	}
 
-	s.state = Committed
+	s.state = sequenceCommitted
 }

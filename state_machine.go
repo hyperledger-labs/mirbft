@@ -11,6 +11,7 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/status"
 )
 
 type StateMachineState int
@@ -346,12 +347,12 @@ func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
 	return clientWindow.clientWaiter
 }
 
-func (sm *StateMachine) Status() *Status {
+func (sm *StateMachine) Status() *status.StateMachine {
 	if sm.state != smInitialized {
-		return &Status{}
+		return &status.StateMachine{}
 	}
 
-	clientWindowsStatus := make([]*ClientWindowStatus, len(sm.clientWindows.clients))
+	clientWindowsStatus := make([]*status.ClientTracker, len(sm.clientWindows.clients))
 
 	for i, id := range sm.clientWindows.clients {
 		clientWindow := sm.clientWindows.windows[id]
@@ -360,7 +361,7 @@ func (sm *StateMachine) Status() *Status {
 		clientWindowsStatus[i] = rws
 	}
 
-	nodes := make([]*NodeStatus, len(sm.networkConfig.Nodes))
+	nodes := make([]*status.NodeBuffer, len(sm.networkConfig.Nodes))
 	for i, nodeID := range sm.networkConfig.Nodes {
 		nodeID := NodeID(nodeID)
 		nodes[i] = sm.epochTracker.currentEpoch.nodeMsgs[nodeID].status()
@@ -370,14 +371,14 @@ func (sm *StateMachine) Status() *Status {
 
 	checkpoints := sm.checkpointTracker.status()
 
-	return &Status{
+	return &status.StateMachine{
 		NodeID:        sm.myConfig.Id,
 		LowWatermark:  lowWatermark,
 		HighWatermark: highWatermark,
-		EpochChanger:  sm.epochTracker.status(),
+		EpochTracker:  sm.epochTracker.status(),
 		ClientWindows: clientWindowsStatus,
 		Buckets:       bucketStatus,
 		Checkpoints:   checkpoints,
-		Nodes:         nodes,
+		NodeBuffers:   nodes,
 	}
 }
