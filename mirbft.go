@@ -138,14 +138,10 @@ func StandardInitialNetworkState(nodeCount int, clientIDs ...uint64) *pb.Network
 
 	clients := make([]*pb.NetworkState_Client, len(clientIDs))
 	for i, clientID := range clientIDs {
-		blw := make([]uint64, numberOfBuckets)
-		for i := range blw {
-			blw[int((uint64(i)+clientID)%uint64(numberOfBuckets))] = uint64(i)
-		}
-
 		clients[i] = &pb.NetworkState_Client{
-			Id:                  clientID,
-			BucketLowWatermarks: blw,
+			Id:           clientID,
+			Width:        100,
+			LowWatermark: 0,
 		}
 	}
 

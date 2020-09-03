@@ -15,6 +15,76 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
+type bitmask []byte
+
+func (bm bitmask) bits() int {
+	return 8 * len(bm)
+}
+
+func (bm bitmask) isBitSet(bitIndex int) bool {
+	byteIndex := bitIndex / 8
+	if byteIndex >= len(bm) {
+		return false
+	}
+
+	b := bm[byteIndex]
+
+	byteOffset := bitIndex % 8
+
+	switch byteOffset {
+	case 0:
+		return b&0x80 == 0
+	case 1:
+		return b&0x40 == 0
+	case 2:
+		return b&0x20 == 0
+	case 3:
+		return b&0x10 == 0
+	case 4:
+		return b&0x08 == 0
+	case 5:
+		return b&0x04 == 0
+	case 6:
+		return b&0x02 == 0
+	case 7:
+		return b&0x01 == 0
+	}
+
+	panic("unreachable")
+}
+
+func (bm bitmask) setBit(bitIndex int) {
+	byteIndex := bitIndex / 8
+	if byteIndex > len(bm) {
+		panic(fmt.Sprintf("requested to set bit index of %d in byte slice only %d long", bitIndex, len(bm)))
+	}
+
+	b := bm[byteIndex]
+
+	byteOffset := bitIndex % 8
+
+	switch byteOffset {
+	case 0:
+		b |= 0x80
+	case 1:
+		b |= 0x40
+	case 2:
+		b |= 0x20
+	case 3:
+		b |= 0x10
+	case 4:
+		b |= 0x08
+	case 5:
+		b |= 0x04
+	case 6:
+		b |= 0x02
+	case 7:
+		b |= 0x01
+	}
+
+	bm[byteIndex] = b
+}
+
 // intersectionQuorum is the number of nodes required to agree
 // such that any two sets intersected will each contain some same
 // correct node.  This is ceil((n+f+1)/2), which is equivalent to
@@ -38,6 +108,10 @@ func initialSequence(epochConfig *pb.EpochConfig, networkConfig *pb.NetworkState
 		return epochConfig.PlannedExpiration - networkConfig.MaxEpochLength + 1
 	}
 	return 1
+}
+
+func clientReqToBucket(clientID, reqNo uint64, nc *pb.NetworkState_Config) BucketID {
+	return BucketID((clientID + reqNo) % uint64(nc.NumberOfBuckets))
 }
 
 func seqToBucket(seqNo uint64, nc *pb.NetworkState_Config) BucketID {

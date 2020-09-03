@@ -78,7 +78,13 @@ message NetworkState {
 
     message Client {
         uint64 id = 1;
-        repeated uint64 bucket_low_watermarks = 2; // TODO, probably can optimize by base low watermark, plus offsets from it, since these will always be small, but add when we address holes in the windows
+	uint32 width = 2;
+	uint64 low_watermark = 3;
+	// CommittedMask is a bitmask of up to length 'width', indicating which request numbers
+	// beyond the low_watermark have committed.  If non-empty, the last byte is never 0,
+	// and all request numbers beyond the last bit are uncommitted.  Note, a repeated bool
+	// would be much more natural, but very space inefficient per proto's implementation.
+	bytes committed_mask = 4;
     }
 
     Config config = 1;

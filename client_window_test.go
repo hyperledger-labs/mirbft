@@ -42,7 +42,15 @@ var _ = Describe("clientWindow", func() {
 	})
 
 	JustBeforeEach(func() {
-		cw = newClientWindow(0, lwm, hwm, networkConfig, logger)
+		cw = newClientWindow(
+			&pb.NetworkState_Client{
+				Id:           0,
+				LowWatermark: lwm,
+				Width:        uint32(hwm - lwm),
+			},
+			networkConfig,
+			logger,
+		)
 	})
 
 	It("stores requests", func() {

@@ -245,7 +245,6 @@ func (e *activeEpoch) moveWatermarks(seqNo uint64) *Actions {
 		for i := range e.lowestUnallocated {
 			e.lowestUnallocated[i]--
 		}
-		e.lowestUncommitted--
 
 		newSeqNo := e.sequences[len(e.sequences)-1].seqNo + 1
 		epoch := e.epochConfig.Number
@@ -255,6 +254,20 @@ func (e *activeEpoch) moveWatermarks(seqNo uint64) *Actions {
 			e.ending = true
 			break
 		}
+	}
+
+	var lowestUncommitted *int
+	for i, seq := range e.sequences {
+		if seq.state != Committed {
+			lowestUncommitted = &i
+			break
+		}
+	}
+
+	if lowestUncommitted == nil {
+		e.lowestUncommitted = len(e.sequences)
+	} else {
+		e.lowestUncommitted = *lowestUncommitted
 	}
 
 	return e.drainProposer()

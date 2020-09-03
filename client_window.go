@@ -15,6 +15,13 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
+var zeroPtr *uint64
+
+func init() {
+	var zero uint64
+	zeroPtr = &zero
+}
+
 type readyEntry struct {
 	next        *readyEntry
 	clientReqNo *clientReqNo
@@ -52,8 +59,6 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 		msgBuffers:  map[NodeID]*msgBuffer{},
 	}
 
-	clientWindowWidth := uint64(100) // XXX this should be configurable
-
 	batches := map[string][]*pb.ForwardRequest{}
 
 	for head := persisted.logHead; head != nil; head = head.next {
@@ -64,14 +69,7 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 				cws.networkConfig = d.CEntry.NetworkState.Config
 
 				for _, client := range d.CEntry.NetworkState.Clients {
-					lowWatermark := client.BucketLowWatermarks[0]
-					for _, blw := range client.BucketLowWatermarks {
-						if blw < lowWatermark {
-							lowWatermark = blw
-						}
-					}
-
-					clientWindow := newClientWindow(client.Id, lowWatermark, lowWatermark+clientWindowWidth, d.CEntry.NetworkState.Config, logger)
+					clientWindow := newClientWindow(client, d.CEntry.NetworkState.Config, logger)
 					cws.insert(client.Id, clientWindow)
 				}
 			}
@@ -177,36 +175,74 @@ func (cws *clientWindows) applyMsg(source NodeID, msg *pb.Msg) *Actions {
 	}
 }
 
-func (cws *clientWindows) clientConfigs() []*pb.NetworkState_Client { // XXX I think this needs to take a seqno?
+// Note, this seems like it should take a seqNo as a parameter, but since the garbage
+// collection is controlled by the state machine, and it will always invoke this method
+// before any seqNos are committed beyond the checkpoint, we are safe.
+func (cws *clientWindows) clientConfigs() []*pb.NetworkState_Client {
 	clients := make([]*pb.NetworkState_Client, len(cws.clients))
 	for i, clientID := range cws.clients {
-		blws := make([]uint64, cws.networkConfig.NumberOfBuckets)
 		cw, ok := cws.windows[clientID]
 		if !ok {
 			panic("dev sanity test")
 		}
-		for i := range blws {
-			firstOutOfWindowBucket := (cw.highWatermark + 1 + clientID) % uint64(len(blws))
-			blws[int((firstOutOfWindowBucket+uint64(i))%uint64(len(blws)))] = cw.highWatermark + 1 + uint64(i)
-		}
+
+		var firstUncommitted, lastCommitted *uint64
+
 		for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
 			crn := el.Value.(*clientReqNo)
 			if crn.committed != nil {
+				lastCommitted = &crn.reqNo
+				continue
+			}
+			if firstUncommitted == nil {
+				firstUncommitted = &crn.reqNo
+			}
+		}
+
+		if firstUncommitted == nil {
+			if *lastCommitted != cw.highWatermark {
+				panic("dev sanity test, if no client reqs are uncommitted, then all though the high watermark should be committed")
+			}
+
+			clients[i] = &pb.NetworkState_Client{
+				Id:           clientID,
+				Width:        uint32(cw.highWatermark - cw.lowWatermark),
+				LowWatermark: *lastCommitted + 1,
+			}
+			continue
+		}
+
+		if lastCommitted == nil {
+			clients[i] = &pb.NetworkState_Client{
+				Id:           clientID,
+				Width:        uint32(cw.highWatermark - cw.lowWatermark),
+				LowWatermark: *firstUncommitted,
+			}
+			continue
+		}
+
+		mask := bitmask(make([]byte, int(*lastCommitted-*firstUncommitted)/8+1))
+		for i := 0; i < int(*lastCommitted-*firstUncommitted); i++ {
+			reqNo := *firstUncommitted + uint64(i)
+			if cw.reqNoMap[reqNo].Value.(*clientReqNo).committed == nil {
 				continue
 			}
 
-			bucket := int((crn.reqNo + crn.clientID) % uint64(cws.networkConfig.NumberOfBuckets))
-			if blws[bucket] <= crn.reqNo {
-				continue
+			if i == 0 {
+				panic("dev sanity test, if this is the first uncommitted, how is it committed")
 			}
 
-			blws[bucket] = crn.reqNo
+			mask.setBit(i)
+
 		}
 
 		clients[i] = &pb.NetworkState_Client{
-			Id:                  clientID,
-			BucketLowWatermarks: blws,
+			Id:            clientID,
+			Width:         uint32(cw.highWatermark - cw.lowWatermark),
+			LowWatermark:  *firstUncommitted,
+			CommittedMask: mask,
 		}
+
 	}
 
 	return clients
@@ -458,9 +494,12 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newClientWindow(clientID, lowWatermark, highWatermark uint64, networkConfig *pb.NetworkState_Config, logger Logger) *clientWindow {
+func newClientWindow(client *pb.NetworkState_Client, networkConfig *pb.NetworkState_Config, logger Logger) *clientWindow {
+	lowWatermark := client.LowWatermark
+	highWatermark := client.LowWatermark + uint64(client.Width)
+
 	cw := &clientWindow{
-		clientID:      clientID,
+		clientID:      client.Id,
 		logger:        logger,
 		networkConfig: networkConfig,
 		lowWatermark:  lowWatermark,
@@ -475,13 +514,22 @@ func newClientWindow(clientID, lowWatermark, highWatermark uint64, networkConfig
 		},
 	}
 
-	for i := lowWatermark; i <= highWatermark; i++ {
+	bm := bitmask(client.CommittedMask)
+	for i := 0; i <= int(client.Width); i++ {
+		var committed *uint64
+		if bm.isBitSet(i) {
+			committed = zeroPtr
+		}
+
+		reqNo := uint64(i) + client.LowWatermark
+
 		el := cw.reqNoList.PushBack(&clientReqNo{
-			clientID: cw.clientID,
-			reqNo:    i,
-			digests:  map[string]*clientRequest{},
+			clientID:  cw.clientID,
+			reqNo:     reqNo,
+			digests:   map[string]*clientRequest{},
+			committed: committed,
 		})
-		cw.reqNoMap[i] = el
+		cw.reqNoMap[reqNo] = el
 	}
 
 	return cw

@@ -22,15 +22,49 @@ func newOutstandingReqs(clientWindows *clientWindows, networkState *pb.NetworkSt
 		clientWindows:       clientWindows,
 	}
 
-	for i := BucketID(0); i < BucketID(networkState.Config.NumberOfBuckets); i++ {
+	numBuckets := int(networkState.Config.NumberOfBuckets)
+
+	for i := BucketID(0); i < BucketID(numBuckets); i++ {
 		bo := &bucketOutstandingReqs{
 			clients: map[uint64]*clientOutstandingReqs{},
 		}
 		ao.buckets[i] = bo
 
 		for _, client := range networkState.Clients {
+			var skipRequests map[uint64]struct{}
+			bm := bitmask(client.CommittedMask)
+			var firstUncommitted uint64
+			var firstOffset int
+			for j := 0; j < numBuckets; j++ {
+				reqNo := client.LowWatermark + uint64(j)
+				if clientReqToBucket(client.Id, reqNo, networkState.Config) == i {
+					firstUncommitted = reqNo
+					firstOffset = j
+					break
+				}
+			}
+
+			for bitIndex := firstOffset; bitIndex < bm.bits(); bitIndex += numBuckets {
+				if !bm.isBitSet(bitIndex) {
+					continue
+				}
+
+				reqNo := client.LowWatermark + uint64(bitIndex)
+				if reqNo == firstUncommitted {
+					firstUncommitted += uint64(numBuckets)
+					continue
+				}
+
+				if skipRequests == nil {
+					skipRequests = map[uint64]struct{}{}
+				}
+
+				skipRequests[reqNo] = struct{}{}
+			}
+
 			bo.clients[client.Id] = &clientOutstandingReqs{
-				nextReqNo: client.BucketLowWatermarks[int(i)],
+				nextReqNo:    firstUncommitted,
+				skipRequests: skipRequests,
 			}
 		}
 	}
@@ -54,7 +88,8 @@ type bucketOutstandingReqs struct {
 }
 
 type clientOutstandingReqs struct {
-	nextReqNo uint64
+	nextReqNo    uint64
+	skipRequests map[uint64]struct{}
 }
 
 func (ao *allOutstandingReqs) advanceRequests() *Actions {
