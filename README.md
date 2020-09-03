@@ -9,65 +9,66 @@ Mir improves on traditional atomic broadcast protocols like PBFT and Raft which 
 
 ## Architecture
 
-The high level structure of the MirBFT library steals heavily from the architecture of [etcdraft](https://github.com/etcd-io/etcd/tree/master/raft). A single threaded state machine is mutated by short lived, non-blocking operations.  Operations which might block or which have any degree of computational complexity (like signing, hashing, etc.) are delegated to the caller.
+The high level structure of the MirBFT library steals heavily from the architecture of [etcdraft](https://github.com/etcd-io/etcd/tree/master/raft). A single threaded state machine is mutated by short lived, non-blocking operations.  Operations which might block or which have any degree of computational complexity (like hashing, network calls, etc.) are delegated to the caller.
 
 For more information, see the detailed [design document](/docs/Design.md).  Note, the documentation has fallen a bit behind based on the implementation work that has happened over the last few months.  The documentation should be taken with a grain of salt.
 
 ## Using Mir
  
-This repository is a new project and under active development and as such, is not suitable for use (yet!). Watch for releases occurring later in 2020.
+This repository is a new project and under active development and as such, is not suitable for use (yet!). It's a fair ways further along that it was in early 2020, and we hope to have a release in the coming months.
 
 ### Preview
 
-Currently, there are severe limitations ot the Mir implementation, notably no view/epoch change, and no state transfer, as well as no ability to resume a node after stopping it.  However, sample processors are included, and the basic client implementation will look something like this:
+Currently, the Mir APIs are still stabilizing, and there are significant caveats associated with assorted features.  Notably, there are not yet APIs for state transfer (though this feature is nearly complete), there are no APIs for reconfiguration (though once more, this feature is close to done), and there are some assorted unhandled internal cases (like some known missing validation in new epoch messages, poor new epoch leader selection, slow graceful epoch rotation).  However, a sample processor is included, and the basic client implementation will look something like this:
 
 ```
-replicas := []mirbft.Replica{{ID: 0}, {ID: 1}, {ID: 2}, {ID: 3}}
+networkState := mirbft.StandardInitialNetworkState(4, 0)
 
-config := &mirbft.Config{
+nodeConfig := &mirbft.Config{
 	ID:     uint64(i),
-	Logger: zap.NewProduction(),
-	BatchParameters: mirbft.BatchParameters{
-		BatchSize: 1,
-	},
+	Logger: zap.NewExample(),
+	BatchSize: 20,
+	HeartbeatTicks:       2,
+	SuspectTicks:         4,
+	NewEpochTimeoutTicks: 8,
+	BufferSize:           500,
 }
 
 doneC := make(chan struct{})
 
-node, err := mirbft.StartNewNode(config, doneC, replicas)
+node, err := mirbft.StartNewNode(nodeConfig, doneC, mockStorage(networkState))
 // handle err
 
 processor := &sample.SerialProcessor{
 	Node:      node,
-	Validator: validator, // sample.Validator interface impl
-	Hasher:    hasher,    // sample.Hasher interface impl
-	Committer: &sample.SerialCommitter{
-		Log:                  log, // sample.Log interface impl
-		OutstandingSeqBucket: map[uint64]map[uint64]*mirbft.Entry{},
-	},
-	Link: network, // sample.Link interface impl
+	Hasher:    sha256.New,
+	Log:       log,        // sample.Log interface impl
+	Link:      network,    // sample.Link interface impl
 }
 
 go func() {
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+
 	for {
-		ticker := time.NewTicker(time.Millisecond)
-		defer ticker.Stop()
-
-
 		select {
 		case actions := <-node.Ready():
 			processor.Process(&actions)
 		case <-ticker.C:
 			node.Tick()
 		case <-doneC:
-			// exit
+			return
 		}
 	}
-}
+}()
 
 // Perform application logic
-err := node.Propose(context.TODO(), []byte("some-data"))
+err := node.Propose(context.TODO(), &pb.Request{
+	ClientId: 0,
+	ReqNo: 0,
+	Data: []byte("some-data"),
+})
 ...
 ```
 
-Note that `sample.SerialProcessor` and `sample.SerialCommitter` are rudimentary implementations which for simplicity do not exploit parallelism across the hashing/validation/committing, but could parallelized for a production system.  Future samples may include a parallelized Procecessor and or Committer.
+Note that `sample.SerialProcessor` is a rudimentary implementations which for simplicity does not exploit parallelism across the hashing/persisting/sending, but could parallelized for a production system.  Future samples may include a parallelized Procecessor.

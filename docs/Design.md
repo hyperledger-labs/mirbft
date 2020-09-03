@@ -8,10 +8,10 @@ At a high level, the `*mirbft.Node` component handles all of the interactions be
 
 ![Top level components](http://yuml.me/diagram/plain/usecase/(State%20Machine)-(Node),(Node)-(Net%20Ingress),(Node)-(Consumer),(Node)-(Data%20Ingress),(Consumer)-(Net%20Egress),(Consumer)-(Persistence))
 
-### State Machine
-*State Machine* is the heart of the MirBFT library, and is intentionally not exported and is hidden behind the `*mirbft.Node` APIs.  The *State Machine* spawns a single dedicated go routine when it is created, which serializes access to the internal state.
+### Node and State Machine
+*State Machine* is the heart of the MirBFT library, and is intentionally exported in only a very limited way and is otherwise hidden behind the `*mirbft.Node` APIs.  The *Node* component spawns a dedicated go routine at creation which serializes all access to the the *State Machine*.
 
-The state machine receives interactions from the *Network Ingress*, *Data Ingress*, and *Consumer* components, and builds a list of required actions.  These actions are periodically consumed by the *Consumer* component, and require actions such as broadcasting to the network, committing data to the filesystem, etc.  Some actions have results which must be returned to the state machine to continue processing.
+The *Node* component proxies interactions from the *Network Ingress*, *Data Ingress*, and *Consumer* components, to the state machine and builds a list of required actions dictated by the *State Machine*.  These actions are periodically consumed by the *Consumer* component, and require actions such as broadcasting to the network, committing data to the filesystem, etc.  Some actions have results which must be returned to the state machine to continue processing.
 
 For more details see the [State Machine design document](StateMachine.md).
 
@@ -23,7 +23,7 @@ The network ingress may be trivially parallelized, performing checks on a per co
 ### Data Ingress
 *Data ingress* is responsible for injecting new messages into the system.  It is assumed that the data has been validated and that the originating node would approve of the data being ordered into the system.
 
-Just like with *Network ingress*, *Data Ingress* may be trivially parallelized, as the state machine will serialize parallel requests.
+Just like with *Network ingress*, *Data Ingress* may be trivially parallelized, as the *Node* will serialize parallel requests.
 
 ### Consumer
 *Consumer* is where the bulk of the application logic lives.  It is responsible for performing the actions requested by the state machine, such as validation, sending to the network, persisting state to disk, etc..

@@ -1,5 +1,7 @@
 # Sequence State Machine
 
+*Note this is seriously out of date, and needs to be updated*.
+
 The most fundamental building block of the Mir state machine is the sequence number.  The sequence number transitions along the 3-phase commit, first from *Preprepared*, then to *Prepared*, and finally to *Committed*.  In the MirBFT library we add two additional states as part of the state machine transition, *Digested* and *Validated*.  These additional states provides an interim step which allows the heavy hashing and validation procedures to be performed outside of the state machine.  The validation, and other heavyweight activities like IO can be performed in parallel while the state machine itself is manipulated in a single-threaded fashion.
 
 ![A representation of the sequence state machine](http://yuml.me/diagram/plain/activity/(start)->(Preprepared)->(Digested)->(Validated)->(Prepared)->(Committed),(Digested)->(Invalid),(Validated))
