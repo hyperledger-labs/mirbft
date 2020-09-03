@@ -23,7 +23,7 @@ type epochTracker struct {
 	logger        Logger
 	myConfig      *pb.StateEvent_InitialParameters
 	batchTracker  *batchTracker
-	clientWindows *clientWindows
+	clientTracker *clientTracker
 	targets       map[uint64]*epochTarget
 }
 
@@ -33,7 +33,7 @@ func newEpochTracker(
 	logger Logger,
 	myConfig *pb.StateEvent_InitialParameters,
 	batchTracker *batchTracker,
-	clientWindows *clientWindows,
+	clientTracker *clientTracker,
 ) *epochTracker {
 	et := &epochTracker{
 		persisted:     persisted,
@@ -41,7 +41,7 @@ func newEpochTracker(
 		myConfig:      myConfig,
 		logger:        logger,
 		batchTracker:  batchTracker,
-		clientWindows: clientWindows,
+		clientTracker: clientTracker,
 		targets:       map[uint64]*epochTarget{},
 	}
 
@@ -183,7 +183,7 @@ func (et *epochTracker) target(epoch uint64) *epochTarget {
 		target = newEpochTarget(
 			epoch,
 			et.persisted,
-			et.clientWindows,
+			et.clientTracker,
 			et.batchTracker,
 			et.networkConfig,
 			et.myConfig,

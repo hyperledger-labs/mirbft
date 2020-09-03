@@ -32,7 +32,7 @@ type proposalBucket struct {
 	bucketID     bucketID
 }
 
-func newProposer(myConfig *pb.StateEvent_InitialParameters, clientWindows *clientWindows, buckets map[bucketID]nodeID) *proposer {
+func newProposer(myConfig *pb.StateEvent_InitialParameters, clientTracker *clientTracker, buckets map[bucketID]nodeID) *proposer {
 	proposalBuckets := map[bucketID]*proposalBucket{}
 	for bucketID, id := range buckets {
 		if id != nodeID(myConfig.Id) {
@@ -41,7 +41,7 @@ func newProposer(myConfig *pb.StateEvent_InitialParameters, clientWindows *clien
 		proposalBuckets[bucketID] = &proposalBucket{
 			bucketID:     bucketID,
 			totalBuckets: len(buckets),
-			lastReadyReq: clientWindows.readyHead,
+			lastReadyReq: clientTracker.readyHead,
 			requestCount: myConfig.BatchSize,
 			pending:      make([]*clientRequest, 0, 1), // TODO, might be interesting to play with not preallocating for performance reasons
 		}

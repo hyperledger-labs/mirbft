@@ -13,13 +13,13 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-func newOutstandingReqs(clientWindows *clientWindows, networkState *pb.NetworkState) *allOutstandingReqs {
+func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkState) *allOutstandingReqs {
 	ao := &allOutstandingReqs{
 		numBuckets:          uint64(networkState.Config.NumberOfBuckets),
 		buckets:             map[bucketID]*bucketOutstandingReqs{},
 		correctRequests:     map[string]*pb.ForwardRequest{},
 		outstandingRequests: map[string]*sequence{},
-		clientWindows:       clientWindows,
+		clientTracker:       clientTracker,
 	}
 
 	numBuckets := int(networkState.Config.NumberOfBuckets)
@@ -77,7 +77,7 @@ func newOutstandingReqs(clientWindows *clientWindows, networkState *pb.NetworkSt
 type allOutstandingReqs struct {
 	numBuckets          uint64
 	buckets             map[bucketID]*bucketOutstandingReqs
-	clientWindows       *clientWindows
+	clientTracker       *clientTracker
 	lastCorrectReq      *list.Element
 	correctRequests     map[string]*pb.ForwardRequest
 	outstandingRequests map[string]*sequence
@@ -97,7 +97,7 @@ func (ao *allOutstandingReqs) advanceRequests() *Actions {
 	for {
 		var nextCorrectReq *list.Element
 		if ao.lastCorrectReq == nil {
-			nextCorrectReq = ao.clientWindows.correctList.Front()
+			nextCorrectReq = ao.clientTracker.correctList.Front()
 		} else {
 			nextCorrectReq = ao.lastCorrectReq.Next()
 		}

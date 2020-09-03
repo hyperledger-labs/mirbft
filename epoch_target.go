@@ -54,7 +54,7 @@ type epochTarget struct {
 
 	nodeMsgs      map[nodeID]*nodeMsgs
 	persisted     *persisted
-	clientWindows *clientWindows
+	clientTracker *clientTracker
 	batchTracker  *batchTracker
 	networkConfig *pb.NetworkState_Config
 	myConfig      *pb.StateEvent_InitialParameters
@@ -64,7 +64,7 @@ type epochTarget struct {
 func newEpochTarget(
 	number uint64,
 	persisted *persisted,
-	clientWindows *clientWindows,
+	clientTracker *clientTracker,
 	batchTracker *batchTracker,
 	networkConfig *pb.NetworkState_Config,
 	myConfig *pb.StateEvent_InitialParameters,
@@ -91,7 +91,7 @@ func newEpochTarget(
 		isLeader:      number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
 		nodeMsgs:      nodeMsgs,
 		persisted:     persisted,
-		clientWindows: clientWindows,
+		clientTracker: clientTracker,
 		batchTracker:  batchTracker,
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
@@ -268,7 +268,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		for _, requestAck := range batch.requestAcks {
 			var cr *clientRequest
 			for _, id := range sources {
-				cr = et.clientWindows.ack(nodeID(id), requestAck)
+				cr = et.clientTracker.ack(nodeID(id), requestAck)
 			}
 
 			if cr.data != nil {
@@ -307,7 +307,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		requests := make([]*pb.ForwardRequest, len(batch.requestAcks))
 
 		for j, requestAck := range batch.requestAcks {
-			cw, _ := et.clientWindows.clientWindow(requestAck.ClientId)
+			cw, _ := et.clientTracker.clientWindow(requestAck.ClientId)
 			r := cw.request(requestAck.ReqNo).digests[string(requestAck.Digest)]
 			requests[j] = &pb.ForwardRequest{
 				Request: r.data,
@@ -704,7 +704,7 @@ func (et *epochTarget) advanceState() *Actions {
 		case etReadying: // Have received a quorum of echos, waiting a on qourum of readies
 			actions.concat(et.checkNewEpochReadyQuorum())
 		case etReady: // New epoch is ready to begin
-			et.activeEpoch = newActiveEpoch(et.persisted, et.clientWindows, et.myConfig, et.logger)
+			et.activeEpoch = newActiveEpoch(et.persisted, et.clientTracker, et.myConfig, et.logger)
 			et.state = etInProgress
 			// It's important not to step through into the next state transition,
 			// as we must commit the seqs proposed by other replicas in previous

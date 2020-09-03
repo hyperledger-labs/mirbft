@@ -42,7 +42,7 @@ type StateMachine struct {
 
 	myConfig      *pb.StateEvent_InitialParameters
 	networkConfig *pb.NetworkState_Config
-	clientWindows *clientWindows
+	clientTracker *clientTracker
 
 	batchTracker      *batchTracker
 	checkpointTracker *checkpointTracker
@@ -95,7 +95,7 @@ func (sm *StateMachine) completeInitialization() {
 	sm.persisted.lastCommitted = checkpoints[len(checkpoints)-1].SeqNo
 
 	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig, sm.Logger)
-	sm.clientWindows = newClientWindows(sm.persisted, sm.myConfig, sm.Logger)
+	sm.clientTracker = newClientWindows(sm.persisted, sm.myConfig, sm.Logger)
 
 	sm.networkConfig = sm.checkpointTracker.networkConfig
 
@@ -107,7 +107,7 @@ func (sm *StateMachine) completeInitialization() {
 		sm.Logger,
 		sm.myConfig,
 		sm.batchTracker,
-		sm.clientWindows,
+		sm.clientTracker,
 	)
 
 	sm.state = smInitialized
@@ -167,7 +167,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	if sm.checkpointTracker.state == cpsGarbageCollectable {
 		newLow := sm.checkpointTracker.garbageCollect()
 
-		sm.clientWindows.garbageCollect(newLow)
+		sm.clientTracker.garbageCollect(newLow)
 		if newLow > uint64(sm.networkConfig.CheckpointInterval) {
 			// Note, we leave an extra checkpoint worth of batches around, to help
 			// during epoch change.
@@ -186,7 +186,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 
 		for _, commit := range loopActions.Commits {
 			for _, fr := range commit.QEntry.Requests {
-				cw, ok := sm.clientWindows.clientWindow(fr.Request.ClientId)
+				cw, ok := sm.clientTracker.clientWindow(fr.Request.ClientId)
 				if !ok {
 					panic("we never should have committed this without the client available")
 				}
@@ -201,7 +201,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 			if checkpoint {
 				commit.Checkpoint = true
 				commit.NetworkState = &pb.NetworkState{
-					Clients: sm.clientWindows.clientConfigs(),
+					Clients: sm.clientTracker.clientConfigs(),
 					Config:  sm.networkConfig,
 				}
 			} else {
@@ -250,11 +250,11 @@ func (sm *StateMachine) step(source nodeID, msg *pb.Msg) *Actions {
 	actions := &Actions{}
 	switch msg.Type.(type) {
 	case *pb.Msg_RequestAck:
-		return actions.concat(sm.clientWindows.step(source, msg))
+		return actions.concat(sm.clientTracker.step(source, msg))
 	case *pb.Msg_FetchRequest:
-		return actions.concat(sm.clientWindows.step(source, msg))
+		return actions.concat(sm.clientTracker.step(source, msg))
 	case *pb.Msg_ForwardRequest:
-		return actions.concat(sm.clientWindows.step(source, msg))
+		return actions.concat(sm.clientTracker.step(source, msg))
 	case *pb.Msg_Checkpoint:
 		sm.checkpointTracker.step(source, msg)
 		return &Actions{}
@@ -320,14 +320,14 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 					},
 				},
 			)
-			sm.clientWindows.allocate(request.Request, hashResult.Digest)
+			sm.clientTracker.allocate(request.Request, hashResult.Digest)
 		case *pb.HashResult_VerifyRequest_:
 			request := hashType.VerifyRequest
 			if !bytes.Equal(request.ExpectedDigest, hashResult.Digest) {
 				panic("byzantine")
 				// XXX this should not panic, but put to make dev easier
 			}
-			sm.clientWindows.allocate(request.Request, hashResult.Digest)
+			sm.clientTracker.allocate(request.Request, hashResult.Digest)
 			if sm.epochTracker.currentEpoch.state == etFetching {
 				actions.concat(sm.epochTracker.currentEpoch.fetchNewEpochState())
 			}
@@ -349,7 +349,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 }
 
 func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
-	clientWindow, ok := sm.clientWindows.clientWindow(clientID)
+	clientWindow, ok := sm.clientTracker.clientWindow(clientID)
 	if !ok {
 		return nil
 	}
@@ -362,13 +362,13 @@ func (sm *StateMachine) Status() *status.StateMachine {
 		return &status.StateMachine{}
 	}
 
-	clientWindowsStatus := make([]*status.ClientTracker, len(sm.clientWindows.clients))
+	clientTrackerStatus := make([]*status.ClientTracker, len(sm.clientTracker.clients))
 
-	for i, id := range sm.clientWindows.clients {
-		clientWindow := sm.clientWindows.windows[id]
+	for i, id := range sm.clientTracker.clients {
+		clientWindow := sm.clientTracker.windows[id]
 		rws := clientWindow.status()
 		rws.ClientID = id
-		clientWindowsStatus[i] = rws
+		clientTrackerStatus[i] = rws
 	}
 
 	nodes := make([]*status.NodeBuffer, len(sm.networkConfig.Nodes))
@@ -386,7 +386,7 @@ func (sm *StateMachine) Status() *status.StateMachine {
 		LowWatermark:  lowWatermark,
 		HighWatermark: highWatermark,
 		EpochTracker:  sm.epochTracker.status(),
-		ClientWindows: clientWindowsStatus,
+		ClientWindows: clientTrackerStatus,
 		Buckets:       bucketStatus,
 		Checkpoints:   checkpoints,
 		NodeBuffers:   nodes,

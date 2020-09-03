@@ -35,7 +35,7 @@ type activeEpoch struct {
 	ticksSinceProgress  uint32
 }
 
-func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig *pb.StateEvent_InitialParameters, logger Logger) *activeEpoch {
+func newActiveEpoch(persisted *persisted, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) *activeEpoch {
 	var startingEntry *logEntry
 	var maxCheckpoint *pb.CEntry
 	var epochConfig *pb.EpochConfig
@@ -55,7 +55,7 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 
 	networkConfig := maxCheckpoint.NetworkState.Config
 
-	outstandingReqs := newOutstandingReqs(clientWindows, maxCheckpoint.NetworkState)
+	outstandingReqs := newOutstandingReqs(clientTracker, maxCheckpoint.NetworkState)
 
 	buckets := map[bucketID]nodeID{}
 
@@ -132,7 +132,7 @@ func newActiveEpoch(persisted *persisted, clientWindows *clientWindows, myConfig
 
 	lowestUncommitted := int(persisted.lastCommitted - maxCheckpoint.SeqNo)
 
-	proposer := newProposer(myConfig, clientWindows, buckets)
+	proposer := newProposer(myConfig, clientTracker, buckets)
 
 	return &activeEpoch{
 		buckets:           buckets,
