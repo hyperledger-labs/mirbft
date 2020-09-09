@@ -77,9 +77,8 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 		return nil, err
 	}
 
-	var index uint64
 	for {
-		data, err := storage.Load(index)
+		data, err := storage.LoadNext()
 		if err == io.EOF {
 			break
 		}
@@ -98,7 +97,6 @@ func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*s
 		if err != nil {
 			return nil, err
 		}
-		index++
 	}
 
 	err = applyEvent(&pb.StateEvent{

@@ -9,16 +9,15 @@ import (
 )
 
 type Storage struct {
-	LoadStub        func(uint64) (*mirbftpb.Persistent, error)
-	loadMutex       sync.RWMutex
-	loadArgsForCall []struct {
-		arg1 uint64
+	LoadNextStub        func() (*mirbftpb.Persistent, error)
+	loadNextMutex       sync.RWMutex
+	loadNextArgsForCall []struct {
 	}
-	loadReturns struct {
+	loadNextReturns struct {
 		result1 *mirbftpb.Persistent
 		result2 error
 	}
-	loadReturnsOnCall map[int]struct {
+	loadNextReturnsOnCall map[int]struct {
 		result1 *mirbftpb.Persistent
 		result2 error
 	}
@@ -26,64 +25,56 @@ type Storage struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *Storage) Load(arg1 uint64) (*mirbftpb.Persistent, error) {
-	fake.loadMutex.Lock()
-	ret, specificReturn := fake.loadReturnsOnCall[len(fake.loadArgsForCall)]
-	fake.loadArgsForCall = append(fake.loadArgsForCall, struct {
-		arg1 uint64
-	}{arg1})
-	fake.recordInvocation("Load", []interface{}{arg1})
-	fake.loadMutex.Unlock()
-	if fake.LoadStub != nil {
-		return fake.LoadStub(arg1)
+func (fake *Storage) LoadNext() (*mirbftpb.Persistent, error) {
+	fake.loadNextMutex.Lock()
+	ret, specificReturn := fake.loadNextReturnsOnCall[len(fake.loadNextArgsForCall)]
+	fake.loadNextArgsForCall = append(fake.loadNextArgsForCall, struct {
+	}{})
+	fake.recordInvocation("LoadNext", []interface{}{})
+	fake.loadNextMutex.Unlock()
+	if fake.LoadNextStub != nil {
+		return fake.LoadNextStub()
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.loadReturns
+	fakeReturns := fake.loadNextReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
-func (fake *Storage) LoadCallCount() int {
-	fake.loadMutex.RLock()
-	defer fake.loadMutex.RUnlock()
-	return len(fake.loadArgsForCall)
+func (fake *Storage) LoadNextCallCount() int {
+	fake.loadNextMutex.RLock()
+	defer fake.loadNextMutex.RUnlock()
+	return len(fake.loadNextArgsForCall)
 }
 
-func (fake *Storage) LoadCalls(stub func(uint64) (*mirbftpb.Persistent, error)) {
-	fake.loadMutex.Lock()
-	defer fake.loadMutex.Unlock()
-	fake.LoadStub = stub
+func (fake *Storage) LoadNextCalls(stub func() (*mirbftpb.Persistent, error)) {
+	fake.loadNextMutex.Lock()
+	defer fake.loadNextMutex.Unlock()
+	fake.LoadNextStub = stub
 }
 
-func (fake *Storage) LoadArgsForCall(i int) uint64 {
-	fake.loadMutex.RLock()
-	defer fake.loadMutex.RUnlock()
-	argsForCall := fake.loadArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *Storage) LoadReturns(result1 *mirbftpb.Persistent, result2 error) {
-	fake.loadMutex.Lock()
-	defer fake.loadMutex.Unlock()
-	fake.LoadStub = nil
-	fake.loadReturns = struct {
+func (fake *Storage) LoadNextReturns(result1 *mirbftpb.Persistent, result2 error) {
+	fake.loadNextMutex.Lock()
+	defer fake.loadNextMutex.Unlock()
+	fake.LoadNextStub = nil
+	fake.loadNextReturns = struct {
 		result1 *mirbftpb.Persistent
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *Storage) LoadReturnsOnCall(i int, result1 *mirbftpb.Persistent, result2 error) {
-	fake.loadMutex.Lock()
-	defer fake.loadMutex.Unlock()
-	fake.LoadStub = nil
-	if fake.loadReturnsOnCall == nil {
-		fake.loadReturnsOnCall = make(map[int]struct {
+func (fake *Storage) LoadNextReturnsOnCall(i int, result1 *mirbftpb.Persistent, result2 error) {
+	fake.loadNextMutex.Lock()
+	defer fake.loadNextMutex.Unlock()
+	fake.LoadNextStub = nil
+	if fake.loadNextReturnsOnCall == nil {
+		fake.loadNextReturnsOnCall = make(map[int]struct {
 			result1 *mirbftpb.Persistent
 			result2 error
 		})
 	}
-	fake.loadReturnsOnCall[i] = struct {
+	fake.loadNextReturnsOnCall[i] = struct {
 		result1 *mirbftpb.Persistent
 		result2 error
 	}{result1, result2}
@@ -92,8 +83,8 @@ func (fake *Storage) LoadReturnsOnCall(i int, result1 *mirbftpb.Persistent, resu
 func (fake *Storage) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.loadMutex.RLock()
-	defer fake.loadMutex.RUnlock()
+	fake.loadNextMutex.RLock()
+	defer fake.loadNextMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

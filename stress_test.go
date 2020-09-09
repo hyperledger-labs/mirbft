@@ -397,7 +397,7 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 		Expect(err).NotTo(HaveOccurred())
 
 		storage := &mock.Storage{}
-		storage.LoadReturnsOnCall(0, &pb.Persistent{
+		storage.LoadNextReturnsOnCall(0, &pb.Persistent{
 			Type: &pb.Persistent_CEntry{
 				CEntry: &pb.CEntry{
 					SeqNo:           0,
@@ -411,7 +411,7 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 				},
 			},
 		}, nil)
-		storage.LoadReturnsOnCall(1, &pb.Persistent{
+		storage.LoadNextReturnsOnCall(1, &pb.Persistent{
 			Type: &pb.Persistent_EpochChange{
 				EpochChange: &pb.EpochChange{
 					NewEpoch: 1,
@@ -425,7 +425,7 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 			},
 		}, nil)
 
-		storage.LoadReturnsOnCall(2, nil, io.EOF)
+		storage.LoadNextReturnsOnCall(2, nil, io.EOF)
 
 		node, err := mirbft.StartNode(config, doneC, storage)
 		Expect(err).NotTo(HaveOccurred())

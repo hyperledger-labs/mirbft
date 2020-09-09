@@ -24,6 +24,18 @@ import (
 
 var ErrStopped = fmt.Errorf("stopped at caller request")
 
+//go:generate counterfeiter -o mock/storage.go -fake-name Storage . Storage
+
+// Storage gives the state machine access to the most recently persisted state as
+// requested by a previous instance of the state machine.
+type Storage interface {
+	// LoadNext is a stateful call.  When first called, it should return
+	// the first entry in the WAL, then the next, and so on, successively
+	// until the log has been exhausted and it returns nil, io.EOF.  Any
+	// other error is treated as fatal.
+	LoadNext() (*pb.Persistent, error)
+}
+
 // Node is the local instance of the MirBFT state machine through which the calling application
 // proposes new messages, receives delegated actions, and returns action results.
 // The methods exposed on Node are all thread safe, though typically, a single loop handles

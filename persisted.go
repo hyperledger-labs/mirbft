@@ -12,12 +12,6 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-//go:generate counterfeiter -o mock/storage.go -fake-name Storage . Storage
-
-type Storage interface {
-	Load(index uint64) (*pb.Persistent, error)
-}
-
 type logEntry struct {
 	entry *pb.Persistent
 	next  *logEntry
