@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"time"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -110,7 +112,12 @@ type arguments struct {
 
 type stateMachines struct {
 	logger *zap.Logger
-	nodes  map[uint64]*mirbft.StateMachine
+	nodes  map[uint64]*stateMachine
+}
+
+type stateMachine struct {
+	machine       *mirbft.StateMachine
+	executionTime time.Duration
 }
 
 func newStateMachines() *stateMachines {
@@ -120,25 +127,29 @@ func newStateMachines() *stateMachines {
 	}
 	return &stateMachines{
 		logger: logger,
-		nodes:  map[uint64]*mirbft.StateMachine{},
+		nodes:  map[uint64]*stateMachine{},
 	}
 }
 
 func (s *stateMachines) apply(event *rpb.RecordedEvent) {
 	node, ok := s.nodes[event.NodeId]
 	if !ok {
-		node = &mirbft.StateMachine{
-			Logger: s.logger.Named(fmt.Sprintf("node%d", event.NodeId)),
+		node = &stateMachine{
+			machine: &mirbft.StateMachine{
+				Logger: s.logger.Named(fmt.Sprintf("node%d", event.NodeId)),
+			},
 		}
 		s.nodes[event.NodeId] = node
 	}
 
-	node.ApplyEvent(event.StateEvent)
+	start := time.Now()
+	node.machine.ApplyEvent(event.StateEvent)
+	node.executionTime += time.Since(start)
 }
 
 func (s *stateMachines) status(event *rpb.RecordedEvent) *status.StateMachine {
 	node := s.nodes[event.NodeId]
-	return node.Status()
+	return node.machine.Status()
 }
 
 func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
@@ -242,7 +253,7 @@ func (a *arguments) execute(output io.Writer) error {
 		event, err := reader.ReadEvent()
 		if err != nil {
 			if err == io.EOF {
-				return nil
+				break
 			}
 
 			return errors.WithMessage(err, "failed reading input")
@@ -276,6 +287,24 @@ func (a *arguments) execute(output io.Writer) error {
 			}
 		}
 	}
+
+	if a.interactive {
+		nodeIDs := a.nodeIDs
+		if nodeIDs == nil {
+			for id := range s.nodes {
+				nodeIDs = append(nodeIDs, id)
+			}
+			sort.Slice(nodeIDs, func(i, j int) bool {
+				return nodeIDs[i] < nodeIDs[j]
+			})
+		}
+
+		for _, nodeID := range nodeIDs {
+			fmt.Fprintf(output, "Node %d successfully completed execution in %v\n", nodeID, s.nodes[nodeID].executionTime)
+		}
+	}
+
+	return nil
 }
 
 func parseArgs(args []string) (*arguments, error) {
