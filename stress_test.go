@@ -117,7 +117,7 @@ func BytesToUint64(value []byte) uint64 {
 // as the more general single threaded testengine type tests.  Still, there
 // seems to be value in confirming that at a basic level, a concurrent network executes
 // correctly.
-var _ = FDescribe("StressyTest", func() {
+var _ = Describe("StressyTest", func() {
 	var (
 		doneC     chan struct{}
 		logger    *zap.Logger
