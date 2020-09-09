@@ -127,13 +127,13 @@ func (et *epochTarget) drainNodeMsgs() *Actions {
 			switch innerMsg := msg.Type.(type) {
 			case *pb.Msg_Preprepare:
 				msg := innerMsg.Preprepare
-				return et.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch)
+				actions.concat(et.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
 			case *pb.Msg_Prepare:
 				msg := innerMsg.Prepare
-				return et.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest)
+				actions.concat(et.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
 			case *pb.Msg_Commit:
 				msg := innerMsg.Commit
-				return et.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest)
+				actions.concat(et.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
 			default:
 				panic("unexpected type")
 			}

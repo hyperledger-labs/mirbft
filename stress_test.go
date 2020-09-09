@@ -117,7 +117,7 @@ func BytesToUint64(value []byte) uint64 {
 // as the more general single threaded testengine type tests.  Still, there
 // seems to be value in confirming that at a basic level, a concurrent network executes
 // correctly.
-var _ = Describe("StressyTest", func() {
+var _ = FDescribe("StressyTest", func() {
 	var (
 		doneC     chan struct{}
 		logger    *zap.Logger
@@ -291,9 +291,14 @@ type TestReplica struct {
 	Node          *mirbft.Node
 	RecordingFile *os.File
 	Log           *FakeLog
-	Processor     *sample.SerialProcessor
+	Processor     *sample.ParallelProcessor
 	FakeTransport *FakeTransport
 	DoneC         <-chan struct{}
+}
+
+func (tr *TestReplica) ParallelProcessor() error {
+	tr.Processor.Start(tr.DoneC)
+	return nil
 }
 
 func (tr *TestReplica) Process() error {
@@ -303,7 +308,7 @@ func (tr *TestReplica) Process() error {
 	for {
 		select {
 		case actions := <-tr.Node.Ready():
-			results := tr.Processor.Process(&actions)
+			results := tr.Processor.Process(&actions, tr.DoneC)
 			tr.Node.AddResults(*results)
 		case <-tr.Node.Err():
 			_, err := tr.Node.Status(context.Background())
@@ -436,11 +441,13 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 			RecordingFile: recordingFile,
 			Log:           fakeLog,
 			FakeTransport: transport,
-			Processor: &sample.SerialProcessor{
-				Node:   node,
-				Link:   transport.Link(node.Config.ID),
-				Hasher: sha256.New,
-				Log:    fakeLog,
+			Processor: &sample.ParallelProcessor{
+				Node:         node,
+				Link:         transport.Link(node.Config.ID),
+				Hasher:       sha256.New,
+				Log:          fakeLog,
+				ActionsC:     make(chan *mirbft.Actions),
+				ActionsDoneC: make(chan *mirbft.ActionResults),
 			},
 			DoneC: doneC,
 		}
@@ -460,12 +467,13 @@ func (n *Network) GoRunNetwork(context context.Context, doneC <-chan struct{}, w
 			defer fmt.Printf("Node %d: Shutting down go routine %s\n", i, desc)
 			err := work()
 			if err != nil {
-				fmt.Printf("Node %d: Error performing work %s\n", i, desc)
+				fmt.Printf("Node %d: Error performing work %s: %v\n", i, desc, err)
 			}
 		}()
 	}
 
 	for i, testReplica := range n.TestReplicas {
+		goWork(i, "ParallelProcessor", testReplica.ParallelProcessor)
 		goWork(i, "Process", testReplica.Process)
 		goWork(i, "DrainRecorder", testReplica.DrainRecorder)
 		for j := range n.TestReplicas {

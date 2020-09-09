@@ -112,7 +112,7 @@ func (mb *msgBuffer) store(msg *pb.Msg) {
 	if uint32(mb.buffer.Len()) > mb.myConfig.BufferSize {
 		e := mb.buffer.Front()
 		oldMsg := mb.buffer.Remove(e).(*pb.Msg)
-		mb.logger.Warn(fmt.Sprintf("dropping message of type %T", oldMsg))
+		mb.logger.Warn(fmt.Sprintf("dropping message of type %T", oldMsg.Type))
 	}
 }
 
