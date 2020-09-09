@@ -32,29 +32,29 @@ type SerialProcessor struct {
 	Node   *mirbft.Node
 }
 
-func (c *SerialProcessor) Persist(actions *mirbft.Actions) {
+func (sp *SerialProcessor) Persist(actions *mirbft.Actions) {
 	// TODO we need to persist the PSet, QSet, and some others here
 }
 
-func (c *SerialProcessor) Transmit(actions *mirbft.Actions) {
+func (sp *SerialProcessor) Transmit(actions *mirbft.Actions) {
 	for _, send := range actions.Send {
 		for _, replica := range send.Targets {
-			if replica == c.Node.Config.ID {
-				c.Node.Step(context.Background(), replica, send.Msg)
+			if replica == sp.Node.Config.ID {
+				sp.Node.Step(context.Background(), replica, send.Msg)
 			} else {
-				c.Link.Send(replica, send.Msg)
+				sp.Link.Send(replica, send.Msg)
 			}
 		}
 	}
 }
 
-func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
+func (sp *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
 	actionResults := &mirbft.ActionResults{
 		Digests: make([]*mirbft.HashResult, len(actions.Hash)),
 	}
 
 	for i, req := range actions.Hash {
-		h := c.Hasher()
+		h := sp.Hasher()
 		for _, data := range req.Data {
 			h.Write(data)
 		}
@@ -66,10 +66,10 @@ func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
 	}
 
 	for _, commit := range actions.Commits {
-		c.Log.Apply(commit.QEntry) // Apply the entry
+		sp.Log.Apply(commit.QEntry) // Apply the entry
 
 		if commit.Checkpoint {
-			value := c.Log.Snap()
+			value := sp.Log.Snap()
 			actionResults.Checkpoints = append(actionResults.Checkpoints, &mirbft.CheckpointResult{
 				Commit: commit,
 				Value:  value,
@@ -80,8 +80,8 @@ func (c *SerialProcessor) Apply(actions *mirbft.Actions) *mirbft.ActionResults {
 	return actionResults
 }
 
-func (c *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults {
-	c.Persist(actions)
-	c.Transmit(actions)
-	return c.Apply(actions)
+func (sp *SerialProcessor) Process(actions *mirbft.Actions) *mirbft.ActionResults {
+	sp.Persist(actions)
+	sp.Transmit(actions)
+	return sp.Apply(actions)
 }
