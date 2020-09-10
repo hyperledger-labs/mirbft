@@ -24,6 +24,7 @@ import (
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/recorder"
+	"github.com/IBM/mirbft/reqstore"
 	"github.com/IBM/mirbft/sample"
 	"github.com/IBM/mirbft/simplewal"
 
@@ -180,6 +181,7 @@ var _ = Describe("StressyTest", func() {
 			for nodeIndex, replica := range network.TestReplicas {
 				if replica.Processor != nil {
 					replica.Processor.WAL.(*simplewal.WAL).Close()
+					replica.Processor.RequestStore.(*reqstore.Store).Close()
 				}
 				os.RemoveAll(replica.WALDir)
 
@@ -240,7 +242,7 @@ var _ = Describe("StressyTest", func() {
 					replica.Processor.WAL.(*simplewal.WAL).Close()
 				}
 				os.RemoveAll(replica.WALDir)
-
+				os.RemoveAll(replica.ReqStoreDir)
 				os.Remove(replica.RecordingFile.Name())
 			}
 		}
@@ -333,6 +335,7 @@ type TestReplica struct {
 	Node          *mirbft.Node
 	RecordingFile *os.File
 	WALDir        string
+	ReqStoreDir   string
 	Log           *FakeLog
 	Processor     *sample.ParallelProcessor
 	FakeTransport *FakeTransport
@@ -439,7 +442,10 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 		recordingFile, err := ioutil.TempFile("", fmt.Sprintf("stressy.%d-*.eventlog", i))
 		Expect(err).NotTo(HaveOccurred())
 
-		walDir, err := ioutil.TempDir("", fmt.Sprintf("stressy.%d-*.eventlog", i))
+		walDir, err := ioutil.TempDir("", fmt.Sprintf("stressy.%d-*.waldir", i))
+		Expect(err).NotTo(HaveOccurred())
+
+		reqStoreDir, err := ioutil.TempDir("", fmt.Sprintf("stressy.%d-*.reqstore", i))
 		Expect(err).NotTo(HaveOccurred())
 
 		wal, err := simplewal.New(walDir, networkState, []byte("fake-value"))
@@ -457,10 +463,14 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 			CommitC: make(chan *pb.QEntry, 5*testConfig.MsgCount),
 		}
 
+		reqStore, err := reqstore.Open(reqStoreDir)
+		Expect(err).NotTo(HaveOccurred())
+
 		replicas[i] = &TestReplica{
 			Node:          node,
 			RecordingFile: recordingFile,
 			WALDir:        walDir,
+			ReqStoreDir:   reqStoreDir,
 			Log:           fakeLog,
 			FakeTransport: transport,
 			Processor: &sample.ParallelProcessor{
@@ -468,7 +478,7 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 				Link:         transport.Link(node.Config.ID),
 				Hasher:       sha256.New,
 				Log:          fakeLog,
-				RequestStore: &FakeRequestStore{},
+				RequestStore: reqStore,
 				WAL:          wal,
 				ActionsC:     make(chan *mirbft.Actions),
 				ActionsDoneC: make(chan *mirbft.ActionResults),
