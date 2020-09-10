@@ -11,14 +11,12 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/IBM/mirbft/mock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -27,6 +25,7 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/recorder"
 	"github.com/IBM/mirbft/sample"
+	"github.com/IBM/mirbft/simplewal"
 
 	"go.uber.org/zap"
 )
@@ -396,36 +395,14 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 		recordingFile, err := ioutil.TempFile("", fmt.Sprintf("stressy.%d-*.eventlog", i))
 		Expect(err).NotTo(HaveOccurred())
 
-		storage := &mock.Storage{}
-		storage.LoadNextReturnsOnCall(0, &pb.Persistent{
-			Type: &pb.Persistent_CEntry{
-				CEntry: &pb.CEntry{
-					SeqNo:           0,
-					CheckpointValue: []byte("fake-initial-value"),
-					NetworkState:    networkState,
-					EpochConfig: &pb.EpochConfig{
-						Number:            0,
-						Leaders:           networkState.Config.Nodes,
-						PlannedExpiration: 0,
-					},
-				},
-			},
-		}, nil)
-		storage.LoadNextReturnsOnCall(1, &pb.Persistent{
-			Type: &pb.Persistent_EpochChange{
-				EpochChange: &pb.EpochChange{
-					NewEpoch: 1,
-					Checkpoints: []*pb.Checkpoint{
-						{
-							SeqNo: 0,
-							Value: []byte("fake-initial-value"),
-						},
-					},
-				},
-			},
-		}, nil)
+		walDir, err := ioutil.TempDir("", fmt.Sprintf("stressy.%d-*.eventlog", i))
+		Expect(err).NotTo(HaveOccurred())
 
-		storage.LoadNextReturnsOnCall(2, nil, io.EOF)
+		wal, err := simplewal.New(walDir, networkState, []byte("fake-value"))
+		Expect(err).NotTo(HaveOccurred())
+
+		storage, err := wal.Iterator()
+		Expect(err).NotTo(HaveOccurred())
 
 		node, err := mirbft.StartNode(config, doneC, storage)
 		Expect(err).NotTo(HaveOccurred())
