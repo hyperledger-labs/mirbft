@@ -64,8 +64,8 @@ func logBasics(source nodeID, msg *pb.Msg) []zap.Field {
 		msg := innerMsg.ForwardRequest
 		fields = append(fields,
 			zap.String(MsgTypeLog, "forwardrequest"),
-			zap.Uint64(ReqNoLog, msg.Request.ReqNo),
-			zap.Uint64(ReqNoLog, msg.Request.ClientId),
+			zap.Uint64(ReqNoLog, msg.RequestAck.ReqNo),
+			zap.Uint64(ReqNoLog, msg.RequestAck.ClientId),
 		)
 	default:
 		fields = append(fields,

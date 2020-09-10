@@ -83,12 +83,12 @@ func (wp *workerPools) persistThenSendInParallel(
 			fr := &pb.Msg{
 				Type: &pb.Msg_ForwardRequest{
 					&pb.ForwardRequest{
-						Request: &pb.Request{
+						RequestAck: &pb.RequestAck{
 							ReqNo:    r.RequestAck.ReqNo,
 							ClientId: r.RequestAck.ClientId,
-							Data:     requestData,
+							Digest:   r.RequestAck.Digest,
 						},
-						Digest: r.RequestAck.Digest,
+						RequestData: requestData,
 					},
 				},
 			}
@@ -119,12 +119,8 @@ func (wp *workerPools) persistThenSendInParallel(
 		// TODO, this could probably be parallelized with the WAL write
 		for _, r := range store {
 			wp.processor.RequestStore.Store(
-				&pb.RequestAck{
-					ReqNo:    r.Request.ReqNo,
-					ClientId: r.Request.ClientId,
-					Digest:   r.Digest,
-				},
-				r.Request.Data,
+				r.RequestAck,
+				r.RequestData,
 			)
 		}
 

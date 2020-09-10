@@ -49,8 +49,8 @@ func preProcess(outerMsg *pb.Msg) error {
 		if innerMsg.ForwardRequest == nil {
 			return errors.Errorf("message of type ForwardRequest, but forward_request field is nil")
 		}
-		if innerMsg.ForwardRequest.Request == nil {
-			return errors.Errorf("message of type ForwardRequest, but forward_request's request field is nil")
+		if innerMsg.ForwardRequest.RequestAck == nil {
+			return errors.Errorf("message of type ForwardRequest, but forward_request's request_ack field is nil")
 		}
 	case *pb.Msg_FetchBatch:
 		if innerMsg.FetchBatch == nil {

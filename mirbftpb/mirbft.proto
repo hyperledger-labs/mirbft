@@ -163,8 +163,8 @@ message ForwardBatch {
 }
 
 message ForwardRequest {
-    Request request = 1;
-    bytes digest = 2;
+    RequestAck request_ack = 1;
+    bytes request_data = 2;
 }
 
 message Request {
@@ -358,8 +358,8 @@ message HashResult {
 
     message VerifyRequest { 
         uint64 source = 1;
-        mirbftpb.Request request = 2;
-        bytes expected_digest = 3;
+        mirbftpb.RequestAck request_ack = 2;
+        bytes request_data = 3;
     }
 
     message Batch {

@@ -48,12 +48,8 @@ type SerialProcessor struct {
 func (sp *SerialProcessor) Persist(actions *mirbft.Actions) {
 	for _, r := range actions.StoreRequests {
 		sp.RequestStore.Store(
-			&pb.RequestAck{
-				ReqNo:    r.Request.ReqNo,
-				ClientId: r.Request.ClientId,
-				Digest:   r.Digest,
-			},
-			r.Request.Data,
+			r.RequestAck,
+			r.RequestData,
 		)
 	}
 
@@ -87,12 +83,8 @@ func (sp *SerialProcessor) Transmit(actions *mirbft.Actions) {
 		fr := &pb.Msg{
 			Type: &pb.Msg_ForwardRequest{
 				&pb.ForwardRequest{
-					Request: &pb.Request{
-						ReqNo:    r.RequestAck.ReqNo,
-						ClientId: r.RequestAck.ClientId,
-						Data:     requestData,
-					},
-					Digest: r.RequestAck.Digest,
+					RequestAck:  r.RequestAck,
+					RequestData: requestData,
 				},
 			},
 		}

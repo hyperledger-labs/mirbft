@@ -121,15 +121,15 @@ func (ct *clientTracker) filter(msg *pb.Msg) applyable {
 	case *pb.Msg_FetchRequest:
 		return current // TODO decide if this is actually current
 	case *pb.Msg_ForwardRequest:
-		requestData := innerMsg.ForwardRequest.Request
-		clientWindow, ok := ct.clientWindow(requestData.ClientId)
+		requestAck := innerMsg.ForwardRequest.RequestAck
+		clientWindow, ok := ct.clientWindow(requestAck.ClientId)
 		if !ok {
 			return future
 		}
 		switch {
-		case clientWindow.lowWatermark > requestData.ReqNo:
+		case clientWindow.lowWatermark > requestAck.ReqNo:
 			return past
-		case clientWindow.highWatermark < requestData.ReqNo:
+		case clientWindow.highWatermark < requestAck.ReqNo:
 			return future
 		default:
 			return current
@@ -279,15 +279,15 @@ func (ct *clientTracker) replyFetchRequest(source nodeID, clientID, reqNo uint64
 }
 
 func (ct *clientTracker) applyForwardRequest(source nodeID, msg *pb.ForwardRequest) *Actions {
-	cw, ok := ct.clientWindow(msg.Request.ClientId)
+	cw, ok := ct.clientWindow(msg.RequestAck.ClientId)
 	if !ok {
 		// TODO log oddity
 		return &Actions{}
 	}
 
 	// TODO, make sure that we only allow one vote per replica for a reqno, or bounded
-	cr := cw.request(msg.Request.ReqNo)
-	req, ok := cr.digests[string(msg.Digest)]
+	cr := cw.request(msg.RequestAck.ReqNo)
+	req, ok := cr.digests[string(msg.RequestAck.Digest)]
 	if !ok {
 		return &Actions{}
 	}
@@ -302,16 +302,16 @@ func (ct *clientTracker) applyForwardRequest(source nodeID, msg *pb.ForwardReque
 		Hash: []*HashRequest{
 			{
 				Data: [][]byte{
-					uint64ToBytes(msg.Request.ClientId),
-					uint64ToBytes(msg.Request.ReqNo),
-					msg.Request.Data,
+					uint64ToBytes(msg.RequestAck.ClientId),
+					uint64ToBytes(msg.RequestAck.ReqNo),
+					msg.RequestData,
 				},
 				Origin: &pb.HashResult{
 					Type: &pb.HashResult_VerifyRequest_{
 						VerifyRequest: &pb.HashResult_VerifyRequest{
-							Source:         uint64(source),
-							Request:        msg.Request,
-							ExpectedDigest: msg.Digest,
+							Source:      uint64(source),
+							RequestAck:  msg.RequestAck,
+							RequestData: msg.RequestData,
 						},
 					},
 				},

@@ -308,26 +308,27 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 			actions.concat(sm.epochTracker.applyBatchHashResult(batch.Epoch, batch.SeqNo, hashResult.Digest))
 		case *pb.HashResult_Request_:
 			request := hashType.Request
+			requestAck := &pb.RequestAck{
+				ClientId: request.Request.ClientId,
+				ReqNo:    request.Request.ReqNo,
+				Digest:   hashResult.Digest,
+			}
 			actions.send(
 				sm.networkConfig.Nodes,
 				&pb.Msg{
 					Type: &pb.Msg_RequestAck{
-						RequestAck: &pb.RequestAck{
-							ClientId: request.Request.ClientId,
-							ReqNo:    request.Request.ReqNo,
-							Digest:   hashResult.Digest,
-						},
+						RequestAck: requestAck,
 					},
 				},
 			).storeRequest(
 				&pb.ForwardRequest{
-					Request: request.Request,
-					Digest:  hashResult.Digest,
+					RequestAck:  requestAck,
+					RequestData: request.Request.Data,
 				},
 			)
 		case *pb.HashResult_VerifyRequest_:
 			request := hashType.VerifyRequest
-			if !bytes.Equal(request.ExpectedDigest, hashResult.Digest) {
+			if !bytes.Equal(request.RequestAck.Digest, hashResult.Digest) {
 				panic("byzantine")
 				// XXX this should not panic, but put to make dev easier
 			}
@@ -335,17 +336,13 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 				[]uint64{sm.myConfig.Id},
 				&pb.Msg{
 					Type: &pb.Msg_RequestAck{
-						RequestAck: &pb.RequestAck{
-							ClientId: request.Request.ClientId,
-							ReqNo:    request.Request.ReqNo,
-							Digest:   hashResult.Digest,
-						},
+						RequestAck: request.RequestAck,
 					},
 				},
 			).storeRequest(
 				&pb.ForwardRequest{
-					Request: request.Request,
-					Digest:  hashResult.Digest,
+					RequestAck:  request.RequestAck,
+					RequestData: request.RequestData,
 				},
 			)
 		case *pb.HashResult_EpochChange_:
