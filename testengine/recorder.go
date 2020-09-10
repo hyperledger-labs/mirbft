@@ -418,6 +418,8 @@ func isEmpty(actions *mirbft.Actions) bool {
 	return len(actions.Send) == 0 &&
 		len(actions.Persist) == 0 &&
 		len(actions.Hash) == 0 &&
+		len(actions.StoreRequests) == 0 &&
+		len(actions.ForwardRequests) == 0 &&
 		len(actions.Commits) == 0
 }
 

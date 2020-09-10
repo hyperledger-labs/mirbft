@@ -50,7 +50,6 @@ var _ = XDescribe("sequence", func() {
 						Digest:   []byte("msg2-digest"),
 					},
 				},
-				nil, // TODO, should be non-nil
 				nil,
 			)
 
@@ -90,19 +89,17 @@ var _ = XDescribe("sequence", func() {
 			Expect(s.batch).To(Equal(
 				[]*clientRequest{
 					{
-						digest: []byte("msg1-digest"),
-						data: &pb.Request{
+						ack: &pb.RequestAck{
 							ClientId: 9,
 							ReqNo:    7,
-							Data:     []byte("msg1"),
+							Digest:   []byte("msg1-digest"),
 						},
 					},
 					{
-						digest: []byte("msg2-digest"),
-						data: &pb.Request{
+						ack: &pb.RequestAck{
 							ClientId: 9,
 							ReqNo:    8,
-							Data:     []byte("msg2"),
+							Digest:   []byte("msg2-digest"),
 						},
 					},
 				},
@@ -129,7 +126,6 @@ var _ = XDescribe("sequence", func() {
 								Digest:   []byte("msg2-digest"),
 							},
 						},
-						nil, // TODO, should be non-nil
 						nil,
 					)
 				}
@@ -179,22 +175,16 @@ var _ = XDescribe("sequence", func() {
 							QEntry: &pb.QEntry{
 								SeqNo:  5,
 								Digest: []byte("digest"),
-								Requests: []*pb.ForwardRequest{
+								Requests: []*pb.RequestAck{
 									{
-										Request: &pb.Request{
-											ClientId: 9,
-											ReqNo:    7,
-											Data:     []byte("msg1"),
-										},
-										Digest: []byte("msg1-digest"),
+										ClientId: 9,
+										ReqNo:    7,
+										Digest:   []byte("msg1-digest"),
 									},
 									{
-										Request: &pb.Request{
-											ClientId: 9,
-											ReqNo:    8,
-											Data:     []byte("msg2"),
-										},
-										Digest: []byte("msg2-digest"),
+										ClientId: 9,
+										ReqNo:    8,
+										Digest:   []byte("msg2-digest"),
 									},
 								},
 							},
@@ -207,22 +197,16 @@ var _ = XDescribe("sequence", func() {
 			Expect(s.qEntry).To(Equal(&pb.QEntry{
 				SeqNo:  5,
 				Digest: []byte("digest"),
-				Requests: []*pb.ForwardRequest{
+				Requests: []*pb.RequestAck{
 					{
-						Request: &pb.Request{
-							ClientId: 9,
-							ReqNo:    7,
-							Data:     []byte("msg1"),
-						},
-						Digest: []byte("msg1-digest"),
+						ClientId: 9,
+						ReqNo:    7,
+						Digest:   []byte("msg1-digest"),
 					},
 					{
-						Request: &pb.Request{
-							ClientId: 9,
-							ReqNo:    8,
-							Data:     []byte("msg2"),
-						},
-						Digest: []byte("msg2-digest"),
+						ClientId: 9,
+						ReqNo:    8,
+						Digest:   []byte("msg2-digest"),
 					},
 				},
 			}))

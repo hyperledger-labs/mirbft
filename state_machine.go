@@ -186,11 +186,11 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 
 		for _, commit := range loopActions.Commits {
 			for _, fr := range commit.QEntry.Requests {
-				cw, ok := sm.clientTracker.clientWindow(fr.Request.ClientId)
+				cw, ok := sm.clientTracker.clientWindow(fr.ClientId)
 				if !ok {
 					panic("we never should have committed this without the client available")
 				}
-				cw.request(fr.Request.ReqNo).committed = &commit.QEntry.SeqNo
+				cw.request(fr.ReqNo).committed = &commit.QEntry.SeqNo
 				// sm.Logger.Info(fmt.Sprintf("Committing %d.%d at seqno=%d", fr.Request.ClientId, fr.Request.ReqNo, commit.QEntry.SeqNo))
 			}
 
@@ -319,18 +319,35 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 						},
 					},
 				},
+			).storeRequest(
+				&pb.ForwardRequest{
+					Request: request.Request,
+					Digest:  hashResult.Digest,
+				},
 			)
-			sm.clientTracker.allocate(request.Request, hashResult.Digest)
 		case *pb.HashResult_VerifyRequest_:
 			request := hashType.VerifyRequest
 			if !bytes.Equal(request.ExpectedDigest, hashResult.Digest) {
 				panic("byzantine")
 				// XXX this should not panic, but put to make dev easier
 			}
-			sm.clientTracker.allocate(request.Request, hashResult.Digest)
-			if sm.epochTracker.currentEpoch.state == etFetching {
-				actions.concat(sm.epochTracker.currentEpoch.fetchNewEpochState())
-			}
+			actions.send(
+				[]uint64{sm.myConfig.Id},
+				&pb.Msg{
+					Type: &pb.Msg_RequestAck{
+						RequestAck: &pb.RequestAck{
+							ClientId: request.Request.ClientId,
+							ReqNo:    request.Request.ReqNo,
+							Digest:   hashResult.Digest,
+						},
+					},
+				},
+			).storeRequest(
+				&pb.ForwardRequest{
+					Request: request.Request,
+					Digest:  hashResult.Digest,
+				},
+			)
 		case *pb.HashResult_EpochChange_:
 			epochChange := hashType.EpochChange
 			actions.concat(sm.epochTracker.applyEpochChangeDigest(epochChange, hashResult.Digest))

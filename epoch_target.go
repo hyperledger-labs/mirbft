@@ -271,7 +271,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 				cr = et.clientTracker.ack(nodeID(id), requestAck)
 			}
 
-			if cr.data != nil {
+			if _, ok := cr.agreements[nodeID(et.myConfig.Id)]; ok {
 				continue
 			}
 
@@ -304,21 +304,11 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		}
 
 		batch, _ := et.batchTracker.getBatch(digest)
-		requests := make([]*pb.ForwardRequest, len(batch.requestAcks))
-
-		for j, requestAck := range batch.requestAcks {
-			cw, _ := et.clientTracker.clientWindow(requestAck.ClientId)
-			r := cw.request(requestAck.ReqNo).digests[string(requestAck.Digest)]
-			requests[j] = &pb.ForwardRequest{
-				Request: r.data,
-				Digest:  requestAck.Digest,
-			}
-		}
 
 		qEntry := &pb.QEntry{
 			SeqNo:    seqNo,
 			Digest:   digest,
-			Requests: requests,
+			Requests: batch.requestAcks,
 		}
 
 		actions.concat(et.persisted.addQEntry(qEntry))

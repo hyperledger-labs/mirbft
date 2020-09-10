@@ -35,6 +35,15 @@ type Actions struct {
 	// if that commit contains a checkpoint, the user must return a checkpoint result for
 	// this commit.  Checkpoints must be persisted before further commits are reported as applied.
 	Commits []*Commit
+
+	// StoreRequests is a list of requests and their identifying digests which must be
+	// stored prior to performing the network sends.  This may be performed in parallel
+	// with the persisted log entries.
+	StoreRequests []*pb.ForwardRequest
+
+	// ForwardRequest is a list of requests which must be sent to another replica in the
+	// network.  and their destinations.
+	ForwardRequests []Forward
 }
 
 func (a *Actions) send(targets []uint64, msg *pb.Msg) *Actions {
@@ -46,18 +55,35 @@ func (a *Actions) send(targets []uint64, msg *pb.Msg) *Actions {
 	return a
 }
 
+func (a *Actions) storeRequest(request *pb.ForwardRequest) *Actions {
+	a.StoreRequests = append(a.StoreRequests, request)
+	return a
+}
+
+func (a *Actions) forwardRequest(targets []uint64, requestAck *pb.RequestAck) *Actions {
+	a.ForwardRequests = append(a.ForwardRequests, Forward{
+		Targets:    targets,
+		RequestAck: requestAck,
+	})
+	return a
+}
+
 // clear nils out all of the fields.
 func (a *Actions) clear() {
 	a.Send = nil
 	a.Hash = nil
 	a.Persist = nil
 	a.Commits = nil
+	a.StoreRequests = nil
+	a.ForwardRequests = nil
 }
 
 func (a *Actions) isEmpty() bool {
 	return len(a.Send) == 0 &&
 		len(a.Hash) == 0 &&
 		len(a.Persist) == 0 &&
+		len(a.StoreRequests) == 0 &&
+		len(a.ForwardRequests) == 0 &&
 		len(a.Commits) == 0
 }
 
@@ -68,6 +94,8 @@ func (a *Actions) concat(o *Actions) *Actions {
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
 	a.Persist = append(a.Persist, o.Persist...)
+	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
+	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
 	return a
 }
 
@@ -75,6 +103,13 @@ func (a *Actions) concat(o *Actions) *Actions {
 type Send struct {
 	Targets []uint64
 	Msg     *pb.Msg
+}
+
+// Forward is an action much like send, but requires the consumer to first
+// fetch the desired request and form the message before sending.
+type Forward struct {
+	Targets    []uint64
+	RequestAck *pb.RequestAck
 }
 
 // HashRequest is a request from the state machine to the consumer to hash some data.

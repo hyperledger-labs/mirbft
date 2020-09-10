@@ -30,6 +30,36 @@ import (
 	"go.uber.org/zap"
 )
 
+type FakeRequestStore struct {
+	mutex sync.Mutex
+	store map[string]*pb.Request
+}
+
+func (frs *FakeRequestStore) Store(requestAck *pb.RequestAck, data []byte) error {
+	frs.mutex.Lock()
+	defer frs.mutex.Unlock()
+	if frs.store == nil {
+		frs.store = map[string]*pb.Request{}
+	}
+
+	frs.store[string(requestAck.Digest)] = &pb.Request{
+		ReqNo:    requestAck.ReqNo,
+		ClientId: requestAck.ClientId,
+		Data:     data,
+	}
+	return nil
+}
+
+func (frs *FakeRequestStore) Get(requestAck *pb.RequestAck) ([]byte, error) {
+	frs.mutex.Lock()
+	defer frs.mutex.Unlock()
+	req := frs.store[string(requestAck.Digest)]
+	Expect(req).NotTo(BeNil())
+	Expect(req.ReqNo).To(Equal(requestAck.ReqNo))
+	Expect(req.ClientId).To(Equal(requestAck.ClientId))
+	return req.Data, nil
+}
+
 type FakeLink struct {
 	FakeTransport *FakeTransport
 	Source        uint64
@@ -178,7 +208,9 @@ var _ = Describe("StressyTest", func() {
 					entries := map[uint64]struct{}{}
 					for _, entry := range replica.Log.Entries {
 						for _, req := range entry.Requests {
-							entries[BytesToUint64(req.Request.Data)] = struct{}{}
+							data, err := replica.Processor.RequestStore.Get(req)
+							Expect(err).NotTo(HaveOccurred())
+							entries[BytesToUint64(data)] = struct{}{}
 						}
 					}
 
@@ -255,7 +287,9 @@ var _ = Describe("StressyTest", func() {
 				Eventually(replica.Log.CommitC, 10*time.Second).Should(Receive(&entry))
 
 				for _, req := range entry.Requests {
-					proposalID := BytesToUint64(req.Request.Data)
+					data, err := replica.Processor.RequestStore.Get(req)
+					Expect(err).NotTo(HaveOccurred())
+					proposalID := BytesToUint64(data)
 					_, ok := proposals[proposalID]
 					Expect(ok).To(BeTrue())
 
@@ -434,6 +468,7 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 				Link:         transport.Link(node.Config.ID),
 				Hasher:       sha256.New,
 				Log:          fakeLog,
+				RequestStore: &FakeRequestStore{},
 				WAL:          wal,
 				ActionsC:     make(chan *mirbft.Actions),
 				ActionsDoneC: make(chan *mirbft.ActionResults),

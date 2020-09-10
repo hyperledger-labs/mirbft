@@ -43,11 +43,7 @@ type sequence struct {
 	batch []*pb.RequestAck
 
 	// outstandingReqs is not set until after state >= sequenceAllocated and may never be set
-	// it is a map from request digest to index in the forwardReqs slice
-	outstandingReqs map[string]int
-
-	// forwardReqs is corresponding Requests reference in the batch, not available until state >= sequenceReady
-	forwardReqs []*pb.ForwardRequest
+	outstandingReqs map[string]struct{}
 
 	// digest is the computed digest of the batch, may not be set until state > sequenceReady
 	digest []byte
@@ -98,36 +94,25 @@ func (s *sequence) advanceState() *Actions {
 
 func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *Actions {
 	requestAcks := make([]*pb.RequestAck, len(clientRequests))
-	forwardReqs := make([]*pb.ForwardRequest, len(clientRequests))
 	for i, clientRequest := range clientRequests {
-		requestAcks[i] = &pb.RequestAck{
-			ClientId: clientRequest.data.ClientId,
-			ReqNo:    clientRequest.data.ReqNo,
-			Digest:   clientRequest.digest,
-		}
-
-		forwardReqs[i] = &pb.ForwardRequest{
-			Request: clientRequest.data,
-			Digest:  clientRequest.digest,
-		}
+		requestAcks[i] = clientRequest.ack
 	}
 
 	// TODO, hold onto the clientRequests so that we know who to forward to
 
-	return s.allocate(requestAcks, forwardReqs, nil)
+	return s.allocate(requestAcks, nil)
 }
 
 // allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the uninitialized state, it returns an error.  Otherwise,
 // It transitions to preprepared and returns a ValidationRequest message.
-func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.ForwardRequest, outstandingReqs map[string]int) *Actions {
+func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[string]struct{}) *Actions {
 	if s.state != sequenceUninitialized {
 		s.logger.Panic("illegal state for allocate", zap.Int("State", int(s.state)), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
 	}
 
 	s.state = sequenceAllocated
 	s.batch = requestAcks
-	s.forwardReqs = forwardReqs
 	s.outstandingReqs = outstandingReqs
 
 	if len(requestAcks) == 0 {
@@ -165,15 +150,13 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, forwardReqs []*pb.Forw
 	return actions.concat(s.advanceState())
 }
 
-func (s *sequence) satisfyOutstanding(fr *pb.ForwardRequest) *Actions {
-	i, ok := s.outstandingReqs[string(fr.Digest)]
+func (s *sequence) satisfyOutstanding(fr *pb.RequestAck) *Actions {
+	_, ok := s.outstandingReqs[string(fr.Digest)]
 	if !ok {
 		panic("dev sanity check")
 	}
 
 	delete(s.outstandingReqs, string(fr.Digest))
-
-	s.forwardReqs[i] = fr
 
 	return s.advanceState()
 }
@@ -197,27 +180,21 @@ func (s *sequence) prepare() *Actions {
 	s.qEntry = &pb.QEntry{
 		SeqNo:    s.seqNo,
 		Digest:   s.digest,
-		Requests: s.forwardReqs,
+		Requests: s.batch,
 	}
 
 	s.state = sequencePreprepared
 
-	var actions *Actions
+	actions := &Actions{}
 
 	if uint64(s.owner) == s.myConfig.Id {
-		bcast := make([]Send, len(s.forwardReqs)+1)
-		for i, fr := range s.forwardReqs {
-			bcast[i] = Send{
-				// TODO, send only to those who need it
+		for _, fr := range s.batch {
+			actions.forwardRequest(
 				s.networkConfig.Nodes,
-				&pb.Msg{
-					Type: &pb.Msg_ForwardRequest{
-						ForwardRequest: fr,
-					},
-				},
-			}
+				fr,
+			)
 		}
-		bcast[len(s.forwardReqs)] = Send{
+		actions.send(
 			s.networkConfig.Nodes,
 			&pb.Msg{
 				Type: &pb.Msg_Preprepare{
@@ -228,12 +205,9 @@ func (s *sequence) prepare() *Actions {
 					},
 				},
 			},
-		}
-		actions = &Actions{
-			Send: bcast,
-		}
+		)
 	} else {
-		actions = (&Actions{}).send(
+		actions.send(
 			s.networkConfig.Nodes,
 			&pb.Msg{
 				Type: &pb.Msg_Prepare{

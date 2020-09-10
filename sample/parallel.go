@@ -20,6 +20,7 @@ type ParallelProcessor struct {
 	Hasher              Hasher
 	Log                 Log
 	WAL                 WAL
+	RequestStore        RequestStore
 	Node                *mirbft.Node
 	TransmitParallelism int
 	HashParallelism     int
@@ -64,7 +65,47 @@ func (wp *workerPools) serviceSendPool() {
 	}
 }
 
-func (wp *workerPools) persistThenSendInParallel(persist []*pb.Persistent, sends []mirbft.Send, sendDoneC chan<- struct{}) {
+func (wp *workerPools) persistThenSendInParallel(
+	persist []*pb.Persistent,
+	store []*pb.ForwardRequest,
+	sends []mirbft.Send,
+	forwards []mirbft.Forward,
+	sendDoneC chan<- struct{},
+) {
+	// First begin forwarding requests over the network, this may be done concurrently
+	// with persistence
+	go func() {
+		for _, r := range forwards {
+			requestData, err := wp.processor.RequestStore.Get(r.RequestAck)
+			if err != nil {
+				panic("io error? this should always return successfully")
+			}
+			fr := &pb.Msg{
+				Type: &pb.Msg_ForwardRequest{
+					&pb.ForwardRequest{
+						Request: &pb.Request{
+							ReqNo:    r.RequestAck.ReqNo,
+							ClientId: r.RequestAck.ClientId,
+							Data:     requestData,
+						},
+						Digest: r.RequestAck.Digest,
+					},
+				},
+			}
+
+			select {
+			case wp.transmitC <- mirbft.Send{
+				Targets: r.Targets,
+				Msg:     fr,
+			}:
+			case <-wp.doneC:
+				return
+			}
+		}
+	}()
+
+	// Next, begin persisting the WAL, plus any pending requests, once done,
+	// send the other protocol messages
 	go func() {
 		for _, p := range persist {
 			if err := wp.processor.WAL.Append(p); err != nil {
@@ -73,6 +114,18 @@ func (wp *workerPools) persistThenSendInParallel(persist []*pb.Persistent, sends
 		}
 		if err := wp.processor.WAL.Sync(); err != nil {
 			panic(fmt.Sprintf("could not sync WAL: %s", err))
+		}
+
+		// TODO, this could probably be parallelized with the WAL write
+		for _, r := range store {
+			wp.processor.RequestStore.Store(
+				&pb.RequestAck{
+					ReqNo:    r.Request.ReqNo,
+					ClientId: r.Request.ClientId,
+					Digest:   r.Digest,
+				},
+				r.Request.Data,
+			)
 		}
 
 		for _, send := range sends {
@@ -86,7 +139,7 @@ func (wp *workerPools) persistThenSendInParallel(persist []*pb.Persistent, sends
 
 	go func() {
 		sent := 0
-		for sent < len(sends) {
+		for sent < len(sends)+len(forwards) {
 			select {
 			case <-wp.transmitDoneC:
 				sent++
@@ -204,7 +257,7 @@ func (pp *ParallelProcessor) Start(doneC <-chan struct{}) {
 	for {
 		select {
 		case actions := <-pp.ActionsC:
-			wp.persistThenSendInParallel(actions.Persist, actions.Send, sendBatchDoneC)
+			wp.persistThenSendInParallel(actions.Persist, actions.StoreRequests, actions.Send, actions.ForwardRequests, sendBatchDoneC)
 			wp.hashInParallel(actions.Hash, hashBatchDoneC)
 			wp.commitInParallel(actions.Commits, commitBatchDoneC)
 

@@ -17,7 +17,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 	ao := &allOutstandingReqs{
 		numBuckets:          uint64(networkState.Config.NumberOfBuckets),
 		buckets:             map[bucketID]*bucketOutstandingReqs{},
-		correctRequests:     map[string]*pb.ForwardRequest{},
+		correctRequests:     map[string]*pb.RequestAck{},
 		outstandingRequests: map[string]*sequence{},
 		clientTracker:       clientTracker,
 	}
@@ -79,7 +79,7 @@ type allOutstandingReqs struct {
 	buckets             map[bucketID]*bucketOutstandingReqs
 	clientTracker       *clientTracker
 	lastCorrectReq      *list.Element
-	correctRequests     map[string]*pb.ForwardRequest
+	correctRequests     map[string]*pb.RequestAck
 	outstandingRequests map[string]*sequence
 }
 
@@ -108,7 +108,7 @@ func (ao *allOutstandingReqs) advanceRequests() *Actions {
 
 		ao.lastCorrectReq = nextCorrectReq
 
-		fr := nextCorrectReq.Value.(*pb.ForwardRequest)
+		fr := nextCorrectReq.Value.(*pb.RequestAck)
 		key := string(fr.Digest)
 
 		if seq, ok := ao.outstandingRequests[key]; ok {
@@ -121,20 +121,20 @@ func (ao *allOutstandingReqs) advanceRequests() *Actions {
 	}
 }
 
-func (ao *allOutstandingReqs) applyBatch(bucket bucketID, batch []*pb.ForwardRequest) error {
+func (ao *allOutstandingReqs) applyBatch(bucket bucketID, batch []*pb.RequestAck) error {
 	bo, ok := ao.buckets[bucket]
 	if !ok {
 		panic("dev sanity test")
 	}
 
 	for _, req := range batch {
-		co, ok := bo.clients[req.Request.ClientId]
+		co, ok := bo.clients[req.ClientId]
 		if !ok {
 			return fmt.Errorf("no such client")
 		}
 
-		if co.nextReqNo != req.Request.ReqNo {
-			return fmt.Errorf("expected ClientId=%d next request for Bucket=%d to have ReqNo=%d but got ReqNo=%d", req.Request.ClientId, bucket, co.nextReqNo, req.Request.ReqNo)
+		if co.nextReqNo != req.ReqNo {
+			return fmt.Errorf("expected ClientId=%d next request for Bucket=%d to have ReqNo=%d but got ReqNo=%d", req.ClientId, bucket, co.nextReqNo, req.ReqNo)
 		}
 
 		co.nextReqNo += ao.numBuckets
@@ -150,10 +150,9 @@ func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []
 		panic("dev sanity test")
 	}
 
-	outstandingReqs := map[string]int{}
-	forwardReqs := make([]*pb.ForwardRequest, len(batch))
+	outstandingReqs := map[string]struct{}{}
 
-	for i, req := range batch {
+	for _, req := range batch {
 		co, ok := bo.clients[req.ClientId]
 		if !ok {
 			return nil, fmt.Errorf("no such client")
@@ -164,16 +163,15 @@ func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []
 		}
 
 		key := string(req.Digest)
-		if fr, ok := ao.correctRequests[key]; ok {
+		if _, ok := ao.correctRequests[key]; ok {
 			delete(ao.correctRequests, key)
-			forwardReqs[i] = fr
 		} else {
 			ao.outstandingRequests[key] = seq
-			outstandingReqs[key] = i
+			outstandingReqs[key] = struct{}{}
 		}
 
 		co.nextReqNo += ao.numBuckets
 	}
 
-	return seq.allocate(batch, forwardReqs, outstandingReqs), nil
+	return seq.allocate(batch, outstandingReqs), nil
 }

@@ -31,20 +31,38 @@ type WAL interface {
 	Sync() error
 }
 
+type RequestStore interface {
+	Store(requestAck *pb.RequestAck, data []byte) error
+	Get(requestAck *pb.RequestAck) ([]byte, error)
+}
+
 type SerialProcessor struct {
-	Link   Link
-	Hasher Hasher
-	Log    Log
-	WAL    WAL
-	Node   *mirbft.Node
+	Link         Link
+	Hasher       Hasher
+	Log          Log
+	WAL          WAL
+	RequestStore RequestStore
+	Node         *mirbft.Node
 }
 
 func (sp *SerialProcessor) Persist(actions *mirbft.Actions) {
+	for _, r := range actions.StoreRequests {
+		sp.RequestStore.Store(
+			&pb.RequestAck{
+				ReqNo:    r.Request.ReqNo,
+				ClientId: r.Request.ClientId,
+				Digest:   r.Digest,
+			},
+			r.Request.Data,
+		)
+	}
+
 	for _, p := range actions.Persist {
 		if err := sp.WAL.Append(p); err != nil {
 			panic(fmt.Sprintf("could not persist entry: %s", err))
 		}
 	}
+
 	if err := sp.WAL.Sync(); err != nil {
 		panic(fmt.Sprintf("could not sync WAL: %s", err))
 	}
@@ -57,6 +75,33 @@ func (sp *SerialProcessor) Transmit(actions *mirbft.Actions) {
 				sp.Node.Step(context.Background(), replica, send.Msg)
 			} else {
 				sp.Link.Send(replica, send.Msg)
+			}
+		}
+	}
+
+	for _, r := range actions.ForwardRequests {
+		requestData, err := sp.RequestStore.Get(r.RequestAck)
+		if err != nil {
+			panic("io error? this should always return successfully")
+		}
+		fr := &pb.Msg{
+			Type: &pb.Msg_ForwardRequest{
+				&pb.ForwardRequest{
+					Request: &pb.Request{
+						ReqNo:    r.RequestAck.ReqNo,
+						ClientId: r.RequestAck.ClientId,
+						Data:     requestData,
+					},
+					Digest: r.RequestAck.Digest,
+				},
+			},
+		}
+
+		for _, replica := range r.Targets {
+			if replica == sp.Node.Config.ID {
+				sp.Node.Step(context.Background(), replica, fr)
+			} else {
+				sp.Link.Send(replica, fr)
 			}
 		}
 	}

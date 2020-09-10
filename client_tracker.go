@@ -60,7 +60,7 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 		msgBuffers:  map[nodeID]*msgBuffer{},
 	}
 
-	batches := map[string][]*pb.ForwardRequest{}
+	batches := map[string][]*pb.RequestAck{}
 
 	for head := persisted.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
@@ -85,8 +85,7 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 			}
 
 			for _, request := range batch {
-				clientReqNo, _ := ct.windows[request.Request.ClientId].allocate(request.Request, request.Digest)
-				clientReqNo.strongRequest = clientReqNo.digests[string(request.Digest)]
+				ct.windows[request.ClientId].ack(nodeID(myConfig.Id), request)
 			}
 		}
 	}
@@ -265,19 +264,16 @@ func (ct *clientTracker) replyFetchRequest(source nodeID, clientID, reqNo uint64
 		return &Actions{}
 	}
 
-	if data.data == nil {
+	if _, ok := data.agreements[nodeID(ct.myConfig.Id)]; !ok {
 		return &Actions{}
 	}
 
-	return (&Actions{}).send(
+	return (&Actions{}).forwardRequest(
 		[]uint64{uint64(source)},
-		&pb.Msg{
-			Type: &pb.Msg_ForwardRequest{
-				ForwardRequest: &pb.ForwardRequest{
-					Request: data.data,
-					Digest:  digest,
-				},
-			},
+		&pb.RequestAck{
+			ClientId: clientID,
+			ReqNo:    reqNo,
+			Digest:   digest,
 		},
 	)
 }
@@ -292,7 +288,11 @@ func (ct *clientTracker) applyForwardRequest(source nodeID, msg *pb.ForwardReque
 	// TODO, make sure that we only allow one vote per replica for a reqno, or bounded
 	cr := cw.request(msg.Request.ReqNo)
 	req, ok := cr.digests[string(msg.Digest)]
-	if !ok || req.data != nil {
+	if !ok {
+		return &Actions{}
+	}
+
+	if _, ok := req.agreements[nodeID(ct.myConfig.Id)]; !ok {
 		return &Actions{}
 	}
 
@@ -326,43 +326,15 @@ func (ct *clientTracker) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 		panic("dev sanity test")
 	}
 
-	clientRequest, clientReqNo, newlyCorrectReq := cw.ack(source, ack.ReqNo, ack.Digest)
+	clientRequest, clientReqNo, newlyCorrectReq := cw.ack(source, ack)
 
-	if newlyCorrectReq != nil {
-		ct.correctList.PushBack(&pb.ForwardRequest{
-			Request: newlyCorrectReq,
-			Digest:  ack.Digest,
-		})
+	if newlyCorrectReq {
+		ct.correctList.PushBack(ack)
 	}
 
 	ct.checkReady(cw, clientReqNo)
 
 	return clientRequest
-}
-
-func (ct *clientTracker) allocate(requestData *pb.Request, digest []byte) {
-	cw, ok := ct.windows[requestData.ClientId]
-	if !ok {
-		panic("dev sanity test")
-	}
-
-	if requestData.ReqNo < cw.lowWatermark {
-		// This can happen when the primary and the client send us a request
-		// concurrently, we can process both in parallel, one returns before
-		// the other, and, the watermarks have already moved on
-		return
-	}
-
-	clientReqNo, newlyCorrectReq := cw.allocate(requestData, digest)
-
-	if newlyCorrectReq != nil {
-		ct.correctList.PushBack(&pb.ForwardRequest{
-			Request: newlyCorrectReq,
-			Digest:  digest,
-		})
-	}
-
-	ct.checkReady(cw, clientReqNo)
 }
 
 func (ct *clientTracker) checkReady(clientWindow *clientWindow, ocrn *clientReqNo) {
@@ -374,7 +346,7 @@ func (ct *clientTracker) checkReady(clientWindow *clientWindow, ocrn *clientReqN
 		return
 	}
 
-	if ocrn.strongRequest.data == nil {
+	if _, ok := ocrn.strongRequest.agreements[nodeID(ct.myConfig.Id)]; !ok {
 		return
 	}
 
@@ -394,7 +366,7 @@ func (ct *clientTracker) advanceReady(clientWindow *clientWindow) {
 			break
 		}
 
-		if crn.strongRequest.data == nil {
+		if _, ok := crn.strongRequest.agreements[nodeID(ct.myConfig.Id)]; !ok {
 			break
 		}
 
@@ -472,8 +444,7 @@ type clientReqNo struct {
 }
 
 type clientRequest struct {
-	digest     []byte
-	data       *pb.Request
+	ack        *pb.RequestAck
 	agreements map[nodeID]struct{}
 }
 
@@ -580,7 +551,8 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	}
 }
 
-func (cw *clientWindow) ack(source nodeID, reqNo uint64, digest []byte) (*clientRequest, *clientReqNo, *pb.Request) {
+func (cw *clientWindow) ack(source nodeID, ack *pb.RequestAck) (*clientRequest, *clientReqNo, bool) {
+	reqNo := ack.ReqNo
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
 	}
@@ -596,66 +568,24 @@ func (cw *clientWindow) ack(source nodeID, reqNo uint64, digest []byte) (*client
 
 	crn := crne.Value.(*clientReqNo)
 
-	cr, ok := crn.digests[string(digest)]
+	cr, ok := crn.digests[string(ack.Digest)]
 	if !ok {
 		cr = &clientRequest{
-			digest:     digest,
+			ack:        ack,
 			agreements: map[nodeID]struct{}{},
 		}
-		crn.digests[string(digest)] = cr
+		crn.digests[string(ack.Digest)] = cr
 	}
 
 	cr.agreements[source] = struct{}{}
 
-	var newlyCorrectReq *pb.Request
-	if len(cr.agreements) == someCorrectQuorum(cw.networkConfig) {
-		newlyCorrectReq = cr.data
-	}
+	newlyCorrectReq := len(cr.agreements) == someCorrectQuorum(cw.networkConfig)
 
 	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
 		crn.strongRequest = cr
 	}
 
 	return cr, crn, newlyCorrectReq
-}
-
-func (cw *clientWindow) allocate(requestData *pb.Request, digest []byte) (*clientReqNo, *pb.Request) {
-	reqNo := requestData.ReqNo
-	if reqNo > cw.highWatermark {
-		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
-	}
-
-	if reqNo < cw.lowWatermark {
-		panic(fmt.Sprintf("unexpected: %d < %d", reqNo, cw.lowWatermark))
-	}
-
-	crne, ok := cw.reqNoMap[reqNo]
-	if !ok {
-		panic("dev sanity check")
-	}
-
-	crn := crne.Value.(*clientReqNo)
-
-	cr, ok := crn.digests[string(digest)]
-	if !ok {
-		cr = &clientRequest{
-			digest:     digest,
-			agreements: map[nodeID]struct{}{},
-		}
-		crn.digests[string(digest)] = cr
-	}
-	cr.data = requestData
-
-	var newlyCorrectReq *pb.Request
-	if len(cr.agreements) >= someCorrectQuorum(cw.networkConfig) {
-		newlyCorrectReq = requestData
-	}
-
-	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
-		crn.strongRequest = cr
-	}
-
-	return crn, newlyCorrectReq
 }
 
 func (cw *clientWindow) inWatermarks(reqNo uint64) bool {

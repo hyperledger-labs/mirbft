@@ -33,15 +33,7 @@ func newBatchTracker(persisted *persisted) *batchTracker {
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_QEntry:
 			qEntry := d.QEntry
-			acks := make([]*pb.RequestAck, len(qEntry.Requests))
-			for i, req := range qEntry.Requests {
-				acks[i] = &pb.RequestAck{
-					ClientId: req.Request.ClientId,
-					ReqNo:    req.Request.ReqNo,
-					Digest:   req.Digest,
-				}
-			}
-			bt.addBatch(qEntry.SeqNo, qEntry.Digest, acks)
+			bt.addBatch(qEntry.SeqNo, qEntry.Digest, qEntry.Requests)
 		}
 	}
 
