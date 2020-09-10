@@ -8,6 +8,7 @@ package sample
 
 import (
 	"context"
+	"fmt"
 	"hash"
 
 	"github.com/IBM/mirbft"
@@ -25,15 +26,28 @@ type Log interface {
 	Snap() (id []byte)
 }
 
+type WAL interface {
+	Append(entry *pb.Persistent) error
+	Sync() error
+}
+
 type SerialProcessor struct {
 	Link   Link
 	Hasher Hasher
 	Log    Log
+	WAL    WAL
 	Node   *mirbft.Node
 }
 
 func (sp *SerialProcessor) Persist(actions *mirbft.Actions) {
-	// TODO we need to persist the PSet, QSet, and some others here
+	for _, p := range actions.Persist {
+		if err := sp.WAL.Append(p); err != nil {
+			panic(fmt.Sprintf("could not persist entry: %s", err))
+		}
+	}
+	if err := sp.WAL.Sync(); err != nil {
+		panic(fmt.Sprintf("could not sync WAL: %s", err))
+	}
 }
 
 func (sp *SerialProcessor) Transmit(actions *mirbft.Actions) {

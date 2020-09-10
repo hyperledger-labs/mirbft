@@ -8,6 +8,7 @@ package sample
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 
 	"github.com/IBM/mirbft"
@@ -18,6 +19,7 @@ type ParallelProcessor struct {
 	Link                Link
 	Hasher              Hasher
 	Log                 Log
+	WAL                 WAL
 	Node                *mirbft.Node
 	TransmitParallelism int
 	HashParallelism     int
@@ -64,7 +66,14 @@ func (wp *workerPools) serviceSendPool() {
 
 func (wp *workerPools) persistThenSendInParallel(persist []*pb.Persistent, sends []mirbft.Send, sendDoneC chan<- struct{}) {
 	go func() {
-		// TODO persist first
+		for _, p := range persist {
+			if err := wp.processor.WAL.Append(p); err != nil {
+				panic(fmt.Sprintf("could not persist entry: %s", err))
+			}
+		}
+		if err := wp.processor.WAL.Sync(); err != nil {
+			panic(fmt.Sprintf("could not sync WAL: %s", err))
+		}
 
 		for _, send := range sends {
 			select {

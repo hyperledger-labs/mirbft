@@ -148,6 +148,11 @@ var _ = Describe("StressyTest", func() {
 			Expect(network).NotTo(BeNil())
 
 			for nodeIndex, replica := range network.TestReplicas {
+				if replica.Processor != nil {
+					replica.Processor.WAL.(*simplewal.WAL).Close()
+				}
+				os.RemoveAll(replica.WALDir)
+
 				fmt.Printf("\nStatus for node %d\n", nodeIndex)
 				<-replica.Node.Err() // Make sure the serializer has exited
 				status, err := replica.Node.Status(context.Background())
@@ -199,8 +204,12 @@ var _ = Describe("StressyTest", func() {
 
 		} else {
 			for _, replica := range network.TestReplicas {
-				err := os.Remove(replica.RecordingFile.Name())
-				Expect(err).NotTo(HaveOccurred())
+				if replica.Processor != nil {
+					replica.Processor.WAL.(*simplewal.WAL).Close()
+				}
+				os.RemoveAll(replica.WALDir)
+
+				os.Remove(replica.RecordingFile.Name())
 			}
 		}
 	})
@@ -289,6 +298,7 @@ var _ = Describe("StressyTest", func() {
 type TestReplica struct {
 	Node          *mirbft.Node
 	RecordingFile *os.File
+	WALDir        string
 	Log           *FakeLog
 	Processor     *sample.ParallelProcessor
 	FakeTransport *FakeTransport
@@ -416,6 +426,7 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 		replicas[i] = &TestReplica{
 			Node:          node,
 			RecordingFile: recordingFile,
+			WALDir:        walDir,
 			Log:           fakeLog,
 			FakeTransport: transport,
 			Processor: &sample.ParallelProcessor{
@@ -423,6 +434,7 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 				Link:         transport.Link(node.Config.ID),
 				Hasher:       sha256.New,
 				Log:          fakeLog,
+				WAL:          wal,
 				ActionsC:     make(chan *mirbft.Actions),
 				ActionsDoneC: make(chan *mirbft.ActionResults),
 			},

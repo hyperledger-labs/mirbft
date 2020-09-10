@@ -219,3 +219,7 @@ func (w *WAL) Append(p *pb.Persistent) error {
 func (w *WAL) Sync() error {
 	return w.log.Sync()
 }
+
+func (w *WAL) Close() error {
+	return w.log.Close()
+}
