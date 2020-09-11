@@ -10,8 +10,6 @@ SPDX-License-Identifier: Apache-2.0
 package simplewal
 
 import (
-	"io"
-
 	pb "github.com/IBM/mirbft/mirbftpb"
 
 	"github.com/golang/protobuf/proto"
@@ -25,106 +23,7 @@ type WAL struct {
 	log               *wal.Log
 }
 
-type Iterator struct {
-	currentIndex uint64
-	stopIndex    uint64
-	log          *wal.Log
-}
-
-func (i *Iterator) LoadNext() (*pb.Persistent, error) {
-	if i.currentIndex > i.stopIndex {
-		return nil, io.EOF
-	}
-
-	data, err := i.log.Read(i.currentIndex)
-	if err != nil {
-		return nil, errors.WithMessagef(err, "could not read index %d", i.currentIndex)
-	}
-
-	result := &pb.Persistent{}
-	err = proto.Unmarshal(data, result)
-	if err != nil {
-		return nil, errors.WithMessage(err, "error decoding to proto, is the WAL corrput?")
-	}
-
-	i.currentIndex++
-
-	return result, nil
-}
-
-// New creates a new WAL, populated with an initial network state and application value.
-func New(path string, initialState *pb.NetworkState, initialValue []byte) (*WAL, error) {
-	log, err := wal.Open(path, &wal.Options{
-		NoSync: true,
-		NoCopy: true,
-	})
-	if err != nil {
-		return nil, errors.WithMessage(err, "could not open WAL")
-	}
-
-	lastIndex, err := log.LastIndex()
-	if err != nil {
-		return nil, errors.WithMessage(err, "could not read last index")
-	}
-
-	if lastIndex != 0 {
-		log.Close()
-		return nil, errors.Errorf("new WAL already has data in it")
-	}
-
-	initialCheckpoint := &pb.Persistent{
-		Type: &pb.Persistent_CEntry{
-			CEntry: &pb.CEntry{
-				SeqNo:           0,
-				CheckpointValue: initialValue,
-				NetworkState:    initialState,
-				EpochConfig: &pb.EpochConfig{
-					Number:            0,
-					Leaders:           initialState.Config.Nodes,
-					PlannedExpiration: 0,
-				},
-			},
-		},
-	}
-
-	initialEpochChange := &pb.Persistent{
-		Type: &pb.Persistent_EpochChange{
-			EpochChange: &pb.EpochChange{
-				NewEpoch: 1,
-				Checkpoints: []*pb.Checkpoint{
-					{
-						SeqNo: 0,
-						Value: initialValue,
-					},
-				},
-			},
-		},
-	}
-
-	result := &WAL{
-		log:       log,
-		nextIndex: 1,
-	}
-
-	if err := result.Append(initialCheckpoint); err != nil {
-		log.Close()
-		return nil, errors.WithMessage(err, "could not append initial checkpoint")
-	}
-
-	if err := result.Append(initialEpochChange); err != nil {
-		log.Close()
-		return nil, errors.WithMessage(err, "could not append initial epoch change")
-	}
-
-	if err := log.Sync(); err != nil {
-		log.Close()
-		return nil, errors.WithMessage(err, "could not sync log to filesystem")
-	}
-
-	return result, nil
-}
-
-func (w *WAL) Open(path string) (*WAL, error) {
+func Open(path string) (*WAL, error) {
 	log, err := wal.Open(path, &wal.Options{
 		NoSync: true,
 		NoCopy: true,
@@ -137,58 +36,50 @@ func (w *WAL) Open(path string) (*WAL, error) {
 		log: log,
 	}
 
-	i, err := result.Iterator()
+	err = result.LoadAll(func(i uint64, p *pb.Persistent) {
+		if _, ok := p.Type.(*pb.Persistent_CEntry); ok {
+			result.checkpointIndices = append(result.checkpointIndices, i)
+		}
+	})
 	if err != nil {
-		log.Close()
 		return nil, err
 	}
-
-	if i.currentIndex == 0 || i.stopIndex == 0 {
-		log.Close()
-		return nil, errors.Errorf("WAL is empty, was it deleted?")
-	}
-
-	result.nextIndex = i.stopIndex + 1
-
-	var checkpointIndices []uint64
-
-	for {
-		currentIndex := i.currentIndex
-		next, err := i.LoadNext()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.Close()
-			return nil, errors.WithMessage(err, "could not read next entry")
-		}
-
-		if _, ok := next.Type.(*pb.Persistent_CEntry); ok {
-			checkpointIndices = append(checkpointIndices, currentIndex)
-		}
-	}
-
-	result.checkpointIndices = checkpointIndices
 
 	return result, nil
 }
 
-func (w *WAL) Iterator() (*Iterator, error) {
+func (w *WAL) LoadAll(forEach func(index uint64, p *pb.Persistent)) error {
 	firstIndex, err := w.log.FirstIndex()
 	if err != nil {
-		return nil, errors.WithMessage(err, "could not read first index")
+		return errors.WithMessage(err, "could not read first index")
+	}
+
+	if firstIndex == 0 {
+		// WAL is empty
+		return nil
 	}
 
 	lastIndex, err := w.log.LastIndex()
 	if err != nil {
-		return nil, errors.WithMessage(err, "could not read first index")
+		return errors.WithMessage(err, "could not read first index")
 	}
 
-	return &Iterator{
-		currentIndex: firstIndex,
-		stopIndex:    lastIndex,
-		log:          w.log,
-	}, nil
+	for i := firstIndex; i <= lastIndex; i++ {
+		data, err := w.log.Read(i)
+		if err != nil {
+			return errors.WithMessagef(err, "could not read index %d", i)
+		}
+
+		result := &pb.Persistent{}
+		err = proto.Unmarshal(data, result)
+		if err != nil {
+			return errors.WithMessage(err, "error decoding to proto, is the WAL corrput?")
+		}
+
+		forEach(i, result)
+	}
+
+	return nil
 }
 
 func (w *WAL) Append(p *pb.Persistent) error {

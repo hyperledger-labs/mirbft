@@ -184,6 +184,7 @@ var _ = Describe("StressyTest", func() {
 					replica.Processor.RequestStore.(*reqstore.Store).Close()
 				}
 				os.RemoveAll(replica.WALDir)
+				os.RemoveAll(replica.ReqStoreDir)
 
 				fmt.Printf("\nStatus for node %d\n", nodeIndex)
 				<-replica.Node.Err() // Make sure the serializer has exited
@@ -240,6 +241,7 @@ var _ = Describe("StressyTest", func() {
 			for _, replica := range network.TestReplicas {
 				if replica.Processor != nil {
 					replica.Processor.WAL.(*simplewal.WAL).Close()
+					replica.Processor.RequestStore.(*reqstore.Store).Close()
 				}
 				os.RemoveAll(replica.WALDir)
 				os.RemoveAll(replica.ReqStoreDir)
@@ -448,16 +450,13 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 		reqStoreDir, err := ioutil.TempDir("", fmt.Sprintf("stressy.%d-*.reqstore", i))
 		Expect(err).NotTo(HaveOccurred())
 
-		wal, err := simplewal.New(walDir, networkState, []byte("fake-value"))
-		Expect(err).NotTo(HaveOccurred())
-
-		storage, err := wal.Iterator()
+		wal, err := simplewal.Open(walDir)
 		Expect(err).NotTo(HaveOccurred())
 
 		reqStore, err := reqstore.Open(reqStoreDir)
 		Expect(err).NotTo(HaveOccurred())
 
-		node, err := mirbft.StartNode(config, doneC, storage, reqStore)
+		node, err := mirbft.StartNewNode(config, networkState, []byte("fake-application-state"), doneC)
 		Expect(err).NotTo(HaveOccurred())
 
 		fakeLog := &FakeLog{

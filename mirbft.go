@@ -27,11 +27,10 @@ var ErrStopped = fmt.Errorf("stopped at caller request")
 // WALStorage gives the state machine access to the most recently persisted state as
 // requested by a previous instance of the state machine.
 type WALStorage interface {
-	// LoadNext is a stateful call.  When first called, it should return
-	// the first entry in the WAL, then the next, and so on, successively
-	// until the log has been exhausted and it returns nil, io.EOF.  Any
-	// other error is treated as fatal.
-	LoadNext() (*pb.Persistent, error)
+	// LoadAll will invoke the given function with the the persisted entry
+	// iteratively, until the entire write-ahead-log has been loaded.
+	// If an error is encountered reading the log, it is returned and iteration stops.
+	LoadAll(forEach func(*pb.Persistent)) error
 }
 
 type RequestStorage interface {
@@ -154,14 +153,79 @@ func StandardInitialNetworkState(nodeCount int, clientIDs ...uint64) *pb.Network
 	}
 }
 
-// StartNewNode creates a node to join a fresh network.  Eventually, this method will either
-// be deprecated, or augmented with a RestartNode or similar.  For now, this method
-// hard codes many of the parameters, but more will be exposed in the future.
-func StartNode(
+type dummyReqStore struct{}
+
+func (dummyReqStore) Uncommitted(forEach func(*pb.RequestAck)) error {
+	return nil
+}
+
+type dummyWAL struct {
+	initialNetworkState    *pb.NetworkState
+	initialCheckpointValue []byte
+}
+
+func (dw *dummyWAL) LoadAll(forEach func(*pb.Persistent)) error {
+	forEach(&pb.Persistent{
+		Type: &pb.Persistent_CEntry{
+			CEntry: &pb.CEntry{
+				SeqNo:           0,
+				CheckpointValue: dw.initialCheckpointValue,
+				NetworkState:    dw.initialNetworkState,
+				EpochConfig: &pb.EpochConfig{
+					Number:            0,
+					Leaders:           dw.initialNetworkState.Config.Nodes,
+					PlannedExpiration: 0,
+				},
+			},
+		},
+	})
+
+	forEach(&pb.Persistent{
+		Type: &pb.Persistent_EpochChange{
+			EpochChange: &pb.EpochChange{
+				NewEpoch: 1,
+				Checkpoints: []*pb.Checkpoint{
+					{
+						SeqNo: 0,
+						Value: dw.initialCheckpointValue,
+					},
+				},
+			},
+		},
+	})
+
+	return nil
+}
+
+// StartNewNode creates a node to join a fresh network.  The first actions returned
+// by the node will be to persist the initial parameters to the WAL so that on subsequent
+// starts RestartNode should be invoked instead.  The initialCheckpointValue should reflect
+// any initial state of the application as well as the initialNetworkState passed to the start.
+func StartNewNode(
 	config *Config,
+	initialNetworkState *pb.NetworkState,
+	initialCheckpointValue []byte,
 	doneC <-chan struct{},
+) (*Node, error) {
+	return RestartNode(
+		config,
+		&dummyWAL{
+			initialNetworkState:    initialNetworkState,
+			initialCheckpointValue: initialCheckpointValue,
+		},
+		dummyReqStore{},
+		doneC,
+	)
+}
+
+// RestartNode should be invoked for any subsequent starts of the Node.  It reads
+// the supplied WAL and Request store to initialize the state machine and therefore
+// does not require network parameters as they are embedded into the WAL.
+func RestartNode(
+	config *Config,
 	walStorage WALStorage,
 	reqStorage RequestStorage,
+	doneC <-chan struct{},
 ) (*Node, error) {
 	serializer, err := newSerializer(config, walStorage, reqStorage, doneC)
 	if err != nil {

@@ -68,6 +68,11 @@ func (a *Actions) forwardRequest(targets []uint64, requestAck *pb.RequestAck) *A
 	return a
 }
 
+func (a *Actions) persist(p *pb.Persistent) *Actions {
+	a.Persist = append(a.Persist, p)
+	return a
+}
+
 // clear nils out all of the fields.
 func (a *Actions) clear() {
 	a.Send = nil

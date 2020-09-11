@@ -7,7 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	"io"
 	"sync"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -116,23 +115,24 @@ func (s *serializer) run() {
 		},
 	})
 
-	for {
-		data, err := s.walStorage.LoadNext()
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			panic(errors.WithMessage(err, "failed to load persisted from WALStorage"))
+	err := s.walStorage.LoadAll(func(p *pb.Persistent) {
+		if _, ok := s.walStorage.(*dummyWAL); ok {
+			// This was our own startup/bootstrap WAL,
+			// we need to get these entries persisted into the real one.
+			actions.persist(p)
 		}
 
 		applyEvent(&pb.StateEvent{
 			Type: &pb.StateEvent_LoadEntry{
 				LoadEntry: &pb.StateEvent_PersistedEntry{
-					Entry: data,
+					Entry: p,
 				},
 			},
 		})
+	})
+
+	if err != nil {
+		panic(errors.WithMessage(err, "failed to load persisted from WALStorage"))
 	}
 
 	applyEvent(&pb.StateEvent{
@@ -141,7 +141,7 @@ func (s *serializer) run() {
 		},
 	})
 
-	err := s.reqStorage.Uncommitted(func(ack *pb.RequestAck) {
+	err = s.reqStorage.Uncommitted(func(ack *pb.RequestAck) {
 		applyEvent(&pb.StateEvent{
 			Type: &pb.StateEvent_Step{
 				Step: &pb.StateEvent_InboundMsg{
