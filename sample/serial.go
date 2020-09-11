@@ -34,6 +34,7 @@ type WAL interface {
 type RequestStore interface {
 	Store(requestAck *pb.RequestAck, data []byte) error
 	Get(requestAck *pb.RequestAck) ([]byte, error)
+	Sync() error
 }
 
 type SerialProcessor struct {
@@ -53,14 +54,18 @@ func (sp *SerialProcessor) Persist(actions *mirbft.Actions) {
 		)
 	}
 
+	if err := sp.RequestStore.Sync(); err != nil {
+		panic(fmt.Sprintf("could not sync request store, unsafe to continue: %s\n", err))
+	}
+
 	for _, p := range actions.Persist {
 		if err := sp.WAL.Append(p); err != nil {
-			panic(fmt.Sprintf("could not persist entry: %s", err))
+			panic(fmt.Sprintf("could not persist entry, not safe to continue: %s", err))
 		}
 	}
 
 	if err := sp.WAL.Sync(); err != nil {
-		panic(fmt.Sprintf("could not sync WAL: %s", err))
+		panic(fmt.Sprintf("could not sync WAL, not safe to continue: %s", err))
 	}
 }
 
@@ -78,8 +83,9 @@ func (sp *SerialProcessor) Transmit(actions *mirbft.Actions) {
 	for _, r := range actions.ForwardRequests {
 		requestData, err := sp.RequestStore.Get(r.RequestAck)
 		if err != nil {
-			panic("io error? this should always return successfully")
+			panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
 		}
+
 		fr := &pb.Msg{
 			Type: &pb.Msg_ForwardRequest{
 				&pb.ForwardRequest{
@@ -88,7 +94,6 @@ func (sp *SerialProcessor) Transmit(actions *mirbft.Actions) {
 				},
 			},
 		}
-
 		for _, replica := range r.Targets {
 			if replica == sp.Node.Config.ID {
 				sp.Node.Step(context.Background(), replica, fr)

@@ -124,6 +124,8 @@ func (wp *workerPools) persistThenSendInParallel(
 			)
 		}
 
+		wp.processor.RequestStore.Sync()
+
 		for _, send := range sends {
 			select {
 			case wp.transmitC <- send:
