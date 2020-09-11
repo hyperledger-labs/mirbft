@@ -24,16 +24,22 @@ import (
 
 var ErrStopped = fmt.Errorf("stopped at caller request")
 
-//go:generate counterfeiter -o mock/storage.go -fake-name Storage . Storage
-
-// Storage gives the state machine access to the most recently persisted state as
+// WALStorage gives the state machine access to the most recently persisted state as
 // requested by a previous instance of the state machine.
-type Storage interface {
+type WALStorage interface {
 	// LoadNext is a stateful call.  When first called, it should return
 	// the first entry in the WAL, then the next, and so on, successively
 	// until the log has been exhausted and it returns nil, io.EOF.  Any
 	// other error is treated as fatal.
 	LoadNext() (*pb.Persistent, error)
+}
+
+type RequestStorage interface {
+	// Uncommitted must invoke forEach on each uncommitted entry in the
+	// request store.  These requests must have been safely committed
+	// to the request store before the actions which contained them
+	// send the corresponding RequestAck.
+	Uncommitted(forEach func(*pb.RequestAck)) error
 }
 
 // Node is the local instance of the MirBFT state machine through which the calling application
@@ -154,9 +160,10 @@ func StandardInitialNetworkState(nodeCount int, clientIDs ...uint64) *pb.Network
 func StartNode(
 	config *Config,
 	doneC <-chan struct{},
-	storage Storage,
+	walStorage WALStorage,
+	reqStorage RequestStorage,
 ) (*Node, error) {
-	serializer, err := newSerializer(config, storage, doneC)
+	serializer, err := newSerializer(config, walStorage, reqStorage, doneC)
 	if err != nil {
 		return nil, errors.Errorf("failed to start new node: %s", err)
 	}

@@ -454,7 +454,10 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 		storage, err := wal.Iterator()
 		Expect(err).NotTo(HaveOccurred())
 
-		node, err := mirbft.StartNode(config, doneC, storage)
+		reqStore, err := reqstore.Open(reqStoreDir)
+		Expect(err).NotTo(HaveOccurred())
+
+		node, err := mirbft.StartNode(config, doneC, storage, reqStore)
 		Expect(err).NotTo(HaveOccurred())
 
 		fakeLog := &FakeLog{
@@ -462,9 +465,6 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 			// in case of bugs this test would otherwise catch.
 			CommitC: make(chan *pb.QEntry, 5*testConfig.MsgCount),
 		}
-
-		reqStore, err := reqstore.Open(reqStoreDir)
-		Expect(err).NotTo(HaveOccurred())
 
 		replicas[i] = &TestReplica{
 			Node:          node,

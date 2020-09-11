@@ -35,91 +35,30 @@ type serializer struct {
 	tickC    chan struct{}
 	errC     chan struct{}
 
-	interceptor EventInterceptor
+	myConfig   *Config
+	walStorage WALStorage
+	reqStorage RequestStorage
 
-	exitMutex    sync.Mutex
-	exitErr      error
-	exitStatus   *status.StateMachine
-	stateMachine *StateMachine
+	exitMutex  sync.Mutex
+	exitErr    error
+	exitStatus *status.StateMachine
 }
 
-func newSerializer(myConfig *Config, storage Storage, doneC <-chan struct{}) (*serializer, error) {
-	sm := &StateMachine{
-		Logger: myConfig.Logger,
-	}
-
-	applyEvent := func(stateEvent *pb.StateEvent) error {
-		if myConfig.EventInterceptor != nil {
-			myConfig.EventInterceptor.Intercept(stateEvent)
-		}
-
-		actions := sm.ApplyEvent(stateEvent)
-		if !actions.isEmpty() {
-			return errors.Errorf("did not expect any actions in response to initialization")
-		}
-
-		return nil
-	}
-
-	err := applyEvent(&pb.StateEvent{
-		Type: &pb.StateEvent_Initialize{
-			Initialize: &pb.StateEvent_InitialParameters{
-				Id:                   myConfig.ID,
-				BatchSize:            myConfig.BatchSize,
-				HeartbeatTicks:       myConfig.HeartbeatTicks,
-				SuspectTicks:         myConfig.SuspectTicks,
-				NewEpochTimeoutTicks: myConfig.NewEpochTimeoutTicks,
-				BufferSize:           myConfig.BufferSize,
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	for {
-		data, err := storage.LoadNext()
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			return nil, errors.Errorf("failed to load persisted from Storage: %s", err)
-		}
-
-		err = applyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_LoadEntry{
-				LoadEntry: &pb.StateEvent_PersistedEntry{
-					Entry: data,
-				},
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	err = applyEvent(&pb.StateEvent{
-		Type: &pb.StateEvent_CompleteInitialization{
-			CompleteInitialization: &pb.StateEvent_LoadCompleted{},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
+func newSerializer(myConfig *Config, walStorage WALStorage, reqStorage RequestStorage, doneC <-chan struct{}) (*serializer, error) {
 
 	s := &serializer{
-		actionsC:     make(chan Actions),
-		doneC:        doneC,
-		propC:        make(chan *pb.StateEvent_Proposal),
-		clientC:      make(chan *clientReq),
-		resultsC:     make(chan *pb.StateEvent_ActionResults),
-		statusC:      make(chan chan<- *status.StateMachine),
-		stepC:        make(chan *pb.StateEvent_Step),
-		tickC:        make(chan struct{}),
-		errC:         make(chan struct{}),
-		interceptor:  myConfig.EventInterceptor,
-		stateMachine: sm,
+		actionsC:   make(chan Actions),
+		doneC:      doneC,
+		propC:      make(chan *pb.StateEvent_Proposal),
+		clientC:    make(chan *clientReq),
+		resultsC:   make(chan *pb.StateEvent_ActionResults),
+		statusC:    make(chan chan<- *status.StateMachine),
+		stepC:      make(chan *pb.StateEvent_Step),
+		tickC:      make(chan struct{}),
+		errC:       make(chan struct{}),
+		myConfig:   myConfig,
+		walStorage: walStorage,
+		reqStorage: reqStorage,
 	}
 	go s.run()
 	return s, nil
@@ -134,6 +73,10 @@ func (s *serializer) getExitErr() error {
 // run must be single threaded and is therefore hidden to prevent accidental capture
 // of other go routines.
 func (s *serializer) run() {
+	sm := &StateMachine{
+		Logger: s.myConfig.Logger,
+	}
+
 	defer func() {
 		s.exitMutex.Lock()
 		defer s.exitMutex.Unlock()
@@ -147,61 +90,118 @@ func (s *serializer) run() {
 		} else {
 			s.exitErr = ErrStopped
 		}
-		s.exitStatus = s.stateMachine.Status()
+		s.exitStatus = sm.Status()
 	}()
 
 	actions := &Actions{}
+
+	applyEvent := func(stateEvent *pb.StateEvent) {
+		if s.myConfig.EventInterceptor != nil {
+			s.myConfig.EventInterceptor.Intercept(stateEvent)
+		}
+
+		actions.concat(sm.ApplyEvent(stateEvent))
+	}
+
+	applyEvent(&pb.StateEvent{
+		Type: &pb.StateEvent_Initialize{
+			Initialize: &pb.StateEvent_InitialParameters{
+				Id:                   s.myConfig.ID,
+				BatchSize:            s.myConfig.BatchSize,
+				HeartbeatTicks:       s.myConfig.HeartbeatTicks,
+				SuspectTicks:         s.myConfig.SuspectTicks,
+				NewEpochTimeoutTicks: s.myConfig.NewEpochTimeoutTicks,
+				BufferSize:           s.myConfig.BufferSize,
+			},
+		},
+	})
+
+	for {
+		data, err := s.walStorage.LoadNext()
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			panic(errors.WithMessage(err, "failed to load persisted from WALStorage"))
+		}
+
+		applyEvent(&pb.StateEvent{
+			Type: &pb.StateEvent_LoadEntry{
+				LoadEntry: &pb.StateEvent_PersistedEntry{
+					Entry: data,
+				},
+			},
+		})
+	}
+
+	applyEvent(&pb.StateEvent{
+		Type: &pb.StateEvent_CompleteInitialization{
+			CompleteInitialization: &pb.StateEvent_LoadCompleted{},
+		},
+	})
+
+	err := s.reqStorage.Uncommitted(func(ack *pb.RequestAck) {
+		applyEvent(&pb.StateEvent{
+			Type: &pb.StateEvent_Step{
+				Step: &pb.StateEvent_InboundMsg{
+					Source: s.myConfig.ID,
+					Msg: &pb.Msg{
+						Type: &pb.Msg_RequestAck{
+							RequestAck: ack,
+						},
+					},
+				},
+			},
+		})
+	})
+
+	if err != nil {
+		panic(errors.WithMessage(err, "encounterer error reading uncommitted requests"))
+	}
+
 	var actionsC chan<- Actions
 	for {
-		var stateEvent *pb.StateEvent
-
 		select {
 		case data := <-s.propC:
-			stateEvent = &pb.StateEvent{
+			applyEvent(&pb.StateEvent{
 				Type: &pb.StateEvent_Propose{
 					Propose: data,
 				},
-			}
+			})
 		case req := <-s.clientC:
-			req.replyC <- s.stateMachine.clientWaiter(req.clientID)
+			req.replyC <- sm.clientWaiter(req.clientID)
 		case step := <-s.stepC:
-			stateEvent = &pb.StateEvent{
+			applyEvent(&pb.StateEvent{
 				Type: step,
-			}
+			})
 		case actionsC <- *actions:
 			actions.clear()
 			actionsC = nil
-			stateEvent = &pb.StateEvent{
+			applyEvent(&pb.StateEvent{
 				Type: &pb.StateEvent_ActionsReceived{
 					ActionsReceived: &pb.StateEvent_Ready{},
 				},
-			}
+			})
 		case results := <-s.resultsC:
-			stateEvent = &pb.StateEvent{
+			applyEvent(&pb.StateEvent{
 				Type: &pb.StateEvent_AddResults{
 					AddResults: results,
 				},
-			}
+			})
 		case statusReq := <-s.statusC:
 			select {
-			case statusReq <- s.stateMachine.Status():
+			case statusReq <- sm.Status():
 			case <-s.doneC:
 			}
 		case <-s.tickC:
-			stateEvent = &pb.StateEvent{
+			applyEvent(&pb.StateEvent{
 				Type: &pb.StateEvent_Tick{
 					Tick: &pb.StateEvent_TickElapsed{},
 				},
-			}
+			})
 		case <-s.doneC:
 			return
-		}
-
-		if stateEvent != nil {
-			if s.interceptor != nil {
-				s.interceptor.Intercept(stateEvent)
-			}
-			actions.concat(s.stateMachine.ApplyEvent(stateEvent))
 		}
 
 		if !actions.isEmpty() {

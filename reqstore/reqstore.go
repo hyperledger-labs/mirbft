@@ -63,10 +63,19 @@ func (s *Store) Get(requestAck *pb.RequestAck) ([]byte, error) {
 	return valCopy, err
 }
 
+func (s *Store) Uncommitted(forEach func(ack *pb.RequestAck)) error {
+	return s.db.View(func(txn *badger.Txn) error {
+		return nil
+	})
+}
+
 func (s *Store) Sync() error {
 	return s.db.Sync()
 }
 
 func (s *Store) Close() {
 	s.db.Close()
+}
+
+type UncommittedIterator struct {
 }
