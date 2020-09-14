@@ -30,7 +30,7 @@ type WALStorage interface {
 	// LoadAll will invoke the given function with the the persisted entry
 	// iteratively, until the entire write-ahead-log has been loaded.
 	// If an error is encountered reading the log, it is returned and iteration stops.
-	LoadAll(forEach func(*pb.Persistent)) error
+	LoadAll(forEach func(index uint64, p *pb.Persistent)) error
 }
 
 type RequestStorage interface {
@@ -164,8 +164,8 @@ type dummyWAL struct {
 	initialCheckpointValue []byte
 }
 
-func (dw *dummyWAL) LoadAll(forEach func(*pb.Persistent)) error {
-	forEach(&pb.Persistent{
+func (dw *dummyWAL) LoadAll(forEach func(uint64, *pb.Persistent)) error {
+	forEach(0, &pb.Persistent{
 		Type: &pb.Persistent_CEntry{
 			CEntry: &pb.CEntry{
 				SeqNo:           0,
@@ -180,7 +180,7 @@ func (dw *dummyWAL) LoadAll(forEach func(*pb.Persistent)) error {
 		},
 	})
 
-	forEach(&pb.Persistent{
+	forEach(1, &pb.Persistent{
 		Type: &pb.Persistent_EpochChange{
 			EpochChange: &pb.EpochChange{
 				NewEpoch: 1,
