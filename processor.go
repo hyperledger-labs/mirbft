@@ -16,6 +16,8 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
+// TODO, convert panics into errors
+
 type Hasher func() hash.Hash
 
 type Link interface {
@@ -35,6 +37,7 @@ type WAL interface {
 type RequestStore interface {
 	Store(requestAck *pb.RequestAck, data []byte) error
 	Get(requestAck *pb.RequestAck) ([]byte, error)
+	Commit(requestAck *pb.RequestAck) error
 	Sync() error
 }
 
@@ -123,6 +126,13 @@ func (p *Processor) Process(actions *Actions) *ActionResults {
 
 	for _, commit := range actions.Commits {
 		p.Log.Apply(commit.QEntry) // Apply the entry
+
+		for _, reqAck := range commit.QEntry.Requests {
+			err := p.RequestStore.Commit(reqAck)
+			if err != nil {
+				panic("could not mark ack as committed, unsafe to continue")
+			}
+		}
 
 		if commit.Checkpoint {
 			value := p.Log.Snap()
@@ -316,6 +326,13 @@ func (wp *ProcessorWorkPool) commitInParallel(commits []*Commit, commitBatchDone
 
 		for _, commit := range commits {
 			wp.processor.Log.Apply(commit.QEntry) // Apply the entry
+
+			for _, reqAck := range commit.QEntry.Requests {
+				err := wp.processor.RequestStore.Commit(reqAck)
+				if err != nil {
+					panic("could not mark ack as committed, unsafe to continue")
+				}
+			}
 
 			if commit.Checkpoint {
 				value := wp.processor.Log.Snap()

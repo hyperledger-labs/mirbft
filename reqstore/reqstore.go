@@ -63,8 +63,30 @@ func (s *Store) Get(requestAck *pb.RequestAck) ([]byte, error) {
 	return valCopy, err
 }
 
+func (s *Store) Commit(ack *pb.RequestAck) error {
+	return s.db.Update(func(txn *badger.Txn) error {
+		return txn.Delete(key(ack))
+	})
+}
+
 func (s *Store) Uncommitted(forEach func(ack *pb.RequestAck)) error {
 	return s.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.IteratorOptions{})
+		defer it.Close()
+		for it.Rewind(); it.Valid(); it.Next() {
+			keyName := it.Item().Key()
+			ack := &pb.RequestAck{
+				Digest: make([]byte, 0, 32),
+			}
+			n, err := fmt.Sscanf(string(keyName), "%d.%d.%x", &ack.ClientId, &ack.ReqNo, &ack.Digest)
+			if err != nil {
+				return err
+			}
+			if n != 3 {
+				return errors.Errorf("could not scan request ack from key, unexpected!")
+			}
+			forEach(ack)
+		}
 		return nil
 	})
 }
@@ -75,7 +97,4 @@ func (s *Store) Sync() error {
 
 func (s *Store) Close() {
 	s.db.Close()
-}
-
-type UncommittedIterator struct {
 }
