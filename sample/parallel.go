@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"sync"
 
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -24,8 +25,11 @@ type ParallelProcessor struct {
 	Node                *mirbft.Node
 	TransmitParallelism int
 	HashParallelism     int
-	ActionsC            chan *mirbft.Actions
-	ActionsDoneC        chan *mirbft.ActionResults
+
+	actionsC     chan *mirbft.Actions
+	actionsDoneC chan *mirbft.ActionResults
+	exitC        chan struct{}
+	doneC        chan struct{}
 }
 
 type workerPools struct {
@@ -221,7 +225,23 @@ func (wp *workerPools) commitInParallel(commits []*mirbft.Commit, commitBatchDon
 	}()
 }
 
-func (pp *ParallelProcessor) Start(doneC <-chan struct{}) {
+func (pp *ParallelProcessor) Stop() {
+	close(pp.doneC)
+	<-pp.exitC
+}
+
+func (pp *ParallelProcessor) Start() {
+	pp.actionsC = make(chan *mirbft.Actions)
+	pp.actionsDoneC = make(chan *mirbft.ActionResults)
+	pp.exitC = make(chan struct{})
+	doneC := make(chan struct{})
+	pp.doneC = doneC
+	wg := &sync.WaitGroup{}
+	defer func() {
+		wg.Wait()
+		close(pp.exitC)
+	}()
+
 	if pp.TransmitParallelism == 0 {
 		pp.TransmitParallelism = runtime.NumCPU()
 	}
@@ -240,12 +260,20 @@ func (pp *ParallelProcessor) Start(doneC <-chan struct{}) {
 		hashDoneC:     make(chan *mirbft.HashResult, pp.HashParallelism),
 	}
 
+	wg.Add(pp.TransmitParallelism + pp.HashParallelism)
+
 	for i := 0; i < pp.TransmitParallelism; i++ {
-		go wp.serviceSendPool()
+		go func() {
+			wp.serviceSendPool()
+			wg.Done()
+		}()
 	}
 
 	for i := 0; i < pp.HashParallelism; i++ {
-		go wp.serviceHashPool()
+		go func() {
+			wp.serviceHashPool()
+			wg.Done()
+		}()
 	}
 
 	sendBatchDoneC := make(chan struct{}, 1)
@@ -254,7 +282,7 @@ func (pp *ParallelProcessor) Start(doneC <-chan struct{}) {
 
 	for {
 		select {
-		case actions := <-pp.ActionsC:
+		case actions := <-pp.actionsC:
 			wp.persistThenSendInParallel(actions.Persist, actions.StoreRequests, actions.Send, actions.ForwardRequests, sendBatchDoneC)
 			wp.hashInParallel(actions.Hash, hashBatchDoneC)
 			wp.commitInParallel(actions.Commits, commitBatchDoneC)
@@ -280,7 +308,7 @@ func (pp *ParallelProcessor) Start(doneC <-chan struct{}) {
 			}
 
 			select {
-			case pp.ActionsDoneC <- actionResults:
+			case pp.actionsDoneC <- actionResults:
 			case <-doneC:
 				return
 			}
@@ -292,13 +320,13 @@ func (pp *ParallelProcessor) Start(doneC <-chan struct{}) {
 
 func (pp *ParallelProcessor) Process(actions *mirbft.Actions, doneC <-chan struct{}) *mirbft.ActionResults {
 	select {
-	case pp.ActionsC <- actions:
+	case pp.actionsC <- actions:
 	case <-doneC:
 		return &mirbft.ActionResults{}
 	}
 
 	select {
-	case results := <-pp.ActionsDoneC:
+	case results := <-pp.actionsDoneC:
 		return results
 	case <-doneC:
 		return &mirbft.ActionResults{}

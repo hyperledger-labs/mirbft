@@ -205,7 +205,6 @@ func StartNewNode(
 	config *Config,
 	initialNetworkState *pb.NetworkState,
 	initialCheckpointValue []byte,
-	doneC <-chan struct{},
 ) (*Node, error) {
 	return RestartNode(
 		config,
@@ -214,7 +213,6 @@ func StartNewNode(
 			initialCheckpointValue: initialCheckpointValue,
 		},
 		dummyReqStore{},
-		doneC,
 	)
 }
 
@@ -225,9 +223,8 @@ func RestartNode(
 	config *Config,
 	walStorage WALStorage,
 	reqStorage RequestStorage,
-	doneC <-chan struct{},
 ) (*Node, error) {
-	serializer, err := newSerializer(config, walStorage, reqStorage, doneC)
+	serializer, err := newSerializer(config, walStorage, reqStorage)
 	if err != nil {
 		return nil, errors.Errorf("failed to start new node: %s", err)
 	}
@@ -251,6 +248,11 @@ func WaitForRoom(shouldBlock bool) ClientProposerOption {
 	return clientProposerBlocking{
 		shouldBlock: shouldBlock,
 	}
+}
+
+// Stop terminates the resources associated with the node
+func (n *Node) Stop() {
+	n.s.stop()
 }
 
 // ClientProposer returns a new ClientProposer for a given clientID.  It is the caller's

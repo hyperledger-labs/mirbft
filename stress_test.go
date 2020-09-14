@@ -13,7 +13,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"sort"
+	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -27,38 +28,18 @@ import (
 	"github.com/IBM/mirbft/reqstore"
 	"github.com/IBM/mirbft/sample"
 	"github.com/IBM/mirbft/simplewal"
+	"github.com/IBM/mirbft/status"
 
 	"go.uber.org/zap"
 )
 
-type FakeRequestStore struct {
-	mutex sync.Mutex
-	store map[string]*pb.Request
+type FakeClient struct {
+	MsgCount uint64
 }
 
-func (frs *FakeRequestStore) Store(requestAck *pb.RequestAck, data []byte) error {
-	frs.mutex.Lock()
-	defer frs.mutex.Unlock()
-	if frs.store == nil {
-		frs.store = map[string]*pb.Request{}
-	}
-
-	frs.store[string(requestAck.Digest)] = &pb.Request{
-		ReqNo:    requestAck.ReqNo,
-		ClientId: requestAck.ClientId,
-		Data:     data,
-	}
-	return nil
-}
-
-func (frs *FakeRequestStore) Get(requestAck *pb.RequestAck) ([]byte, error) {
-	frs.mutex.Lock()
-	defer frs.mutex.Unlock()
-	req := frs.store[string(requestAck.Digest)]
-	Expect(req).NotTo(BeNil())
-	Expect(req.ReqNo).To(Equal(requestAck.ReqNo))
-	Expect(req.ClientId).To(Equal(requestAck.ClientId))
-	return req.Data, nil
+type SourceMsg struct {
+	Source uint64
+	Msg    *pb.Msg
 }
 
 type FakeLink struct {
@@ -72,20 +53,30 @@ func (fl *FakeLink) Send(dest uint64, msg *pb.Msg) {
 
 type FakeTransport struct {
 	// Buffers is source x dest
-	Buffers [][]chan *pb.Msg
+	Buffers   [][]chan *pb.Msg
+	NodeSinks []chan SourceMsg
+	WaitGroup sync.WaitGroup
+	DoneC     chan struct{}
 }
 
 func NewFakeTransport(nodes int) *FakeTransport {
 	buffers := make([][]chan *pb.Msg, nodes)
+	nodeSinks := make([]chan SourceMsg, nodes)
 	for i := 0; i < nodes; i++ {
 		buffers[i] = make([]chan *pb.Msg, nodes)
 		for j := 0; j < nodes; j++ {
+			if i == j {
+				continue
+			}
 			buffers[i][j] = make(chan *pb.Msg, 10000)
 		}
+		nodeSinks[i] = make(chan SourceMsg)
 	}
 
 	return &FakeTransport{
-		Buffers: buffers,
+		Buffers:   buffers,
+		NodeSinks: nodeSinks,
+		DoneC:     make(chan struct{}),
 	}
 }
 
@@ -102,6 +93,47 @@ func (ft *FakeTransport) Link(source uint64) *FakeLink {
 		Source:        source,
 		FakeTransport: ft,
 	}
+}
+
+func (ft *FakeTransport) RecvC(dest uint64) <-chan SourceMsg {
+	return ft.NodeSinks[int(dest)]
+}
+
+func (ft *FakeTransport) Start() {
+	for i, sourceBuffers := range ft.Buffers {
+		for j, buffer := range sourceBuffers {
+			if i == j {
+				continue
+			}
+
+			ft.WaitGroup.Add(1)
+			go func(i, j int, buffer chan *pb.Msg) {
+				// fmt.Printf("Starting drain thread from %d to %d\n", i, j)
+				defer ft.WaitGroup.Done()
+				for {
+					select {
+					case msg := <-buffer:
+						// fmt.Printf("Sending message from %d to %d\n", i, j)
+						select {
+						case ft.NodeSinks[j] <- SourceMsg{
+							Source: uint64(i),
+							Msg:    msg,
+						}:
+						case <-ft.DoneC:
+							return
+						}
+					case <-ft.DoneC:
+						return
+					}
+				}
+			}(i, j, buffer)
+		}
+	}
+}
+
+func (ft *FakeTransport) Stop() {
+	close(ft.DoneC)
+	ft.WaitGroup.Wait()
 }
 
 type FakeLog struct {
@@ -149,10 +181,12 @@ func BytesToUint64(value []byte) uint64 {
 // correctly.
 var _ = Describe("StressyTest", func() {
 	var (
-		doneC     chan struct{}
-		logger    *zap.Logger
-		proposals map[uint64]*pb.Request
-		wg        sync.WaitGroup
+		doneC                 chan struct{}
+		logger                *zap.Logger
+		expectedProposalCount int
+		proposals             map[uint64]*pb.Request
+		wg                    sync.WaitGroup
+		nodeStatusesC         chan []*NodeStatus
 
 		network *Network
 	)
@@ -174,114 +208,55 @@ var _ = Describe("StressyTest", func() {
 		logger.Sync()
 		wg.Wait()
 
-		if CurrentGinkgoTestDescription().Failed {
-			fmt.Printf("\n\nPrinting state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
-			Expect(network).NotTo(BeNil())
-
-			for nodeIndex, replica := range network.TestReplicas {
-				if replica.Processor != nil {
-					replica.Processor.WAL.(*simplewal.WAL).Close()
-					replica.Processor.RequestStore.(*reqstore.Store).Close()
-				}
-				os.RemoveAll(replica.WALDir)
-				os.RemoveAll(replica.ReqStoreDir)
-
-				fmt.Printf("\nStatus for node %d\n", nodeIndex)
-				<-replica.Node.Err() // Make sure the serializer has exited
-				status, err := replica.Node.Status(context.Background())
-				Expect(err).To(HaveOccurred())
-
-				if err == mirbft.ErrStopped {
-					fmt.Printf("\nStopped normally\n")
-				} else {
-					fmt.Printf("\nStopped with error: %+v\n", err)
-				}
-
-				if status == nil {
-					fmt.Printf("Could not get status for node %d: %s", nodeIndex, err)
-				} else {
-					fmt.Printf("%s\n", status.Pretty())
-				}
-
-				fmt.Printf("\nFakeLog has %d messages\n", len(replica.Log.Entries))
-
-				if len(proposals) > len(replica.Log.Entries)+10 {
-					fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(replica.Log.Entries))
-				} else if len(proposals) > len(replica.Log.Entries) {
-					entries := map[uint64]struct{}{}
-					for _, entry := range replica.Log.Entries {
-						for _, req := range entry.Requests {
-							data, err := replica.Processor.RequestStore.Get(req)
-							Expect(err).NotTo(HaveOccurred())
-							entries[BytesToUint64(data)] = struct{}{}
-						}
-					}
-
-					var missing []uint64
-					for proposalID := range proposals {
-						if _, ok := entries[proposalID]; !ok {
-							missing = append(missing, proposalID)
-						}
-					}
-					sort.Slice(missing, func(i, j int) bool {
-						return missing[i] < missing[j]
-					})
-
-					fmt.Printf("Missing entries\n")
-					for _, proposalID := range missing {
-						request := proposals[proposalID]
-						fmt.Printf("  ClientID=%d ReqNo=%d\n", request.ClientId, request.ReqNo)
-					}
-				}
-
-				fmt.Printf("\nLog available at %s\n", replica.RecordingFile.Name())
-			}
-
-		} else {
-			for _, replica := range network.TestReplicas {
-				if replica.Processor != nil {
-					replica.Processor.WAL.(*simplewal.WAL).Close()
-					replica.Processor.RequestStore.(*reqstore.Store).Close()
-				}
-				os.RemoveAll(replica.WALDir)
-				os.RemoveAll(replica.ReqStoreDir)
-				os.Remove(replica.RecordingFile.Name())
-			}
+		if nodeStatusesC == nil {
+			fmt.Printf("Unexpected network status is nil, skipping status!\n")
+			return
 		}
+
+		nodeStatuses := <-nodeStatusesC
+
+		if !CurrentGinkgoTestDescription().Failed {
+			for _, replica := range network.TestReplicas {
+				os.RemoveAll(replica.TmpDir)
+			}
+			return
+		}
+
+		fmt.Printf("\n\nPrinting state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
+
+		for nodeIndex, replica := range network.TestReplicas {
+			fmt.Printf("\nStatus for node %d\n", nodeIndex)
+			nodeStatus := nodeStatuses[nodeIndex]
+
+			if nodeStatus.ExitErr == mirbft.ErrStopped {
+				fmt.Printf("\nStopped normally\n")
+			} else {
+				fmt.Printf("\nStopped with error: %+v\n", nodeStatus.ExitErr)
+			}
+
+			if nodeStatus.Status == nil {
+				fmt.Printf("Could not get status for node %d", nodeIndex)
+			} else {
+				fmt.Printf("%s\n", nodeStatus.Status.Pretty())
+			}
+
+			fmt.Printf("\nFakeLog has %d messages\n", len(replica.Log.Entries))
+
+			if expectedProposalCount > len(replica.Log.Entries) {
+				fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(replica.Log.Entries))
+			}
+
+			fmt.Printf("\nLog available at %s\n", filepath.Join(replica.TmpDir, "recording.eventlog"))
+		}
+
 	})
 
 	DescribeTable("commits all messages", func(testConfig *TestConfig) {
-		ctx, cancel := context.WithTimeout(context.Background(), ContextTimeout)
-		defer cancel()
-
-		network = CreateNetwork(ctx, &wg, testConfig, logger, doneC)
-
-		network.GoRunNetwork(ctx, doneC, &wg)
-
-		proposers := make([]*mirbft.ClientProposer, len(network.TestReplicas))
-		for i, replica := range network.TestReplicas {
-			var err error
-			proposers[i], err = replica.Node.ClientProposer(ctx, 0)
-			Expect(err).NotTo(HaveOccurred())
-		}
-
-		Expect(testConfig.MsgCount).NotTo(Equal(0))
-		proposalID := uint64(0)
-		for i := 0; i < testConfig.MsgCount; i++ {
-			proposalID++
-			proposal := &pb.Request{
-				ClientId: 0,
-				ReqNo:    uint64(i),
-				Data:     Uint64ToBytes(proposalID),
-			}
-
-			for _, proposer := range proposers {
-				err := proposer.Propose(ctx, proposal)
-				Expect(err).NotTo(HaveOccurred())
-			}
-
-			proposals[proposalID] = proposal
-		}
+		nodeStatusesC = make(chan []*NodeStatus, 1)
+		network = CreateNetwork(testConfig, logger, doneC)
+		go func() {
+			nodeStatusesC <- network.Run()
+		}()
 
 		observations := map[uint64]struct{}{}
 		for j, replica := range network.TestReplicas {
@@ -291,15 +266,10 @@ var _ = Describe("StressyTest", func() {
 				Eventually(replica.Log.CommitC, 10*time.Second).Should(Receive(&entry))
 
 				for _, req := range entry.Requests {
-					data, err := replica.Processor.RequestStore.Get(req)
-					Expect(err).NotTo(HaveOccurred())
-					proposalID := BytesToUint64(data)
-					_, ok := proposals[proposalID]
-					Expect(ok).To(BeTrue())
-
-					_, ok = observations[proposalID]
+					Expect(req.ReqNo).To(BeNumerically("<", testConfig.MsgCount))
+					_, ok := observations[req.ReqNo]
 					Expect(ok).To(BeFalse())
-					observations[proposalID] = struct{}{}
+					observations[req.ReqNo] = struct{}{}
 				}
 			}
 		}
@@ -334,69 +304,133 @@ var _ = Describe("StressyTest", func() {
 })
 
 type TestReplica struct {
-	Node          *mirbft.Node
-	RecordingFile *os.File
-	WALDir        string
-	ReqStoreDir   string
-	Log           *FakeLog
-	Processor     *sample.ParallelProcessor
-	FakeTransport *FakeTransport
-	DoneC         <-chan struct{}
+	Config              *mirbft.Config
+	InitialNetworkState *pb.NetworkState
+	TmpDir              string
+	Log                 *FakeLog
+	FakeTransport       *FakeTransport
+	FakeClient          *FakeClient
+	DoneC               <-chan struct{}
 }
 
-func (tr *TestReplica) ParallelProcessor() error {
-	tr.Processor.Start(tr.DoneC)
-	return nil
-}
-
-func (tr *TestReplica) Process() error {
+func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case actions := <-tr.Node.Ready():
-			results := tr.Processor.Process(&actions, tr.DoneC)
-			tr.Node.AddResults(*results)
-		case <-tr.Node.Err():
-			_, err := tr.Node.Status(context.Background())
-			if err != mirbft.ErrStopped {
-				return err
-			}
-			return nil
-		case <-ticker.C:
-			tr.Node.Tick()
-		}
-	}
-}
+	reqStorePath := filepath.Join(tr.TmpDir, "reqstore")
+	err := os.MkdirAll(reqStorePath, 0700)
+	Expect(err).NotTo(HaveOccurred())
 
-func (tr *TestReplica) DrainRecorder() error {
-	defer tr.RecordingFile.Close()
-	return tr.Node.Config.EventInterceptor.(*recorder.Interceptor).Drain(tr.RecordingFile)
-}
+	walPath := filepath.Join(tr.TmpDir, "wal")
+	err = os.MkdirAll(walPath, 0700)
+	Expect(err).NotTo(HaveOccurred())
 
-func (tr *TestReplica) DrainFrom(j int) func() error {
-	return func() error {
-		sourceBuffer := tr.FakeTransport.Buffers[j][int(tr.Node.Config.ID)]
+	wal, err := simplewal.Open(walPath)
+	Expect(err).NotTo(HaveOccurred())
+	defer wal.Close()
+
+	reqStore, err := reqstore.Open(reqStorePath)
+	Expect(err).NotTo(HaveOccurred())
+	defer reqStore.Close()
+
+	node, err := mirbft.StartNewNode(tr.Config, tr.InitialNetworkState, []byte("fake-application-state"))
+	Expect(err).NotTo(HaveOccurred())
+	defer node.Stop()
+
+	linkDoneC := make(chan struct{})
+	go func() {
+		defer close(linkDoneC)
+		recvC := tr.FakeTransport.RecvC(node.Config.ID)
 		for {
 			select {
-			case msg := <-sourceBuffer:
-				err := tr.Node.Step(context.Background(), uint64(j), msg)
-				if err != nil && err != mirbft.ErrStopped {
-					return err
+			case sourceMsg := <-recvC:
+				// fmt.Printf("Stepping message from %d to %d\n", sourceMsg.Source, node.Config.ID)
+				err := node.Step(context.Background(), sourceMsg.Source, sourceMsg.Msg)
+				if err == mirbft.ErrStopped {
+					return
 				}
+				Expect(err).NotTo(HaveOccurred())
 			case <-tr.DoneC:
-				return nil
+				return
 			}
+		}
+	}()
+	defer func() {
+		<-linkDoneC
+	}()
+
+	processor := &sample.SerialProcessor{
+		Node:         node,
+		Link:         tr.FakeTransport.Link(node.Config.ID),
+		Hasher:       sha256.New,
+		Log:          tr.Log,
+		RequestStore: reqStore,
+		WAL:          wal,
+	}
+	// processor.Start()
+	// defer processor.Stop()
+
+	recordingFile := filepath.Join(tr.TmpDir, "recording.eventlog")
+	recorderDoneC := make(chan struct{})
+	recording, err := os.Create(recordingFile)
+	Expect(err).NotTo(HaveOccurred())
+
+	go func() {
+		node.Config.EventInterceptor.(*recorder.Interceptor).Drain(recording)
+		close(recorderDoneC)
+	}()
+	defer func() {
+		<-recorderDoneC
+		recording.Close()
+	}()
+
+	proposer, err := node.ClientProposer(context.Background(), 0)
+	Expect(err).NotTo(HaveOccurred())
+
+	expectedProposalCount := tr.FakeClient.MsgCount
+	Expect(expectedProposalCount).NotTo(Equal(0))
+
+	go func() {
+		defer GinkgoRecover()
+		for i := uint64(0); i < expectedProposalCount; i++ {
+			proposal := &pb.Request{
+				ClientId: 0,
+				ReqNo:    i,
+				Data:     Uint64ToBytes(i),
+			}
+
+			err := proposer.Propose(context.Background(), proposal)
+			Expect(err).NotTo(HaveOccurred())
+		}
+	}()
+
+	for {
+		select {
+		case actions := <-node.Ready():
+			results := processor.Process(&actions) // , tr.DoneC)
+			node.AddResults(*results)
+		case <-node.Err():
+			return node.Status(context.Background())
+		case <-ticker.C:
+			node.Tick()
+		case <-tr.DoneC:
+			node.Stop()
+			return node.Status(context.Background())
 		}
 	}
 }
 
 type Network struct {
+	Transport    *FakeTransport
 	TestReplicas []*TestReplica
 }
 
-func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
+type NodeStatus struct {
+	Status  *status.StateMachine
+	ExitErr error
+}
+
+func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
 	transport := NewFakeTransport(testConfig.NodeCount)
 
 	networkState := mirbft.StandardInitialNetworkState(testConfig.NodeCount, 0)
@@ -416,6 +450,9 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 	}
 
 	replicas := make([]*TestReplica, testConfig.NodeCount)
+
+	tmpDir, err := ioutil.TempDir("", "stress_test.*")
+	Expect(err).NotTo(HaveOccurred())
 
 	startTime := time.Now()
 	for i := range replicas {
@@ -441,24 +478,6 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 			config.BatchSize = testConfig.BatchSize
 		}
 
-		recordingFile, err := ioutil.TempFile("", fmt.Sprintf("stressy.%d-*.eventlog", i))
-		Expect(err).NotTo(HaveOccurred())
-
-		walDir, err := ioutil.TempDir("", fmt.Sprintf("stressy.%d-*.waldir", i))
-		Expect(err).NotTo(HaveOccurred())
-
-		reqStoreDir, err := ioutil.TempDir("", fmt.Sprintf("stressy.%d-*.reqstore", i))
-		Expect(err).NotTo(HaveOccurred())
-
-		wal, err := simplewal.Open(walDir)
-		Expect(err).NotTo(HaveOccurred())
-
-		reqStore, err := reqstore.Open(reqStoreDir)
-		Expect(err).NotTo(HaveOccurred())
-
-		node, err := mirbft.StartNewNode(config, networkState, []byte("fake-application-state"), doneC)
-		Expect(err).NotTo(HaveOccurred())
-
 		fakeLog := &FakeLog{
 			// We make the CommitC excessive, to prevent deadlock
 			// in case of bugs this test would otherwise catch.
@@ -466,51 +485,56 @@ func CreateNetwork(ctx context.Context, wg *sync.WaitGroup, testConfig *TestConf
 		}
 
 		replicas[i] = &TestReplica{
-			Node:          node,
-			RecordingFile: recordingFile,
-			WALDir:        walDir,
-			ReqStoreDir:   reqStoreDir,
-			Log:           fakeLog,
-			FakeTransport: transport,
-			Processor: &sample.ParallelProcessor{
-				Node:         node,
-				Link:         transport.Link(node.Config.ID),
-				Hasher:       sha256.New,
-				Log:          fakeLog,
-				RequestStore: reqStore,
-				WAL:          wal,
-				ActionsC:     make(chan *mirbft.Actions),
-				ActionsDoneC: make(chan *mirbft.ActionResults),
+			Config:              config,
+			InitialNetworkState: networkState,
+			TmpDir:              filepath.Join(tmpDir, fmt.Sprintf("node%d", i)),
+			Log:                 fakeLog,
+			FakeTransport:       transport,
+			FakeClient: &FakeClient{
+				MsgCount: uint64(testConfig.MsgCount),
 			},
 			DoneC: doneC,
 		}
 	}
 
 	return &Network{
+		Transport:    transport,
 		TestReplicas: replicas,
 	}
 }
 
-func (n *Network) GoRunNetwork(context context.Context, doneC <-chan struct{}, wg *sync.WaitGroup) {
-	goWork := func(i int, desc string, work func() error) {
+func (n *Network) Run() []*NodeStatus {
+	result := make([]*NodeStatus, len(n.TestReplicas))
+	var wg sync.WaitGroup
+
+	// Start the Mir nodes
+	for i, testReplica := range n.TestReplicas {
+		nodeStatus := &NodeStatus{}
+		result[i] = nodeStatus
 		wg.Add(1)
-		go func() {
+		go func(i int, testReplica *TestReplica) {
 			defer GinkgoRecover()
 			defer wg.Done()
-			defer fmt.Printf("Node %d: Shutting down go routine %s\n", i, desc)
-			err := work()
-			if err != nil {
-				fmt.Printf("Node %d: Error performing work %s: %v\n", i, desc, err)
-			}
-		}()
+			defer func() {
+				fmt.Printf("Node %d: shutting down", i)
+				if r := recover(); r != nil {
+					fmt.Printf("  Node %d: received panic %s\n%s\n", i, r, debug.Stack())
+					panic(r)
+				}
+			}()
+
+			fmt.Printf("Node %d: running\n", i)
+			status, err := testReplica.Run()
+			fmt.Printf("Node %d: exit with exitErr=%v\n", i, err)
+			nodeStatus.Status, nodeStatus.ExitErr = status, err
+		}(i, testReplica)
 	}
 
-	for i, testReplica := range n.TestReplicas {
-		goWork(i, "ParallelProcessor", testReplica.ParallelProcessor)
-		goWork(i, "Process", testReplica.Process)
-		goWork(i, "DrainRecorder", testReplica.DrainRecorder)
-		for j := range n.TestReplicas {
-			goWork(i, fmt.Sprintf("DrainTransportFrom_%d", j), testReplica.DrainFrom(j))
-		}
-	}
+	n.Transport.Start()
+	defer n.Transport.Stop()
+
+	wg.Wait()
+
+	fmt.Printf("All go routines shut down\n")
+	return result
 }

@@ -25,7 +25,7 @@ type clientReq struct {
 // and passes work to/from the state machine.
 type serializer struct {
 	actionsC chan Actions
-	doneC    <-chan struct{}
+	doneC    chan struct{}
 	clientC  chan *clientReq
 	propC    chan *pb.StateEvent_Proposal
 	resultsC chan *pb.StateEvent_ActionResults
@@ -43,11 +43,11 @@ type serializer struct {
 	exitStatus *status.StateMachine
 }
 
-func newSerializer(myConfig *Config, walStorage WALStorage, reqStorage RequestStorage, doneC <-chan struct{}) (*serializer, error) {
+func newSerializer(myConfig *Config, walStorage WALStorage, reqStorage RequestStorage) (*serializer, error) {
 
 	s := &serializer{
 		actionsC:   make(chan Actions),
-		doneC:      doneC,
+		doneC:      make(chan struct{}),
 		propC:      make(chan *pb.StateEvent_Proposal),
 		clientC:    make(chan *clientReq),
 		resultsC:   make(chan *pb.StateEvent_ActionResults),
@@ -61,6 +61,17 @@ func newSerializer(myConfig *Config, walStorage WALStorage, reqStorage RequestSt
 	}
 	go s.run()
 	return s, nil
+}
+
+func (s *serializer) stop() {
+	s.exitMutex.Lock()
+	s.exitMutex.Unlock()
+	select {
+	case <-s.doneC:
+	default:
+		close(s.doneC)
+	}
+	<-s.errC
 }
 
 func (s *serializer) getExitErr() error {
