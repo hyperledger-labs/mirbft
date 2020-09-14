@@ -48,6 +48,15 @@ func Open(path string) (*WAL, error) {
 	return result, nil
 }
 
+func (w *WAL) IsEmpty() (bool, error) {
+	firstIndex, err := w.log.FirstIndex()
+	if err != nil {
+		return false, errors.WithMessage(err, "could not read first index")
+	}
+
+	return firstIndex == 0, nil
+}
+
 func (w *WAL) LoadAll(forEach func(index uint64, p *pb.Persistent)) error {
 	firstIndex, err := w.log.FirstIndex()
 	if err != nil {
