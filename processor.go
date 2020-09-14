@@ -47,42 +47,42 @@ type Processor struct {
 	Node         *Node
 }
 
-func persistSerially(sp *Processor, actions *Actions) {
+func ProcessSerially(actions *Actions, p *Processor) *ActionResults {
+	// Persist
 	for _, r := range actions.StoreRequests {
-		sp.RequestStore.Store(
+		p.RequestStore.Store(
 			r.RequestAck,
 			r.RequestData,
 		)
 	}
 
-	if err := sp.RequestStore.Sync(); err != nil {
+	if err := p.RequestStore.Sync(); err != nil {
 		panic(fmt.Sprintf("could not sync request store, unsafe to continue: %s\n", err))
 	}
 
-	for _, p := range actions.Persist {
-		if err := sp.WAL.Append(p); err != nil {
+	for _, ps := range actions.Persist {
+		if err := p.WAL.Append(ps); err != nil {
 			panic(fmt.Sprintf("could not persist entry, not safe to continue: %s", err))
 		}
 	}
 
-	if err := sp.WAL.Sync(); err != nil {
+	if err := p.WAL.Sync(); err != nil {
 		panic(fmt.Sprintf("could not sync WAL, not safe to continue: %s", err))
 	}
-}
 
-func transmitSerially(sp *Processor, actions *Actions) {
+	// Transmit
 	for _, send := range actions.Send {
 		for _, replica := range send.Targets {
-			if replica == sp.Node.Config.ID {
-				sp.Node.Step(context.Background(), replica, send.Msg)
+			if replica == p.Node.Config.ID {
+				p.Node.Step(context.Background(), replica, send.Msg)
 			} else {
-				sp.Link.Send(replica, send.Msg)
+				p.Link.Send(replica, send.Msg)
 			}
 		}
 	}
 
 	for _, r := range actions.ForwardRequests {
-		requestData, err := sp.RequestStore.Get(r.RequestAck)
+		requestData, err := p.RequestStore.Get(r.RequestAck)
 		if err != nil {
 			panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
 		}
@@ -96,22 +96,21 @@ func transmitSerially(sp *Processor, actions *Actions) {
 			},
 		}
 		for _, replica := range r.Targets {
-			if replica == sp.Node.Config.ID {
-				sp.Node.Step(context.Background(), replica, fr)
+			if replica == p.Node.Config.ID {
+				p.Node.Step(context.Background(), replica, fr)
 			} else {
-				sp.Link.Send(replica, fr)
+				p.Link.Send(replica, fr)
 			}
 		}
 	}
-}
 
-func applySerially(sp *Processor, actions *Actions) *ActionResults {
+	// Apply
 	actionResults := &ActionResults{
 		Digests: make([]*HashResult, len(actions.Hash)),
 	}
 
 	for i, req := range actions.Hash {
-		h := sp.Hasher()
+		h := p.Hasher()
 		for _, data := range req.Data {
 			h.Write(data)
 		}
@@ -123,10 +122,10 @@ func applySerially(sp *Processor, actions *Actions) *ActionResults {
 	}
 
 	for _, commit := range actions.Commits {
-		sp.Log.Apply(commit.QEntry) // Apply the entry
+		p.Log.Apply(commit.QEntry) // Apply the entry
 
 		if commit.Checkpoint {
-			value := sp.Log.Snap()
+			value := p.Log.Snap()
 			actionResults.Checkpoints = append(actionResults.Checkpoints, &CheckpointResult{
 				Commit: commit,
 				Value:  value,
@@ -135,12 +134,6 @@ func applySerially(sp *Processor, actions *Actions) *ActionResults {
 	}
 
 	return actionResults
-}
-
-func ProcessSerially(actions *Actions, sp *Processor) *ActionResults {
-	persistSerially(sp, actions)
-	transmitSerially(sp, actions)
-	return applySerially(sp, actions)
 }
 
 type ParallelProcessor struct {

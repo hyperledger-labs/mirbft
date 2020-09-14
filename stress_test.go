@@ -399,6 +399,11 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			}
 
 			err := proposer.Propose(context.Background(), proposal)
+			if err == mirbft.ErrStopped {
+				// It could so happen that everything commits before
+				// the proposals all finish everywhere
+				return
+			}
 			Expect(err).NotTo(HaveOccurred())
 		}
 	}()
