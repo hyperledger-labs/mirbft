@@ -4,17 +4,144 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package sample
+package mirbft
 
 import (
 	"context"
 	"fmt"
+	"hash"
 	"runtime"
 	"sync"
 
-	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
+
+type Hasher func() hash.Hash
+
+type Link interface {
+	Send(dest uint64, msg *pb.Msg)
+}
+
+type Log interface {
+	Apply(*pb.QEntry)
+	Snap() (id []byte)
+}
+
+type WAL interface {
+	Append(entry *pb.Persistent) error
+	Sync() error
+}
+
+type RequestStore interface {
+	Store(requestAck *pb.RequestAck, data []byte) error
+	Get(requestAck *pb.RequestAck) ([]byte, error)
+	Sync() error
+}
+
+type Processor struct {
+	Link         Link
+	Hasher       Hasher
+	Log          Log
+	WAL          WAL
+	RequestStore RequestStore
+	Node         *Node
+}
+
+func persistSerially(sp *Processor, actions *Actions) {
+	for _, r := range actions.StoreRequests {
+		sp.RequestStore.Store(
+			r.RequestAck,
+			r.RequestData,
+		)
+	}
+
+	if err := sp.RequestStore.Sync(); err != nil {
+		panic(fmt.Sprintf("could not sync request store, unsafe to continue: %s\n", err))
+	}
+
+	for _, p := range actions.Persist {
+		if err := sp.WAL.Append(p); err != nil {
+			panic(fmt.Sprintf("could not persist entry, not safe to continue: %s", err))
+		}
+	}
+
+	if err := sp.WAL.Sync(); err != nil {
+		panic(fmt.Sprintf("could not sync WAL, not safe to continue: %s", err))
+	}
+}
+
+func transmitSerially(sp *Processor, actions *Actions) {
+	for _, send := range actions.Send {
+		for _, replica := range send.Targets {
+			if replica == sp.Node.Config.ID {
+				sp.Node.Step(context.Background(), replica, send.Msg)
+			} else {
+				sp.Link.Send(replica, send.Msg)
+			}
+		}
+	}
+
+	for _, r := range actions.ForwardRequests {
+		requestData, err := sp.RequestStore.Get(r.RequestAck)
+		if err != nil {
+			panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
+		}
+
+		fr := &pb.Msg{
+			Type: &pb.Msg_ForwardRequest{
+				&pb.ForwardRequest{
+					RequestAck:  r.RequestAck,
+					RequestData: requestData,
+				},
+			},
+		}
+		for _, replica := range r.Targets {
+			if replica == sp.Node.Config.ID {
+				sp.Node.Step(context.Background(), replica, fr)
+			} else {
+				sp.Link.Send(replica, fr)
+			}
+		}
+	}
+}
+
+func applySerially(sp *Processor, actions *Actions) *ActionResults {
+	actionResults := &ActionResults{
+		Digests: make([]*HashResult, len(actions.Hash)),
+	}
+
+	for i, req := range actions.Hash {
+		h := sp.Hasher()
+		for _, data := range req.Data {
+			h.Write(data)
+		}
+
+		actionResults.Digests[i] = &HashResult{
+			Request: req,
+			Digest:  h.Sum(nil),
+		}
+	}
+
+	for _, commit := range actions.Commits {
+		sp.Log.Apply(commit.QEntry) // Apply the entry
+
+		if commit.Checkpoint {
+			value := sp.Log.Snap()
+			actionResults.Checkpoints = append(actionResults.Checkpoints, &CheckpointResult{
+				Commit: commit,
+				Value:  value,
+			})
+		}
+	}
+
+	return actionResults
+}
+
+func ProcessSerially(actions *Actions, sp *Processor) *ActionResults {
+	persistSerially(sp, actions)
+	transmitSerially(sp, actions)
+	return applySerially(sp, actions)
+}
 
 type ParallelProcessor struct {
 	Link                Link
@@ -22,12 +149,12 @@ type ParallelProcessor struct {
 	Log                 Log
 	WAL                 WAL
 	RequestStore        RequestStore
-	Node                *mirbft.Node
+	Node                *Node
 	TransmitParallelism int
 	HashParallelism     int
 
-	actionsC     chan *mirbft.Actions
-	actionsDoneC chan *mirbft.ActionResults
+	actionsC     chan *Actions
+	actionsDoneC chan *ActionResults
 	exitC        chan struct{}
 	doneC        chan struct{}
 }
@@ -37,10 +164,10 @@ type workerPools struct {
 
 	// these four channels are buffered and serviced
 	// by the worker pool routines
-	transmitC     chan mirbft.Send
+	transmitC     chan Send
 	transmitDoneC chan struct{}
-	hashC         chan *mirbft.HashRequest
-	hashDoneC     chan *mirbft.HashResult
+	hashC         chan *HashRequest
+	hashDoneC     chan *HashResult
 
 	// doneC is supplied when the pools are started
 	// and when closed causes all processing to halt
@@ -72,8 +199,8 @@ func (wp *workerPools) serviceSendPool() {
 func (wp *workerPools) persistThenSendInParallel(
 	persist []*pb.Persistent,
 	store []*pb.ForwardRequest,
-	sends []mirbft.Send,
-	forwards []mirbft.Forward,
+	sends []Send,
+	forwards []Forward,
 	sendDoneC chan<- struct{},
 ) {
 	// First begin forwarding requests over the network, this may be done concurrently
@@ -98,7 +225,7 @@ func (wp *workerPools) persistThenSendInParallel(
 			}
 
 			select {
-			case wp.transmitC <- mirbft.Send{
+			case wp.transmitC <- Send{
 				Targets: r.Targets,
 				Msg:     fr,
 			}:
@@ -163,7 +290,7 @@ func (wp *workerPools) serviceHashPool() {
 				h.Write(data)
 			}
 
-			result := &mirbft.HashResult{
+			result := &HashResult{
 				Request: hashReq,
 				Digest:  h.Sum(nil),
 			}
@@ -179,7 +306,7 @@ func (wp *workerPools) serviceHashPool() {
 	}
 }
 
-func (wp *workerPools) hashInParallel(hashReqs []*mirbft.HashRequest, hashBatchDoneC chan<- []*mirbft.HashResult) {
+func (wp *workerPools) hashInParallel(hashReqs []*HashRequest, hashBatchDoneC chan<- []*HashResult) {
 	go func() {
 		for _, hashReq := range hashReqs {
 			select {
@@ -191,7 +318,7 @@ func (wp *workerPools) hashInParallel(hashReqs []*mirbft.HashRequest, hashBatchD
 	}()
 
 	go func() {
-		hashResults := make([]*mirbft.HashResult, 0, len(hashReqs))
+		hashResults := make([]*HashResult, 0, len(hashReqs))
 		for len(hashResults) < len(hashReqs) {
 			select {
 			case hashResult := <-wp.hashDoneC:
@@ -205,16 +332,16 @@ func (wp *workerPools) hashInParallel(hashReqs []*mirbft.HashRequest, hashBatchD
 	}()
 }
 
-func (wp *workerPools) commitInParallel(commits []*mirbft.Commit, commitBatchDoneC chan<- []*mirbft.CheckpointResult) {
+func (wp *workerPools) commitInParallel(commits []*Commit, commitBatchDoneC chan<- []*CheckpointResult) {
 	go func() {
-		var checkpoints []*mirbft.CheckpointResult
+		var checkpoints []*CheckpointResult
 
 		for _, commit := range commits {
 			wp.processor.Log.Apply(commit.QEntry) // Apply the entry
 
 			if commit.Checkpoint {
 				value := wp.processor.Log.Snap()
-				checkpoints = append(checkpoints, &mirbft.CheckpointResult{
+				checkpoints = append(checkpoints, &CheckpointResult{
 					Commit: commit,
 					Value:  value,
 				})
@@ -231,8 +358,8 @@ func (pp *ParallelProcessor) Stop() {
 }
 
 func (pp *ParallelProcessor) Start() {
-	pp.actionsC = make(chan *mirbft.Actions)
-	pp.actionsDoneC = make(chan *mirbft.ActionResults)
+	pp.actionsC = make(chan *Actions)
+	pp.actionsDoneC = make(chan *ActionResults)
 	pp.exitC = make(chan struct{})
 	doneC := make(chan struct{})
 	pp.doneC = doneC
@@ -254,10 +381,10 @@ func (pp *ParallelProcessor) Start() {
 		processor: pp,
 		doneC:     doneC,
 
-		transmitC:     make(chan mirbft.Send, pp.TransmitParallelism),
+		transmitC:     make(chan Send, pp.TransmitParallelism),
 		transmitDoneC: make(chan struct{}, pp.TransmitParallelism),
-		hashC:         make(chan *mirbft.HashRequest, pp.HashParallelism),
-		hashDoneC:     make(chan *mirbft.HashResult, pp.HashParallelism),
+		hashC:         make(chan *HashRequest, pp.HashParallelism),
+		hashDoneC:     make(chan *HashResult, pp.HashParallelism),
 	}
 
 	wg.Add(pp.TransmitParallelism + pp.HashParallelism)
@@ -277,8 +404,8 @@ func (pp *ParallelProcessor) Start() {
 	}
 
 	sendBatchDoneC := make(chan struct{}, 1)
-	hashBatchDoneC := make(chan []*mirbft.HashResult, 1)
-	commitBatchDoneC := make(chan []*mirbft.CheckpointResult, 1)
+	hashBatchDoneC := make(chan []*HashResult, 1)
+	commitBatchDoneC := make(chan []*CheckpointResult, 1)
 
 	for {
 		select {
@@ -293,7 +420,7 @@ func (pp *ParallelProcessor) Start() {
 				return
 			}
 
-			actionResults := &mirbft.ActionResults{}
+			actionResults := &ActionResults{}
 
 			select {
 			case actionResults.Digests = <-hashBatchDoneC:
@@ -318,17 +445,17 @@ func (pp *ParallelProcessor) Start() {
 	}
 }
 
-func (pp *ParallelProcessor) Process(actions *mirbft.Actions, doneC <-chan struct{}) *mirbft.ActionResults {
+func (pp *ParallelProcessor) Process(actions *Actions, doneC <-chan struct{}) *ActionResults {
 	select {
 	case pp.actionsC <- actions:
 	case <-doneC:
-		return &mirbft.ActionResults{}
+		return &ActionResults{}
 	}
 
 	select {
 	case results := <-pp.actionsDoneC:
 		return results
 	case <-doneC:
-		return &mirbft.ActionResults{}
+		return &ActionResults{}
 	}
 }

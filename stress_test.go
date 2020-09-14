@@ -26,7 +26,6 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/recorder"
 	"github.com/IBM/mirbft/reqstore"
-	"github.com/IBM/mirbft/sample"
 	"github.com/IBM/mirbft/simplewal"
 	"github.com/IBM/mirbft/status"
 
@@ -359,7 +358,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		<-linkDoneC
 	}()
 
-	processor := &sample.SerialProcessor{
+	processor := &mirbft.Processor{
 		Node:         node,
 		Link:         tr.FakeTransport.Link(node.Config.ID),
 		Hasher:       sha256.New,
@@ -407,7 +406,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	for {
 		select {
 		case actions := <-node.Ready():
-			results := processor.Process(&actions) // , tr.DoneC)
+			results := mirbft.ProcessSerially(&actions, processor) // , tr.DoneC)
 			node.AddResults(*results)
 		case <-node.Err():
 			return node.Status(context.Background())
