@@ -47,7 +47,7 @@ type Processor struct {
 	Node         *Node
 }
 
-func ProcessSerially(actions *Actions, p *Processor) *ActionResults {
+func (p *Processor) Process(actions *Actions) *ActionResults {
 	// Persist
 	for _, r := range actions.StoreRequests {
 		p.RequestStore.Store(
@@ -136,24 +136,11 @@ func ProcessSerially(actions *Actions, p *Processor) *ActionResults {
 	return actionResults
 }
 
-type ParallelProcessor struct {
-	Link                Link
-	Hasher              Hasher
-	Log                 Log
-	WAL                 WAL
-	RequestStore        RequestStore
-	Node                *Node
-	TransmitParallelism int
-	HashParallelism     int
+type ProcessorWorkPool struct {
+	processor *Processor
 
-	actionsC     chan *Actions
-	actionsDoneC chan *ActionResults
-	exitC        chan struct{}
-	doneC        chan struct{}
-}
-
-type workerPools struct {
-	processor *ParallelProcessor
+	waitGroup sync.WaitGroup
+	mutex     sync.Mutex
 
 	// these four channels are buffered and serviced
 	// by the worker pool routines
@@ -162,12 +149,10 @@ type workerPools struct {
 	hashC         chan *HashRequest
 	hashDoneC     chan *HashResult
 
-	// doneC is supplied when the pools are started
-	// and when closed causes all processing to halt
-	doneC <-chan struct{}
+	doneC chan struct{}
 }
 
-func (wp *workerPools) serviceSendPool() {
+func (wp *ProcessorWorkPool) serviceSendPool() {
 	for {
 		select {
 		case send := <-wp.transmitC:
@@ -189,7 +174,7 @@ func (wp *workerPools) serviceSendPool() {
 	}
 }
 
-func (wp *workerPools) persistThenSendInParallel(
+func (wp *ProcessorWorkPool) persistThenSendInParallel(
 	persist []*pb.Persistent,
 	store []*pb.ForwardRequest,
 	sends []Send,
@@ -274,7 +259,7 @@ func (wp *workerPools) persistThenSendInParallel(
 	}()
 }
 
-func (wp *workerPools) serviceHashPool() {
+func (wp *ProcessorWorkPool) serviceHashPool() {
 	h := wp.processor.Hasher()
 	for {
 		select {
@@ -299,7 +284,7 @@ func (wp *workerPools) serviceHashPool() {
 	}
 }
 
-func (wp *workerPools) hashInParallel(hashReqs []*HashRequest, hashBatchDoneC chan<- []*HashResult) {
+func (wp *ProcessorWorkPool) hashInParallel(hashReqs []*HashRequest, hashBatchDoneC chan<- []*HashResult) {
 	go func() {
 		for _, hashReq := range hashReqs {
 			select {
@@ -325,7 +310,7 @@ func (wp *workerPools) hashInParallel(hashReqs []*HashRequest, hashBatchDoneC ch
 	}()
 }
 
-func (wp *workerPools) commitInParallel(commits []*Commit, commitBatchDoneC chan<- []*CheckpointResult) {
+func (wp *ProcessorWorkPool) commitInParallel(commits []*Commit, commitBatchDoneC chan<- []*CheckpointResult) {
 	go func() {
 		var checkpoints []*CheckpointResult
 
@@ -345,110 +330,78 @@ func (wp *workerPools) commitInParallel(commits []*Commit, commitBatchDoneC chan
 	}()
 }
 
-func (pp *ParallelProcessor) Stop() {
-	close(pp.doneC)
-	<-pp.exitC
+type ProcessorWorkPoolOpts struct {
+	TransmitWorkers int
+	HashWorkers     int
 }
 
-func (pp *ParallelProcessor) Start() {
-	pp.actionsC = make(chan *Actions)
-	pp.actionsDoneC = make(chan *ActionResults)
-	pp.exitC = make(chan struct{})
-	doneC := make(chan struct{})
-	pp.doneC = doneC
-	wg := &sync.WaitGroup{}
-	defer func() {
-		wg.Wait()
-		close(pp.exitC)
-	}()
-
-	if pp.TransmitParallelism == 0 {
-		pp.TransmitParallelism = runtime.NumCPU()
+func NewProcessorWorkPool(p *Processor, opts ProcessorWorkPoolOpts) *ProcessorWorkPool {
+	if opts.TransmitWorkers == 0 {
+		opts.TransmitWorkers = runtime.NumCPU()
 	}
 
-	if pp.HashParallelism == 0 {
-		pp.HashParallelism = runtime.NumCPU()
+	if opts.HashWorkers == 0 {
+		opts.HashWorkers = runtime.NumCPU()
 	}
 
-	wp := &workerPools{
-		processor: pp,
-		doneC:     doneC,
+	wp := &ProcessorWorkPool{
+		processor: p,
 
-		transmitC:     make(chan Send, pp.TransmitParallelism),
-		transmitDoneC: make(chan struct{}, pp.TransmitParallelism),
-		hashC:         make(chan *HashRequest, pp.HashParallelism),
-		hashDoneC:     make(chan *HashResult, pp.HashParallelism),
+		doneC: make(chan struct{}),
+
+		transmitC:     make(chan Send, opts.TransmitWorkers),
+		transmitDoneC: make(chan struct{}, opts.TransmitWorkers),
+		hashC:         make(chan *HashRequest, opts.HashWorkers),
+		hashDoneC:     make(chan *HashResult, opts.HashWorkers),
 	}
 
-	wg.Add(pp.TransmitParallelism + pp.HashParallelism)
+	wp.waitGroup.Add(opts.TransmitWorkers + opts.HashWorkers)
 
-	for i := 0; i < pp.TransmitParallelism; i++ {
+	for i := 0; i < opts.TransmitWorkers; i++ {
 		go func() {
 			wp.serviceSendPool()
-			wg.Done()
+			wp.waitGroup.Done()
 		}()
 	}
 
-	for i := 0; i < pp.HashParallelism; i++ {
+	for i := 0; i < opts.HashWorkers; i++ {
 		go func() {
 			wp.serviceHashPool()
-			wg.Done()
+			wp.waitGroup.Done()
 		}()
 	}
 
+	return wp
+}
+
+func (wp *ProcessorWorkPool) Stop() {
+	wp.mutex.Lock()
+	defer wp.mutex.Unlock()
+	close(wp.doneC)
+	wp.waitGroup.Wait()
+}
+
+func (wp *ProcessorWorkPool) Process(actions *Actions) *ActionResults {
+	wp.mutex.Lock()
+	defer wp.mutex.Unlock()
 	sendBatchDoneC := make(chan struct{}, 1)
 	hashBatchDoneC := make(chan []*HashResult, 1)
 	commitBatchDoneC := make(chan []*CheckpointResult, 1)
 
-	for {
-		select {
-		case actions := <-pp.actionsC:
-			wp.persistThenSendInParallel(actions.Persist, actions.StoreRequests, actions.Send, actions.ForwardRequests, sendBatchDoneC)
-			wp.hashInParallel(actions.Hash, hashBatchDoneC)
-			wp.commitInParallel(actions.Commits, commitBatchDoneC)
+	wp.persistThenSendInParallel(
+		actions.Persist,
+		actions.StoreRequests,
+		actions.Send,
+		actions.ForwardRequests,
+		sendBatchDoneC,
+	)
+	wp.hashInParallel(actions.Hash, hashBatchDoneC)
+	wp.commitInParallel(actions.Commits, commitBatchDoneC)
 
-			select {
-			case <-sendBatchDoneC:
-			case <-doneC:
-				return
-			}
+	<-sendBatchDoneC
 
-			actionResults := &ActionResults{}
-
-			select {
-			case actionResults.Digests = <-hashBatchDoneC:
-			case <-doneC:
-				return
-			}
-
-			select {
-			case actionResults.Checkpoints = <-commitBatchDoneC:
-			case <-doneC:
-				return
-			}
-
-			select {
-			case pp.actionsDoneC <- actionResults:
-			case <-doneC:
-				return
-			}
-		case <-doneC:
-			return
-		}
-	}
-}
-
-func (pp *ParallelProcessor) Process(actions *Actions, doneC <-chan struct{}) *ActionResults {
-	select {
-	case pp.actionsC <- actions:
-	case <-doneC:
-		return &ActionResults{}
-	}
-
-	select {
-	case results := <-pp.actionsDoneC:
-		return results
-	case <-doneC:
-		return &ActionResults{}
+	return &ActionResults{
+		Digests:     <-hashBatchDoneC,
+		Checkpoints: <-commitBatchDoneC,
 	}
 }

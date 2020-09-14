@@ -160,6 +160,7 @@ type TestConfig struct {
 	CheckpointInterval int
 	BatchSize          uint32
 	ClientWidth        uint32
+	ParallelProcess    bool
 }
 
 func Uint64ToBytes(value uint64) []byte {
@@ -291,13 +292,14 @@ var _ = Describe("StressyTest", func() {
 			MsgCount:           1000,
 		}),
 
-		Entry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
+		FEntry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
 			NodeCount:          4,
 			BucketCount:        1,
 			CheckpointInterval: 10,
 			BatchSize:          10,
 			ClientWidth:        1000,
 			MsgCount:           10000,
+			ParallelProcess:    true,
 		}),
 	)
 })
@@ -309,6 +311,7 @@ type TestReplica struct {
 	Log                 *FakeLog
 	FakeTransport       *FakeTransport
 	FakeClient          *FakeClient
+	ParallelProcess     bool
 	DoneC               <-chan struct{}
 }
 
@@ -366,6 +369,17 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		RequestStore: reqStore,
 		WAL:          wal,
 	}
+
+	var process func(*mirbft.Actions) *mirbft.ActionResults
+
+	if tr.ParallelProcess {
+		pwp := mirbft.NewProcessorWorkPool(processor, mirbft.ProcessorWorkPoolOpts{})
+		defer pwp.Stop()
+		process = pwp.Process
+	} else {
+		process = processor.Process
+	}
+
 	// processor.Start()
 	// defer processor.Stop()
 
@@ -411,7 +425,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	for {
 		select {
 		case actions := <-node.Ready():
-			results := mirbft.ProcessSerially(&actions, processor) // , tr.DoneC)
+			results := process(&actions)
 			node.AddResults(*results)
 		case <-node.Err():
 			return node.Status(context.Background())
@@ -497,7 +511,8 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 			FakeClient: &FakeClient{
 				MsgCount: uint64(testConfig.MsgCount),
 			},
-			DoneC: doneC,
+			ParallelProcess: testConfig.ParallelProcess,
+			DoneC:           doneC,
 		}
 	}
 
