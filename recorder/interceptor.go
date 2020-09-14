@@ -24,7 +24,8 @@ type Interceptor struct {
 	timeSource func() int64
 	nodeID     uint64
 	eventC     chan eventTime
-	doneC      <-chan struct{}
+	doneC      chan struct{}
+	exitC      chan struct{}
 }
 
 type eventTime struct {
@@ -32,12 +33,13 @@ type eventTime struct {
 	time  int64
 }
 
-func NewInterceptor(nodeID uint64, timeSource func() int64, bufferSize int, doneC <-chan struct{}) *Interceptor {
+func NewInterceptor(nodeID uint64, timeSource func() int64, bufferSize int) *Interceptor {
 	return &Interceptor{
 		nodeID:     nodeID,
 		timeSource: timeSource,
 		eventC:     make(chan eventTime, bufferSize),
-		doneC:      doneC,
+		doneC:      make(chan struct{}),
+		exitC:      make(chan struct{}),
 	}
 }
 
@@ -51,7 +53,14 @@ func (i *Interceptor) Intercept(event *pb.StateEvent) {
 	}
 }
 
+func (i *Interceptor) Stop() {
+	close(i.doneC)
+	<-i.exitC
+}
+
 func (i *Interceptor) Drain(dest io.Writer) error {
+	defer close(i.exitC)
+
 	gzWriter := gzip.NewWriter(dest)
 	defer gzWriter.Close()
 

@@ -25,16 +25,14 @@ var _ = Describe("Interceptor", func() {
 	var (
 		interceptor *recorder.Interceptor
 		output      *bytes.Buffer
-		doneC       chan struct{}
 		mutex       *sync.Mutex // Artificially help out the race detector
 	)
 
 	BeforeEach(func() {
 		mutex = &sync.Mutex{}
 		output = &bytes.Buffer{}
-		doneC = make(chan struct{})
 
-		interceptor = recorder.NewInterceptor(1, func() int64 { return 2 }, 3, doneC)
+		interceptor = recorder.NewInterceptor(1, func() int64 { return 2 }, 3)
 		interceptor.Intercept(tickEvent)
 		interceptor.Intercept(tickEvent)
 	})
@@ -54,7 +52,7 @@ var _ = Describe("Interceptor", func() {
 			close(goDone)
 		}()
 
-		close(doneC)
+		interceptor.Stop()
 		Eventually(goDone).Should(BeClosed())
 
 		Expect(output.Len()).To(Equal(35))
@@ -71,20 +69,21 @@ var _ = Describe("Interceptor", func() {
 		}()
 
 		Consistently(goDone).ShouldNot(BeClosed())
-		close(doneC)
+		go interceptor.Drain(output)
+		interceptor.Stop()
 		Eventually(goDone).Should(BeClosed())
 	})
 
-	It("writes everything in the buffer even when doneC is closed", func() {
+	It("writes everything in the buffer even when Stop has been called", func() {
 		interceptor.Intercept(tickEvent)
-		close(doneC)
+		go interceptor.Stop()
 		err := interceptor.Drain(output)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(output.Len()).To(Equal(35))
 	})
 
 	It("can be read back with a Reader", func() {
-		close(doneC)
+		go interceptor.Stop()
 		err := interceptor.Drain(output)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -111,7 +110,7 @@ var _ = Describe("Interceptor", func() {
 
 	When("the output is truncated", func() {
 		BeforeEach(func() {
-			close(doneC)
+			go interceptor.Stop()
 			err := interceptor.Drain(output)
 			Expect(err).NotTo(HaveOccurred())
 			output.Truncate(2)

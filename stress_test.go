@@ -292,7 +292,7 @@ var _ = Describe("StressyTest", func() {
 			MsgCount:           1000,
 		}),
 
-		FEntry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
+		Entry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
 			NodeCount:          4,
 			BucketCount:        1,
 			CheckpointInterval: 10,
@@ -384,18 +384,11 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	// defer processor.Stop()
 
 	recordingFile := filepath.Join(tr.TmpDir, "recording.eventlog")
-	recorderDoneC := make(chan struct{})
 	recording, err := os.Create(recordingFile)
 	Expect(err).NotTo(HaveOccurred())
 
-	go func() {
-		node.Config.EventInterceptor.(*recorder.Interceptor).Drain(recording)
-		close(recorderDoneC)
-	}()
-	defer func() {
-		<-recorderDoneC
-		recording.Close()
-	}()
+	go node.Config.EventInterceptor.(*recorder.Interceptor).Drain(recording)
+	defer node.Config.EventInterceptor.(*recorder.Interceptor).Stop()
 
 	proposer, err := node.ClientProposer(context.Background(), 0)
 	Expect(err).NotTo(HaveOccurred())
@@ -488,7 +481,6 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 					return time.Since(startTime).Milliseconds()
 				},
 				10000,
-				doneC,
 			),
 		}
 
