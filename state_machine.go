@@ -186,7 +186,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 
 		for _, commit := range loopActions.Commits {
 			for _, fr := range commit.QEntry.Requests {
-				cw, ok := sm.clientTracker.clientWindow(fr.ClientId)
+				cw, ok := sm.clientTracker.client(fr.ClientId)
 				if !ok {
 					panic("we never should have committed this without the client available")
 				}
@@ -363,12 +363,12 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 }
 
 func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
-	clientWindow, ok := sm.clientTracker.clientWindow(clientID)
+	client, ok := sm.clientTracker.client(clientID)
 	if !ok {
 		return nil
 	}
 
-	return clientWindow.clientWaiter
+	return client.clientWaiter
 }
 
 func (sm *StateMachine) Status() *status.StateMachine {
@@ -379,8 +379,8 @@ func (sm *StateMachine) Status() *status.StateMachine {
 	clientTrackerStatus := make([]*status.ClientTracker, len(sm.clientTracker.clientIDs))
 
 	for i, id := range sm.clientTracker.clientIDs {
-		clientWindow := sm.clientTracker.windows[id]
-		rws := clientWindow.status()
+		client := sm.clientTracker.clients[id]
+		rws := client.status()
 		rws.ClientID = id
 		clientTrackerStatus[i] = rws
 	}

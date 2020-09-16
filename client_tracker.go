@@ -29,7 +29,7 @@ type readyEntry struct {
 }
 
 type clientTracker struct {
-	windows       map[uint64]*clientWindow
+	clients       map[uint64]*client
 	clientIDs     []uint64
 	networkConfig *pb.NetworkState_Config
 	msgBuffers    map[nodeID]*msgBuffer
@@ -52,7 +52,7 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 
 	ct := &clientTracker{
 		logger:      logger,
-		windows:     map[uint64]*clientWindow{},
+		clients:     map[uint64]*client{},
 		correctList: list.New(),
 		readyHead:   readyAnchor,
 		readyTail:   readyAnchor,
@@ -69,9 +69,9 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 			if ct.networkConfig == nil {
 				ct.networkConfig = d.CEntry.NetworkState.Config
 
-				for _, client := range d.CEntry.NetworkState.Clients {
-					clientWindow := newClientWindow(client, d.CEntry.NetworkState.Config, logger)
-					ct.insert(client.Id, clientWindow)
+				for _, clientState := range d.CEntry.NetworkState.Clients {
+					client := newClient(clientState, d.CEntry.NetworkState.Config, logger)
+					ct.insert(clientState.Id, client)
 				}
 			}
 
@@ -85,13 +85,13 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 			}
 
 			for _, request := range batch {
-				ct.windows[request.ClientId].ack(nodeID(myConfig.Id), request)
+				ct.clients[request.ClientId].ack(nodeID(myConfig.Id), request)
 			}
 		}
 	}
 
 	for _, clientID := range ct.clientIDs {
-		ct.advanceReady(ct.windows[clientID])
+		ct.advanceReady(ct.clients[clientID])
 	}
 
 	for _, id := range ct.networkConfig.Nodes {
@@ -106,14 +106,14 @@ func (ct *clientTracker) filter(msg *pb.Msg) applyable {
 	case *pb.Msg_RequestAck:
 		// TODO, prevent ack spam of multiple msg digests from the same node
 		ack := innerMsg.RequestAck
-		clientWindow, ok := ct.clientWindow(ack.ClientId)
+		client, ok := ct.client(ack.ClientId)
 		if !ok {
 			return future
 		}
 		switch {
-		case clientWindow.lowWatermark > ack.ReqNo:
+		case client.lowWatermark > ack.ReqNo:
 			return past
-		case clientWindow.highWatermark < ack.ReqNo:
+		case client.highWatermark < ack.ReqNo:
 			return future
 		default:
 			return current
@@ -122,14 +122,14 @@ func (ct *clientTracker) filter(msg *pb.Msg) applyable {
 		return current // TODO decide if this is actually current
 	case *pb.Msg_ForwardRequest:
 		requestAck := innerMsg.ForwardRequest.RequestAck
-		clientWindow, ok := ct.clientWindow(requestAck.ClientId)
+		client, ok := ct.client(requestAck.ClientId)
 		if !ok {
 			return future
 		}
 		switch {
-		case clientWindow.lowWatermark > requestAck.ReqNo:
+		case client.lowWatermark > requestAck.ReqNo:
 			return past
-		case clientWindow.highWatermark < requestAck.ReqNo:
+		case client.highWatermark < requestAck.ReqNo:
 			return future
 		default:
 			return current
@@ -181,7 +181,7 @@ func (ct *clientTracker) applyMsg(source nodeID, msg *pb.Msg) *Actions {
 func (ct *clientTracker) clientConfigs() []*pb.NetworkState_Client {
 	clients := make([]*pb.NetworkState_Client, len(ct.clientIDs))
 	for i, clientID := range ct.clientIDs {
-		cw, ok := ct.windows[clientID]
+		cw, ok := ct.clients[clientID]
 		if !ok {
 			panic("dev sanity test")
 		}
@@ -249,7 +249,7 @@ func (ct *clientTracker) clientConfigs() []*pb.NetworkState_Client {
 }
 
 func (ct *clientTracker) replyFetchRequest(source nodeID, clientID, reqNo uint64, digest []byte) *Actions {
-	cw, ok := ct.clientWindow(clientID)
+	cw, ok := ct.client(clientID)
 	if !ok {
 		return &Actions{}
 	}
@@ -279,7 +279,7 @@ func (ct *clientTracker) replyFetchRequest(source nodeID, clientID, reqNo uint64
 }
 
 func (ct *clientTracker) applyForwardRequest(source nodeID, msg *pb.ForwardRequest) *Actions {
-	cw, ok := ct.clientWindow(msg.RequestAck.ClientId)
+	cw, ok := ct.client(msg.RequestAck.ClientId)
 	if !ok {
 		// TODO log oddity
 		return &Actions{}
@@ -321,7 +321,7 @@ func (ct *clientTracker) applyForwardRequest(source nodeID, msg *pb.ForwardReque
 }
 
 func (ct *clientTracker) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
-	cw, ok := ct.windows[ack.ClientId]
+	cw, ok := ct.clients[ack.ClientId]
 	if !ok {
 		panic("dev sanity test")
 	}
@@ -337,8 +337,8 @@ func (ct *clientTracker) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 	return clientRequest
 }
 
-func (ct *clientTracker) checkReady(clientWindow *clientWindow, ocrn *clientReqNo) {
-	if ocrn.reqNo != clientWindow.nextReadyMark {
+func (ct *clientTracker) checkReady(client *client, ocrn *clientReqNo) {
+	if ocrn.reqNo != client.nextReadyMark {
 		return
 	}
 
@@ -350,12 +350,12 @@ func (ct *clientTracker) checkReady(clientWindow *clientWindow, ocrn *clientReqN
 		return
 	}
 
-	ct.advanceReady(clientWindow)
+	ct.advanceReady(client)
 }
 
-func (ct *clientTracker) advanceReady(clientWindow *clientWindow) {
-	for i := clientWindow.nextReadyMark; i <= clientWindow.highWatermark; i++ {
-		crne, ok := clientWindow.reqNoMap[i]
+func (ct *clientTracker) advanceReady(client *client) {
+	for i := client.nextReadyMark; i <= client.highWatermark; i++ {
+		crne, ok := client.reqNoMap[i]
 		if !ok {
 			panic(fmt.Sprintf("dev sanity test: no mapping from reqNo %d", i))
 		}
@@ -377,13 +377,13 @@ func (ct *clientTracker) advanceReady(clientWindow *clientWindow) {
 		ct.readyTail.next = newReadyEntry
 		ct.readyTail = newReadyEntry
 
-		clientWindow.nextReadyMark = i + 1
+		client.nextReadyMark = i + 1
 	}
 }
 
 func (ct *clientTracker) garbageCollect(seqNo uint64) {
 	for _, id := range ct.clientIDs {
-		ct.windows[id].garbageCollect(seqNo)
+		ct.clients[id].garbageCollect(seqNo)
 	}
 
 	// TODO, gc the correctList
@@ -421,14 +421,14 @@ func (ct *clientTracker) garbageCollect(seqNo uint64) {
 	}
 }
 
-func (ct *clientTracker) clientWindow(clientID uint64) (*clientWindow, bool) {
+func (ct *clientTracker) client(clientID uint64) (*client, bool) {
 	// TODO, we could do lazy initialization here
-	cw, ok := ct.windows[clientID]
+	cw, ok := ct.clients[clientID]
 	return cw, ok
 }
 
-func (ct *clientTracker) insert(clientID uint64, cw *clientWindow) {
-	ct.windows[clientID] = cw
+func (ct *clientTracker) insert(clientID uint64, cw *client) {
+	ct.clients[clientID] = cw
 	ct.clientIDs = append(ct.clientIDs, clientID)
 	sort.Slice(ct.clientIDs, func(i, j int) bool {
 		return ct.clientIDs[i] < ct.clientIDs[j]
@@ -448,7 +448,7 @@ type clientRequest struct {
 	agreements map[nodeID]struct{}
 }
 
-type clientWindow struct {
+type client struct {
 	clientID      uint64
 	nextReadyMark uint64
 	lowWatermark  uint64
@@ -466,12 +466,12 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newClientWindow(client *pb.NetworkState_Client, networkConfig *pb.NetworkState_Config, logger Logger) *clientWindow {
-	lowWatermark := client.LowWatermark
-	highWatermark := client.LowWatermark + uint64(client.Width)
+func newClient(clientState *pb.NetworkState_Client, networkConfig *pb.NetworkState_Config, logger Logger) *client {
+	lowWatermark := clientState.LowWatermark
+	highWatermark := clientState.LowWatermark + uint64(clientState.Width)
 
-	cw := &clientWindow{
-		clientID:      client.Id,
+	cw := &client{
+		clientID:      clientState.Id,
 		logger:        logger,
 		networkConfig: networkConfig,
 		lowWatermark:  lowWatermark,
@@ -486,14 +486,14 @@ func newClientWindow(client *pb.NetworkState_Client, networkConfig *pb.NetworkSt
 		},
 	}
 
-	bm := bitmask(client.CommittedMask)
-	for i := 0; i <= int(client.Width); i++ {
+	bm := bitmask(clientState.CommittedMask)
+	for i := 0; i <= int(clientState.Width); i++ {
 		var committed *uint64
 		if bm.isBitSet(i) {
 			committed = zeroPtr
 		}
 
-		reqNo := uint64(i) + client.LowWatermark
+		reqNo := uint64(i) + clientState.LowWatermark
 
 		el := cw.reqNoList.PushBack(&clientReqNo{
 			clientID:  cw.clientID,
@@ -507,7 +507,7 @@ func newClientWindow(client *pb.NetworkState_Client, networkConfig *pb.NetworkSt
 	return cw
 }
 
-func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
+func (cw *client) garbageCollect(maxSeqNo uint64) {
 	removed := uint64(0)
 
 	for el := cw.reqNoList.Front(); el != nil; {
@@ -551,7 +551,7 @@ func (cw *clientWindow) garbageCollect(maxSeqNo uint64) {
 	}
 }
 
-func (cw *clientWindow) ack(source nodeID, ack *pb.RequestAck) (*clientRequest, *clientReqNo, bool) {
+func (cw *client) ack(source nodeID, ack *pb.RequestAck) (*clientRequest, *clientReqNo, bool) {
 	reqNo := ack.ReqNo
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
@@ -588,11 +588,11 @@ func (cw *clientWindow) ack(source nodeID, ack *pb.RequestAck) (*clientRequest, 
 	return cr, crn, newlyCorrectReq
 }
 
-func (cw *clientWindow) inWatermarks(reqNo uint64) bool {
+func (cw *client) inWatermarks(reqNo uint64) bool {
 	return reqNo <= cw.highWatermark && reqNo >= cw.lowWatermark
 }
 
-func (cw *clientWindow) request(reqNo uint64) *clientReqNo {
+func (cw *client) request(reqNo uint64) *clientReqNo {
 	if reqNo > cw.highWatermark {
 		panic(fmt.Sprintf("unexpected: %d > %d", reqNo, cw.highWatermark))
 	}
@@ -604,7 +604,7 @@ func (cw *clientWindow) request(reqNo uint64) *clientReqNo {
 	return cw.reqNoMap[reqNo].Value.(*clientReqNo)
 }
 
-func (cw *clientWindow) status() *status.ClientTracker {
+func (cw *client) status() *status.ClientTracker {
 	allocated := make([]uint64, cw.reqNoList.Len())
 	i := 0
 	lastNonZero := 0
