@@ -30,7 +30,7 @@ type readyEntry struct {
 
 type clientTracker struct {
 	windows       map[uint64]*clientWindow
-	clients       []uint64
+	clientIDs     []uint64
 	networkConfig *pb.NetworkState_Config
 	msgBuffers    map[nodeID]*msgBuffer
 	logger        Logger
@@ -90,7 +90,7 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 		}
 	}
 
-	for _, clientID := range ct.clients {
+	for _, clientID := range ct.clientIDs {
 		ct.advanceReady(ct.windows[clientID])
 	}
 
@@ -179,8 +179,8 @@ func (ct *clientTracker) applyMsg(source nodeID, msg *pb.Msg) *Actions {
 // collection is controlled by the state machine, and it will always invoke this method
 // before any seqNos are committed beyond the checkpoint, we are safe.
 func (ct *clientTracker) clientConfigs() []*pb.NetworkState_Client {
-	clients := make([]*pb.NetworkState_Client, len(ct.clients))
-	for i, clientID := range ct.clients {
+	clients := make([]*pb.NetworkState_Client, len(ct.clientIDs))
+	for i, clientID := range ct.clientIDs {
 		cw, ok := ct.windows[clientID]
 		if !ok {
 			panic("dev sanity test")
@@ -382,7 +382,7 @@ func (ct *clientTracker) advanceReady(clientWindow *clientWindow) {
 }
 
 func (ct *clientTracker) garbageCollect(seqNo uint64) {
-	for _, id := range ct.clients {
+	for _, id := range ct.clientIDs {
 		ct.windows[id].garbageCollect(seqNo)
 	}
 
@@ -429,9 +429,9 @@ func (ct *clientTracker) clientWindow(clientID uint64) (*clientWindow, bool) {
 
 func (ct *clientTracker) insert(clientID uint64, cw *clientWindow) {
 	ct.windows[clientID] = cw
-	ct.clients = append(ct.clients, clientID)
-	sort.Slice(ct.clients, func(i, j int) bool {
-		return ct.clients[i] < ct.clients[j]
+	ct.clientIDs = append(ct.clientIDs, clientID)
+	sort.Slice(ct.clientIDs, func(i, j int) bool {
+		return ct.clientIDs[i] < ct.clientIDs[j]
 	})
 }
 

@@ -376,9 +376,9 @@ func (sm *StateMachine) Status() *status.StateMachine {
 		return &status.StateMachine{}
 	}
 
-	clientTrackerStatus := make([]*status.ClientTracker, len(sm.clientTracker.clients))
+	clientTrackerStatus := make([]*status.ClientTracker, len(sm.clientTracker.clientIDs))
 
-	for i, id := range sm.clientTracker.clients {
+	for i, id := range sm.clientTracker.clientIDs {
 		clientWindow := sm.clientTracker.windows[id]
 		rws := clientWindow.status()
 		rws.ClientID = id
