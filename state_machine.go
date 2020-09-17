@@ -190,7 +190,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 				if !ok {
 					panic("we never should have committed this without the client available")
 				}
-				cw.request(fr.ReqNo).committed = &commit.QEntry.SeqNo
+				cw.reqNo(fr.ReqNo).committed = &commit.QEntry.SeqNo
 				// sm.Logger.Info(fmt.Sprintf("Committing %d.%d at seqno=%d", fr.Request.ClientId, fr.Request.ReqNo, commit.QEntry.SeqNo))
 			}
 
@@ -307,44 +307,25 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
 			actions.concat(sm.epochTracker.applyBatchHashResult(batch.Epoch, batch.SeqNo, hashResult.Digest))
 		case *pb.HashResult_Request_:
-			request := hashType.Request
-			requestAck := &pb.RequestAck{
-				ClientId: request.Request.ClientId,
-				ReqNo:    request.Request.ReqNo,
-				Digest:   hashResult.Digest,
-			}
-			actions.send(
-				sm.networkConfig.Nodes,
-				&pb.Msg{
-					Type: &pb.Msg_RequestAck{
-						RequestAck: requestAck,
-					},
+			req := hashType.Request.Request
+			actions.concat(sm.clientTracker.applyRequestDigest(
+				&pb.RequestAck{
+					ClientId: req.ClientId,
+					ReqNo:    req.ReqNo,
+					Digest:   hashResult.Digest,
 				},
-			).storeRequest(
-				&pb.ForwardRequest{
-					RequestAck:  requestAck,
-					RequestData: request.Request.Data,
-				},
-			)
+				req.Data,
+			))
 		case *pb.HashResult_VerifyRequest_:
 			request := hashType.VerifyRequest
 			if !bytes.Equal(request.RequestAck.Digest, hashResult.Digest) {
 				panic("byzantine")
 				// XXX this should not panic, but put to make dev easier
 			}
-			actions.send(
-				[]uint64{sm.myConfig.Id},
-				&pb.Msg{
-					Type: &pb.Msg_RequestAck{
-						RequestAck: request.RequestAck,
-					},
-				},
-			).storeRequest(
-				&pb.ForwardRequest{
-					RequestAck:  request.RequestAck,
-					RequestData: request.RequestData,
-				},
-			)
+			actions.concat(sm.clientTracker.applyRequestDigest(
+				request.RequestAck,
+				request.RequestData,
+			))
 		case *pb.HashResult_EpochChange_:
 			epochChange := hashType.EpochChange
 			actions.concat(sm.epochTracker.applyEpochChangeDigest(epochChange, hashResult.Digest))

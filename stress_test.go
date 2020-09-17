@@ -341,6 +341,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 
 	linkDoneC := make(chan struct{})
 	go func() {
+		defer GinkgoRecover()
 		defer close(linkDoneC)
 		recvC := tr.FakeTransport.RecvC(node.Config.ID)
 		for {
