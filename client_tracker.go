@@ -357,19 +357,26 @@ func (ct *clientTracker) checkReady(client *client, ocrn *clientReqNo) {
 		return
 	}
 
-	if ocrn.strongRequest == nil {
+	if len(ocrn.strongRequests) == 0 {
 		return
 	}
 
-	if _, ok := ocrn.strongRequest.agreements[nodeID(ct.myConfig.Id)]; !ok {
-		return
+	for digest := range ocrn.strongRequests {
+		if _, ok := ocrn.myRequests[digest]; ok {
+			ct.advanceReady(client)
+			return
+		}
 	}
 
-	ct.advanceReady(client)
 }
 
 func (ct *clientTracker) advanceReady(client *client) {
 	for i := client.nextReadyMark; i <= client.lowWatermark+client.width; i++ {
+		if i != client.nextReadyMark {
+			// last time through the loop, we must not have updated the ready mark
+			return
+		}
+
 		crne, ok := client.reqNoMap[i]
 		if !ok {
 			panic(fmt.Sprintf("dev sanity test: no mapping from reqNo %d", i))
@@ -377,22 +384,22 @@ func (ct *clientTracker) advanceReady(client *client) {
 
 		crn := crne.Value.(*clientReqNo)
 
-		if crn.strongRequest == nil {
+		for digest := range crn.strongRequests {
+			if _, ok := crn.myRequests[digest]; !ok {
+				continue
+			}
+
+			newReadyEntry := &readyEntry{
+				clientReqNo: crn,
+			}
+
+			ct.readyTail.next = newReadyEntry
+			ct.readyTail = newReadyEntry
+
+			client.nextReadyMark = i + 1
+
 			break
 		}
-
-		if _, ok := crn.strongRequest.agreements[nodeID(ct.myConfig.Id)]; !ok {
-			break
-		}
-
-		newReadyEntry := &readyEntry{
-			clientReqNo: crn,
-		}
-
-		ct.readyTail.next = newReadyEntry
-		ct.readyTail = newReadyEntry
-
-		client.nextReadyMark = i + 1
 	}
 }
 
@@ -452,45 +459,136 @@ func (ct *clientTracker) insert(clientID uint64, cw *client) {
 
 // clientReqNo accumulates acks for this request number
 // and attempts to determine which ack is correct, and if the request
-// we have is correct.  Once a replica acks a request, it will never
-// ack another request, unless that request is the null request.  Once
-// a replica identifies an ack as correct, after a timeout, it will attempt
-// to replicate the request for that ack, and afterwards ack it itself.
-// if two non-null requests are identified as correct, then we ack a null
-// request, as by virtue of correct replicas only ever ack-ing one non-null
-// request, it will be impossible for either correct ack to form a strong cert.
+// we have is correct.  A replica only ever acks requests it knows to be correct,
+// and has the data for.  This means it was injected locally via the Propose API,
+// or, a weak quorum exists and something triggered a fetch of the request such
+// as an epoch change, or tick based reconcilliation logic.  Because in both the epoch
+// change, or reconcilliation paths at least some correct replica validated the
+// request, we know the request is correct.  Once we observe two valid requests
+// we know that the client is behaving in a byzantine way, and will allow a null
+// request to be substituted.  Further, the replica will not ack any request other
+// than the null request once two correct requests are observed.
+// Additionally, a client may inject a null request via the propose API when attempting
+// to recover from a crash without persistence, which will also cause other acks to cease.
+// A correct replica will never ack two different non-null requests.  We therefore
+// track which replicas have already acked a non-null request and ignore any further
+// non-null acks.
 type clientReqNo struct {
-	networkConfig *pb.NetworkState_Config
-	clientID      uint64
-	reqNo         uint64
-	requests      map[string]*clientRequest
-	weakRequest   *clientRequest
-	strongRequest *clientRequest
-	committed     *uint64
-	myAck         *pb.RequestAck
+	networkConfig  *pb.NetworkState_Config
+	clientID       uint64
+	reqNo          uint64
+	nonNullVoters  map[nodeID]struct{}
+	requests       map[string]*clientRequest // all requests, correct or not we've observed
+	weakRequests   map[string]*clientRequest // all correct requests we have observed
+	strongRequests map[string]*clientRequest // strongly correct requests (at most 1 null, 1 non-null)
+	myRequests     map[string]*clientRequest // requests we have persisted
+	committed      *uint64
+}
+
+func (crn *clientReqNo) clientReq(ack *pb.RequestAck) *clientRequest {
+	var digestKey string
+	if len(ack.Digest) == 0 {
+		digestKey = ""
+	} else {
+		digestKey = string(ack.Digest)
+	}
+
+	clientReq, ok := crn.requests[digestKey]
+	if !ok {
+		clientReq = &clientRequest{
+			ack:        ack,
+			agreements: map[nodeID]struct{}{},
+		}
+		crn.requests[digestKey] = clientReq
+	}
+
+	return clientReq
 }
 
 func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Actions {
-	if crn.myAck != nil {
-		// A forwarded request must have raced and gotten here first
+	_, ok := crn.myRequests[string(ack.Digest)]
+	if ok {
+		// We have already persisted this request, likely
+		// a race between a forward and a local proposal, do nothing
 		return &Actions{}
 	}
 
-	crn.myAck = ack
+	clientReq := crn.clientReq(ack)
 
-	return (&Actions{}).send(
-		crn.networkConfig.Nodes,
-		&pb.Msg{
-			Type: &pb.Msg_RequestAck{
-				RequestAck: ack,
-			},
-		},
-	).storeRequest(
+	crn.myRequests[string(ack.Digest)] = clientReq
+
+	actions := (&Actions{}).storeRequest(
 		&pb.ForwardRequest{
 			RequestAck:  ack,
 			RequestData: data,
 		},
 	)
+
+	if len(crn.myRequests) == 1 {
+		return actions.send(
+			crn.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_RequestAck{
+					RequestAck: ack,
+				},
+			},
+		)
+	}
+
+	// More than one request persisted
+	if _, ok := crn.myRequests[""]; !ok {
+		// already persisted and acked null request
+		return actions
+	}
+
+	nullAck := &pb.RequestAck{
+		ClientId: crn.clientID,
+		ReqNo:    crn.reqNo,
+	}
+
+	nullReq := crn.clientReq(nullAck)
+	crn.myRequests[""] = nullReq
+
+	return actions.send(
+		crn.networkConfig.Nodes,
+		&pb.Msg{
+			Type: &pb.Msg_RequestAck{
+				RequestAck: nullAck,
+			},
+		},
+	).storeRequest(
+		&pb.ForwardRequest{
+			RequestAck: nullAck,
+		},
+	)
+}
+
+func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck) *Actions {
+	if len(ack.Digest) != 0 {
+		_, ok := crn.nonNullVoters[source]
+		if !ok {
+			return &Actions{}
+		}
+
+		crn.nonNullVoters[source] = struct{}{}
+	}
+
+	clientReq := crn.clientReq(ack)
+	clientReq.agreements[source] = struct{}{}
+
+	if len(clientReq.agreements) < someCorrectQuorum(crn.networkConfig) {
+		return &Actions{}
+	}
+
+	crn.weakRequests[string(ack.Digest)] = clientReq
+
+	if len(clientReq.agreements) < intersectionQuorum(crn.networkConfig) {
+		return &Actions{}
+	}
+
+	crn.strongRequests[string(ack.Digest)] = clientReq
+
+	return &Actions{}
 }
 
 type clientRequest struct {
@@ -548,11 +646,15 @@ func newClient(clientState *pb.NetworkState_Client, networkConfig *pb.NetworkSta
 		reqNo := uint64(i) + clientState.LowWatermark
 
 		el := cw.reqNoList.PushBack(&clientReqNo{
-			networkConfig: networkConfig,
-			clientID:      cw.clientID,
-			reqNo:         reqNo,
-			requests:      map[string]*clientRequest{},
-			committed:     committed,
+			networkConfig:  networkConfig,
+			clientID:       cw.clientID,
+			reqNo:          reqNo,
+			requests:       map[string]*clientRequest{},
+			weakRequests:   map[string]*clientRequest{},
+			strongRequests: map[string]*clientRequest{},
+			myRequests:     map[string]*clientRequest{},
+			nonNullVoters:  map[nodeID]struct{}{},
+			committed:      committed,
 		})
 		cw.reqNoMap[reqNo] = el
 	}
@@ -586,10 +688,14 @@ func (cw *client) garbageCollect(maxSeqNo uint64) {
 	for i := uint64(1); i <= removed; i++ {
 		reqNo := i + cw.lowWatermark + cw.width
 		el := cw.reqNoList.PushBack(&clientReqNo{
-			clientID:      cw.clientID,
-			networkConfig: cw.networkConfig,
-			reqNo:         reqNo,
-			requests:      map[string]*clientRequest{},
+			clientID:       cw.clientID,
+			networkConfig:  cw.networkConfig,
+			reqNo:          reqNo,
+			requests:       map[string]*clientRequest{},
+			weakRequests:   map[string]*clientRequest{},
+			strongRequests: map[string]*clientRequest{},
+			myRequests:     map[string]*clientRequest{},
+			nonNullVoters:  map[nodeID]struct{}{},
 		})
 		cw.reqNoMap[reqNo] = el
 	}
@@ -612,21 +718,17 @@ func (cw *client) ack(source nodeID, ack *pb.RequestAck) (*clientRequest, *clien
 
 	crn := crne.Value.(*clientReqNo)
 
-	cr, ok := crn.requests[string(ack.Digest)]
-	if !ok {
-		cr = &clientRequest{
-			ack:        ack,
-			agreements: map[nodeID]struct{}{},
-		}
-		crn.requests[string(ack.Digest)] = cr
-	}
-
+	cr := crn.clientReq(ack)
 	cr.agreements[source] = struct{}{}
 
-	newlyCorrectReq := len(cr.agreements) == someCorrectQuorum(cw.networkConfig)
+	newlyCorrectReq := false
+	if len(cr.agreements) == someCorrectQuorum(cw.networkConfig) {
+		newlyCorrectReq = true
+		crn.weakRequests[string(ack.Digest)] = cr
+	}
 
 	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
-		crn.strongRequest = cr
+		crn.strongRequests[string(ack.Digest)] = cr
 	}
 
 	return cr, crn, newlyCorrectReq

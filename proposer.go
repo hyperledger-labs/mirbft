@@ -77,7 +77,24 @@ func (prb *proposalBucket) advance() {
 			continue
 		}
 
-		prb.pending = append(prb.pending, crn.strongRequest)
+		if len(crn.strongRequests) > 1 {
+			if _, ok := crn.strongRequests[""]; !ok {
+				panic("dev sanity test")
+			}
+
+			// We must have a null request here, so prefer it.
+			prb.pending = append(prb.pending, crn.strongRequests[""])
+		} else {
+			if len(crn.strongRequests) != 1 {
+				panic("dev sanity test")
+			}
+
+			// There must be exactly one strong request
+			for _, clientReq := range crn.strongRequests {
+				prb.pending = append(prb.pending, clientReq)
+				break
+			}
+		}
 	}
 }
 
