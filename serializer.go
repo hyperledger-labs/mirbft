@@ -105,6 +105,14 @@ func (s *serializer) run() {
 
 	actions := &Actions{}
 
+	applyEventDiscardingActions := func(stateEvent *pb.StateEvent) {
+		if s.myConfig.EventInterceptor != nil {
+			s.myConfig.EventInterceptor.Intercept(stateEvent)
+		}
+
+		sm.ApplyEvent(stateEvent)
+	}
+
 	applyEvent := func(stateEvent *pb.StateEvent) {
 		if s.myConfig.EventInterceptor != nil {
 			s.myConfig.EventInterceptor.Intercept(stateEvent)
@@ -153,13 +161,27 @@ func (s *serializer) run() {
 	})
 
 	err = s.reqStorage.Uncommitted(func(ack *pb.RequestAck) {
-		applyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_Step{
-				Step: &pb.StateEvent_InboundMsg{
-					Source: s.myConfig.ID,
-					Msg: &pb.Msg{
-						Type: &pb.Msg_RequestAck{
-							RequestAck: ack,
+		// Because we do not require that requests be iterate over
+		// in the order in which they were originally persisted, we could
+		// accidentally reply with an ack for a different request than we
+		// originally did.  If there are multiple persisted requests for
+		// a reqno, we only ack the null one.  If there is only one persited
+		// we will end up acking this.  But, the ack will be done on the
+		// retransmit interval.  This also prevents us from requesting
+		// that the WAL re-persist these requests.
+		applyEventDiscardingActions(&pb.StateEvent{
+			Type: &pb.StateEvent_AddResults{
+				AddResults: &pb.StateEvent_ActionResults{
+					Digests: []*pb.HashResult{
+						{
+							Digest: ack.Digest,
+							Type: &pb.HashResult_VerifyRequest_{
+								VerifyRequest: &pb.HashResult_VerifyRequest{
+									Source:      s.myConfig.ID,
+									RequestAck:  ack,
+									RequestData: nil, // This is weird, but benign, we never reference this field after hashing
+								},
+							},
 						},
 					},
 				},
