@@ -277,6 +277,18 @@ func (al *availableIterator) next() *clientRequest {
 	return al.appendListIterator.next().(*clientRequest)
 }
 
+func (al *availableList) garbageCollect(seqNo uint64) {
+	i := al.iterator()
+	for i.hasNext() {
+		cr := i.next()
+		if !cr.garbage {
+			continue
+		}
+
+		i.appendListIterator.remove()
+	}
+}
+
 type clientTracker struct {
 	clients       map[uint64]*client
 	clientIDs     []uint64
@@ -640,7 +652,7 @@ func (ct *clientTracker) garbageCollect(seqNo uint64) {
 		ct.clients[id].garbageCollect(seqNo)
 	}
 
-	// TODO, gc the correctList
+	ct.availableList.garbageCollect(seqNo)
 
 	ct.readyList.garbageCollect(seqNo)
 
