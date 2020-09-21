@@ -9,7 +9,6 @@ package mirbft
 import (
 	"container/list"
 	"fmt"
-	"math"
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -121,81 +120,161 @@ func init() {
 	zeroPtr = &zero
 }
 
+// appendList is a useful data structure for us because it allows appending
+// of new elements, with stable iteration across garabage collection.  By
+// stable iteration, we mean that even if an element is removed from the list
+// any active iterators will still encounter that element, and eventually
+// reach the tail of the list.  Contrast this with the golang stdlib doubly
+// linked list which, when elements are removed, can no longer be used to
+// iterate over the list.
+type appendList struct {
+	head *appendListEntry
+	tail *appendListEntry
+}
+
+type appendListEntry struct {
+	next  *appendListEntry
+	value interface{}
+}
+
+type appendListIterator struct {
+	lastEntry  *appendListEntry
+	appendList *appendList
+}
+
+func (ale *appendListEntry) isSkipElement() bool {
+	return ale.value == nil
+}
+
+func newAppendList() *appendList {
+	startElement := &appendListEntry{}
+	return &appendList{
+		head: startElement,
+		tail: startElement,
+	}
+}
+
+func (al *appendList) pushBack(value interface{}) {
+	newEntry := &appendListEntry{
+		value: value,
+	}
+
+	al.tail.next = newEntry
+	al.tail = newEntry
+}
+
+func (al *appendList) iterator() *appendListIterator {
+	return &appendListIterator{
+		appendList: al,
+		lastEntry: &appendListEntry{
+			next: al.head,
+		},
+	}
+}
+
+func (ali *appendListIterator) hasNext() bool {
+	for {
+		currentEntry := ali.lastEntry.next
+		if currentEntry.next == nil {
+			return false
+		}
+		if !currentEntry.next.isSkipElement() {
+			return true
+		}
+		ali.lastEntry = currentEntry
+	}
+}
+
+func (ali *appendListIterator) next() interface{} {
+	currentEntry := ali.lastEntry.next
+	ali.lastEntry = currentEntry
+	return currentEntry.next.value
+}
+
+func (ali *appendListIterator) remove() {
+	currentEntry := ali.lastEntry.next
+	if currentEntry.next == nil {
+		ali.appendList.pushBack(nil)
+	}
+
+	ali.lastEntry.next = currentEntry.next
+}
+
 type readyList struct {
-	head *readyEntry
-	tail *readyEntry
+	appendList *appendList
 }
 
 func newReadyList() *readyList {
-	maxSeq := uint64(math.MaxUint64)
-	readyAnchor := &readyEntry{
-		clientReqNo: &clientReqNo{
-			// An entry that will never be garbage collected,
-			// to anchor the list
-			committed: &maxSeq,
-		},
-	}
-
 	return &readyList{
-		head: readyAnchor,
-		tail: readyAnchor,
+		appendList: newAppendList(),
 	}
 }
 
 type readyIterator struct {
-	lastEntry *readyEntry
+	appendListIterator *appendListIterator
 }
 
 func (ri *readyIterator) hasNext() bool {
-	return ri.lastEntry.next != nil
+	return ri.appendListIterator.hasNext()
 }
 
 func (ri *readyIterator) next() *clientReqNo {
-	ri.lastEntry = ri.lastEntry.next
-	return ri.lastEntry.clientReqNo
+	return ri.appendListIterator.next().(*clientReqNo)
 }
 
 func (rl *readyList) pushBack(crn *clientReqNo) {
-	newReadyEntry := &readyEntry{
-		clientReqNo: crn,
-	}
-
-	rl.tail.next = newReadyEntry
-	rl.tail = newReadyEntry
+	rl.appendList.pushBack(crn)
 }
 
 func (rl *readyList) iterator() *readyIterator {
 	return &readyIterator{
-		lastEntry: rl.head,
+		appendListIterator: rl.appendList.iterator(),
 	}
 }
 
 func (rl *readyList) garbageCollect(seqNo uint64) {
-	el := rl.head
-	for el.next != nil {
-		nextEl := el.next
-
-		c := nextEl.clientReqNo.committed
+	i := rl.iterator()
+	for i.hasNext() {
+		crn := i.next()
+		c := crn.committed
 		if c == nil || *c > seqNo {
-			el = nextEl
 			continue
 		}
 
-		if nextEl.next == nil {
-			// do not garbage collect the tail of the log
-			break
-		}
-
-		el.next = &readyEntry{
-			clientReqNo: nextEl.next.clientReqNo,
-			next:        nextEl.next.next,
-		}
+		i.appendListIterator.remove()
 	}
 }
 
-type readyEntry struct {
-	next        *readyEntry
-	clientReqNo *clientReqNo
+type availableList struct {
+	appendList *appendList
+}
+
+type availableIterator struct {
+	appendListIterator *appendListIterator
+}
+
+func newAvailableList() *availableList {
+	return &availableList{
+		appendList: newAppendList(),
+	}
+}
+
+func (al *availableList) pushBack(ack *clientRequest) {
+	al.appendList.pushBack(ack)
+}
+
+func (al *availableList) iterator() *availableIterator {
+	return &availableIterator{
+		appendListIterator: al.appendList.iterator(),
+	}
+}
+
+func (al *availableIterator) hasNext() bool {
+	return al.appendListIterator.hasNext()
+}
+
+func (al *availableIterator) next() *clientRequest {
+	return al.appendListIterator.next().(*clientRequest)
 }
 
 type clientTracker struct {
@@ -205,18 +284,18 @@ type clientTracker struct {
 	msgBuffers    map[nodeID]*msgBuffer
 	logger        Logger
 	readyList     *readyList
-	correctList   *list.List // A list of requests which have f+1 ACKs and the requestData
+	availableList *availableList // A list of requests which have f+1 ACKs and the requestData
 	myConfig      *pb.StateEvent_InitialParameters
 }
 
 func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
 	ct := &clientTracker{
-		logger:      logger,
-		clients:     map[uint64]*client{},
-		correctList: list.New(),
-		readyList:   newReadyList(),
-		myConfig:    myConfig,
-		msgBuffers:  map[nodeID]*msgBuffer{},
+		logger:        logger,
+		clients:       map[uint64]*client{},
+		availableList: newAvailableList(),
+		readyList:     newReadyList(),
+		myConfig:      myConfig,
+		msgBuffers:    map[nodeID]*msgBuffer{},
 	}
 
 	batches := map[string][]*pb.RequestAck{}
@@ -503,7 +582,7 @@ func (ct *clientTracker) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 	clientRequest, clientReqNo, newlyCorrectReq := cw.ack(source, ack)
 
 	if newlyCorrectReq {
-		ct.correctList.PushBack(ack)
+		ct.availableList.pushBack(clientRequest)
 	}
 
 	ct.checkReady(cw, clientReqNo)
@@ -727,9 +806,9 @@ func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck) *Acti
 }
 
 type clientRequest struct {
-	ack              *pb.RequestAck
-	agreements       map[nodeID]struct{}
-	pendingStoreData []byte
+	ack        *pb.RequestAck
+	agreements map[nodeID]struct{}
+	garbage    bool // set when this, or another clientRequest for the same clientID/reqNo commits
 }
 
 type client struct {
@@ -813,6 +892,10 @@ func (cw *client) garbageCollect(maxSeqNo uint64) {
 			// It's possible that a request we never saw as ready commits
 			// because it was correct, so advance the ready mark
 			cw.nextReadyMark = crn.reqNo
+		}
+
+		for _, cr := range crn.requests {
+			cr.garbage = true
 		}
 
 		cw.reqNoList.Remove(oel)

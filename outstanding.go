@@ -19,7 +19,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 		buckets:             map[bucketID]*bucketOutstandingReqs{},
 		correctRequests:     map[string]*pb.RequestAck{},
 		outstandingRequests: map[string]*sequence{},
-		clientTracker:       clientTracker,
+		availableIterator:   clientTracker.availableList.iterator(),
 	}
 
 	numBuckets := int(networkState.Config.NumberOfBuckets)
@@ -77,7 +77,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 type allOutstandingReqs struct {
 	numBuckets          uint64
 	buckets             map[bucketID]*bucketOutstandingReqs
-	clientTracker       *clientTracker
+	availableIterator   *availableIterator
 	lastCorrectReq      *list.Element
 	correctRequests     map[string]*pb.RequestAck
 	outstandingRequests map[string]*sequence
@@ -94,31 +94,20 @@ type clientOutstandingReqs struct {
 
 func (ao *allOutstandingReqs) advanceRequests() *Actions {
 	actions := &Actions{}
-	for {
-		var nextCorrectReq *list.Element
-		if ao.lastCorrectReq == nil {
-			nextCorrectReq = ao.clientTracker.correctList.Front()
-		} else {
-			nextCorrectReq = ao.lastCorrectReq.Next()
-		}
-
-		if nextCorrectReq == nil {
-			return actions
-		}
-
-		ao.lastCorrectReq = nextCorrectReq
-
-		fr := nextCorrectReq.Value.(*pb.RequestAck)
-		key := string(fr.Digest)
+	for ao.availableIterator.hasNext() {
+		clientRequest := ao.availableIterator.next()
+		key := string(clientRequest.ack.Digest)
 
 		if seq, ok := ao.outstandingRequests[key]; ok {
 			delete(ao.outstandingRequests, key)
-			actions.concat(seq.satisfyOutstanding(fr))
+			actions.concat(seq.satisfyOutstanding(clientRequest.ack))
 			continue
 		}
 
-		ao.correctRequests[key] = fr
+		ao.correctRequests[key] = clientRequest.ack
 	}
+
+	return actions
 }
 
 func (ao *allOutstandingReqs) applyBatch(bucket bucketID, batch []*pb.RequestAck) error {
