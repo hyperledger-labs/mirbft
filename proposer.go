@@ -25,11 +25,11 @@ type proposer struct {
 }
 
 type proposalBucket struct {
-	totalBuckets int
-	lastReadyReq *readyEntry
-	requestCount uint32
-	pending      []*clientRequest
-	bucketID     bucketID
+	totalBuckets  int
+	readyIterator *readyIterator
+	requestCount  uint32
+	pending       []*clientRequest
+	bucketID      bucketID
 }
 
 func newProposer(myConfig *pb.StateEvent_InitialParameters, clientTracker *clientTracker, buckets map[bucketID]nodeID) *proposer {
@@ -39,11 +39,11 @@ func newProposer(myConfig *pb.StateEvent_InitialParameters, clientTracker *clien
 			continue
 		}
 		proposalBuckets[bucketID] = &proposalBucket{
-			bucketID:     bucketID,
-			totalBuckets: len(buckets),
-			lastReadyReq: clientTracker.readyHead,
-			requestCount: myConfig.BatchSize,
-			pending:      make([]*clientRequest, 0, 1), // TODO, might be interesting to play with not preallocating for performance reasons
+			bucketID:      bucketID,
+			totalBuckets:  len(buckets),
+			readyIterator: clientTracker.readyList.iterator(),
+			requestCount:  myConfig.BatchSize,
+			pending:       make([]*clientRequest, 0, 1), // TODO, might be interesting to play with not preallocating for performance reasons
 		}
 	}
 
@@ -59,13 +59,11 @@ func (p *proposer) proposalBucket(bucketID bucketID) *proposalBucket {
 
 func (prb *proposalBucket) advance() {
 	for uint32(len(prb.pending)) < prb.requestCount {
-		if prb.lastReadyReq.next == nil {
+		if !prb.readyIterator.hasNext() {
 			break
 		}
 
-		prb.lastReadyReq = prb.lastReadyReq.next
-
-		crn := prb.lastReadyReq.clientReqNo
+		crn := prb.readyIterator.next()
 		if crn.committed != nil {
 			// This seems like an odd check, but the ready list is not constantly GC-ed
 			continue

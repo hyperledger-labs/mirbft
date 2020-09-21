@@ -16,11 +16,181 @@ import (
 	"github.com/IBM/mirbft/status"
 )
 
+// The client_tracker code is responsible for tracking the requests made by clients,
+// for ack-ing those requests to the network, and replicating requests from other replicas.
+// There are two general paths through which a request may arrive.
+//
+//   1. The replica has the request given to it directly by a client, or from some other
+//      verifiable source (like a signed gossip message).  The replica verifies this request
+//      to be correct using whatever application logic is required, and, then injects it
+//      into the state machine via the 'Propose' API.
+//
+//   2. The replica receives a weak quorum of request-ack messages, indicating that at least
+//      one correct replica has a request from the client and has validated it according to the
+//      application logic as required.  This request may be replicated in a number of ways.
+//
+//        a) The replica may receive an unsolicited 'forward' of the request from a primary
+//           who is including this request in a batch but has not received this replica's ack.
+//
+//        b) The replica may, after sufficient ticks elapse, send a fetch request for this
+//           request from a subset of the weak quorum.  This is to handle the case where a
+//           non-byzantine client crashes after disseminating the request to f+1 correct nodes
+//           but before disseminating it to 2f+1 correct nodes.
+//
+//        c) During an epoch change, a request may be selected, which requires f+1 nodes to
+//           agree on the digest, which implies at least one correct node has validate the request.
+//           In this case, we apply the epoch-change messages as request-acks because we may
+//           not have a weak quorum of request-ack messages yet.
+//
+// Because we do not have reliable message transmission, it is possible that some replicas may 'miss'
+// a request-ack and a client's progress could stall.  To counter this, we rebroadcast the request-ack
+// for a client request, with a backoff, such that eventually, all replicas receive all acks (or the
+// request number for that client first commits).
+//
+// It is possible that the client is byzantine (or, behaves in a byzantine manner due to a crash),
+// and ends up submitting two valid requests for the same request number.  First, to some set of f+1
+// replicas, then to another disjoint set of f+1.  With cooperation of byzantine replicas, it becomes
+// clear that even more duplicated requests could be injected into the system.  To counter this
+// resource drain, once a replica observes two distinct valid requests for a request number, it
+// begins to advocate via its request-ack for a null request (consuming the request number, but
+// committing no data).  A byzantine client may of course stall its own progress by carefully selecting
+// quorums which prevent the null request from being generated, but, this has no impact on other
+// clients, so the null request recourse is only assistance for clients which are accidentally
+// byzantine.
+//
+// When a client connects to a replica, it should solicit the last request number that this replica
+// has stored and acknowledged for this client as well as the currently committed low watermark
+// for this client.  Based on this information, the client should be able to compute a request range
+// which is uncommitted, and it may either:
+//
+//   1. If the client persisted its request log, it may simply resubmit the same persisted
+//      requests, and committing should resume across the network with no loss of data, or holes.
+//
+//   2. If the client did not persist its requests to a log, it may solicit the uncommitted requests
+//      from the replicas, and verify them itself.  This could be checking a signature, a hash-mac
+//      or other signal to indicate that the request is valid.  Then, it can resubmit the uncommitted
+//      requests just as in (1).
+//
+//   3. If the client is willing to tolerate request loss, it may simply submit a null request (a
+//      a request with no data) for each uncommitted request number for which some replica claims it
+//      has received a request.  The replicas will preferentially acknowledge the null request and the
+//      client may then begin submitting new requests from a new common low watermark.  Note, that
+//      because the client cannot validate whether a replica is byzantinely claiming it received
+//      a request that it did not commit, in the worst case, the client will be forced to fill its
+//      entire set of watermarks with null requests.  Fortunately, null requests are very lightweight
+//      and are of little consequence, so this is an uninteresting attack vector.
+//
+// Both the normal epoch operation and epoch change code have a dependency on waiting for requests to
+// become available (which means both correct, and persisted).  In the normal operation case, a
+// replica receives a preprepare, and validates that all of the requests contained in the preprepare
+// are present.  If they are not, it waits to preprepare the request until they are available.  In
+// the case of a non-byzantine primary, at least f+1 correct replicas have already acked this request,
+// so the request will eventually be known as correct, and, the primary will forward the request
+// because we have not acked it.  Any preprepare/prepare or commit message also indicates that a
+// replica acks this request and we can update the set of agreements accordingly.
+//
+// In the epoch change case, a batch which contains requests we do not have may be selected for a
+// sequence in accordance with the normal view-change rules.  In this case, we must fetch the request
+// before continuing with the epoch change, but since f+1 replicas must have included this request
+// in their q-set, we know it to be correct, and therefore, we may update our agreements and fetch
+// accordingly.
+//
+// In order to prevent spamming the network and to allow for message dropping, we flag a request
+// as being fetched, and, after some expiration attempt to fetch once more.  Any concurrent instructions
+// to fetch the request are ignored so long as the request is currently being fetched.
+//
+// To additionally enforce that a byzantine replica does not spam many different digests for the same
+// request, we only store the first non-null ack a replica sends for a given client and request number.
+// However, if a request is known to be correct, because of a weak quorum during the standard three
+// phase commit, or during epoch change, then we do record the replicas agreement with this correct
+// digest.  This bounds the maximum possible number of digests a replica stores for a given sequence
+// at n (though requires a byzantine client colluding with f byzantine replicas, and the client
+// will be detected as byzantine).
+//
+// The client tracker stores
+// availableList -- all requests we have stored (and are therefore correct) -- a list of clientReqNos
+// since multiple requests for the same reqno could become available.
+// strongList -- all requests which have a continuous strong quorum cert for each reqNo after the last commited reqNo, and can therefore safely be proposed -- a list of clientReqNos (allowing for the null request to become strong and supersede another strong request)
+// weakList -- all requests which are correct, but we have not replicated locally -- a list of
+// replicatingMap -- all requests which are currently being fetched
+
 var zeroPtr *uint64
 
 func init() {
 	var zero uint64
 	zeroPtr = &zero
+}
+
+type readyList struct {
+	head *readyEntry
+	tail *readyEntry
+}
+
+func newReadyList() *readyList {
+	maxSeq := uint64(math.MaxUint64)
+	readyAnchor := &readyEntry{
+		clientReqNo: &clientReqNo{
+			// An entry that will never be garbage collected,
+			// to anchor the list
+			committed: &maxSeq,
+		},
+	}
+
+	return &readyList{
+		head: readyAnchor,
+		tail: readyAnchor,
+	}
+}
+
+type readyIterator struct {
+	lastEntry *readyEntry
+}
+
+func (ri *readyIterator) hasNext() bool {
+	return ri.lastEntry.next != nil
+}
+
+func (ri *readyIterator) next() *clientReqNo {
+	ri.lastEntry = ri.lastEntry.next
+	return ri.lastEntry.clientReqNo
+}
+
+func (rl *readyList) pushBack(crn *clientReqNo) {
+	newReadyEntry := &readyEntry{
+		clientReqNo: crn,
+	}
+
+	rl.tail.next = newReadyEntry
+	rl.tail = newReadyEntry
+}
+
+func (rl *readyList) iterator() *readyIterator {
+	return &readyIterator{
+		lastEntry: rl.head,
+	}
+}
+
+func (rl *readyList) garbageCollect(seqNo uint64) {
+	el := rl.head
+	for el.next != nil {
+		nextEl := el.next
+
+		c := nextEl.clientReqNo.committed
+		if c == nil || *c > seqNo {
+			el = nextEl
+			continue
+		}
+
+		if nextEl.next == nil {
+			// do not garbage collect the tail of the log
+			break
+		}
+
+		el.next = &readyEntry{
+			clientReqNo: nextEl.next.clientReqNo,
+			next:        nextEl.next.next,
+		}
+	}
 }
 
 type readyEntry struct {
@@ -34,28 +204,17 @@ type clientTracker struct {
 	networkConfig *pb.NetworkState_Config
 	msgBuffers    map[nodeID]*msgBuffer
 	logger        Logger
-	readyHead     *readyEntry
-	readyTail     *readyEntry
+	readyList     *readyList
 	correctList   *list.List // A list of requests which have f+1 ACKs and the requestData
 	myConfig      *pb.StateEvent_InitialParameters
 }
 
 func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
-	maxSeq := uint64(math.MaxUint64)
-	readyAnchor := &readyEntry{
-		clientReqNo: &clientReqNo{
-			// An entry that will never be garbage collected,
-			// to anchor the list
-			committed: &maxSeq,
-		},
-	}
-
 	ct := &clientTracker{
 		logger:      logger,
 		clients:     map[uint64]*client{},
 		correctList: list.New(),
-		readyHead:   readyAnchor,
-		readyTail:   readyAnchor,
+		readyList:   newReadyList(),
 		myConfig:    myConfig,
 		msgBuffers:  map[nodeID]*msgBuffer{},
 	}
@@ -389,13 +548,7 @@ func (ct *clientTracker) advanceReady(client *client) {
 				continue
 			}
 
-			newReadyEntry := &readyEntry{
-				clientReqNo: crn,
-			}
-
-			ct.readyTail.next = newReadyEntry
-			ct.readyTail = newReadyEntry
-
+			ct.readyList.pushBack(crn)
 			client.nextReadyMark = i + 1
 
 			break
@@ -409,26 +562,8 @@ func (ct *clientTracker) garbageCollect(seqNo uint64) {
 	}
 
 	// TODO, gc the correctList
-	el := ct.readyHead
-	for el.next != nil {
-		nextEl := el.next
 
-		c := nextEl.clientReqNo.committed
-		if c == nil || *c > seqNo {
-			el = nextEl
-			continue
-		}
-
-		if nextEl.next == nil {
-			// do not garbage collect the tail of the log
-			break
-		}
-
-		el.next = &readyEntry{
-			clientReqNo: nextEl.next.clientReqNo,
-			next:        nextEl.next.next,
-		}
-	}
+	ct.readyList.garbageCollect(seqNo)
 
 	for _, id := range ct.networkConfig.Nodes {
 		msgBuffer := ct.msgBuffers[nodeID(id)]
