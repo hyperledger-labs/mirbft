@@ -220,8 +220,7 @@ func (e *activeEpoch) applyCommitMsg(source nodeID, seqNo uint64, digest []byte)
 		}
 
 		actions.Commits = append(actions.Commits, &Commit{
-			QEntry:      e.sequences[e.lowestUncommitted].qEntry,
-			EpochConfig: e.epochConfig,
+			Batch: e.sequences[e.lowestUncommitted].qEntry,
 		})
 
 		e.lowestUncommitted++

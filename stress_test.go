@@ -149,7 +149,7 @@ func (fl *FakeLog) Apply(entry *pb.QEntry) {
 	fl.CommitC <- entry
 }
 
-func (fl *FakeLog) Snap() []byte {
+func (fl *FakeLog) Snap(*pb.NetworkState_Config, []*pb.NetworkState_Client) []byte {
 	return Uint64ToBytes(uint64(len(fl.Entries)))
 }
 

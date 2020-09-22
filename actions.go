@@ -73,6 +73,10 @@ func (a *Actions) persist(p *pb.Persistent) *Actions {
 	return a
 }
 
+func (a *Actions) commit(commit *Commit) {
+	a.Commits = append(a.Commits, commit)
+}
+
 // clear nils out all of the fields.
 func (a *Actions) clear() {
 	a.Send = nil
@@ -131,15 +135,52 @@ type HashRequest struct {
 	Origin *pb.HashResult
 }
 
-// Commit contains a batch of requests which have achieved total order and are ready
-// to be committed.  Commits are delivered in order.  If this commit corresponds to a
-// checkpoint (as indicated by the Checkpoint field), it is the consumer's responsibility
-// to compute a CheckpointResult and return it in the ActionsResults.
+// Commit contains a either batch of requests which have achieved total order and are ready
+// to be committed, or a request to perform a checkpoint.  Only one value will ever be set,
+// never both.
 type Commit struct {
-	QEntry       *pb.QEntry
-	Checkpoint   bool
-	NetworkState *pb.NetworkState
-	EpochConfig  *pb.EpochConfig
+	// Batch, if set, indicates the set of requests which are ready for the application
+	// to commit.
+	Batch *pb.QEntry
+
+	// Checkpoint indicates a request to the application to compute a checkpoint value
+	// so that the state machine may eventually garbage collect the log once a sufficient
+	// number of nodes have also produces this checkpoint.  It is the consumer's responsibility
+	// to reply to the state machine with a CheckpointResult in response.
+	Checkpoint *Checkpoint
+}
+
+// Checkpoint indicates a request for the consumer to produce and return a CheckpointResult.
+// It contains the committed network state, both client state and network configuration as well as
+// the epoch configuration under which it committed.  It is the user's responsibility to compute
+// and return a checkpoint value for the given network state, and to include any reconfigurations
+// which are pending as conveyed by the previous batches.  Note, it is important _not_ to include
+// the epoch configuration in the checkpoint value, as different nodes may commit the same checkpoint
+// under different epochs and all nodes must arrive at the same checkpoint value.  Also note that
+// given this checkpoint value, a node must be able to perform state transfer, including reproducing
+// the network state, and any pending reconfigurations, as well as any necessary application state.
+// Typically, a data structure like a Merkle tree is useful to incrementally build such a state target.
+// Once the checkpoint has been computed, it must be returned via a CheckpointResult to the state machine.
+type Checkpoint struct {
+	// SeqNo is the sequence this checkpoint corresponds to.
+	SeqNo uint64
+
+	// NetworkConfig contains the currently committed network configuration.  Notably
+	// it does not contain any reconfigurations which may be pending as the previous batches
+	// committed.  It is the caller's responsibility to include any pending reconfigurations
+	// into the CheckpointResult.
+	NetworkConfig *pb.NetworkState_Config
+
+	// ClientsState contains the set of clients, their current low watermarks, and what
+	// request numbers within their watermarks have committed.
+	ClientsState []*pb.NetworkState_Client
+
+	// EpochConfig is the epoch configuration under which the most recent sequence
+	// committed.  Note, that this state may vary from node to node and therefore must _not_
+	// be included in the checkpoint value computation.  It is supplied because checkpoints
+	// are used as garbage collection points for the log, and we must not lose the epoch
+	// configuration when the log is pruned.  Most consumers may simply ignore this field.
+	EpochConfig *pb.EpochConfig
 }
 
 // ActionResults should be populated by the caller as a result of
@@ -161,8 +202,8 @@ type HashResult struct {
 // CheckpointResult gives the state machine a verifiable checkpoint for the network
 // to return to, and allows it to prune previous entries from its state.
 type CheckpointResult struct {
-	// Commit is the *Commit which generated this checkpoint
-	Commit *Commit
+	// Checkpoint is the *Checkpoint request which generated this checkpoint.
+	Checkpoint *Checkpoint
 
 	// Value is a concise representation of the state of the application when
 	// all entries less than or equal to (but not greater than) the sequence
@@ -170,4 +211,21 @@ type CheckpointResult struct {
 	// computed from a Merkle tree, hash chain, or other structure exihibiting
 	// the properties of a strong hash function.
 	Value []byte
+
+	// Reconfigurations is an ordered list of reconfigurations which occurred in
+	// the commits of this checkpoint.  The contents of this list only need to
+	// be deterministically agreed upon by all correct nodes, there is no requirement
+	// that particular messages were encoded over the wire, although it may be
+	// convenient to serialize the reconfiguration protos into the application messages.
+	// For instance, a series of reconfigurations which adds one node and removes another
+	// may be collapsed into a single reconfiguration.  Note, it is critical with any
+	// reconfiguration that the chosen configuration leaves the network in an operable state.
+	// For instance, removing all clients would prevent any new messages from entering
+	// the system, or, increasing 'f' to an unsatisfiable size would prevent quorums from forming.
+	// In general, it is safest to modify one parameter, one value at a time (for instance, adding
+	// a single node, reducing f by one, etc.) but sometimes more radical reconfigurations are
+	// desirable, even if it forces a loss of quorum and requires new nodes to state transfer
+	// before consenting.
+	// Reconfiguration will be applied starting at the _next_ checkpoint.
+	Reconfigurations []*pb.Reconfiguration
 }

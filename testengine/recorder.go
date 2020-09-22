@@ -12,7 +12,6 @@ import (
 	"container/list"
 	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
 	"hash"
 	"math/rand"
 
@@ -81,71 +80,37 @@ type CommitList struct {
 }
 
 type NodeState struct {
-	LastCommittedSeqNo uint64
-	OutstandingCommits []*mirbft.Commit
-	Hasher             hash.Hash
-	Value              []byte
-	Length             uint64
-	FirstCommit        *CommitList
-	LastCommit         *CommitList
+	Hasher      hash.Hash
+	Value       []byte
+	Length      uint64
+	FirstCommit *CommitList
+	LastCommit  *CommitList
 }
 
 func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*pb.CheckpointResult {
-	for _, commit := range commits {
-		if commit.QEntry.SeqNo <= ns.LastCommittedSeqNo {
-			panic(fmt.Sprintf("trying to commit seqno=%d, but we've already committed seqno=%d", commit.QEntry.SeqNo, ns.LastCommittedSeqNo))
-		}
-		index := commit.QEntry.SeqNo - ns.LastCommittedSeqNo
-		for index >= uint64(len(ns.OutstandingCommits)) {
-			ns.OutstandingCommits = append(ns.OutstandingCommits, nil)
-		}
-		ns.OutstandingCommits[index-1] = commit
-	}
-
 	var results []*pb.CheckpointResult
-
-	i := 0
-	for _, commit := range ns.OutstandingCommits {
-		if commit == nil {
-			break
-		}
-		i++
-
-		if ns.FirstCommit == nil {
-			ns.FirstCommit = &CommitList{
-				Commit: commit,
+	for _, commit := range commits {
+		if commit.Batch != nil {
+			for _, request := range commit.Batch.Requests {
+				ns.Hasher.Write(request.Digest)
+				ns.Length++
 			}
-			ns.LastCommit = ns.FirstCommit
-		} else {
-			ns.LastCommit.Next = &CommitList{
-				Commit: commit,
-			}
-			ns.LastCommit = ns.LastCommit.Next
+
+			continue
 		}
 
-		for _, request := range commit.QEntry.Requests {
-			ns.Hasher.Write(request.Digest)
-			ns.Length++
-		}
+		// We must have a checkpoint
+		// XXX include the network config stuff into the value
 
-		if commit.Checkpoint {
-			results = append(results, &pb.CheckpointResult{
-				SeqNo:        commit.QEntry.SeqNo,
-				NetworkState: commit.NetworkState,
-				EpochConfig:  commit.EpochConfig,
-				Value:        ns.Hasher.Sum(nil),
-			})
-		}
-
-		ns.LastCommittedSeqNo = commit.QEntry.SeqNo
+		results = append(results, &pb.CheckpointResult{
+			SeqNo: commit.Checkpoint.SeqNo,
+			NetworkState: &pb.NetworkState{
+				Config:  commit.Checkpoint.NetworkConfig,
+				Clients: commit.Checkpoint.ClientsState,
+			},
+			Value: ns.Hasher.Sum(nil),
+		})
 	}
-
-	k := 0
-	for j := i; j < len(ns.OutstandingCommits); j++ {
-		ns.OutstandingCommits[k] = ns.OutstandingCommits[j]
-		k++
-	}
-	ns.OutstandingCommits = ns.OutstandingCommits[:k]
 
 	ns.Value = ns.Hasher.Sum(nil)
 

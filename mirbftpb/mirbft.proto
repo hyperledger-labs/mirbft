@@ -90,6 +90,16 @@ message NetworkState {
     Config config = 1;
 
     repeated Client clients = 2;
+
+    repeated Reconfiguration pending_reconfiguration = 3;
+}
+
+message Reconfiguration {
+    oneof type {
+        uint64 new_client = 1;
+        uint64 remove_client = 2;
+        NetworkState.Config new_config = 3;
+    }
 }
 
 // Persistent contains data that should be persited by lib user
@@ -395,6 +405,5 @@ message HashResult {
 message CheckpointResult {
         uint64 seq_no = 1;
         NetworkState network_state = 2;
-        EpochConfig epoch_config = 3;
         bytes value = 4;
 }

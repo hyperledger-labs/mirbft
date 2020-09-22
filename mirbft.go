@@ -406,10 +406,13 @@ func (n *Node) AddResults(results ActionResults) error {
 
 	for i, cr := range results.Checkpoints {
 		stateEventResults.Checkpoints[i] = &pb.CheckpointResult{
-			SeqNo:        cr.Commit.QEntry.SeqNo,
-			Value:        cr.Value,
-			EpochConfig:  cr.Commit.EpochConfig,
-			NetworkState: cr.Commit.NetworkState,
+			SeqNo: cr.Checkpoint.SeqNo,
+			Value: cr.Value,
+			NetworkState: &pb.NetworkState{
+				Config:                 cr.Checkpoint.NetworkConfig,
+				Clients:                cr.Checkpoint.ClientsState,
+				PendingReconfiguration: cr.Reconfigurations,
+			},
 		}
 	}
 

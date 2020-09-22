@@ -26,7 +26,7 @@ type Link interface {
 
 type Log interface {
 	Apply(*pb.QEntry)
-	Snap() (id []byte)
+	Snap(networkConfig *pb.NetworkState_Config, clientsState []*pb.NetworkState_Client) (id []byte)
 }
 
 type WAL interface {
@@ -125,22 +125,28 @@ func (p *Processor) Process(actions *Actions) *ActionResults {
 	}
 
 	for _, commit := range actions.Commits {
-		p.Log.Apply(commit.QEntry) // Apply the entry
+		if commit.Batch != nil {
+			p.Log.Apply(commit.Batch) // Apply the entry
 
-		for _, reqAck := range commit.QEntry.Requests {
-			err := p.RequestStore.Commit(reqAck)
-			if err != nil {
-				panic("could not mark ack as committed, unsafe to continue")
+			// TODO, we need to make it clear that committing should not actually
+			// delete the data until the checkpoint.
+			for _, reqAck := range commit.Batch.Requests {
+				err := p.RequestStore.Commit(reqAck)
+				if err != nil {
+					panic("could not mark ack as committed, unsafe to continue")
+				}
 			}
+
+			continue
 		}
 
-		if commit.Checkpoint {
-			value := p.Log.Snap()
-			actionResults.Checkpoints = append(actionResults.Checkpoints, &CheckpointResult{
-				Commit: commit,
-				Value:  value,
-			})
-		}
+		// Not a batch, so, must be a checkpoint
+
+		value := p.Log.Snap(commit.Checkpoint.NetworkConfig, commit.Checkpoint.ClientsState)
+		actionResults.Checkpoints = append(actionResults.Checkpoints, &CheckpointResult{
+			Checkpoint: commit.Checkpoint,
+			Value:      value,
+		})
 	}
 
 	return actionResults
@@ -325,22 +331,28 @@ func (wp *ProcessorWorkPool) commitInParallel(commits []*Commit, commitBatchDone
 		var checkpoints []*CheckpointResult
 
 		for _, commit := range commits {
-			wp.processor.Log.Apply(commit.QEntry) // Apply the entry
+			if commit.Batch != nil {
+				wp.processor.Log.Apply(commit.Batch) // Apply the entry
 
-			for _, reqAck := range commit.QEntry.Requests {
-				err := wp.processor.RequestStore.Commit(reqAck)
-				if err != nil {
-					panic("could not mark ack as committed, unsafe to continue")
+				// TODO, we need to make it clear that committing should not actually
+				// delete the data until the checkpoint.
+				for _, reqAck := range commit.Batch.Requests {
+					err := wp.processor.RequestStore.Commit(reqAck)
+					if err != nil {
+						panic("could not mark ack as committed, unsafe to continue")
+					}
 				}
+
+				continue
 			}
 
-			if commit.Checkpoint {
-				value := wp.processor.Log.Snap()
-				checkpoints = append(checkpoints, &CheckpointResult{
-					Commit: commit,
-					Value:  value,
-				})
-			}
+			// Not a batch, so, must be a checkpoint
+
+			value := wp.processor.Log.Snap(commit.Checkpoint.NetworkConfig, commit.Checkpoint.ClientsState)
+			checkpoints = append(checkpoints, &CheckpointResult{
+				Checkpoint: commit.Checkpoint,
+				Value:      value,
+			})
 		}
 
 		commitBatchDoneC <- checkpoints

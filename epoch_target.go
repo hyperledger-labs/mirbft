@@ -639,8 +639,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 				}
 
 				commits = append(commits, &Commit{
-					QEntry:      d.QEntry,
-					EpochConfig: config.Config,
+					Batch: d.QEntry,
 				})
 			case *pb.Persistent_EpochChange:
 				if d.EpochChange.NewEpoch < config.Config.Number {

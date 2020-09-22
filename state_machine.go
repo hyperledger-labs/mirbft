@@ -113,6 +113,18 @@ func (sm *StateMachine) completeInitialization() {
 	sm.state = smInitialized
 }
 
+func injectCheckpoint(cp *Checkpoint, i int, commits []*Commit) []*Commit {
+	lhs, rhs := commits[:i], commits[i:]
+	result := make([]*Commit, len(commits)+1)
+	copy(result, lhs)
+	copy(result[i+1:], rhs)
+	result[i] = &Commit{
+		Checkpoint: cp,
+	}
+
+	return result
+}
+
 func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	assertInitialized := func() {
 		if sm.state != smInitialized {
@@ -185,31 +197,34 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		// may continue to iterate the state machine, and do so, so long as
 		// attempting to advance the state causes new actions.
 
-		for _, commit := range loopActions.Commits {
-			for _, fr := range commit.QEntry.Requests {
+		for i, commit := range loopActions.Commits {
+			for _, fr := range commit.Batch.Requests {
 				cw, ok := sm.clientTracker.client(fr.ClientId)
 				if !ok {
 					panic("we never should have committed this without the client available")
 				}
-				cw.reqNo(fr.ReqNo).committed = &commit.QEntry.SeqNo
+				cw.reqNo(fr.ReqNo).committed = &commit.Batch.SeqNo
 				// sm.Logger.Info(fmt.Sprintf("Committing %d.%d at seqno=%d", fr.Request.ClientId, fr.Request.ReqNo, commit.QEntry.SeqNo))
 			}
 
-			checkpoint := commit.QEntry.SeqNo%uint64(sm.networkConfig.CheckpointInterval) == 0
-			// If this commit lands on a checkpoint boundary, we note the committed
-			// network state and set the flag.  Otherwise, we will not need to reference
-			// the epoch config in the returned result, so we nil it.
+			checkpoint := commit.Batch.SeqNo%uint64(sm.networkConfig.CheckpointInterval) == 0
+			// If this commit lands on a checkpoint boundary, we request the checkpoint
+			// XXX this is inadequate for reconfiguration, as we need to pull the network
+			// config based on the application of the previous checkpoint's reconfigs
+			// which we do not know until the previous checkpoint has committed.
 			if checkpoint {
-				commit.Checkpoint = true
-				commit.NetworkState = &pb.NetworkState{
-					Clients: sm.clientTracker.clientConfigs(),
-					Config:  sm.networkConfig,
-				}
-			} else {
-				commit.EpochConfig = nil
+				loopActions.Commits = injectCheckpoint(
+					&Checkpoint{
+						SeqNo:         commit.Batch.SeqNo,
+						NetworkConfig: sm.networkConfig,
+						ClientsState:  sm.clientTracker.clientConfigs(),
+					},
+					i,
+					loopActions.Commits,
+				)
 			}
 
-			sm.persisted.setLastCommitted(commit.QEntry.SeqNo)
+			sm.persisted.setLastCommitted(commit.Batch.SeqNo)
 		}
 
 		loopActions = sm.epochTracker.advanceState()
