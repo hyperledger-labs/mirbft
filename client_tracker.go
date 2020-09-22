@@ -914,7 +914,7 @@ func (crn *clientReqNo) tick() *Actions {
 	// Finally, if we have sent any acks, and it has been long enough, we re-send.
 	// Since it's possible the client did not send the request to enough parties,
 	// we perform a linear backoff, waiting an additional interval longer after each re-ack
-	ackResendTicks := uint(2) // TODO make configurable
+	ackResendTicks := uint(20) // TODO make configurable
 
 	if crn.acksSent == 0 {
 		return actions
