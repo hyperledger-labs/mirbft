@@ -752,6 +752,7 @@ func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Act
 	}
 
 	clientReq := crn.clientReq(ack)
+	clientReq.stored = true
 
 	crn.myRequests[string(ack.Digest)] = clientReq
 
@@ -787,6 +788,7 @@ func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Act
 	}
 
 	nullReq := crn.clientReq(nullAck)
+	nullReq.stored = true
 	crn.myRequests[""] = nullReq
 
 	crn.acksSent = 1
@@ -841,6 +843,8 @@ func (crn *clientReqNo) tick() *Actions {
 
 	actions := &Actions{}
 
+	// First, if we have accumulated conflicting correct requests and not committed,
+	// we switch to promoting the null request
 	if _, ok := crn.myRequests[""]; !ok && len(crn.weakRequests) > 1 {
 		nullAck := &pb.RequestAck{
 			ClientId: crn.clientID,
@@ -848,6 +852,7 @@ func (crn *clientReqNo) tick() *Actions {
 		}
 
 		nullReq := crn.clientReq(nullAck)
+		nullReq.stored = true
 		crn.myRequests[""] = nullReq
 
 		crn.acksSent = 1
@@ -867,7 +872,49 @@ func (crn *clientReqNo) tick() *Actions {
 		)
 	}
 
-	ackResendTicks := uint(2)
+	// Second, if there is only one correct request, and we don't have it,
+	// and it's been around long enough, let's go proactively fetch it.
+	if len(crn.weakRequests) == 1 {
+		correctFetchTicks := uint(4)
+		for _, cr := range crn.weakRequests {
+			if cr.stored || cr.fetching {
+				break
+			}
+
+			if cr.ticksCorrect <= correctFetchTicks {
+				cr.ticksCorrect++
+				break
+			}
+
+			actions.concat(cr.fetch())
+			break
+		}
+	}
+
+	// Third, for every correct request we have, if we have been trying to fetch it
+	// long enough, but received no response, let's try fetching it again.
+	for _, cr := range crn.weakRequests {
+		if !cr.fetching {
+			continue
+		}
+
+		fetchTimeoutTicks := uint(4) // TODO make configurable
+
+		if cr.ticksFetching <= fetchTimeoutTicks {
+			cr.ticksFetching++
+			continue
+		}
+
+		cr.fetching = false
+
+		// XXX this is non-deterministic because of map iteration outer loop
+		actions.concat(cr.fetch())
+	}
+
+	// Finally, if we have sent any acks, and it has been long enough, we re-send.
+	// Since it's possible the client did not send the request to enough parties,
+	// we perform a linear backoff, waiting an additional interval longer after each re-ack
+	ackResendTicks := uint(2) // TODO make configurable
 
 	if crn.acksSent == 0 {
 		return actions
@@ -907,9 +954,40 @@ func (crn *clientReqNo) tick() *Actions {
 }
 
 type clientRequest struct {
-	ack        *pb.RequestAck
-	agreements map[nodeID]struct{}
-	garbage    bool // set when this, or another clientRequest for the same clientID/reqNo commits
+	ack           *pb.RequestAck
+	agreements    map[nodeID]struct{}
+	garbage       bool // set when this, or another clientRequest for the same clientID/reqNo commits
+	stored        bool // set when the request is persisted locally
+	fetching      bool // set when we have sent a request for this request
+	ticksFetching uint // incremented by one each tick while fetching is true
+	ticksCorrect  uint // incremented by one each tick while not stored
+}
+
+func (cr *clientRequest) fetch() *Actions {
+	if cr.fetching {
+		return &Actions{}
+	}
+
+	// TODO, with access to network config, we could pick f+1
+	// XXX non-deterministic as well, need an iteration order or to sort.
+	nodes := make([]uint64, len(cr.agreements))
+	i := 0
+	for nodeID := range cr.agreements {
+		nodes[i] = uint64(nodeID)
+		i++
+	}
+
+	cr.fetching = true
+	cr.ticksFetching = 0
+
+	return (&Actions{}).send(
+		nodes,
+		&pb.Msg{
+			Type: &pb.Msg_FetchRequest{
+				FetchRequest: cr.ack,
+			},
+		},
+	)
 }
 
 type client struct {

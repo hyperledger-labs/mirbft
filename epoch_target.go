@@ -277,14 +277,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 			// We are missing this request data and must fetch before proceeding
 			fetchPending = true
-			actions.send(
-				sources,
-				&pb.Msg{
-					Type: &pb.Msg_FetchRequest{
-						FetchRequest: requestAck,
-					},
-				},
-			)
+			actions.concat(cr.fetch())
 		}
 	}
 
