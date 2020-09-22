@@ -10,6 +10,8 @@ SPDX-License-Identifier: Apache-2.0
 package simplewal
 
 import (
+	"sync"
+
 	pb "github.com/IBM/mirbft/mirbftpb"
 
 	"github.com/golang/protobuf/proto"
@@ -18,6 +20,7 @@ import (
 )
 
 type WAL struct {
+	mutex             sync.Mutex
 	nextIndex         uint64
 	checkpointIndices []uint64
 	log               *wal.Log
@@ -58,6 +61,8 @@ func (w *WAL) IsEmpty() (bool, error) {
 }
 
 func (w *WAL) LoadAll(forEach func(index uint64, p *pb.Persistent)) error {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
 	firstIndex, err := w.log.FirstIndex()
 	if err != nil {
 		return errors.WithMessage(err, "could not read first index")
@@ -97,6 +102,8 @@ func (w *WAL) Append(p *pb.Persistent) error {
 		return errors.WithMessage(err, "could not marshal")
 	}
 
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
 	w.log.Write(w.nextIndex, data)
 
 	if _, ok := p.Type.(*pb.Persistent_CEntry); ok {
