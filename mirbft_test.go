@@ -71,7 +71,7 @@ var _ = Describe("Mirbft", func() {
 	})
 
 	It("delivers all requests", func() {
-		_, err := recording.DrainClients(30000)
+		_, err := recording.DrainClients(50000)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -124,6 +124,20 @@ var _ = Describe("Mirbft", func() {
 
 		PIt("still delivers all requests", func() {
 			_, err := recording.DrainClients(50000)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	When("the network loses many acks", func() {
+		BeforeEach(func() {
+			recorder.Mangler = testengine.Drop().AtPercent(20).OfMsgTypes("RequestAck")
+			for _, clientConfig := range recorder.ClientConfigs {
+				clientConfig.Total = 20
+			}
+		})
+
+		It("still delivers all requests", func() {
+			_, err := recording.DrainClients(7000)
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})

@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package testengine
 
 import (
+	"fmt"
+
 	pb "github.com/IBM/mirbft/mirbftpb"
 	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 	"google.golang.org/protobuf/proto"
@@ -73,6 +75,23 @@ func (em *EventMangling) FromNodes(nodes ...uint64) *EventMangling {
 		compositeMangler.Manglers[i] = &MsgSourceFilterMangler{
 			Mangler: em.Mangler,
 			Source:  node,
+		}
+	}
+
+	em.Mangler = compositeMangler
+
+	return em
+}
+
+func (em *EventMangling) OfMsgTypes(msgTypes ...string) *EventMangling {
+	compositeMangler := &CompositeMangler{
+		Manglers: make([]Mangler, len(msgTypes)),
+	}
+
+	for i, msgType := range msgTypes {
+		compositeMangler.Manglers[i] = &MsgTypeFilterMangler{
+			Mangler: em.Mangler,
+			Type:    msgType,
 		}
 	}
 
@@ -198,6 +217,30 @@ func (msfm *MsgSourceFilterMangler) Mangle(random int, event *rpb.RecordedEvent)
 	}
 
 	return msfm.Mangler.Mangle(random, event)
+}
+
+type MsgTypeFilterMangler struct {
+	Mangler Mangler
+	Type    string
+}
+
+func (mtfm *MsgTypeFilterMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+	recv, ok := event.StateEvent.Type.(*pb.StateEvent_Step)
+	if !ok {
+		return []*rpb.RecordedEvent{event}
+	}
+
+	msgType := fmt.Sprintf("%T", recv.Step.Msg.Type)[len("*mirbftpb.Msg_"):]
+	if msgType != mtfm.Type {
+		return []*rpb.RecordedEvent{event}
+	}
+
+	if recv.Step.Source == event.NodeId {
+		// Never allow messages from a node to itself to be mangled
+		return []*rpb.RecordedEvent{event}
+	}
+
+	return mtfm.Mangler.Mangle(random, event)
 }
 
 type ConditionalMangler struct {

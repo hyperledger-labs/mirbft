@@ -351,6 +351,15 @@ func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParam
 	return ct
 }
 
+func (ct *clientTracker) tick() *Actions {
+	actions := &Actions{}
+	for _, clientID := range ct.clientIDs {
+		client := ct.clients[clientID]
+		actions.concat(client.tick())
+	}
+	return actions
+}
+
 func (ct *clientTracker) filter(msg *pb.Msg) applyable {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_RequestAck:
@@ -376,6 +385,7 @@ func (ct *clientTracker) filter(msg *pb.Msg) applyable {
 		if !ok {
 			return future
 		}
+		// TODO, we need to validate that the request is correct before further processing
 		switch {
 		case client.lowWatermark > requestAck.ReqNo:
 			return past
@@ -709,6 +719,8 @@ type clientReqNo struct {
 	strongRequests map[string]*clientRequest // strongly correct requests (at most 1 null, 1 non-null)
 	myRequests     map[string]*clientRequest // requests we have persisted
 	committed      *uint64
+	acksSent       uint
+	ticksSinceAck  uint
 }
 
 func (crn *clientReqNo) clientReq(ack *pb.RequestAck) *clientRequest {
@@ -751,6 +763,8 @@ func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Act
 	)
 
 	if len(crn.myRequests) == 1 {
+		crn.acksSent = 1
+		crn.ticksSinceAck = 0
 		return actions.send(
 			crn.networkConfig.Nodes,
 			&pb.Msg{
@@ -774,6 +788,9 @@ func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Act
 
 	nullReq := crn.clientReq(nullAck)
 	crn.myRequests[""] = nullReq
+
+	crn.acksSent = 1
+	crn.ticksSinceAck = 0
 
 	return actions.send(
 		crn.networkConfig.Nodes,
@@ -815,6 +832,78 @@ func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck) *Acti
 	crn.strongRequests[string(ack.Digest)] = clientReq
 
 	return &Actions{}
+}
+
+func (crn *clientReqNo) tick() *Actions {
+	if crn.committed != nil {
+		return &Actions{}
+	}
+
+	actions := &Actions{}
+
+	if _, ok := crn.myRequests[""]; !ok && len(crn.weakRequests) > 1 {
+		nullAck := &pb.RequestAck{
+			ClientId: crn.clientID,
+			ReqNo:    crn.reqNo,
+		}
+
+		nullReq := crn.clientReq(nullAck)
+		crn.myRequests[""] = nullReq
+
+		crn.acksSent = 1
+		crn.ticksSinceAck = 0
+
+		actions.send(
+			crn.networkConfig.Nodes,
+			&pb.Msg{
+				Type: &pb.Msg_RequestAck{
+					RequestAck: nullAck,
+				},
+			},
+		).storeRequest(
+			&pb.ForwardRequest{
+				RequestAck: nullAck,
+			},
+		)
+	}
+
+	ackResendTicks := uint(2)
+
+	if crn.acksSent == 0 {
+		return actions
+	}
+
+	if crn.ticksSinceAck != crn.acksSent*ackResendTicks {
+		crn.ticksSinceAck++
+		return actions
+	}
+
+	var ack *pb.RequestAck
+	switch {
+	case len(crn.myRequests) > 1:
+		ack = crn.myRequests[""].ack
+	case len(crn.myRequests) == 1:
+		for _, cr := range crn.myRequests {
+			ack = cr.ack
+			break
+		}
+	default:
+		panic("dev sanity test")
+	}
+
+	crn.acksSent++
+	crn.ticksSinceAck = 0
+
+	actions.send(
+		crn.networkConfig.Nodes,
+		&pb.Msg{
+			Type: &pb.Msg_RequestAck{
+				RequestAck: ack,
+			},
+		},
+	)
+
+	return actions
 }
 
 type clientRequest struct {
@@ -970,6 +1059,15 @@ func (cw *client) inWatermarks(reqNo uint64) bool {
 
 func (cw *client) reqNo(reqNo uint64) *clientReqNo {
 	return cw.reqNoMap[reqNo].Value.(*clientReqNo)
+}
+
+func (cw *client) tick() *Actions {
+	actions := &Actions{}
+	for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
+		crn := el.Value.(*clientReqNo)
+		actions.concat(crn.tick())
+	}
+	return actions
 }
 
 func (cw *client) status() *status.ClientTracker {

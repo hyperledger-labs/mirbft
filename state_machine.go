@@ -134,6 +134,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		return &Actions{}
 	case *pb.StateEvent_Tick:
 		assertInitialized()
+		actions.concat(sm.clientTracker.tick())
 		actions.concat(sm.epochTracker.tick())
 	case *pb.StateEvent_Step:
 		assertInitialized()
