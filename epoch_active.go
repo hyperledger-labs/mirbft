@@ -35,21 +35,17 @@ type activeEpoch struct {
 	ticksSinceProgress  uint32
 }
 
-func newActiveEpoch(persisted *persisted, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) *activeEpoch {
+func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) *activeEpoch {
 	var startingEntry *logEntry
 	var maxCheckpoint *pb.CEntry
-	var epochConfig *pb.EpochConfig
 
 	for head := persisted.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
-		case *pb.Persistent_NewEpochStart:
-			epochConfig = d.NewEpochStart
 		case *pb.Persistent_EpochChange:
 			startingEntry = head.next
 		case *pb.Persistent_CEntry:
 			startingEntry = head.next
 			maxCheckpoint = d.CEntry
-			epochConfig = d.CEntry.EpochConfig
 		}
 	}
 

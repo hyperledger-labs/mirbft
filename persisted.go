@@ -82,10 +82,6 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 		panic("network config must be set")
 	}
 
-	if cEntry.EpochConfig == nil {
-		panic("epoch config must be set")
-	}
-
 	d := &pb.Persistent{
 		Type: &pb.Persistent_CEntry{
 			CEntry: cEntry,
@@ -243,7 +239,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 				Value: d.CEntry.CheckpointValue,
 			})
 			if logEpoch == nil {
-				logEpoch = &d.CEntry.EpochConfig.Number
+				logEpoch = &d.CEntry.CurrentEpoch
 			}
 		case *pb.Persistent_EpochChange:
 			if *logEpoch+1 != d.EpochChange.NewEpoch {

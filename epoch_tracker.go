@@ -49,8 +49,11 @@ func newEpochTracker(
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_CEntry:
 			cEntry := d.CEntry
-			et.currentEpoch = et.target(cEntry.EpochConfig.Number)
+			et.currentEpoch = et.target(cEntry.CurrentEpoch)
 			et.currentEpoch.state = etReady
+			// TODO, need to solicit current epoch config from network
+			// and eventually suspect of failure in case there is not still a quorum
+			// active in this epoch.
 		case *pb.Persistent_EpochChange:
 			epochChange := d.EpochChange
 			parsedEpochChange, err := newParsedEpochChange(epochChange)

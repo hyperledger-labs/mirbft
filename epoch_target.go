@@ -687,7 +687,7 @@ func (et *epochTarget) advanceState() *Actions {
 		case etReadying: // Have received a quorum of echos, waiting a on qourum of readies
 			actions.concat(et.checkNewEpochReadyQuorum())
 		case etReady: // New epoch is ready to begin
-			et.activeEpoch = newActiveEpoch(et.persisted, et.clientTracker, et.myConfig, et.logger)
+			et.activeEpoch = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.clientTracker, et.myConfig, et.logger)
 			et.state = etInProgress
 			// It's important not to step through into the next state transition,
 			// as we must commit the seqs proposed by other replicas in previous

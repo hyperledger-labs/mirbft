@@ -230,8 +230,8 @@ func (ct *checkpointTracker) applyCheckpointMsg(source nodeID, seqNo uint64, val
 	}
 }
 
-func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte, epochConfig *pb.EpochConfig, nextConfig *pb.NetworkState) *Actions {
-	return ct.checkpoint(seqNo).applyCheckpointResult(value, epochConfig, nextConfig)
+func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte, currentEpoch uint64, nextConfig *pb.NetworkState) *Actions {
+	return ct.checkpoint(seqNo).applyCheckpointResult(value, currentEpoch, nextConfig)
 }
 
 func (ct *checkpointTracker) status() []*status.Checkpoint {
@@ -307,7 +307,7 @@ func (cw *checkpoint) applyCheckpointMsg(source nodeID, value []byte) bool {
 	return stateChange
 }
 
-func (cw *checkpoint) applyCheckpointResult(value []byte, epochConfig *pb.EpochConfig, nextState *pb.NetworkState) *Actions {
+func (cw *checkpoint) applyCheckpointResult(value []byte, currentEpoch uint64, nextState *pb.NetworkState) *Actions {
 	cw.nextState = nextState
 	return (&Actions{}).send(
 		cw.verifyingConfig.Nodes,
@@ -323,7 +323,7 @@ func (cw *checkpoint) applyCheckpointResult(value []byte, epochConfig *pb.EpochC
 		SeqNo:           cw.seqNo,
 		CheckpointValue: value,
 		NetworkState:    nextState,
-		EpochConfig:     epochConfig,
+		CurrentEpoch:    currentEpoch,
 	}))
 }
 

@@ -296,9 +296,10 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 		actions.concat(sm.checkpointTracker.applyCheckpointResult(
 			checkpointResult.SeqNo,
 			checkpointResult.Value,
-			checkpointResult.EpochConfig,
+			sm.epochTracker.currentEpoch.number,
 			checkpointResult.NetworkState,
 		))
+
 	}
 
 	for _, hashResult := range results.Digests {

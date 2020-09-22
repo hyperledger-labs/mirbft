@@ -203,11 +203,7 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 									SeqNo:           0,
 									CheckpointValue: []byte("fake-initial-value"),
 									NetworkState:    r.NetworkState,
-									EpochConfig: &pb.EpochConfig{
-										Number:            0,
-										Leaders:           r.NetworkState.Config.Nodes,
-										PlannedExpiration: 0,
-									},
+									CurrentEpoch:    0,
 								},
 							},
 						},

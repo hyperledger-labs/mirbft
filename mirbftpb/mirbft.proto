@@ -128,7 +128,7 @@ message CEntry {
     uint64 seq_no = 1;
     bytes checkpoint_value = 2;
     NetworkState network_state = 3;
-    EpochConfig epoch_config = 4;
+    uint64 current_epoch = 4;
 }
 
 message Msg {
