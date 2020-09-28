@@ -13,14 +13,15 @@ import (
 )
 
 type logEntry struct {
+	index uint64
 	entry *pb.Persistent
 	next  *logEntry
 }
 
 type persisted struct {
-	offset  uint64
-	logHead *logEntry
-	logTail *logEntry
+	nextIndex uint64
+	logHead   *logEntry
+	logTail   *logEntry
 
 	lastCommitted uint64 // Seq
 
@@ -33,19 +34,36 @@ func newPersisted(logger Logger) *persisted {
 	}
 }
 
-func (p *persisted) appendLogEntry(entry *pb.Persistent) {
-	p.offset++
+func (p *persisted) appendInitialLoad(entry *WALEntry) {
 	if p.logHead == nil {
+		p.nextIndex = entry.Index
 		p.logHead = &logEntry{
-			entry: entry,
+			index: entry.Index,
+			entry: entry.Data,
 		}
 		p.logTail = p.logHead
 	} else {
 		p.logTail.next = &logEntry{
-			entry: entry,
+			index: entry.Index,
+			entry: entry.Data,
 		}
 		p.logTail = p.logTail.next
 	}
+	if p.nextIndex != entry.Index {
+		panic(fmt.Sprintf("WAL indexes out of order! Expected %d got %d", p.nextIndex, entry.Index))
+	}
+	p.nextIndex = entry.Index + 1
+}
+
+func (p *persisted) appendLogEntry(entry *pb.Persistent) *Actions {
+	p.logTail.next = &logEntry{
+		index: p.nextIndex,
+		entry: entry,
+	}
+	p.logTail = p.logTail.next
+	result := (&Actions{}).persist(p.nextIndex, entry)
+	p.nextIndex++
+	return result
 }
 
 func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
@@ -55,12 +73,7 @@ func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
 		},
 	}
 
-	p.appendLogEntry(d)
-
-	return &Actions{
-		Persist: []*pb.Persistent{d},
-	}
-
+	return p.appendLogEntry(d)
 }
 
 func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
@@ -70,11 +83,7 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
 		},
 	}
 
-	p.appendLogEntry(d)
-
-	return &Actions{
-		Persist: []*pb.Persistent{d},
-	}
+	return p.appendLogEntry(d)
 }
 
 func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
@@ -88,11 +97,7 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 		},
 	}
 
-	p.appendLogEntry(d)
-
-	return &Actions{
-		Persist: []*pb.Persistent{d},
-	}
+	return p.appendLogEntry(d)
 }
 
 func (p *persisted) addSuspect(suspect *pb.Suspect) *Actions {
@@ -102,11 +107,7 @@ func (p *persisted) addSuspect(suspect *pb.Suspect) *Actions {
 		},
 	}
 
-	p.appendLogEntry(d)
-
-	return &Actions{
-		Persist: []*pb.Persistent{d},
-	}
+	return p.appendLogEntry(d)
 }
 
 func (p *persisted) addEpochChange(epochChange *pb.EpochChange) *Actions {
@@ -116,11 +117,7 @@ func (p *persisted) addEpochChange(epochChange *pb.EpochChange) *Actions {
 		},
 	}
 
-	p.appendLogEntry(d)
-
-	return &Actions{
-		Persist: []*pb.Persistent{d},
-	}
+	return p.appendLogEntry(d)
 }
 
 func (p *persisted) addNewEpochEcho(newEpochConfig *pb.NewEpochConfig) *Actions {
@@ -130,11 +127,7 @@ func (p *persisted) addNewEpochEcho(newEpochConfig *pb.NewEpochConfig) *Actions 
 		},
 	}
 
-	p.appendLogEntry(d)
-
-	return &Actions{
-		Persist: []*pb.Persistent{d},
-	}
+	return p.appendLogEntry(d)
 }
 
 func (p *persisted) addNewEpochReady(newEpochConfig *pb.NewEpochConfig) *Actions {
@@ -144,11 +137,7 @@ func (p *persisted) addNewEpochReady(newEpochConfig *pb.NewEpochConfig) *Actions
 		},
 	}
 
-	p.appendLogEntry(d)
-
-	return &Actions{
-		Persist: []*pb.Persistent{d},
-	}
+	return p.appendLogEntry(d)
 }
 
 func (p *persisted) addNewEpochStart(epochConfig *pb.EpochConfig) *Actions {
@@ -158,11 +147,7 @@ func (p *persisted) addNewEpochStart(epochConfig *pb.EpochConfig) *Actions {
 		},
 	}
 
-	p.appendLogEntry(d)
-
-	return &Actions{
-		Persist: []*pb.Persistent{d},
-	}
+	return p.appendLogEntry(d)
 }
 
 func (p *persisted) setLastCommitted(seqNo uint64) {
@@ -173,26 +158,36 @@ func (p *persisted) setLastCommitted(seqNo uint64) {
 	p.lastCommitted = seqNo
 }
 
-func (p *persisted) truncate(lowWatermark uint64) {
+func (p *persisted) truncate(lowWatermark uint64) *Actions {
 	for head := p.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_PEntry:
-			if d.PEntry.SeqNo > lowWatermark {
-				return
+			if d.PEntry.SeqNo <= lowWatermark {
+				continue
 			}
 		case *pb.Persistent_QEntry:
-			if d.QEntry.SeqNo > lowWatermark {
-				return
+			if d.QEntry.SeqNo <= lowWatermark {
+				continue
 			}
 		case *pb.Persistent_CEntry:
-			p.logHead = head
-			if d.CEntry.SeqNo >= lowWatermark {
-				return
+			if d.CEntry.SeqNo < lowWatermark {
+				continue
 			}
 		default:
-			// panic("unrecognized data type")
+			continue
+		}
+
+		p.logHead = head
+		return &Actions{
+			WriteAhead: []*Write{
+				{
+					Truncate: &head.index,
+				},
+			},
 		}
 	}
+
+	return &Actions{}
 }
 
 func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {

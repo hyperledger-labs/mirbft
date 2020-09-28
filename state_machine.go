@@ -60,12 +60,12 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 	sm.persisted = newPersisted(sm.Logger)
 }
 
-func (sm *StateMachine) applyPersisted(entry *pb.Persistent) {
+func (sm *StateMachine) applyPersisted(entry *WALEntry) {
 	if sm.state != smLoadingPersisted {
 		panic("state machine has already finished loading persisted data")
 	}
 
-	sm.persisted.appendLogEntry(entry)
+	sm.persisted.appendInitialLoad(entry)
 }
 
 func (sm *StateMachine) completeInitialization() {
@@ -139,7 +139,10 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		sm.initialize(event.Initialize)
 		return &Actions{}
 	case *pb.StateEvent_LoadEntry:
-		sm.applyPersisted(event.LoadEntry.Entry)
+		sm.applyPersisted(&WALEntry{
+			Index: event.LoadEntry.Index,
+			Data:  event.LoadEntry.Data,
+		})
 		return &Actions{}
 	case *pb.StateEvent_CompleteInitialization:
 		sm.completeInitialization()

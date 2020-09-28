@@ -20,10 +20,9 @@ import (
 )
 
 type WAL struct {
-	mutex             sync.Mutex
-	nextIndex         uint64
-	checkpointIndices []uint64
-	log               *wal.Log
+	mutex     sync.Mutex
+	nextIndex uint64
+	log       *wal.Log
 }
 
 func Open(path string) (*WAL, error) {
@@ -35,20 +34,9 @@ func Open(path string) (*WAL, error) {
 		return nil, errors.WithMessage(err, "could not open WAL")
 	}
 
-	result := &WAL{
+	return &WAL{
 		log: log,
-	}
-
-	err = result.LoadAll(func(i uint64, p *pb.Persistent) {
-		if _, ok := p.Type.(*pb.Persistent_CEntry); ok {
-			result.checkpointIndices = append(result.checkpointIndices, i)
-		}
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	}, nil
 }
 
 func (w *WAL) IsEmpty() (bool, error) {
@@ -87,7 +75,7 @@ func (w *WAL) LoadAll(forEach func(index uint64, p *pb.Persistent)) error {
 		result := &pb.Persistent{}
 		err = proto.Unmarshal(data, result)
 		if err != nil {
-			return errors.WithMessage(err, "error decoding to proto, is the WAL corrput?")
+			return errors.WithMessage(err, "error decoding to proto, is the WAL corrupt?")
 		}
 
 		forEach(i, result)
@@ -96,7 +84,7 @@ func (w *WAL) LoadAll(forEach func(index uint64, p *pb.Persistent)) error {
 	return nil
 }
 
-func (w *WAL) Append(p *pb.Persistent) error {
+func (w *WAL) Write(index uint64, p *pb.Persistent) error {
 	data, err := proto.Marshal(p)
 	if err != nil {
 		return errors.WithMessage(err, "could not marshal")
@@ -104,23 +92,13 @@ func (w *WAL) Append(p *pb.Persistent) error {
 
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
-	w.log.Write(w.nextIndex, data)
+	return w.log.Write(index, data)
+}
 
-	if _, ok := p.Type.(*pb.Persistent_CEntry); ok {
-		w.checkpointIndices = append(w.checkpointIndices, w.nextIndex)
-		if len(w.checkpointIndices) > 3 {
-			pruneIndex := w.checkpointIndices[len(w.checkpointIndices)-3]
-			w.checkpointIndices = w.checkpointIndices[len(w.checkpointIndices)-3:]
-			err = w.log.TruncateFront(pruneIndex)
-			if err != nil {
-				return errors.WithMessage(err, "could not truncate log")
-			}
-		}
-	}
-
-	w.nextIndex++
-
-	return nil
+func (w *WAL) Truncate(index uint64) error {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+	return w.log.TruncateFront(index)
 }
 
 func (w *WAL) Sync() error {

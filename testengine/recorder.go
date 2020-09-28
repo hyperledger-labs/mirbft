@@ -162,7 +162,8 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 			&pb.StateEvent{
 				Type: &pb.StateEvent_LoadEntry{
 					LoadEntry: &pb.StateEvent_PersistedEntry{
-						Entry: &pb.Persistent{
+						Index: 0,
+						Data: &pb.Persistent{
 							Type: &pb.Persistent_CEntry{
 								CEntry: &pb.CEntry{
 									SeqNo:           0,
@@ -183,7 +184,8 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 			&pb.StateEvent{
 				Type: &pb.StateEvent_LoadEntry{
 					LoadEntry: &pb.StateEvent_PersistedEntry{
-						Entry: &pb.Persistent{
+						Index: 1,
+						Data: &pb.Persistent{
 							Type: &pb.Persistent_EpochChange{
 								EpochChange: &pb.EpochChange{
 									NewEpoch: 1,
@@ -377,7 +379,7 @@ func (r *Recording) Step() error {
 
 func isEmpty(actions *mirbft.Actions) bool {
 	return len(actions.Send) == 0 &&
-		len(actions.Persist) == 0 &&
+		len(actions.WriteAhead) == 0 &&
 		len(actions.Hash) == 0 &&
 		len(actions.StoreRequests) == 0 &&
 		len(actions.ForwardRequests) == 0 &&

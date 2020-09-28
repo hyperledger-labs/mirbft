@@ -23,12 +23,13 @@ type Actions struct {
 	// in parallel with persisting to disk and performing network sends.
 	Hash []*HashRequest
 
-	// Persist contains data that should be persisted to persistent storage. It could
-	// be of following types:
-	// QEntry: Multiple QEntries may be persisted for the same SeqNo, but for different
-	//         epochs and all must be retained.
-	// PEntry: Any PEntry already in storage but with an older epoch may be discarded.
-	Persist []*pb.Persistent
+	// WriteAhead contains instructions for writing the write-ahead-log.
+	// It is critical for safety that the write-ahead-log actions are taken before
+	// transmitting data to the network.  The actions are either to persist a log
+	// entry to the next index in the log, or, to truncate the write-ahead-log to
+	// the given index.  It is essential that these operations take place in order
+	// and in a stable way, as this log is replayed at startup to resume operation.
+	WriteAhead []*Write
 
 	// Commits is a set of batches which have achieved final order and are ready to commit.
 	// They will have previously persisted via QEntries.  When the user processes a commit,
@@ -68,8 +69,14 @@ func (a *Actions) forwardRequest(targets []uint64, requestAck *pb.RequestAck) *A
 	return a
 }
 
-func (a *Actions) persist(p *pb.Persistent) *Actions {
-	a.Persist = append(a.Persist, p)
+func (a *Actions) persist(index uint64, p *pb.Persistent) *Actions {
+	a.WriteAhead = append(a.WriteAhead,
+		&Write{
+			Append: &WALEntry{
+				Index: index,
+				Data:  p,
+			},
+		})
 	return a
 }
 
@@ -81,7 +88,7 @@ func (a *Actions) commit(commit *Commit) {
 func (a *Actions) clear() {
 	a.Send = nil
 	a.Hash = nil
-	a.Persist = nil
+	a.WriteAhead = nil
 	a.Commits = nil
 	a.StoreRequests = nil
 	a.ForwardRequests = nil
@@ -90,7 +97,7 @@ func (a *Actions) clear() {
 func (a *Actions) isEmpty() bool {
 	return len(a.Send) == 0 &&
 		len(a.Hash) == 0 &&
-		len(a.Persist) == 0 &&
+		len(a.WriteAhead) == 0 &&
 		len(a.StoreRequests) == 0 &&
 		len(a.ForwardRequests) == 0 &&
 		len(a.Commits) == 0
@@ -102,10 +109,21 @@ func (a *Actions) concat(o *Actions) *Actions {
 	a.Send = append(a.Send, o.Send...)
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
-	a.Persist = append(a.Persist, o.Persist...)
+	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
 	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
 	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
 	return a
+}
+
+// Write either appends to the WAL or truncates it.  Exactly one operation will be non-nil.
+type Write struct {
+	Truncate *uint64
+	Append   *WALEntry
+}
+
+type WALEntry struct {
+	Index uint64
+	Data  *pb.Persistent
 }
 
 // Send is an action to send a message to a set of nodes

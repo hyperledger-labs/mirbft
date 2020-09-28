@@ -292,7 +292,8 @@ var _ = Describe("StressyTest", func() {
 			MsgCount:           1000,
 		}),
 
-		Entry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
+		// There is a flake here, FIXME
+		PEntry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
 			NodeCount:          4,
 			BucketCount:        1,
 			CheckpointInterval: 10,
@@ -380,9 +381,6 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	} else {
 		process = processor.Process
 	}
-
-	// processor.Start()
-	// defer processor.Stop()
 
 	recordingFile := filepath.Join(tr.TmpDir, "recording.eventlog")
 	recording, err := os.Create(recordingFile)
@@ -528,7 +526,7 @@ func (n *Network) Run() []*NodeStatus {
 			defer GinkgoRecover()
 			defer wg.Done()
 			defer func() {
-				fmt.Printf("Node %d: shutting down", i)
+				fmt.Printf("Node %d: shutting down\n", i)
 				if r := recover(); r != nil {
 					fmt.Printf("  Node %d: received panic %s\n%s\n", i, r, debug.Stack())
 					panic(r)

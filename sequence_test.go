@@ -169,22 +169,26 @@ var _ = XDescribe("sequence", func() {
 						},
 					},
 				},
-				Persist: []*pb.Persistent{
+				WriteAhead: []*Write{
 					{
-						Type: &pb.Persistent_QEntry{
-							QEntry: &pb.QEntry{
-								SeqNo:  5,
-								Digest: []byte("digest"),
-								Requests: []*pb.RequestAck{
-									{
-										ClientId: 9,
-										ReqNo:    7,
-										Digest:   []byte("msg1-digest"),
-									},
-									{
-										ClientId: 9,
-										ReqNo:    8,
-										Digest:   []byte("msg2-digest"),
+						Append: &WALEntry{
+							Data: &pb.Persistent{
+								Type: &pb.Persistent_QEntry{
+									QEntry: &pb.QEntry{
+										SeqNo:  5,
+										Digest: []byte("digest"),
+										Requests: []*pb.RequestAck{
+											{
+												ClientId: 9,
+												ReqNo:    7,
+												Digest:   []byte("msg1-digest"),
+											},
+											{
+												ClientId: 9,
+												ReqNo:    8,
+												Digest:   []byte("msg2-digest"),
+											},
+										},
 									},
 								},
 							},
@@ -257,12 +261,16 @@ var _ = XDescribe("sequence", func() {
 						},
 					},
 				},
-				Persist: []*pb.Persistent{
+				WriteAhead: []*Write{
 					{
-						Type: &pb.Persistent_PEntry{
-							PEntry: &pb.PEntry{
-								SeqNo:  5,
-								Digest: []byte("digest"),
+						Append: &WALEntry{
+							Data: &pb.Persistent{
+								Type: &pb.Persistent_PEntry{
+									PEntry: &pb.PEntry{
+										SeqNo:  5,
+										Digest: []byte("digest"),
+									},
+								},
 							},
 						},
 					},

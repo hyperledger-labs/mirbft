@@ -165,7 +165,7 @@ type dummyWAL struct {
 }
 
 func (dw *dummyWAL) LoadAll(forEach func(uint64, *pb.Persistent)) error {
-	forEach(0, &pb.Persistent{
+	forEach(1, &pb.Persistent{
 		Type: &pb.Persistent_CEntry{
 			CEntry: &pb.CEntry{
 				SeqNo:           0,
@@ -176,7 +176,7 @@ func (dw *dummyWAL) LoadAll(forEach func(uint64, *pb.Persistent)) error {
 		},
 	})
 
-	forEach(1, &pb.Persistent{
+	forEach(2, &pb.Persistent{
 		Type: &pb.Persistent_EpochChange{
 			EpochChange: &pb.EpochChange{
 				NewEpoch: 1,

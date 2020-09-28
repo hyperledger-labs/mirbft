@@ -30,7 +30,8 @@ type Log interface {
 }
 
 type WAL interface {
-	Append(entry *pb.Persistent) error
+	Write(index uint64, entry *pb.Persistent) error
+	Truncate(index uint64) error
 	Sync() error
 }
 
@@ -63,9 +64,15 @@ func (p *Processor) Process(actions *Actions) *ActionResults {
 		panic(fmt.Sprintf("could not sync request store, unsafe to continue: %s\n", err))
 	}
 
-	for _, ps := range actions.Persist {
-		if err := p.WAL.Append(ps); err != nil {
-			panic(fmt.Sprintf("could not persist entry, not safe to continue: %s", err))
+	for _, write := range actions.WriteAhead {
+		if write.Truncate != nil {
+			if err := p.WAL.Truncate(*write.Truncate); err != nil {
+				panic(fmt.Sprintf("could truncate WAL, not safe to continue: %s", err))
+			}
+		} else {
+			if err := p.WAL.Write(write.Append.Index, write.Append.Data); err != nil {
+				panic(fmt.Sprintf("could not persist entry, not safe to continue: %s", err))
+			}
 		}
 	}
 
@@ -191,7 +198,7 @@ func (wp *ProcessorWorkPool) serviceSendPool() {
 }
 
 func (wp *ProcessorWorkPool) persistThenSendInParallel(
-	persist []*pb.Persistent,
+	writeAhead []*Write,
 	store []*pb.ForwardRequest,
 	sends []Send,
 	forwards []Forward,
@@ -232,9 +239,15 @@ func (wp *ProcessorWorkPool) persistThenSendInParallel(
 	// Next, begin persisting the WAL, plus any pending requests, once done,
 	// send the other protocol messages
 	go func() {
-		for _, p := range persist {
-			if err := wp.processor.WAL.Append(p); err != nil {
-				panic(fmt.Sprintf("could not persist entry: %s", err))
+		for _, write := range writeAhead {
+			if write.Truncate != nil {
+				if err := wp.processor.WAL.Truncate(*write.Truncate); err != nil {
+					panic(fmt.Sprintf("could truncate WAL, not safe to continue: %s", err))
+				}
+			} else {
+				if err := wp.processor.WAL.Write(write.Append.Index, write.Append.Data); err != nil {
+					panic(fmt.Sprintf("could not persist entry, not safe to continue: %s", err))
+				}
 			}
 		}
 		if err := wp.processor.WAL.Sync(); err != nil {
@@ -418,7 +431,7 @@ func (wp *ProcessorWorkPool) Process(actions *Actions) *ActionResults {
 	commitBatchDoneC := make(chan []*CheckpointResult, 1)
 
 	wp.persistThenSendInParallel(
-		actions.Persist,
+		actions.WriteAhead,
 		actions.StoreRequests,
 		actions.Send,
 		actions.ForwardRequests,

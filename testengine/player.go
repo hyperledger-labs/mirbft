@@ -96,7 +96,7 @@ func (p *Player) Step() error {
 	node.Actions.Send = append(node.Actions.Send, newActions.Send...)
 	node.Actions.Hash = append(node.Actions.Hash, newActions.Hash...)
 	node.Actions.Commits = append(node.Actions.Commits, newActions.Commits...)
-	node.Actions.Persist = append(node.Actions.Persist, newActions.Persist...)
+	node.Actions.WriteAhead = append(node.Actions.WriteAhead, newActions.WriteAhead...)
 
 	node.Status = node.StateMachine.Status()
 

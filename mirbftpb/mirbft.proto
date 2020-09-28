@@ -325,7 +325,8 @@ message StateEvent {
     }
 
     message PersistedEntry {
-        Persistent entry = 1;
+        uint64 index = 1;
+        Persistent data = 2;
     }
 
     message LoadCompleted {}

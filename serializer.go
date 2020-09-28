@@ -134,17 +134,18 @@ func (s *serializer) run() {
 		},
 	})
 
-	err := s.walStorage.LoadAll(func(_ uint64, p *pb.Persistent) {
+	err := s.walStorage.LoadAll(func(i uint64, p *pb.Persistent) {
 		if _, ok := s.walStorage.(*dummyWAL); ok {
 			// This was our own startup/bootstrap WAL,
 			// we need to get these entries persisted into the real one.
-			actions.persist(p)
+			actions.persist(i, p)
 		}
 
 		applyEvent(&pb.StateEvent{
 			Type: &pb.StateEvent_LoadEntry{
 				LoadEntry: &pb.StateEvent_PersistedEntry{
-					Entry: p,
+					Index: i,
+					Data:  p,
 				},
 			},
 		})
