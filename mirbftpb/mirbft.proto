@@ -91,7 +91,7 @@ message NetworkState {
 
     repeated Client clients = 2;
 
-    repeated Reconfiguration pending_reconfiguration = 3;
+    repeated Reconfiguration pending_reconfigurations = 3;
 }
 
 message Reconfiguration {

@@ -218,7 +218,6 @@ func (s *StateMachine) Pretty() string {
 		buffer.WriteString("- === Buckets ===\n")
 
 		for _, bucketBuffer := range s.Buckets {
-			buffer.WriteString("| ")
 			for _, state := range bucketBuffer.Sequences {
 				switch state {
 				case SequenceUninitialized:

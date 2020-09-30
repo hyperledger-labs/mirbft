@@ -37,6 +37,7 @@ const (
 // epoch configuration
 type epochTarget struct {
 	state           epochTargetState
+	commitState     *commitState
 	stateTicks      uint64
 	number          uint64
 	changes         map[nodeID]*epochChange
@@ -64,6 +65,7 @@ type epochTarget struct {
 func newEpochTarget(
 	number uint64,
 	persisted *persisted,
+	commitState *commitState,
 	clientTracker *clientTracker,
 	batchTracker *batchTracker,
 	networkConfig *pb.NetworkState_Config,
@@ -83,6 +85,7 @@ func newEpochTarget(
 
 	return &epochTarget{
 		number:        number,
+		commitState:   commitState,
 		suspicions:    map[nodeID]struct{}{},
 		changes:       map[nodeID]*epochChange{},
 		strongChanges: map[nodeID]*parsedEpochChange{},
@@ -226,7 +229,12 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 	newEpochConfig := et.leaderNewEpoch.NewConfig
 
-	if newEpochConfig.StartingCheckpoint.SeqNo > et.persisted.lastCommitted {
+	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.lowWatermark {
+		if newEpochConfig.StartingCheckpoint.SeqNo <= et.commitState.lastCommit {
+			// We've committed through this checkpoint, but are awaiting the result
+			return actions
+		}
+
 		panic("we need checkpoint state transfer to handle this case")
 	}
 
@@ -623,8 +631,6 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 
 		et.networkNewEpoch = config
 
-		commits := make([]*Commit, 0, len(config.FinalPreprepares)-int(et.persisted.lastCommitted-config.StartingCheckpoint.SeqNo))
-
 		currentEpoch := false
 		for logEntry := et.persisted.logHead; logEntry != nil; logEntry = logEntry.next {
 			switch d := logEntry.entry.Type.(type) {
@@ -633,14 +639,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 					continue
 				}
 
-				seqNo := d.QEntry.SeqNo
-				if seqNo <= et.persisted.lastCommitted {
-					continue
-				}
-
-				commits = append(commits, &Commit{
-					Batch: d.QEntry,
-				})
+				et.commitState.commit(d.QEntry)
 			case *pb.Persistent_EpochChange:
 				if d.EpochChange.NewEpoch < config.Config.Number {
 					continue
@@ -655,11 +654,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 
 		}
 
-		return et.persisted.addNewEpochStart(config.Config).concat(
-			&Actions{
-				Commits: commits,
-			},
-		)
+		return et.persisted.addNewEpochStart(config.Config)
 	}
 
 	return &Actions{}
@@ -686,7 +681,7 @@ func (et *epochTarget) advanceState() *Actions {
 		case etReadying: // Have received a quorum of echos, waiting a on qourum of readies
 			actions.concat(et.checkNewEpochReadyQuorum())
 		case etReady: // New epoch is ready to begin
-			et.activeEpoch = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.clientTracker, et.myConfig, et.logger)
+			et.activeEpoch = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.commitState, et.clientTracker, et.myConfig, et.logger)
 			et.state = etInProgress
 			// It's important not to step through into the next state transition,
 			// as we must commit the seqs proposed by other replicas in previous
@@ -698,7 +693,7 @@ func (et *epochTarget) advanceState() *Actions {
 			return actions
 		case etInProgress: // No pending change
 			actions.concat(et.activeEpoch.outstandingReqs.advanceRequests())
-			actions.concat(et.activeEpoch.drainProposer())
+			actions.concat(et.activeEpoch.advance())
 			actions.concat(et.drainNodeMsgs())
 		case etDone: // We have sent an epoch change, ending this epoch for us
 			for _, nodeMsgs := range et.nodeMsgs {
@@ -713,12 +708,13 @@ func (et *epochTarget) advanceState() *Actions {
 	}
 }
 
-func (et *epochTarget) moveWatermarks(seqNo uint64) *Actions {
+func (et *epochTarget) moveLowWatermark(seqNo uint64) *Actions {
 	if et.state != etInProgress {
+		fmt.Printf("JKY: Ignoring watermark movement because not in progress\n")
 		return &Actions{}
 	}
 
-	actions := et.activeEpoch.moveWatermarks(seqNo)
+	actions := et.activeEpoch.moveLowWatermark(seqNo)
 	for _, nodeMsgs := range et.nodeMsgs {
 		nodeMsgs.epochMsgs.moveWatermarks(seqNo)
 	}
@@ -742,11 +738,20 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 		return
 	}
 
+	if et.state <= etFetching {
+		lowWatermark = et.myEpochChange.lowWatermark + 1
+		highWatermark = lowWatermark + uint64(2*et.networkConfig.CheckpointInterval) - 1
+	} else {
+		// We are echoing or better, so leaderNewEpoch is set
+		lowWatermark = et.leaderNewEpoch.NewConfig.StartingCheckpoint.SeqNo + 1
+		highWatermark = lowWatermark + uint64(2*et.networkConfig.CheckpointInterval) - 1
+	}
+
 	bucketStatus = make([]*status.Bucket, int(et.networkConfig.NumberOfBuckets))
 	for i := range bucketStatus {
 		bucketStatus[i] = &status.Bucket{
 			ID:        uint64(i),
-			Sequences: make([]status.SequenceState, logWidth(et.networkConfig)/len(bucketStatus)+1),
+			Sequences: make([]status.SequenceState, int(highWatermark-lowWatermark)/len(bucketStatus)+1),
 		}
 	}
 
@@ -765,8 +770,6 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 	}
 
 	if et.state <= etFetching {
-		lowWatermark = et.myEpochChange.lowWatermark + 1
-		highWatermark = lowWatermark + uint64(logWidth(et.networkConfig))
 		for seqNo := range et.myEpochChange.qSet {
 			setStatus(seqNo, status.SequencePreprepared)
 		}
@@ -775,16 +778,11 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 			setStatus(seqNo, status.SequencePrepared)
 		}
 
-		for seqNo := lowWatermark; seqNo <= et.persisted.lastCommitted; seqNo++ {
+		for seqNo := lowWatermark; seqNo <= et.commitState.lastCommit; seqNo++ {
 			setStatus(seqNo, status.SequenceCommitted)
 		}
 		return
 	}
-
-	// We are echoing or better, so leaderNewEpoch is set
-
-	lowWatermark = et.leaderNewEpoch.NewConfig.StartingCheckpoint.SeqNo + 1
-	highWatermark = lowWatermark + uint64(logWidth(et.networkConfig))
 
 	for seqNo := lowWatermark; seqNo <= highWatermark; seqNo++ {
 		var state status.SequenceState
@@ -797,7 +795,7 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 			state = status.SequencePrepared
 		}
 
-		if seqNo <= et.persisted.lastCommitted || et.state == etReady {
+		if seqNo <= et.commitState.lastCommit || et.state == etReady {
 			state = status.SequenceCommitted
 		}
 

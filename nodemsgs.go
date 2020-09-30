@@ -223,11 +223,12 @@ func newEpochMsgs(nodeID nodeID, epoch *activeEpoch, myConfig *pb.StateEvent_Ini
 			commit:  1,
 		}
 
-		for i := int(bucketID); i < len(epoch.sequences); i += len(epoch.buckets) {
-			if epoch.sequences[i].state >= sequencePrepared {
+		for seqNo := uint64(bucketID) + epoch.lowWatermark(); seqNo <= epoch.highWatermark(); seqNo += uint64(len(epoch.buckets)) {
+			seq := epoch.sequence(seqNo)
+			if seq.state >= sequencePrepared {
 				nm.prepare++
 			}
-			if epoch.sequences[i].state == sequenceCommitted {
+			if seq.state == sequenceCommitted {
 				nm.commit++
 			}
 		}

@@ -19,6 +19,7 @@ import (
 type epochTracker struct {
 	currentEpoch  *epochTarget
 	persisted     *persisted
+	commitState   *commitState
 	networkConfig *pb.NetworkState_Config
 	logger        Logger
 	myConfig      *pb.StateEvent_InitialParameters
@@ -29,6 +30,7 @@ type epochTracker struct {
 
 func newEpochTracker(
 	persisted *persisted,
+	commitState *commitState,
 	networkConfig *pb.NetworkState_Config,
 	logger Logger,
 	myConfig *pb.StateEvent_InitialParameters,
@@ -37,6 +39,7 @@ func newEpochTracker(
 ) *epochTracker {
 	et := &epochTracker{
 		persisted:     persisted,
+		commitState:   commitState,
 		networkConfig: networkConfig,
 		myConfig:      myConfig,
 		logger:        logger,
@@ -186,6 +189,7 @@ func (et *epochTracker) target(epoch uint64) *epochTarget {
 		target = newEpochTarget(
 			epoch,
 			et.persisted,
+			et.commitState,
 			et.clientTracker,
 			et.batchTracker,
 			et.networkConfig,
@@ -207,8 +211,8 @@ func (et *epochTracker) setCurrentEpoch(target *epochTarget, myEpochChange *pars
 	et.currentEpoch = target
 }
 
-func (et *epochTracker) moveWatermarks(seqNo uint64) *Actions {
-	return et.currentEpoch.moveWatermarks(seqNo)
+func (et *epochTracker) moveLowWatermark(seqNo uint64) *Actions {
+	return et.currentEpoch.moveLowWatermark(seqNo)
 }
 
 /*

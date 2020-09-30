@@ -409,9 +409,9 @@ func (n *Node) AddResults(results ActionResults) error {
 			SeqNo: cr.Checkpoint.SeqNo,
 			Value: cr.Value,
 			NetworkState: &pb.NetworkState{
-				Config:                 cr.Checkpoint.NetworkConfig,
-				Clients:                cr.Checkpoint.ClientsState,
-				PendingReconfiguration: cr.Reconfigurations,
+				Config:                  cr.Checkpoint.NetworkConfig,
+				Clients:                 cr.Checkpoint.ClientsState,
+				PendingReconfigurations: cr.Reconfigurations,
 			},
 		}
 	}

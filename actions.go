@@ -195,13 +195,6 @@ type Checkpoint struct {
 	// ClientsState contains the set of clients, their current low watermarks, and what
 	// request numbers within their watermarks have committed.
 	ClientsState []*pb.NetworkState_Client
-
-	// EpochConfig is the epoch configuration under which the most recent sequence
-	// committed.  Note, that this state may vary from node to node and therefore must _not_
-	// be included in the checkpoint value computation.  It is supplied because checkpoints
-	// are used as garbage collection points for the log, and we must not lose the epoch
-	// configuration when the log is pruned.  Most consumers may simply ignore this field.
-	EpochConfig *pb.EpochConfig
 }
 
 // ActionResults should be populated by the caller as a result of

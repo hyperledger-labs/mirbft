@@ -23,8 +23,6 @@ type persisted struct {
 	logHead   *logEntry
 	logTail   *logEntry
 
-	lastCommitted uint64 // Seq
-
 	logger Logger
 }
 
@@ -150,17 +148,10 @@ func (p *persisted) addNewEpochStart(epochConfig *pb.EpochConfig) *Actions {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) setLastCommitted(seqNo uint64) {
-	if p.lastCommitted+1 != seqNo {
-		panic(fmt.Sprintf("dev sanity test, remove me: lastCommitted=%d >= seqNo=%d", p.lastCommitted, seqNo))
-	}
-
-	p.lastCommitted = seqNo
-}
-
 func (p *persisted) truncate(lowWatermark uint64) *Actions {
-	for head := p.logHead; head != nil; head = head.next {
-		switch d := head.entry.Type.(type) {
+	var lastCEntry *logEntry
+	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
+		switch d := logEntry.entry.Type.(type) {
 		case *pb.Persistent_PEntry:
 			if d.PEntry.SeqNo <= lowWatermark {
 				continue
@@ -170,6 +161,7 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 				continue
 			}
 		case *pb.Persistent_CEntry:
+			lastCEntry = logEntry
 			if d.CEntry.SeqNo < lowWatermark {
 				continue
 			}
@@ -177,11 +169,11 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 			continue
 		}
 
-		p.logHead = head
+		p.logHead = lastCEntry
 		return &Actions{
 			WriteAhead: []*Write{
 				{
-					Truncate: &head.index,
+					Truncate: &lastCEntry.index,
 				},
 			},
 		}
@@ -209,7 +201,9 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 	}
 
 	var logEpoch *uint64
+	fmt.Printf("JKY: Looping through log\n")
 	for head := p.logHead; head != nil; head = head.next {
+		fmt.Printf("  JKY: log entry of type %T\n", head.entry.Type)
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_PEntry:
 			count := pSkips[d.PEntry.SeqNo]

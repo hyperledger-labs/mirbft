@@ -98,11 +98,6 @@ func someCorrectQuorum(nc *pb.NetworkState_Config) int {
 	return int(nc.F) + 1
 }
 
-// logWidth is the number of sequence numbers in the sliding window
-func logWidth(nc *pb.NetworkState_Config) int {
-	return 3 * int(nc.CheckpointInterval)
-}
-
 func initialSequence(epochConfig *pb.EpochConfig, networkConfig *pb.NetworkState_Config) uint64 {
 	if epochConfig.PlannedExpiration > networkConfig.MaxEpochLength {
 		return epochConfig.PlannedExpiration - networkConfig.MaxEpochLength + 1
