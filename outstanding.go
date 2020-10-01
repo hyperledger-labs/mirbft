@@ -78,7 +78,6 @@ type allOutstandingReqs struct {
 	numBuckets          uint64
 	buckets             map[bucketID]*bucketOutstandingReqs
 	availableIterator   *availableIterator
-	lastCorrectReq      *list.Element
 	correctRequests     map[string]*pb.RequestAck
 	outstandingRequests map[string]*sequence
 }

@@ -14,9 +14,9 @@ import (
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/tidwall/wal"
+	"google.golang.org/protobuf/proto"
 )
 
 type WAL struct {
