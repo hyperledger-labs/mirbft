@@ -24,6 +24,7 @@ type Link interface {
 	Send(dest uint64, msg *pb.Msg)
 }
 
+// TODO allow these to return errors
 type Log interface {
 	Apply(*pb.QEntry)
 	Snap(networkConfig *pb.NetworkState_Config, clientsState []*pb.NetworkState_Client) (id []byte)
@@ -42,6 +43,16 @@ type RequestStore interface {
 	Sync() error
 }
 
+// Processor provides an implementation of action processing for the
+// mirbft Actions returned from the Ready() channel.  It is an optional
+// component and provides an implementation only for common case usage,
+// but may instead be implemented with normal application code.  This base
+// processor operates in a serial fashion, first persisting requests,
+// then writing the WAL, then sending requests, then computing hashes, then
+// applying entries to the provided Log, and finally returning the requested
+// hash and checkpoint results.  Because these operations include IO and are
+// blocking, this base implementation is most suitable for test or resource
+// constrained environments.
 type Processor struct {
 	Link         Link
 	Hasher       Hasher
@@ -159,6 +170,16 @@ func (p *Processor) Process(actions *Actions) *ActionResults {
 	return actionResults
 }
 
+// ProcessorWorkPool is a work pool based version of the standard Processor.
+// It fulfills the same purpose as the base Processor, which is to provide an
+// implementation of processing logic suitable for most applications, but instead
+// of processing in a serial manner, the ProcessorWorkPool dispatches work to
+// different work pools, both for storage, network sends, as well as computations.
+// The parallelism occurs across three areas.  Request forwarding, hashing, committing, and
+// persistence/networking.  Since request forwarding, hashing, and committing all operate
+// without effect on state machine safety, these may safely be performed in parallel with
+// the persistence/networking which does impact state machine safety.  Further paralellism
+// is employed within each of these subactions where safe.
 type ProcessorWorkPool struct {
 	processor *Processor
 
