@@ -169,10 +169,6 @@ func Uint64ToBytes(value uint64) []byte {
 	return byteValue
 }
 
-func BytesToUint64(value []byte) uint64 {
-	return binary.LittleEndian.Uint64(value)
-}
-
 // StressyTest attempts to spin up as 'real' a network as possible, using
 // fake links, but real concurrent go routines.  This means the test is non-deterministic
 // so we can't make assertions about the state of the network that are as specific

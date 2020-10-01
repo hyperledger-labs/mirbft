@@ -86,7 +86,6 @@ var _ = Describe("Recorder", func() {
 				Expect(status.EpochTracker.EpochTargets).To(HaveLen(1))
 				Expect(status.EpochTracker.EpochTargets[0].Suspicions).To(BeEmpty())
 				Expect(node.State.Length).To(Equal(totalReqs))
-				Expect(node.State.LastCommittedSeqNo).To(Equal(uint64(800)))
 
 				// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
 				Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("da16dfe9948fda2694e0825338d874cba74757fadd311f330ce15635fcafeee0"))

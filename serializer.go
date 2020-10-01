@@ -65,12 +65,12 @@ func newSerializer(myConfig *Config, walStorage WALStorage, reqStorage RequestSt
 
 func (s *serializer) stop() {
 	s.exitMutex.Lock()
-	s.exitMutex.Unlock()
 	select {
 	case <-s.doneC:
 	default:
 		close(s.doneC)
 	}
+	s.exitMutex.Unlock()
 	<-s.errC
 }
 

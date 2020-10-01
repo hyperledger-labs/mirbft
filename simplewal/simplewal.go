@@ -20,9 +20,8 @@ import (
 )
 
 type WAL struct {
-	mutex     sync.Mutex
-	nextIndex uint64
-	log       *wal.Log
+	mutex sync.Mutex
+	log   *wal.Log
 }
 
 func Open(path string) (*WAL, error) {

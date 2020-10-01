@@ -54,6 +54,7 @@ var _ = Describe("Reqstore", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		reqStore, err = reqstore.Open(tmpDir)
+		Expect(err).NotTo(HaveOccurred())
 
 		err = reqStore.Store(ack1dot1, []byte("data1dot1"))
 		Expect(err).NotTo(HaveOccurred())

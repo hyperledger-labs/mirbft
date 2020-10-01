@@ -7,7 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	"container/list"
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"

@@ -74,17 +74,10 @@ func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.Request {
 	}
 }
 
-type CommitList struct {
-	Commit *mirbft.Commit
-	Next   *CommitList
-}
-
 type NodeState struct {
-	Hasher      hash.Hash
-	Value       []byte
-	Length      uint64
-	FirstCommit *CommitList
-	LastCommit  *CommitList
+	Hasher hash.Hash
+	Value  []byte
+	Length uint64
 }
 
 func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*pb.CheckpointResult {

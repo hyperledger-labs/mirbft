@@ -808,6 +808,9 @@ func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Act
 	)
 }
 
+// XXX staticcheck hack
+var _ = (&clientReqNo{}).applyRequestAck
+
 func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck) *Actions {
 	if len(ack.Digest) != 0 {
 		_, ok := crn.nonNullVoters[source]

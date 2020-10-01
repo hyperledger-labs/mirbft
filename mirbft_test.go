@@ -75,6 +75,19 @@ var _ = Describe("Mirbft", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
+	When("a larger batch size is used", func() {
+		BeforeEach(func() {
+			for _, nodeConfig := range recorder.RecorderNodeConfigs {
+				nodeConfig.InitParms.BatchSize = 20
+			}
+		})
+
+		It("still delivers all requests", func() {
+			_, err := recording.DrainClients(50000)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
 	When("the network is comprised of just one node", func() {
 		BeforeEach(func() {
 			recorder = testengine.BasicRecorder(1, 1, 20)

@@ -6,7 +6,7 @@ The high level structure of the MirBFT library steals heavily from the architect
 
 At a high level, the `*mirbft.Node` component handles all of the interactions between the state machine and the components of the consumer network.
 
-![Top level components](http://yuml.me/diagram/plain/usecase/(State%20Machine)-(Node),(Node)-(Net%20Ingress),(Node)-(Consumer),(Node)-(Data%20Ingress),(Processor)-(Net%20Egress),(Processor)-(Persistence))
+![Top level components](http://yuml.me/diagram/plain/usecase/(State%20Machine)-(Node),(Node)-(Net%20Ingress),(Node)-(Processor),(Node)-(Data%20Ingress),(Processor)-(Net%20Egress),(Processor)-(Persistence))
 
 ### Node and State Machine
 *State Machine* is the heart of the MirBFT library, and is intentionally exported in only a very limited way and is otherwise hidden behind the `*mirbft.Node` APIs.  The *Node* component spawns a dedicated go routine at creation which serializes all access to the the *State Machine*.
