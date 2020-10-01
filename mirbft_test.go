@@ -70,7 +70,7 @@ var _ = Describe("Mirbft", func() {
 		}
 	})
 
-	FIt("delivers all requests", func() {
+	It("delivers all requests", func() {
 		_, err := recording.DrainClients(50000)
 		Expect(err).NotTo(HaveOccurred())
 	})
@@ -96,7 +96,7 @@ var _ = Describe("Mirbft", func() {
 			}
 		})
 
-		It("still delivers all requests", func() {
+		FIt("still delivers all requests", func() {
 			_, err := recording.DrainClients(500)
 			Expect(err).NotTo(HaveOccurred())
 		})

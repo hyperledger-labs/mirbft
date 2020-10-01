@@ -27,7 +27,6 @@ type activeEpoch struct {
 	buckets   map[bucketID]nodeID
 	sequences [][]*sequence
 
-	ending            bool     // set when this epoch about to end gracefully
 	lowestUncommitted uint64   // seqNo
 	lowestUnallocated []uint64 // seqNo indexed by bucket
 
@@ -142,7 +141,13 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitSta
 
 	lowestUncommitted := commitState.lastCommit + 1
 
-	proposer := newProposer(myConfig, clientTracker, buckets)
+	proposer := newProposer(
+		maxCheckpoint.SeqNo,
+		uint64(networkConfig.CheckpointInterval),
+		myConfig,
+		clientTracker,
+		buckets,
+	)
 
 	return &activeEpoch{
 		buckets:           buckets,
@@ -245,12 +250,16 @@ func (e *activeEpoch) applyCommitMsg(source nodeID, seqNo uint64, digest []byte)
 	return actions
 }
 
-func (e *activeEpoch) moveLowWatermark(seqNo uint64) *Actions {
+func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*Actions, bool) {
+	if seqNo == e.epochConfig.PlannedExpiration {
+		return &Actions{}, false
+	}
+
 	ci := int(e.networkConfig.CheckpointInterval)
 	ciIndex := int(seqNo-e.lowWatermark()) / ci
 	e.sequences = e.sequences[ciIndex+1:]
 
-	return e.advance()
+	return e.advance(), true
 }
 
 func (e *activeEpoch) advance() *Actions {
@@ -268,12 +277,15 @@ func (e *activeEpoch) advance() *Actions {
 		newSequences := make([]*sequence, ci)
 		for i := range newSequences {
 			seqNo := e.highWatermark() + 1 + uint64(i)
+			fmt.Printf("  JKY: allocating new equences for seqNo %d\n", seqNo)
 			epoch := e.epochConfig.Number
 			owner := e.buckets[e.seqToBucket(seqNo)]
 			newSequences[i] = newSequence(owner, epoch, seqNo, e.persisted, e.networkConfig, e.myConfig, e.logger)
 		}
 		e.sequences = append(e.sequences, newSequences)
 		fmt.Printf("JKY: draining proposer, adding new sequences\n")
+	} else {
+		fmt.Printf("    JKY not adding new sequences highWatermark=%d plannedExpiration=%d len(e.sequences)=%d stopAtSeqNo=%d\n", e.highWatermark(), e.epochConfig.PlannedExpiration, len(e.sequences), e.commitState.stopAtSeqNo)
 	}
 
 	for bucketID, ownerID := range e.buckets {
@@ -284,11 +296,16 @@ func (e *activeEpoch) advance() *Actions {
 		fmt.Printf("JKY: draining proposer, for my bucket %d\n", bucketID)
 		prb := e.proposer.proposalBucket(bucketID)
 
-		for prb.hasPending() {
+		for {
 			seqNo := e.lowestUnallocated[int(bucketID)]
 			if seqNo > e.highWatermark() {
 				break
 			}
+
+			if !prb.hasPending(seqNo) {
+				break
+			}
+
 			fmt.Printf("JKY: allocating seqNo %d\n", seqNo)
 			seq := e.sequence(seqNo)
 
@@ -353,7 +370,7 @@ func (e *activeEpoch) tick() *Actions {
 
 		var clientReqs []*clientRequest
 
-		if prb.hasOutstanding() {
+		if prb.hasOutstanding(unallocatedSeqNo) {
 			clientReqs = prb.next()
 		}
 

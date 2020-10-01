@@ -77,14 +77,32 @@ message NetworkState {
     }
 
     message Client {
+	// A unique ID for this client, never repeated.
         uint64 id = 1;
+
+	// Width is the configured width of the request window for this client.
+	// Clients must submit requests sequentially, but, replicas will participate
+	// in the ack procedures for any request acknowledged within this window.
 	uint32 width = 2;
-	uint64 low_watermark = 3;
+
+	// WidthConsumedLastCheckpoint is the portion of the request window which
+	// overlaps with commits in the last checkpoint.  It must be tracked because
+	// we do not want to wait for the previous checkpoint to be computed before
+	// processing requests in the next checkpoint window.  Therefore, we restrict
+	// the width in the current checkpoint window to be width - width_consumed_last_checkpoint
+	// and in this way, we ensure that all replicas regardless of whether they have the
+	// last checkpoint can deterministically evaluate whether a request is within the
+	// expected watermarks.
+	uint32 width_consumed_last_checkpoint = 3;
+
+	// LowWatermark is the lowest uncommitted request number.
+	uint64 low_watermark = 4;
+
 	// CommittedMask is a bitmask of up to length 'width', indicating which request numbers
 	// beyond the low_watermark have committed.  If non-empty, the last byte is never 0,
 	// and all request numbers beyond the last bit are uncommitted.  Note, a repeated bool
 	// would be much more natural, but very space inefficient per proto's implementation.
-	bytes committed_mask = 4;
+	bytes committed_mask = 5;
     }
 
     Config config = 1;

@@ -682,6 +682,7 @@ func (et *epochTarget) advanceState() *Actions {
 			actions.concat(et.checkNewEpochReadyQuorum())
 		case etReady: // New epoch is ready to begin
 			et.activeEpoch = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.commitState, et.clientTracker, et.myConfig, et.logger)
+			// TODO, handle case where planned epoch expiration is now
 			et.state = etInProgress
 			// It's important not to step through into the next state transition,
 			// as we must commit the seqs proposed by other replicas in previous
@@ -714,7 +715,11 @@ func (et *epochTarget) moveLowWatermark(seqNo uint64) *Actions {
 		return &Actions{}
 	}
 
-	actions := et.activeEpoch.moveLowWatermark(seqNo)
+	actions, done := et.activeEpoch.moveLowWatermark(seqNo)
+	if done {
+		et.state = etDone
+	}
+
 	for _, nodeMsgs := range et.nodeMsgs {
 		nodeMsgs.epochMsgs.moveWatermarks(seqNo)
 	}

@@ -169,7 +169,8 @@ func (cs *commitState) drain() []*Commit {
 		}
 
 		if !upper && cs.lastCommit == cs.lowWatermark+ci {
-			networkConfig, clientConfigs := nextNetworkConfig(cs.activeState, cs.clientTracker.clientConfigs())
+			clientState := cs.clientTracker.commitsCompletedForCheckpointWindow(cs.lastCommit)
+			networkConfig, clientConfigs := nextNetworkConfig(cs.activeState, clientState)
 			result = append(result, &Commit{
 				Checkpoint: &Checkpoint{
 					SeqNo:         cs.lastCommit,
@@ -244,17 +245,20 @@ func (sm *StateMachine) completeInitialization() {
 		panic("this seems wrong... maybe it's okay, TODO, analyse")
 	}
 
-	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig, sm.Logger)
-	sm.clientTracker = newClientWindows(sm.persisted, sm.myConfig, sm.Logger)
+	lastCheckpoint := checkpoints[len(checkpoints)-1]
+	initialNetworkState := lastCheckpoint.NetworkState
 
-	sm.commitState = newCommitState(checkpoints[len(checkpoints)-1], sm.clientTracker)
+	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig, sm.Logger)
+	sm.clientTracker = newClientWindows(lastCheckpoint.SeqNo, initialNetworkState, sm.myConfig, sm.Logger)
+
+	sm.commitState = newCommitState(lastCheckpoint, sm.clientTracker)
 
 	sm.batchTracker = newBatchTracker(sm.persisted)
 
 	sm.epochTracker = newEpochTracker(
 		sm.persisted,
 		sm.commitState,
-		sm.checkpointTracker.networkConfig,
+		initialNetworkState.Config,
 		sm.Logger,
 		sm.myConfig,
 		sm.batchTracker,
@@ -358,7 +362,6 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		})
 
 		loopActions := sm.epochTracker.advanceState()
-		loopActions.concat(sm.clientTracker.advanceState())
 		if loopActions.isEmpty() {
 			break
 		}
@@ -507,13 +510,10 @@ func (sm *StateMachine) Status() *status.StateMachine {
 		return &status.StateMachine{}
 	}
 
-	clientTrackerStatus := make([]*status.ClientTracker, len(sm.clientTracker.clientIDs))
+	clientTrackerStatus := make([]*status.ClientTracker, len(sm.clientTracker.clientStates))
 
-	for i, id := range sm.clientTracker.clientIDs {
-		client := sm.clientTracker.clients[id]
-		rws := client.status()
-		rws.ClientID = id
-		clientTrackerStatus[i] = rws
+	for i, clientState := range sm.clientTracker.clientStates {
+		clientTrackerStatus[i] = sm.clientTracker.clients[clientState.Id].status()
 	}
 
 	nodes := make([]*status.NodeBuffer, len(sm.checkpointTracker.networkConfig.Nodes))

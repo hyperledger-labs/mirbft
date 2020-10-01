@@ -87,7 +87,7 @@ type bucketOutstandingReqs struct {
 
 type clientOutstandingReqs struct {
 	nextReqNo    uint64
-	skipRequests map[uint64]struct{}
+	skipRequests map[uint64]struct{} // TODO, use
 }
 
 func (ao *allOutstandingReqs) advanceRequests() *Actions {
@@ -148,6 +148,8 @@ func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []
 		if co.nextReqNo != req.ReqNo {
 			return nil, fmt.Errorf("expected ClientId=%d next request for Bucket=%d to have ReqNo=%d but got ReqNo=%d", req.ClientId, bucket, co.nextReqNo, req.ReqNo)
 		}
+
+		// TODO, return an error if the request proposed is for a seqno before this request is valid
 
 		key := string(req.Digest)
 		if _, ok := ao.correctRequests[key]; ok {
