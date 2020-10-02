@@ -201,9 +201,9 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 	}
 
 	var logEpoch *uint64
-	fmt.Printf("JKY: Looping through log\n")
+	// fmt.Printf("JKY: Looping through log\n")
 	for head := p.logHead; head != nil; head = head.next {
-		fmt.Printf("  JKY: log entry of type %T\n", head.entry.Type)
+		// fmt.Printf("  JKY: log entry of type %T\n", head.entry.Type)
 		switch d := head.entry.Type.(type) {
 		case *pb.Persistent_PEntry:
 			count := pSkips[d.PEntry.SeqNo]

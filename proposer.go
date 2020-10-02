@@ -9,6 +9,7 @@ package mirbft
 import (
 	"container/list"
 	"encoding/binary"
+	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
@@ -117,16 +118,17 @@ func (p *proposer) proposalBucket(bucketID bucketID) *proposalBucket {
 
 func (prb *proposalBucket) queueRequest(validAfterSeqNo uint64, cr *clientRequest) {
 	if prb.currentCheckpoint >= validAfterSeqNo {
-		if validAfterSeqNo != prb.currentCheckpoint+prb.checkpointInterval {
-			panic("dev sanity check")
-		}
 		prb.readyList.PushBack(cr)
 	} else {
+		if validAfterSeqNo != prb.currentCheckpoint+prb.checkpointInterval {
+			panic(fmt.Sprintf("dev sanity check -- expected %d == %d", validAfterSeqNo, prb.currentCheckpoint+prb.checkpointInterval))
+		}
 		prb.nextReadyList.PushBack(cr)
 	}
 }
 
 func (prb *proposalBucket) advance(toSeqNo uint64) {
+	// fmt.Printf("JKY advancing toSeqNo=%d readyList=%d nextReadyList=%d currentCheckpoint=%d\n", toSeqNo, prb.readyList.Len(), prb.nextReadyList.Len(), prb.currentCheckpoint)
 	if toSeqNo >= prb.currentCheckpoint+prb.checkpointInterval {
 		prb.currentCheckpoint += prb.checkpointInterval
 		prb.readyList.PushBackList(prb.nextReadyList)

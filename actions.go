@@ -80,13 +80,6 @@ func (a *Actions) persist(index uint64, p *pb.Persistent) *Actions {
 	return a
 }
 
-// XXX staticcheck hack
-var _ = (&Actions{}).commit
-
-func (a *Actions) commit(commit *Commit) {
-	a.Commits = append(a.Commits, commit)
-}
-
 // clear nils out all of the fields.
 func (a *Actions) clear() {
 	a.Send = nil

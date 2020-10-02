@@ -182,7 +182,7 @@ func (ct *checkpointTracker) lowWatermark() uint64 {
 }
 
 func (ct *checkpointTracker) applyCheckpointMsg(source nodeID, seqNo uint64, value []byte) {
-	fmt.Printf("\n!!!\n JKY: applying checkpoint for seqNo=%d\n\n", seqNo)
+	// fmt.Printf("\n!!!\n JKY: applying checkpoint from %d for seqNo=%d\n\n", source, seqNo)
 	if seqNo < ct.lowWatermark() {
 		// We're already past this point
 		return

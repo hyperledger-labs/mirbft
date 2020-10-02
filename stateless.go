@@ -33,21 +33,21 @@ func (bm bitmask) isBitSet(bitIndex int) bool {
 
 	switch byteOffset {
 	case 0:
-		return b&0x80 == 0
+		return b&0x80 != 0
 	case 1:
-		return b&0x40 == 0
+		return b&0x40 != 0
 	case 2:
-		return b&0x20 == 0
+		return b&0x20 != 0
 	case 3:
-		return b&0x10 == 0
+		return b&0x10 != 0
 	case 4:
-		return b&0x08 == 0
+		return b&0x08 != 0
 	case 5:
-		return b&0x04 == 0
+		return b&0x04 != 0
 	case 6:
-		return b&0x02 == 0
+		return b&0x02 != 0
 	case 7:
-		return b&0x01 == 0
+		return b&0x01 != 0
 	}
 
 	panic("unreachable")

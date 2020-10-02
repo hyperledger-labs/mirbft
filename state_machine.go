@@ -43,13 +43,14 @@ const (
 // When a checkpoint result returns, it becomes the new activeState, the upperHalf
 // of the committed sequences becomes the lowerHalf.
 type commitState struct {
-	lowWatermark     uint64
-	lastCommit       uint64
-	stopAtSeqNo      uint64
-	activeState      *pb.NetworkState
-	clientTracker    *clientTracker
-	lowerHalfCommits []*pb.QEntry
-	upperHalfCommits []*pb.QEntry
+	lowWatermark      uint64
+	lastCommit        uint64
+	stopAtSeqNo       uint64
+	activeState       *pb.NetworkState
+	clientTracker     *clientTracker
+	lowerHalfCommits  []*pb.QEntry
+	upperHalfCommits  []*pb.QEntry
+	checkpointPending bool
 }
 
 func newCommitState(initialCEntry *pb.CEntry, clientTracker *clientTracker) *commitState {
@@ -72,7 +73,7 @@ func newCommitState(initialCEntry *pb.CEntry, clientTracker *clientTracker) *com
 }
 
 func (cs *commitState) applyCheckpointResult(result *pb.CheckpointResult) {
-	fmt.Printf("JKY: Applying checkpoint result for seqNo=%d\n", result.SeqNo)
+	// fmt.Printf("JKY: Applying checkpoint result for seqNo=%d\n", result.SeqNo)
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 
 	if result.SeqNo != cs.lowWatermark+ci {
@@ -81,12 +82,14 @@ func (cs *commitState) applyCheckpointResult(result *pb.CheckpointResult) {
 
 	if len(result.NetworkState.PendingReconfigurations) == 0 {
 		cs.stopAtSeqNo += ci
-		fmt.Printf("JKY: increasing stop at seqno to seqNo=%d\n", cs.stopAtSeqNo)
+		// fmt.Printf("JKY: increasing stop at seqno to seqNo=%d\n", cs.stopAtSeqNo)
 	}
 
 	cs.activeState = result.NetworkState
 	cs.lowerHalfCommits = cs.upperHalfCommits
+	cs.upperHalfCommits = make([]*pb.QEntry, ci)
 	cs.lowWatermark = result.SeqNo
+	cs.checkpointPending = false
 }
 
 func (cs *commitState) commit(qEntry *pb.QEntry) {
@@ -143,8 +146,25 @@ func (cs *commitState) drain() []*Commit {
 
 	var result []*Commit
 	for cs.lastCommit < cs.lowWatermark+2*ci {
-		upper := cs.lastCommit-cs.lowWatermark > ci
-		offset := int((cs.lastCommit - (cs.lowWatermark + 1)) % ci)
+		if cs.lastCommit == cs.lowWatermark+ci && !cs.checkpointPending {
+			clientState := cs.clientTracker.commitsCompletedForCheckpointWindow(cs.lastCommit)
+			networkConfig, clientConfigs := nextNetworkConfig(cs.activeState, clientState)
+			result = append(result, &Commit{
+				Checkpoint: &Checkpoint{
+					SeqNo:         cs.lastCommit,
+					NetworkConfig: networkConfig,
+					ClientsState:  clientConfigs,
+				},
+			})
+
+			cs.checkpointPending = true
+			// fmt.Printf("--- JKY: adding checkpoint request for seq_no=%d to action results\n", cs.lastCommit)
+
+		}
+
+		nextCommit := cs.lastCommit + 1
+		upper := nextCommit-cs.lowWatermark > ci
+		offset := int((nextCommit - (cs.lowWatermark + 1)) % ci)
 		var commits []*pb.QEntry
 		if upper {
 			commits = cs.upperHalfCommits
@@ -156,11 +176,15 @@ func (cs *commitState) drain() []*Commit {
 			break
 		}
 
+		if commit.SeqNo != nextCommit {
+			panic(fmt.Sprintf("dev sanity check -- expected seqNo=%d == commit=%d, upper=%v\n", nextCommit, commit.SeqNo, upper))
+		}
+
 		result = append(result, &Commit{
 			Batch: commit,
 		})
-
 		for _, fr := range commit.Requests {
+			// fmt.Printf("JKY: Attempting to commit seqNo=%d with req=%d.%d\n", commit.SeqNo, fr.ClientId, fr.ReqNo)
 			cw, ok := cs.clientTracker.client(fr.ClientId)
 			if !ok {
 				panic("we never should have committed this without the client available")
@@ -168,19 +192,7 @@ func (cs *commitState) drain() []*Commit {
 			cw.reqNo(fr.ReqNo).committed = &commit.SeqNo
 		}
 
-		if !upper && cs.lastCommit == cs.lowWatermark+ci {
-			clientState := cs.clientTracker.commitsCompletedForCheckpointWindow(cs.lastCommit)
-			networkConfig, clientConfigs := nextNetworkConfig(cs.activeState, clientState)
-			result = append(result, &Commit{
-				Checkpoint: &Checkpoint{
-					SeqNo:         cs.lastCommit,
-					NetworkConfig: networkConfig,
-					ClientsState:  clientConfigs,
-				},
-			})
-		}
-
-		cs.lastCommit++
+		cs.lastCommit = nextCommit
 	}
 
 	return result
@@ -339,7 +351,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	// the next checkpoint.)
 	if sm.checkpointTracker.state == cpsGarbageCollectable {
 		newLow := sm.checkpointTracker.garbageCollect()
-		fmt.Printf("JKY: garbage collecting to %d\n", newLow)
+		// fmt.Printf("JKY: garbage collecting to %d\n", newLow)
 
 		sm.clientTracker.garbageCollect(newLow)
 		if newLow > uint64(sm.checkpointTracker.networkConfig.CheckpointInterval) {

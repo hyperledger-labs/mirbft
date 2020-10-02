@@ -88,6 +88,17 @@ var _ = Describe("Mirbft", func() {
 		})
 	})
 
+	When("the network is has just one client", func() {
+		BeforeEach(func() {
+			recorder = testengine.BasicRecorder(4, 1, 200)
+		})
+
+		It("still delivers all requests", func() {
+			_, err := recording.DrainClients(50000)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
 	When("the network is comprised of just one node", func() {
 		BeforeEach(func() {
 			recorder = testengine.BasicRecorder(1, 1, 20)
@@ -96,7 +107,7 @@ var _ = Describe("Mirbft", func() {
 			}
 		})
 
-		FIt("still delivers all requests", func() {
+		It("still delivers all requests", func() {
 			_, err := recording.DrainClients(500)
 			Expect(err).NotTo(HaveOccurred())
 		})

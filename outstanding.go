@@ -47,6 +47,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 				if !bm.isBitSet(bitIndex) {
 					continue
 				}
+				// fmt.Printf("+++ JKY: found bit at bitIndex=%d was set\n", bitIndex)
 
 				reqNo := client.LowWatermark + uint64(bitIndex)
 				if reqNo == firstUncommitted {
@@ -61,6 +62,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 				skipRequests[reqNo] = struct{}{}
 			}
 
+			// fmt.Printf("+++ JKY: setting the nextReqNo for client %d bucket %d to %d, lowWatermark=%d, committedMask=%v numBuckets=%d\n", client.Id, i, firstUncommitted, client.LowWatermark, client.CommittedMask, numBuckets)
 			bo.clients[client.Id] = &clientOutstandingReqs{
 				nextReqNo:    firstUncommitted,
 				skipRequests: skipRequests,

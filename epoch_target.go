@@ -247,6 +247,10 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
 
+		if seqNo <= et.commitState.lastCommit {
+			continue
+		}
+
 		var sources []uint64
 		for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
 			// Previous state verified these exist
@@ -639,6 +643,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 					continue
 				}
 
+				// fmt.Printf("JKY: in epoch change to epoch %d, committing seq_no=%d\n", et.number, d.QEntry.SeqNo)
 				et.commitState.commit(d.QEntry)
 			case *pb.Persistent_EpochChange:
 				if d.EpochChange.NewEpoch < config.Config.Number {
@@ -654,7 +659,13 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 
 		}
 
-		return et.persisted.addNewEpochStart(config.Config)
+		// TODO, this is a really ugly hack, I don't like it
+		// hopefully we can clean this up by making transfer of control cleaner
+		actions := &Actions{
+			Commits: et.commitState.drain(),
+		}
+
+		return actions.concat(et.persisted.addNewEpochStart(config.Config))
 	}
 
 	return &Actions{}
@@ -711,7 +722,7 @@ func (et *epochTarget) advanceState() *Actions {
 
 func (et *epochTarget) moveLowWatermark(seqNo uint64) *Actions {
 	if et.state != etInProgress {
-		fmt.Printf("JKY: Ignoring watermark movement because not in progress\n")
+		// fmt.Printf("JKY: Ignoring watermark movement because not in progress\n")
 		return &Actions{}
 	}
 
@@ -776,10 +787,16 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 
 	if et.state <= etFetching {
 		for seqNo := range et.myEpochChange.qSet {
+			if seqNo < lowWatermark {
+				continue
+			}
 			setStatus(seqNo, status.SequencePreprepared)
 		}
 
 		for seqNo := range et.myEpochChange.pSet {
+			if seqNo < lowWatermark {
+				continue
+			}
 			setStatus(seqNo, status.SequencePrepared)
 		}
 

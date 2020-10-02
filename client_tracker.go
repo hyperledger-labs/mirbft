@@ -450,9 +450,14 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 		for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
 			crn := el.Value.(*clientReqNo)
 			if crn.committed != nil {
+				if *crn.committed > seqNo {
+					panic("dev sanity test")
+				}
 				lastCommitted = &crn.reqNo
+				// fmt.Printf("JKY: found clientID=%d reqNo=%d _did_ commit\n", oldClientState.Id, crn.reqNo)
 				continue
 			}
+			// fmt.Printf("JKY: found clientID=%d reqNo=%d did not commit\n", oldClientState.Id, crn.reqNo)
 			if firstUncommitted == nil {
 				firstUncommitted = &crn.reqNo
 			}
@@ -477,12 +482,16 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 			continue
 		}
 
+		// fmt.Printf("JKY: making bitmask... lastCommitted=%d firstUncommmitted=%d\n", *lastCommitted, *firstUncommitted)
+
 		mask := bitmask(make([]byte, int(*lastCommitted-*firstUncommitted)/8+1))
-		for i := 0; i < int(*lastCommitted-*firstUncommitted); i++ {
+		for i := 0; i <= int(*lastCommitted-*firstUncommitted); i++ {
 			reqNo := *firstUncommitted + uint64(i)
 			if cw.reqNoMap[reqNo].Value.(*clientReqNo).committed == nil {
+				// fmt.Printf("JKY: found clientID=%d reqNo=%d did not commit beyond our low watermark\n", oldClientState.Id, reqNo)
 				continue
 			}
+			// fmt.Printf("JKY: found clientID=%d reqNo=%d _did_ commit beyond our low watermark\n", oldClientState.Id, reqNo)
 
 			if i == 0 {
 				panic("dev sanity test, if this is the first uncommitted, how is it committed")
@@ -494,7 +503,7 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 
 		lowWatermark := *firstUncommitted
 
-		fmt.Printf("JKY: lowWatermark=%d oldLowWatermark=%d\n", lowWatermark, oldClientState.LowWatermark)
+		// fmt.Printf("JKY: commmited through seqNo=%d lowWatermark=%d oldLowWatermark=%d withConsumed=%d\n", seqNo, lowWatermark, oldClientState.LowWatermark, lowWatermark-oldClientState.LowWatermark)
 
 		newClientStates[i] = &pb.NetworkState_Client{
 			Id:                          oldClientState.Id,
@@ -503,6 +512,8 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 			LowWatermark:                lowWatermark,
 			CommittedMask:               mask,
 		}
+
+		// fmt.Printf("+++ JKY: setting clientID=%d lowWatermark=%d committedMask=%x\n", oldClientState.Id, lowWatermark, mask)
 
 		cw.allocate(seqNo, newClientStates[i])
 	}
@@ -1052,7 +1063,7 @@ func (cw *client) allocate(startingAtSeqNo uint64, state *pb.NetworkState_Client
 
 	intermediateHighWatermark := newHighWatermark - uint64(state.WidthConsumedLastCheckpoint)
 	if intermediateHighWatermark != cw.highWatermark {
-		panic(fmt.Sprintf("dev sanity check -- expected %d to equal %d", intermediateHighWatermark, cw.highWatermark))
+		panic(fmt.Sprintf("dev sanity check -- seqNo=%d intermediateHighWatermark=%d cw.highWatermark=%d newHighWatermark=%d state.WidthConsumedLastCheckpoint=%d", startingAtSeqNo, intermediateHighWatermark, cw.highWatermark, newHighWatermark, state.WidthConsumedLastCheckpoint))
 	}
 
 	for reqNo := intermediateHighWatermark + 1; reqNo <= newHighWatermark; reqNo++ {
@@ -1069,6 +1080,8 @@ func (cw *client) allocate(startingAtSeqNo uint64, state *pb.NetworkState_Client
 		})
 		cw.reqNoMap[reqNo] = el
 	}
+
+	cw.highWatermark = newHighWatermark
 
 	close(cw.clientWaiter.expired)
 	cw.clientWaiter = &clientWaiter{
@@ -1098,6 +1111,8 @@ func (cw *client) moveLowWatermark(maxSeqNo uint64) {
 			cr.garbage = true
 		}
 
+		// fmt.Printf("JKY: removing client_id=%d req_no=%d\n", cw.clientState.Id, crn.reqNo)
+
 		cw.reqNoList.Remove(oel)
 		delete(cw.reqNoMap, crn.reqNo)
 	}
@@ -1108,7 +1123,7 @@ func (cw *client) moveLowWatermark(maxSeqNo uint64) {
 func (cw *client) ack(source nodeID, ack *pb.RequestAck) (*clientRequest, *clientReqNo, bool) {
 	crne, ok := cw.reqNoMap[ack.ReqNo]
 	if !ok {
-		panic("dev sanity check")
+		panic(fmt.Sprintf("dev sanity check -- got ack for %d, but lowWatermark=%d highWatermark=%d", ack.ReqNo, cw.lowWatermark, cw.highWatermark))
 	}
 
 	crn := crne.Value.(*clientReqNo)
@@ -1134,7 +1149,11 @@ func (cw *client) inWatermarks(reqNo uint64) bool {
 }
 
 func (cw *client) reqNo(reqNo uint64) *clientReqNo {
-	return cw.reqNoMap[reqNo].Value.(*clientReqNo)
+	el := cw.reqNoMap[reqNo]
+	if el == nil {
+		panic(fmt.Sprintf("requested reqNo=%d but we do not have it\n", reqNo))
+	}
+	return el.Value.(*clientReqNo)
 }
 
 func (cw *client) tick() *Actions {
