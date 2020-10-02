@@ -54,22 +54,16 @@ type commitState struct {
 }
 
 func newCommitState(initialCEntry *pb.CEntry, clientTracker *clientTracker) *commitState {
-	ci := int(initialCEntry.NetworkState.Config.CheckpointInterval)
-
-	stopAtSeqNo := initialCEntry.SeqNo + uint64(ci)
-	if len(initialCEntry.NetworkState.PendingReconfigurations) == 0 {
-		stopAtSeqNo += uint64(ci)
+	cs := &commitState{
+		lowWatermark: initialCEntry.SeqNo,
+		lastCommit:   initialCEntry.SeqNo,
+		stopAtSeqNo:  initialCEntry.SeqNo,
+		activeState:  initialCEntry.NetworkState,
 	}
 
-	return &commitState{
-		lowWatermark:     initialCEntry.SeqNo,
-		lastCommit:       initialCEntry.SeqNo,
-		activeState:      initialCEntry.NetworkState,
-		clientTracker:    clientTracker,
-		lowerHalfCommits: make([]*pb.QEntry, ci),
-		upperHalfCommits: make([]*pb.QEntry, ci),
-		stopAtSeqNo:      stopAtSeqNo,
-	}
+	cs.reinitialize(clientTracker)
+
+	return cs
 }
 
 func (cs *commitState) applyCheckpointResult(result *pb.CheckpointResult) {
@@ -90,6 +84,24 @@ func (cs *commitState) applyCheckpointResult(result *pb.CheckpointResult) {
 	cs.upperHalfCommits = make([]*pb.QEntry, ci)
 	cs.lowWatermark = result.SeqNo
 	cs.checkpointPending = false
+}
+
+func (cs *commitState) reinitialize(clientTracker *clientTracker) {
+	if cs.lowWatermark != cs.stopAtSeqNo {
+		panic("dev sanity test -- we are reinitializing, but there appears to be no reason to")
+	}
+
+	cs.clientTracker = clientTracker
+
+	ci := int(cs.activeState.Config.CheckpointInterval)
+
+	cs.lowerHalfCommits = make([]*pb.QEntry, ci)
+	cs.upperHalfCommits = make([]*pb.QEntry, ci)
+
+	cs.stopAtSeqNo = cs.lowWatermark + uint64(ci)
+	if len(cs.activeState.PendingReconfigurations) == 0 {
+		cs.stopAtSeqNo += uint64(ci)
+	}
 }
 
 func (cs *commitState) commit(qEntry *pb.QEntry) {
@@ -122,16 +134,29 @@ func nextNetworkConfig(startingState *pb.NetworkState, clientConfigs []*pb.Netwo
 	}
 
 	nextConfig := proto.Clone(startingState.Config).(*pb.NetworkState_Config)
+	nextClients := append([]*pb.NetworkState_Client{}, clientConfigs...)
 	for _, reconfig := range startingState.PendingReconfigurations {
 		switch rc := reconfig.Type.(type) {
-		case *pb.Reconfiguration_NewClient:
+		case *pb.Reconfiguration_NewClient_:
 			clientConfigs = append(clientConfigs, &pb.NetworkState_Client{
-				Id:    rc.NewClient,
-				Width: 5000, // XXX this needs to be configured either in the new client msg or in the overall config
+				Id:    rc.NewClient.Id,
+				Width: rc.NewClient.Width,
 			})
 		case *pb.Reconfiguration_RemoveClient:
-			// XXX implement
-			panic("unimplemented removing clent -- implement me")
+			found := false
+			for i, clientConfig := range nextClients {
+				if clientConfig.Id != rc.RemoveClient {
+					continue
+				}
+
+				found = true
+				nextClients = append(nextClients[:i], nextClients[i+1:]...)
+				break
+			}
+
+			if !found {
+				panic("asked to remove client which doesn't exist") // TODO, heavy handed, back off to a warning
+			}
 		case *pb.Reconfiguration_NewConfig:
 			nextConfig = rc.NewConfig
 		}
@@ -280,18 +305,6 @@ func (sm *StateMachine) completeInitialization() {
 	sm.state = smInitialized
 }
 
-func injectCheckpoint(cp *Checkpoint, i int, commits []*Commit) []*Commit {
-	lhs, rhs := commits[:i], commits[i:]
-	result := make([]*Commit, len(commits)+1)
-	copy(result, lhs)
-	copy(result[i+1:], rhs)
-	result[i] = &Commit{
-		Checkpoint: cp,
-	}
-
-	return result
-}
-
 func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	assertInitialized := func() {
 		if sm.state != smInitialized {
@@ -353,13 +366,14 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		newLow := sm.checkpointTracker.garbageCollect()
 		// fmt.Printf("JKY: garbage collecting to %d\n", newLow)
 
+		sm.persisted.truncate(newLow)
+
 		sm.clientTracker.garbageCollect(newLow)
 		if newLow > uint64(sm.checkpointTracker.networkConfig.CheckpointInterval) {
 			// Note, we leave an extra checkpoint worth of batches around, to help
 			// during epoch change.
 			sm.batchTracker.truncate(newLow - uint64(sm.checkpointTracker.networkConfig.CheckpointInterval))
 		}
-		sm.persisted.truncate(newLow)
 		actions.concat(sm.epochTracker.moveLowWatermark(newLow))
 	}
 

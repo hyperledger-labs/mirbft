@@ -113,8 +113,13 @@ message NetworkState {
 }
 
 message Reconfiguration {
+    message NewClient {
+        uint64 id = 1;
+        uint32 width = 2;
+    }
+
     oneof type {
-        uint64 new_client = 1;
+        NewClient new_client = 1;
         uint64 remove_client = 2;
         NetworkState.Config new_config = 3;
     }

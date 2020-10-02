@@ -260,6 +260,10 @@ func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*Actions, bool) {
 		return &Actions{}, true
 	}
 
+	if seqNo == e.commitState.stopAtSeqNo {
+		return &Actions{}, true
+	}
+
 	ci := int(e.networkConfig.CheckpointInterval)
 	ciIndex := int(seqNo-e.lowWatermark()) / ci
 	e.sequences = e.sequences[ciIndex+1:]

@@ -75,9 +75,11 @@ func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.Request {
 }
 
 type NodeState struct {
-	Hasher hash.Hash
-	Value  []byte
-	Length uint64
+	Hasher                  hash.Hash
+	Value                   []byte
+	Length                  uint64
+	ReconfigPoints          []*ReconfigPoint
+	PendingReconfigurations []*pb.Reconfiguration
 }
 
 func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*pb.CheckpointResult {
@@ -87,6 +89,13 @@ func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*pb.Checkpo
 			for _, request := range commit.Batch.Requests {
 				ns.Hasher.Write(request.Digest)
 				ns.Length++
+
+				for _, reconfigPoint := range ns.ReconfigPoints {
+					if reconfigPoint.ClientID == request.ClientId &&
+						reconfigPoint.ReqNo == request.ReqNo {
+						ns.PendingReconfigurations = append(ns.PendingReconfigurations, reconfigPoint.Reconfiguration)
+					}
+				}
 			}
 
 			continue
@@ -118,10 +127,17 @@ type ClientConfig struct {
 	Total       uint64
 }
 
+type ReconfigPoint struct {
+	ClientID        uint64
+	ReqNo           uint64
+	Reconfiguration *pb.Reconfiguration
+}
+
 type Recorder struct {
 	NetworkState        *pb.NetworkState
 	RecorderNodeConfigs []*RecorderNodeConfig
 	ClientConfigs       []*ClientConfig
+	ReconfigPoints      []*ReconfigPoint
 	Mangler             Mangler
 	Logger              *zap.Logger
 	Hasher              Hasher
@@ -218,7 +234,8 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
 		nodes[i] = &RecorderNode{
 			State: &NodeState{
-				Hasher: r.Hasher(),
+				Hasher:         r.Hasher(),
+				ReconfigPoints: r.ReconfigPoints,
 			},
 			PlaybackNode: player.Node(uint64(i)),
 			Config:       recorderNodeConfig,
