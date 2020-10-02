@@ -73,7 +73,7 @@ func newProposer(baseCheckpoint uint64, checkpointInterval uint64, myConfig *pb.
 	}
 }
 
-func (p *proposer) advance() {
+func (p *proposer) advance(toSeqNo uint64) {
 	for p.readyIterator.hasNext() {
 		crn := p.readyIterator.next()
 		if crn.committed != nil {
@@ -90,6 +90,8 @@ func (p *proposer) advance() {
 			// we don't own this bucket
 			continue
 		}
+
+		proposalBucket.advance(toSeqNo)
 
 		if len(crn.strongRequests) > 1 {
 			if _, ok := crn.strongRequests[""]; !ok {

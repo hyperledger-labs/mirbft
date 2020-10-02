@@ -288,8 +288,7 @@ var _ = Describe("StressyTest", func() {
 			MsgCount:           1000,
 		}),
 
-		// There is a flake here, FIXME
-		PEntry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
+		Entry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
 			NodeCount:          4,
 			BucketCount:        1,
 			CheckpointInterval: 10,
