@@ -171,7 +171,10 @@ func (dw *dummyWAL) LoadAll(forEach func(uint64, *pb.Persistent)) error {
 				SeqNo:           0,
 				CheckpointValue: dw.initialCheckpointValue,
 				NetworkState:    dw.initialNetworkState,
-				CurrentEpoch:    0,
+				EpochConfig: &pb.EpochConfig{
+					Number:            0,
+					PlannedExpiration: 0,
+				},
 			},
 		},
 	})

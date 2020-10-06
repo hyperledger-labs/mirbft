@@ -29,13 +29,11 @@ func newBatchTracker(persisted *persisted) *batchTracker {
 		fetchInFlight:   map[string][]uint64{},
 	}
 
-	for head := persisted.logHead; head != nil; head = head.next {
-		switch d := head.entry.Type.(type) {
-		case *pb.Persistent_QEntry:
-			qEntry := d.QEntry
+	persisted.iterate(logIterator{
+		onQEntry: func(qEntry *pb.QEntry) {
 			bt.addBatch(qEntry.SeqNo, qEntry.Digest, qEntry.Requests)
-		}
-	}
+		},
+	})
 
 	return bt
 }

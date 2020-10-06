@@ -12,6 +12,18 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
+type logIterator struct {
+	onQEntry        func(*pb.QEntry)
+	onPEntry        func(*pb.PEntry)
+	onCEntry        func(*pb.CEntry)
+	onEpochChange   func(*pb.EpochChange)
+	onNewEpochEcho  func(*pb.NewEpochConfig)
+	onNewEpochReady func(*pb.NewEpochConfig)
+	onNewEpochStart func(*pb.EpochConfig)
+	onSuspect       func(*pb.Suspect)
+	// TODO, suspect_ready
+}
+
 type logEntry struct {
 	index uint64
 	entry *pb.Persistent
@@ -182,8 +194,50 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 	return &Actions{}
 }
 
+func (p *persisted) iterate(li logIterator) {
+	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
+		switch d := logEntry.entry.Type.(type) {
+		case *pb.Persistent_PEntry:
+			if li.onPEntry != nil {
+				li.onPEntry(d.PEntry)
+			}
+		case *pb.Persistent_QEntry:
+			if li.onQEntry != nil {
+				li.onQEntry(d.QEntry)
+			}
+		case *pb.Persistent_CEntry:
+			if li.onCEntry != nil {
+				li.onCEntry(d.CEntry)
+			}
+		case *pb.Persistent_EpochChange:
+			if li.onEpochChange != nil {
+				li.onEpochChange(d.EpochChange)
+			}
+		case *pb.Persistent_NewEpochEcho:
+			if li.onNewEpochEcho != nil {
+				li.onNewEpochEcho(d.NewEpochEcho)
+			}
+		case *pb.Persistent_NewEpochReady:
+			if li.onNewEpochReady != nil {
+				li.onNewEpochReady(d.NewEpochReady)
+			}
+		case *pb.Persistent_NewEpochStart:
+			if li.onNewEpochStart != nil {
+				li.onNewEpochStart(d.NewEpochStart)
+			}
+		case *pb.Persistent_Suspect:
+			if li.onSuspect != nil {
+				li.onSuspect(d.Suspect)
+			}
+			// TODO, suspect_ready
+		default:
+			panic(fmt.Sprintf("unsupported log entry type '%T'", logEntry.entry.Type))
+		}
+	}
+}
+
 func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
-	epochChange := &pb.EpochChange{
+	newEpochChange := &pb.EpochChange{
 		NewEpoch: newEpoch,
 	}
 
@@ -202,41 +256,42 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 
 	var logEpoch *uint64
 	// fmt.Printf("JKY: Looping through log\n")
-	for head := p.logHead; head != nil; head = head.next {
-		// fmt.Printf("  JKY: log entry of type %T\n", head.entry.Type)
-		switch d := head.entry.Type.(type) {
-		case *pb.Persistent_PEntry:
-			count := pSkips[d.PEntry.SeqNo]
+	p.iterate(logIterator{
+		onPEntry: func(pEntry *pb.PEntry) {
+			count := pSkips[pEntry.SeqNo]
 			if count != 1 {
-				pSkips[d.PEntry.SeqNo] = count - 1
-				continue
+				pSkips[pEntry.SeqNo] = count - 1
+				return
 			}
-			epochChange.PSet = append(epochChange.PSet, &pb.EpochChange_SetEntry{
+			newEpochChange.PSet = append(newEpochChange.PSet, &pb.EpochChange_SetEntry{
 				Epoch:  *logEpoch,
-				SeqNo:  d.PEntry.SeqNo,
-				Digest: d.PEntry.Digest,
+				SeqNo:  pEntry.SeqNo,
+				Digest: pEntry.Digest,
 			})
-		case *pb.Persistent_QEntry:
-			epochChange.QSet = append(epochChange.QSet, &pb.EpochChange_SetEntry{
+		},
+		onQEntry: func(qEntry *pb.QEntry) {
+			newEpochChange.QSet = append(newEpochChange.QSet, &pb.EpochChange_SetEntry{
 				Epoch:  *logEpoch,
-				SeqNo:  d.QEntry.SeqNo,
-				Digest: d.QEntry.Digest,
+				SeqNo:  qEntry.SeqNo,
+				Digest: qEntry.Digest,
 			})
-		case *pb.Persistent_CEntry:
-			epochChange.Checkpoints = append(epochChange.Checkpoints, &pb.Checkpoint{
-				SeqNo: d.CEntry.SeqNo,
-				Value: d.CEntry.CheckpointValue,
+		},
+		onCEntry: func(cEntry *pb.CEntry) {
+			newEpochChange.Checkpoints = append(newEpochChange.Checkpoints, &pb.Checkpoint{
+				SeqNo: cEntry.SeqNo,
+				Value: cEntry.CheckpointValue,
 			})
-			if logEpoch == nil {
-				logEpoch = &d.CEntry.CurrentEpoch
+			if cEntry.EpochConfig != nil {
+				logEpoch = &cEntry.EpochConfig.Number
 			}
-		case *pb.Persistent_EpochChange:
-			if *logEpoch+1 != d.EpochChange.NewEpoch {
-				panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", d.EpochChange.NewEpoch, *logEpoch))
+		},
+		onEpochChange: func(epochChange *pb.EpochChange) {
+			if *logEpoch+1 != epochChange.NewEpoch {
+				panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", epochChange.NewEpoch, *logEpoch))
 			}
-			logEpoch = &d.EpochChange.NewEpoch
-		}
-	}
+			logEpoch = &epochChange.NewEpoch
+		},
+	})
 
-	return epochChange
+	return newEpochChange
 }

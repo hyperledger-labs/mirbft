@@ -37,43 +37,45 @@ func newEpochTracker(
 	batchTracker *batchTracker,
 	clientTracker *clientTracker,
 ) *epochTracker {
-	et := &epochTracker{
+	return &epochTracker{
 		persisted:     persisted,
 		commitState:   commitState,
-		networkConfig: networkConfig,
 		myConfig:      myConfig,
 		logger:        logger,
 		batchTracker:  batchTracker,
 		clientTracker: clientTracker,
 		targets:       map[uint64]*epochTarget{},
 	}
+}
 
-	for head := persisted.logHead; head != nil; head = head.next {
-		switch d := head.entry.Type.(type) {
-		case *pb.Persistent_CEntry:
-			cEntry := d.CEntry
-			et.currentEpoch = et.target(cEntry.CurrentEpoch)
+func (et *epochTracker) reinitialize() {
+	et.persisted.iterate(logIterator{
+		onCEntry: func(cEntry *pb.CEntry) {
+			if et.networkConfig == nil {
+				et.networkConfig = cEntry.NetworkState.Config
+			}
+			et.currentEpoch = et.target(cEntry.EpochConfig.Number)
 			et.currentEpoch.state = etReady
 			// TODO, need to solicit current epoch config from network
 			// and eventually suspect of failure in case there is not still a quorum
 			// active in this epoch.
-		case *pb.Persistent_EpochChange:
-			epochChange := d.EpochChange
+		},
+		onEpochChange: func(epochChange *pb.EpochChange) {
 			parsedEpochChange, err := newParsedEpochChange(epochChange)
 			if err != nil {
 				panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 			}
 
 			et.setCurrentEpoch(et.target(epochChange.NewEpoch), parsedEpochChange)
-			et.currentEpoch.myLeaderChoice = networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
-		case *pb.Persistent_NewEpochEcho:
-		case *pb.Persistent_NewEpochReady:
-		case *pb.Persistent_NewEpochStart:
-		case *pb.Persistent_Suspect:
-		}
-	}
+			et.currentEpoch.myLeaderChoice = et.networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
+		},
 
-	return et
+		// TODO, implement these
+		onNewEpochEcho:  func(*pb.NewEpochConfig) {},
+		onNewEpochReady: func(*pb.NewEpochConfig) {},
+		onNewEpochStart: func(*pb.EpochConfig) {},
+		onSuspect:       func(*pb.Suspect) {},
+	})
 }
 
 func (et *epochTracker) advanceState() *Actions {

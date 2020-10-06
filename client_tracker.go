@@ -9,6 +9,7 @@ package mirbft
 import (
 	"container/list"
 	"fmt"
+	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/status"
@@ -297,31 +298,76 @@ type clientTracker struct {
 	readyList     *readyList
 	availableList *availableList // A list of requests which have f+1 ACKs and the requestData
 	myConfig      *pb.StateEvent_InitialParameters
+	persisted     *persisted
 }
 
-func newClientWindows(startingCommit uint64, networkState *pb.NetworkState, myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
+func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
 	ct := &clientTracker{
-		logger:        logger,
-		clients:       map[uint64]*client{},
-		clientStates:  networkState.Clients,
-		networkConfig: networkState.Config,
-		availableList: newAvailableList(),
-		readyList:     newReadyList(),
-		myConfig:      myConfig,
-		msgBuffers:    map[nodeID]*msgBuffer{},
-	}
-
-	for _, clientState := range ct.clientStates {
-		client := newClient(startingCommit, clientState, networkState.Config, logger)
-		ct.clients[clientState.Id] = client
-		ct.advanceReady(client)
-	}
-
-	for _, id := range ct.networkConfig.Nodes {
-		ct.msgBuffers[nodeID(id)] = newMsgBuffer(myConfig, logger)
+		logger:    logger,
+		myConfig:  myConfig,
+		persisted: persisted,
 	}
 
 	return ct
+}
+
+func (ct *clientTracker) reinitialize() {
+	var lowCEntry, highCEntry *pb.CEntry
+
+	ct.persisted.iterate(logIterator{
+		onCEntry: func(cEntry *pb.CEntry) {
+			if lowCEntry == nil {
+				lowCEntry = cEntry
+			}
+			highCEntry = cEntry
+		},
+	})
+
+	if lowCEntry == nil {
+		panic("no checkpoints in log")
+	}
+
+	latestClientStates := map[uint64]*pb.NetworkState_Client{}
+	for _, clientState := range highCEntry.NetworkState.Clients {
+		latestClientStates[clientState.Id] = clientState
+	}
+
+	ct.networkConfig = lowCEntry.NetworkState.Config
+	ct.availableList = newAvailableList()
+	ct.readyList = newReadyList()
+
+	oldClients := ct.clients
+	ct.clients = map[uint64]*client{}
+	ct.clientStates = highCEntry.NetworkState.Clients
+	for _, clientState := range ct.clientStates {
+		client, ok := oldClients[clientState.Id]
+		if !ok {
+			client = newClient(ct.logger)
+		}
+
+		ct.clients[clientState.Id] = client
+		// TODO, this assumes no client deletion, need to handle that
+		client.reinitialize(
+			lowCEntry.NetworkState.Config,
+			lowCEntry.SeqNo,
+			highCEntry.SeqNo,
+			clientState,
+			latestClientStates[clientState.Id],
+		)
+
+		ct.advanceReady(client)
+	}
+
+	oldMsgBuffers := ct.msgBuffers
+	ct.msgBuffers = map[nodeID]*msgBuffer{}
+	for _, id := range lowCEntry.NetworkState.Config.Nodes {
+		if oldBuffer, ok := oldMsgBuffers[nodeID(id)]; ok {
+			ct.msgBuffers[nodeID(id)] = oldBuffer
+		} else {
+			ct.msgBuffers[nodeID(id)] = newMsgBuffer(ct.myConfig, ct.logger)
+		}
+	}
+
 }
 
 func (ct *clientTracker) tick() *Actions {
@@ -716,6 +762,45 @@ type clientReqNo struct {
 	ticksSinceAck   uint
 }
 
+func (crn *clientReqNo) reinitialize(networkConfig *pb.NetworkState_Config) {
+	crn.networkConfig = networkConfig
+
+	oldRequests := crn.requests
+
+	crn.nonNullVoters = map[nodeID]struct{}{}
+	crn.requests = map[string]*clientRequest{}
+	crn.weakRequests = map[string]*clientRequest{}
+	crn.strongRequests = map[string]*clientRequest{}
+	crn.myRequests = map[string]*clientRequest{}
+
+	digests := make([]string, len(oldRequests))
+	i := 0
+	for digest := range oldRequests {
+		digests[i] = digest
+		i++
+	}
+	sort.Slice(digests, func(i, j int) bool {
+		return i <= j
+	})
+
+	for _, digest := range digests {
+		oldClientReq := oldRequests[digest]
+		for _, id := range networkConfig.Nodes {
+			if _, ok := oldClientReq.agreements[nodeID(id)]; !ok {
+				continue
+			}
+
+			crn.applyRequestAck(nodeID(id), oldClientReq.ack, true)
+		}
+
+		if oldClientReq.stored {
+			newClientReq := crn.clientReq(oldClientReq.ack)
+			newClientReq.stored = true
+			crn.myRequests[digest] = newClientReq
+		}
+	}
+}
+
 func (crn *clientReqNo) clientReq(ack *pb.RequestAck) *clientRequest {
 	var digestKey string
 	if len(ack.Digest) == 0 {
@@ -801,14 +886,11 @@ func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Act
 	)
 }
 
-// XXX staticcheck hack
-var _ = (&clientReqNo{}).applyRequestAck
-
-func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck) *Actions {
+func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck, force bool) {
 	if len(ack.Digest) != 0 {
 		_, ok := crn.nonNullVoters[source]
-		if !ok {
-			return &Actions{}
+		if !ok && !force {
+			return
 		}
 
 		crn.nonNullVoters[source] = struct{}{}
@@ -818,18 +900,18 @@ func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck) *Acti
 	clientReq.agreements[source] = struct{}{}
 
 	if len(clientReq.agreements) < someCorrectQuorum(crn.networkConfig) {
-		return &Actions{}
+		return
 	}
 
 	crn.weakRequests[string(ack.Digest)] = clientReq
 
 	if len(clientReq.agreements) < intersectionQuorum(crn.networkConfig) {
-		return &Actions{}
+		return
 	}
 
 	crn.strongRequests[string(ack.Digest)] = clientReq
 
-	return &Actions{}
+	return
 }
 
 func (crn *clientReqNo) tick() *Actions {
@@ -1004,58 +1086,70 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newClient(startingCommit uint64, clientState *pb.NetworkState_Client, networkConfig *pb.NetworkState_Config, logger Logger) *client {
-	lowWatermark := clientState.LowWatermark
-	highWatermark := clientState.LowWatermark + uint64(clientState.Width)
+func newClient(logger Logger) *client {
+	return &client{
+		logger: logger,
+	}
+}
 
-	cw := &client{
-		clientState:   clientState,
-		logger:        logger,
-		networkConfig: networkConfig,
+func (c *client) reinitialize(networkConfig *pb.NetworkState_Config, lowSeqNo, highSeqNo uint64, lowClientState, highClientState *pb.NetworkState_Client) {
+	lowWatermark := lowClientState.LowWatermark
+	highWatermark := lowClientState.LowWatermark + uint64(lowClientState.Width)
+
+	oldReqNoMap := c.reqNoMap
+
+	c.clientState = highClientState
+	c.networkConfig = networkConfig
+	c.lowWatermark = lowWatermark
+	c.highWatermark = highWatermark
+	c.nextReadyMark = lowWatermark
+	c.reqNoList = list.New()
+	c.reqNoMap = map[uint64]*list.Element{}
+	if c.clientWaiter != nil {
+		close(c.clientWaiter.expired)
+	}
+	c.clientWaiter = &clientWaiter{
 		lowWatermark:  lowWatermark,
 		highWatermark: highWatermark,
-		nextReadyMark: lowWatermark,
-		reqNoList:     list.New(),
-		reqNoMap:      map[uint64]*list.Element{},
-		clientWaiter: &clientWaiter{
-			lowWatermark:  lowWatermark,
-			highWatermark: highWatermark,
-			expired:       make(chan struct{}),
-		},
+		expired:       make(chan struct{}),
 	}
 
-	bm := bitmask(clientState.CommittedMask)
-	for i := 0; i <= int(clientState.Width); i++ {
+	bm := bitmask(highClientState.CommittedMask)
+	for i := 0; i <= int(lowClientState.Width); i++ {
+		highOffset := int(highClientState.LowWatermark - lowClientState.LowWatermark)
+
 		var committed *uint64
-		if bm.isBitSet(i) {
-			committed = zeroPtr
+		if highClientState.LowWatermark > lowWatermark+uint64(i) || bm.isBitSet(highOffset) {
+			committed = &highSeqNo // we might not garbage collect this optimally, but that's okay
 		}
 
 		var validAfterSeqNo uint64
-		if i <= int(clientState.Width-clientState.WidthConsumedLastCheckpoint) {
-			validAfterSeqNo = startingCommit
+		if i <= int(lowClientState.Width-lowClientState.WidthConsumedLastCheckpoint) {
+			validAfterSeqNo = lowSeqNo
 		} else {
-			validAfterSeqNo = startingCommit + uint64(networkConfig.CheckpointInterval)
+			validAfterSeqNo = lowSeqNo + uint64(networkConfig.CheckpointInterval)
 		}
 
-		reqNo := uint64(i) + clientState.LowWatermark
+		reqNo := uint64(i) + lowClientState.LowWatermark
 
-		el := cw.reqNoList.PushBack(&clientReqNo{
-			networkConfig:   networkConfig,
-			clientID:        cw.clientState.Id,
-			validAfterSeqNo: validAfterSeqNo,
-			reqNo:           reqNo,
-			requests:        map[string]*clientRequest{},
-			weakRequests:    map[string]*clientRequest{},
-			strongRequests:  map[string]*clientRequest{},
-			myRequests:      map[string]*clientRequest{},
-			nonNullVoters:   map[nodeID]struct{}{},
-			committed:       committed,
-		})
-		cw.reqNoMap[reqNo] = el
+		var oldReqNo *clientReqNo
+		oldReqNoEl, ok := oldReqNoMap[reqNo]
+		if ok {
+			oldReqNo = oldReqNoEl.Value.(*clientReqNo)
+		} else {
+			oldReqNo = &clientReqNo{
+				clientID:        lowClientState.Id,
+				validAfterSeqNo: validAfterSeqNo,
+				reqNo:           reqNo,
+				committed:       committed,
+			}
+		}
+
+		oldReqNo.reinitialize(networkConfig)
+
+		el := c.reqNoList.PushBack(oldReqNo)
+		c.reqNoMap[reqNo] = el
 	}
-
-	return cw
 }
 
 func (cw *client) allocate(startingAtSeqNo uint64, state *pb.NetworkState_Client) {

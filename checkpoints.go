@@ -14,8 +14,6 @@ import (
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/status"
-
-	"google.golang.org/protobuf/proto"
 )
 
 type checkpointState int
@@ -34,55 +32,77 @@ type checkpointTracker struct {
 	checkpointMap      map[uint64]*checkpoint
 	activeCheckpoints  *list.List
 	msgBuffers         map[nodeID]*msgBuffer
+	networkConfig      *pb.NetworkState_Config
+	persisted          *persisted
 
-	networkConfig *pb.NetworkState_Config
-	persisted     *persisted
-	myConfig      *pb.StateEvent_InitialParameters
+	myConfig *pb.StateEvent_InitialParameters
+	logger   Logger
 }
 
-func newCheckpointTracker(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *checkpointTracker {
+func newCheckpointTracker(seqNo uint64, networkState *pb.NetworkState, persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *checkpointTracker {
 	ct := &checkpointTracker{
-		highestCheckpoints: map[nodeID]uint64{},
-		checkpointMap:      map[uint64]*checkpoint{},
-		myConfig:           myConfig,
-		persisted:          persisted,
-		state:              cpsIdle,
-		activeCheckpoints:  list.New(),
-		msgBuffers:         map[nodeID]*msgBuffer{},
+		myConfig:  myConfig,
+		state:     cpsIdle,
+		persisted: persisted,
 	}
 
-	for head := persisted.logHead; head != nil; head = head.next {
-		switch d := head.entry.Type.(type) {
-		case *pb.Persistent_CEntry:
-			cEntry := d.CEntry
+	return ct
+}
+
+func (ct *checkpointTracker) reinitialize() {
+	oldCheckpointMap := ct.checkpointMap
+	oldMsgBuffers := ct.msgBuffers
+
+	ct.highestCheckpoints = map[nodeID]uint64{}
+	ct.checkpointMap = map[uint64]*checkpoint{}
+	ct.activeCheckpoints = list.New()
+	ct.msgBuffers = map[nodeID]*msgBuffer{}
+	ct.networkConfig = nil
+
+	ct.persisted.iterate(logIterator{
+		onCEntry: func(cEntry *pb.CEntry) {
 			if ct.networkConfig == nil {
+				// Initialize this once, it will not change until the next
+				// time we reinitialize.
 				ct.networkConfig = cEntry.NetworkState.Config
 			}
-			if !proto.Equal(cEntry.NetworkState.Config, ct.networkConfig) {
-				// TODO, implement reconfig
-				ct.state = cpsPendingReconfig
-				panic("reconfig not yet supported")
-			}
 			cp := ct.checkpoint(cEntry.SeqNo)
-			cp.nextState = cEntry.NetworkState
-			cp.applyCheckpointMsg(nodeID(myConfig.Id), cEntry.CheckpointValue)
+			cp.applyCheckpointMsg(nodeID(ct.myConfig.Id), cEntry.CheckpointValue)
 			ct.activeCheckpoints.PushBack(cp)
-		}
-	}
-
-	for _, id := range ct.networkConfig.Nodes {
-		ct.msgBuffers[nodeID(id)] = newMsgBuffer(myConfig, logger)
-	}
-
-	if ct.activeCheckpoints.Len() == 0 {
-		panic("no checkpoints in log")
-	}
+		},
+	})
 
 	ct.activeCheckpoints.Front().Value.(*checkpoint).stable = true
 
-	ct.garbageCollect()
+	validNodes := map[nodeID]struct{}{}
+	for _, id := range ct.networkConfig.Nodes {
+		if buffer, ok := oldMsgBuffers[nodeID(id)]; ok {
+			ct.msgBuffers[nodeID(id)] = buffer
+		} else {
+			ct.msgBuffers[nodeID(id)] = newMsgBuffer(ct.myConfig, ct.logger)
+		}
+		validNodes[nodeID(id)] = struct{}{}
+	}
 
-	return ct
+	// Lots of non-determinism in this iteration... but it should
+	// all be commutative.
+	for seqNo, cp := range oldCheckpointMap {
+		if seqNo < ct.lowWatermark() {
+			continue
+		}
+
+		for value, agreements := range cp.values {
+			for _, node := range agreements {
+				if _, ok := validNodes[node]; !ok {
+					continue
+				}
+
+				ct.applyCheckpointMsg(node, seqNo, []byte(value))
+			}
+		}
+	}
+
+	ct.garbageCollect()
 }
 
 func (ct *checkpointTracker) filter(msg *pb.Msg) applyable {
@@ -162,10 +182,9 @@ func (ct *checkpointTracker) checkpoint(seqNo uint64) *checkpoint {
 	cp, ok := ct.checkpointMap[seqNo]
 	if !ok {
 		cp = &checkpoint{
-			seqNo:           seqNo,
-			verifyingConfig: ct.networkConfig,
-			persisted:       ct.persisted,
-			myConfig:        ct.myConfig,
+			seqNo:         seqNo,
+			networkConfig: ct.networkConfig,
+			myConfig:      ct.myConfig,
 		}
 		ct.checkpointMap[seqNo] = cp
 	}
@@ -183,10 +202,6 @@ func (ct *checkpointTracker) lowWatermark() uint64 {
 
 func (ct *checkpointTracker) applyCheckpointMsg(source nodeID, seqNo uint64, value []byte) {
 	// fmt.Printf("\n!!!\n JKY: applying checkpoint from %d for seqNo=%d\n\n", source, seqNo)
-	if seqNo < ct.lowWatermark() {
-		// We're already past this point
-		return
-	}
 
 	aboveHighWatermark := seqNo > ct.highWatermark()
 	if aboveHighWatermark {
@@ -201,7 +216,7 @@ func (ct *checkpointTracker) applyCheckpointMsg(source nodeID, seqNo uint64, val
 	cp := ct.checkpoint(seqNo)
 	cp.applyCheckpointMsg(source, value)
 
-	if seqNo > ct.lowWatermark() && cp.stable {
+	if cp.stable && seqNo > ct.lowWatermark() {
 		ct.state = cpsGarbageCollectable
 		return
 	}
@@ -231,10 +246,6 @@ func (ct *checkpointTracker) applyCheckpointMsg(source nodeID, seqNo uint64, val
 	}
 }
 
-func (ct *checkpointTracker) applyCheckpointResult(seqNo uint64, value []byte, currentEpoch uint64, nextConfig *pb.NetworkState) *Actions {
-	return ct.checkpoint(seqNo).applyCheckpointResult(value, currentEpoch, nextConfig)
-}
-
 func (ct *checkpointTracker) status() []*status.Checkpoint {
 	result := make([]*status.Checkpoint, len(ct.checkpointMap))
 	i := 0
@@ -251,32 +262,27 @@ func (ct *checkpointTracker) status() []*status.Checkpoint {
 }
 
 type checkpoint struct {
-	seqNo           uint64
-	myConfig        *pb.StateEvent_InitialParameters
-	verifyingConfig *pb.NetworkState_Config
-	persisted       *persisted
+	seqNo         uint64
+	myConfig      *pb.StateEvent_InitialParameters
+	networkConfig *pb.NetworkState_Config
 
 	values         map[string][]nodeID
 	committedValue []byte
 	myValue        []byte
-	nextState      *pb.NetworkState
 	stable         bool
-	obsolete       bool
 }
 
-func (cw *checkpoint) applyCheckpointMsg(source nodeID, value []byte) bool {
+func (cw *checkpoint) applyCheckpointMsg(source nodeID, value []byte) {
 	if cw.values == nil {
 		cw.values = map[string][]nodeID{}
 	}
-
-	stateChange := false
 
 	checkpointValueNodes := append(cw.values[string(value)], source)
 	cw.values[string(value)] = checkpointValueNodes
 
 	agreements := len(checkpointValueNodes)
 
-	if agreements == someCorrectQuorum(cw.verifyingConfig) {
+	if agreements == someCorrectQuorum(cw.networkConfig) {
 		cw.committedValue = value
 	}
 
@@ -294,38 +300,10 @@ func (cw *checkpoint) applyCheckpointMsg(source nodeID, value []byte) bool {
 
 		// This checkpoint has enough agreements, including my own, it may now be garbage collectable
 		// Note, this must be >= (not ==) because my agreement could come after 2f+1 from the network.
-		if agreements >= intersectionQuorum(cw.verifyingConfig) {
+		if agreements >= intersectionQuorum(cw.networkConfig) {
 			cw.stable = true
-			stateChange = true
 		}
 	}
-
-	if len(checkpointValueNodes) == len(cw.verifyingConfig.Nodes) {
-		cw.obsolete = true
-		stateChange = true
-	}
-
-	return stateChange
-}
-
-func (cw *checkpoint) applyCheckpointResult(value []byte, currentEpoch uint64, nextState *pb.NetworkState) *Actions {
-	cw.nextState = nextState
-	return (&Actions{}).send(
-		cw.verifyingConfig.Nodes,
-		&pb.Msg{
-			Type: &pb.Msg_Checkpoint{
-				Checkpoint: &pb.Checkpoint{
-					SeqNo: uint64(cw.seqNo),
-					Value: value,
-				},
-			},
-		},
-	).concat(cw.persisted.addCEntry(&pb.CEntry{
-		SeqNo:           cw.seqNo,
-		CheckpointValue: value,
-		NetworkState:    nextState,
-		CurrentEpoch:    currentEpoch,
-	}))
 }
 
 func (cw *checkpoint) status() *status.Checkpoint {

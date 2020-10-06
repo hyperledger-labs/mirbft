@@ -29,6 +29,7 @@ const (
 	etReadying          // Have received a quorum of echos, waiting a on qourum of readies
 	etReady             // New epoch is ready to begin
 	etInProgress        // No pending change
+	etEnding            // The epoch has committed everything it can, but we are waiting for a stable checkpoint
 	etDone              // We have sent an epoch change, ending this epoch for us
 )
 

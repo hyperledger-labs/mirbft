@@ -110,6 +110,8 @@ message NetworkState {
     repeated Client clients = 2;
 
     repeated Reconfiguration pending_reconfigurations = 3;
+
+    bool reconfigured = 4;
 }
 
 message Reconfiguration {
@@ -161,7 +163,7 @@ message CEntry {
     uint64 seq_no = 1;
     bytes checkpoint_value = 2;
     NetworkState network_state = 3;
-    uint64 current_epoch = 4;
+    EpochConfig epoch_config = 4;
 }
 
 message Msg {
@@ -428,6 +430,7 @@ message HashResult {
 
 message CheckpointResult {
         uint64 seq_no = 1;
-        NetworkState network_state = 2;
-        bytes value = 4;
+        bytes value = 2;
+        NetworkState network_state = 3;
+	bool reconfigured = 4;
 }

@@ -178,7 +178,10 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 									SeqNo:           0,
 									CheckpointValue: []byte("fake-initial-value"),
 									NetworkState:    r.NetworkState,
-									CurrentEpoch:    0,
+									EpochConfig: &pb.EpochConfig{
+										Number:            0,
+										PlannedExpiration: 0,
+									},
 								},
 							},
 						},

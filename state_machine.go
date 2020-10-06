@@ -43,30 +43,61 @@ const (
 // When a checkpoint result returns, it becomes the new activeState, the upperHalf
 // of the committed sequences becomes the lowerHalf.
 type commitState struct {
+	persisted     *persisted
+	clientTracker *clientTracker
+
 	lowWatermark      uint64
 	lastCommit        uint64
 	stopAtSeqNo       uint64
 	activeState       *pb.NetworkState
-	clientTracker     *clientTracker
 	lowerHalfCommits  []*pb.QEntry
 	upperHalfCommits  []*pb.QEntry
 	checkpointPending bool
 }
 
-func newCommitState(initialCEntry *pb.CEntry, clientTracker *clientTracker) *commitState {
+func newCommitState(persisted *persisted, clientTracker *clientTracker) *commitState {
 	cs := &commitState{
-		lowWatermark: initialCEntry.SeqNo,
-		lastCommit:   initialCEntry.SeqNo,
-		stopAtSeqNo:  initialCEntry.SeqNo,
-		activeState:  initialCEntry.NetworkState,
+		clientTracker: clientTracker,
+		persisted:     persisted,
 	}
-
-	cs.reinitialize(clientTracker)
 
 	return cs
 }
 
-func (cs *commitState) applyCheckpointResult(result *pb.CheckpointResult) {
+func (cs *commitState) reinitialize() {
+	var lastCEntry, secondToLastCEntry *pb.CEntry
+
+	cs.persisted.iterate(logIterator{
+		onCEntry: func(cEntry *pb.CEntry) {
+			lastCEntry, secondToLastCEntry = cEntry, lastCEntry
+		},
+	})
+
+	switch {
+	case lastCEntry == nil:
+		panic("found no checkpoints in the log")
+	case secondToLastCEntry == nil:
+		cs.lowWatermark = lastCEntry.SeqNo
+		cs.activeState = lastCEntry.NetworkState
+	default: // lastCEntry != nil && secondToLastCEntry != nil
+		cs.lowWatermark = secondToLastCEntry.SeqNo
+		cs.activeState = secondToLastCEntry.NetworkState
+	}
+
+	cs.lastCommit = lastCEntry.SeqNo
+
+	ci := int(cs.activeState.Config.CheckpointInterval)
+
+	cs.lowerHalfCommits = make([]*pb.QEntry, ci)
+	cs.upperHalfCommits = make([]*pb.QEntry, ci)
+
+	cs.stopAtSeqNo = cs.lowWatermark + uint64(ci)
+	if len(cs.activeState.PendingReconfigurations) == 0 {
+		cs.stopAtSeqNo += uint64(ci)
+	}
+}
+
+func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result *pb.CheckpointResult) *Actions {
 	// fmt.Printf("JKY: Applying checkpoint result for seqNo=%d\n", result.SeqNo)
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 
@@ -84,24 +115,23 @@ func (cs *commitState) applyCheckpointResult(result *pb.CheckpointResult) {
 	cs.upperHalfCommits = make([]*pb.QEntry, ci)
 	cs.lowWatermark = result.SeqNo
 	cs.checkpointPending = false
-}
 
-func (cs *commitState) reinitialize(clientTracker *clientTracker) {
-	if cs.lowWatermark != cs.stopAtSeqNo {
-		panic("dev sanity test -- we are reinitializing, but there appears to be no reason to")
-	}
-
-	cs.clientTracker = clientTracker
-
-	ci := int(cs.activeState.Config.CheckpointInterval)
-
-	cs.lowerHalfCommits = make([]*pb.QEntry, ci)
-	cs.upperHalfCommits = make([]*pb.QEntry, ci)
-
-	cs.stopAtSeqNo = cs.lowWatermark + uint64(ci)
-	if len(cs.activeState.PendingReconfigurations) == 0 {
-		cs.stopAtSeqNo += uint64(ci)
-	}
+	return cs.persisted.addCEntry(&pb.CEntry{
+		SeqNo:           result.SeqNo,
+		CheckpointValue: result.Value,
+		NetworkState:    result.NetworkState,
+		EpochConfig:     epochConfig,
+	}).send(
+		cs.activeState.Config.Nodes,
+		&pb.Msg{
+			Type: &pb.Msg_Checkpoint{
+				Checkpoint: &pb.Checkpoint{
+					SeqNo: result.SeqNo,
+					Value: result.Value,
+				},
+			},
+		},
+	)
 }
 
 func (cs *commitState) commit(qEntry *pb.QEntry) {
@@ -249,6 +279,32 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 	sm.myConfig = parameters
 	sm.state = smLoadingPersisted
 	sm.persisted = newPersisted(sm.Logger)
+
+	// we use a dummy initial state for components to allow us to use
+	// a common 'reconfiguration'/'state transfer' path for initialization.
+	dummyInitialState := &pb.NetworkState{
+		Config: &pb.NetworkState_Config{
+			Nodes:              []uint64{sm.myConfig.Id},
+			MaxEpochLength:     1,
+			CheckpointInterval: 1,
+			NumberOfBuckets:    1,
+		},
+	}
+
+	sm.checkpointTracker = newCheckpointTracker(0, dummyInitialState, sm.persisted, sm.myConfig, sm.Logger)
+	sm.clientTracker = newClientWindows(sm.persisted, sm.myConfig, sm.Logger)
+	sm.commitState = newCommitState(sm.persisted, sm.clientTracker)
+	sm.batchTracker = newBatchTracker(sm.persisted)
+	sm.epochTracker = newEpochTracker(
+		sm.persisted,
+		sm.commitState,
+		dummyInitialState.Config,
+		sm.Logger,
+		sm.myConfig,
+		sm.batchTracker,
+		sm.clientTracker,
+	)
+
 }
 
 func (sm *StateMachine) applyPersisted(entry *WALEntry) {
@@ -264,43 +320,7 @@ func (sm *StateMachine) completeInitialization() {
 		panic("state machine has already finished loading persisted data")
 	}
 
-	var checkpoints []*pb.CEntry
-	for el := sm.persisted.logHead; el != nil; el = el.next {
-		cEntryType, ok := el.entry.Type.(*pb.Persistent_CEntry)
-		if !ok {
-			continue
-		}
-
-		checkpoints = append(checkpoints, cEntryType.CEntry)
-	}
-
-	if len(checkpoints) == 0 {
-		panic("no checkpoints in log")
-	}
-
-	if len(checkpoints) > 3 {
-		panic("this seems wrong... maybe it's okay, TODO, analyse")
-	}
-
-	lastCheckpoint := checkpoints[len(checkpoints)-1]
-	initialNetworkState := lastCheckpoint.NetworkState
-
-	sm.checkpointTracker = newCheckpointTracker(sm.persisted, sm.myConfig, sm.Logger)
-	sm.clientTracker = newClientWindows(lastCheckpoint.SeqNo, initialNetworkState, sm.myConfig, sm.Logger)
-
-	sm.commitState = newCommitState(lastCheckpoint, sm.clientTracker)
-
-	sm.batchTracker = newBatchTracker(sm.persisted)
-
-	sm.epochTracker = newEpochTracker(
-		sm.persisted,
-		sm.commitState,
-		initialNetworkState.Config,
-		sm.Logger,
-		sm.myConfig,
-		sm.batchTracker,
-		sm.clientTracker,
-	)
+	sm.reinitialize()
 
 	sm.state = smInitialized
 }
@@ -398,6 +418,18 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	return actions
 }
 
+// reinitialize causes the components to reinitialize themselves from the logs.
+// varying from component to component, useful state will be retained.  For instance,
+// the clientTracker retains in-window ACKs for still-extant clients.  The checkpointTracker
+// retains checkpoint messages sent by other replicas, etc.
+func (sm *StateMachine) reinitialize() {
+	sm.clientTracker.reinitialize()
+	sm.commitState.reinitialize()
+	sm.checkpointTracker.reinitialize()
+	sm.epochTracker.reinitialize()
+	// TODO, sm.batchTracker should probably be reinitialized.... but it's harmless not to for now
+}
+
 func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
 	data := [][]byte{
 		uint64ToBytes(requestData.ClientId),
@@ -468,15 +500,15 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 
 	for _, checkpointResult := range results.Checkpoints {
 		// sm.Logger.Debug("applying checkpoint result", zap.Uint64("SeqNo", checkpointResult.SeqNo))
-		sm.commitState.applyCheckpointResult(checkpointResult)
+		var epochConfig *pb.EpochConfig
+		if sm.epochTracker.currentEpoch.activeEpoch != nil {
+			// Of course this means epochConfig may be nil, and that's okay
+			// since we know that no new pEntries/qEntries can be persisted
+			// until we send an epoch related persisted entry
+			epochConfig = sm.epochTracker.currentEpoch.activeEpoch.epochConfig
+		}
 
-		actions.concat(sm.checkpointTracker.applyCheckpointResult(
-			checkpointResult.SeqNo,
-			checkpointResult.Value,
-			sm.epochTracker.currentEpoch.number,
-			checkpointResult.NetworkState,
-		))
-
+		actions.concat(sm.commitState.applyCheckpointResult(epochConfig, checkpointResult))
 	}
 
 	for _, hashResult := range results.Digests {
