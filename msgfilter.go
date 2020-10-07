@@ -83,23 +83,19 @@ func preProcess(outerMsg *pb.Msg) error {
 		switch {
 		case innerMsg.NewEpochEcho == nil:
 			return errors.Errorf("message of type NewEpochEcho, but new_epoch_echo field is nil")
-		case innerMsg.NewEpochEcho.NewConfig == nil:
-			return errors.Errorf("NewEpochEcho has nil NewConfig")
-		case innerMsg.NewEpochEcho.NewConfig.Config == nil:
-			return errors.Errorf("NewEpochEcho has nil NewConfig.Config")
-		case innerMsg.NewEpochEcho.NewConfig.StartingCheckpoint == nil:
-			return errors.Errorf("NewEpochReady NewConfig has nil StartingCheckpoint")
+		case innerMsg.NewEpochEcho.Config == nil:
+			return errors.Errorf("NewEpochEcho has nil Config")
+		case innerMsg.NewEpochEcho.StartingCheckpoint == nil:
+			return errors.Errorf("NewEpochEcho has nil StartingCheckpoint")
 		}
 	case *pb.Msg_NewEpochReady:
 		switch {
 		case innerMsg.NewEpochReady == nil:
 			return errors.Errorf("message of type NewEpochReady, but new_epoch_ready field is nil")
-		case innerMsg.NewEpochReady.NewConfig == nil:
-			return errors.Errorf("NewEpochReady has nil NewConfig")
-		case innerMsg.NewEpochReady.NewConfig.Config == nil:
-			return errors.Errorf("NewEpochReady has nil NewConfig.Config")
-		case innerMsg.NewEpochReady.NewConfig.StartingCheckpoint == nil:
-			return errors.Errorf("NewEpochReady NewConfig has nil StartingCheckpoint")
+		case innerMsg.NewEpochReady.Config == nil:
+			return errors.Errorf("NewEpochReady has nil Config")
+		case innerMsg.NewEpochReady.StartingCheckpoint == nil:
+			return errors.Errorf("NewEpochReady has nil StartingCheckpoint")
 		}
 	default:
 		return errors.Errorf("unknown type '%T' for message", outerMsg.Type)

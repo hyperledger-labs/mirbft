@@ -150,16 +150,6 @@ func (p *persisted) addNewEpochReady(newEpochConfig *pb.NewEpochConfig) *Actions
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addNewEpochStart(epochConfig *pb.EpochConfig) *Actions {
-	d := &pb.Persistent{
-		Type: &pb.Persistent_NewEpochStart{
-			NewEpochStart: epochConfig,
-		},
-	}
-
-	return p.appendLogEntry(d)
-}
-
 func (p *persisted) truncate(lowWatermark uint64) *Actions {
 	var lastCEntry *logEntry
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
@@ -220,10 +210,6 @@ func (p *persisted) iterate(li logIterator) {
 		case *pb.Persistent_NewEpochReady:
 			if li.onNewEpochReady != nil {
 				li.onNewEpochReady(d.NewEpochReady)
-			}
-		case *pb.Persistent_NewEpochStart:
-			if li.onNewEpochStart != nil {
-				li.onNewEpochStart(d.NewEpochStart)
 			}
 		case *pb.Persistent_Suspect:
 			if li.onSuspect != nil {

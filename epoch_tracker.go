@@ -121,9 +121,9 @@ func epochForMsg(msg *pb.Msg) uint64 {
 	case *pb.Msg_NewEpoch:
 		return innerMsg.NewEpoch.NewConfig.Config.Number
 	case *pb.Msg_NewEpochEcho:
-		return innerMsg.NewEpochEcho.NewConfig.Config.Number
+		return innerMsg.NewEpochEcho.Config.Number
 	case *pb.Msg_NewEpochReady:
-		return innerMsg.NewEpochReady.NewConfig.Config.Number
+		return innerMsg.NewEpochReady.Config.Number
 	default:
 		panic(fmt.Sprintf("unexpected bad epoch message type %T, this indicates a bug", msg.Type))
 	}

@@ -326,9 +326,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		et.networkConfig.Nodes,
 		&pb.Msg{
 			Type: &pb.Msg_NewEpochEcho{
-				NewEpochEcho: &pb.NewEpochEcho{
-					NewConfig: et.leaderNewEpoch.NewConfig,
-				},
+				NewEpochEcho: et.leaderNewEpoch.NewConfig,
 			},
 		},
 	)
@@ -520,11 +518,11 @@ func (et *epochTarget) applyNewEpochMsg(msg *pb.NewEpoch) *Actions {
 	return et.advanceState()
 }
 
-func (et *epochTarget) applyNewEpochEchoMsg(source nodeID, msg *pb.NewEpochEcho) *Actions {
+func (et *epochTarget) applyNewEpochEchoMsg(source nodeID, msg *pb.NewEpochConfig) *Actions {
 	var msgEchos map[nodeID]struct{}
 
 	for config, echos := range et.echos {
-		if proto.Equal(config, msg.NewConfig) {
+		if proto.Equal(config, msg) {
 			msgEchos = echos
 			break
 		}
@@ -532,7 +530,7 @@ func (et *epochTarget) applyNewEpochEchoMsg(source nodeID, msg *pb.NewEpochEcho)
 
 	if msgEchos == nil {
 		msgEchos = map[nodeID]struct{}{}
-		et.echos[msg.NewConfig] = msgEchos
+		et.echos[msg] = msgEchos
 	}
 
 	msgEchos[source] = struct{}{}
@@ -563,9 +561,7 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 			et.networkConfig.Nodes,
 			&pb.Msg{
 				Type: &pb.Msg_NewEpochReady{
-					NewEpochReady: &pb.NewEpochReady{
-						NewConfig: config,
-					},
+					NewEpochReady: config,
 				},
 			},
 		)
@@ -574,7 +570,7 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 	return actions
 }
 
-func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochReady) *Actions {
+func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochConfig) *Actions {
 	if et.state > etReadying {
 		// We've already accepted the epoch config, move along
 		return &Actions{}
@@ -583,7 +579,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochRead
 	var msgReadies map[nodeID]struct{}
 
 	for config, readies := range et.readies {
-		if proto.Equal(config, msg.NewConfig) {
+		if proto.Equal(config, msg) {
 			msgReadies = readies
 			break
 		}
@@ -591,7 +587,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochRead
 
 	if msgReadies == nil {
 		msgReadies = map[nodeID]struct{}{}
-		et.readies[msg.NewConfig] = msgReadies
+		et.readies[msg] = msgReadies
 	}
 
 	msgReadies[source] = struct{}{}
@@ -607,15 +603,13 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochRead
 	if et.state < etReadying {
 		et.state = etReadying
 
-		actions := et.persisted.addNewEpochReady(msg.NewConfig)
+		actions := et.persisted.addNewEpochReady(msg)
 
 		actions.send(
 			et.networkConfig.Nodes,
 			&pb.Msg{
 				Type: &pb.Msg_NewEpochReady{
-					NewEpochReady: &pb.NewEpochReady{
-						NewConfig: msg.NewConfig,
-					},
+					NewEpochReady: msg,
 				},
 			},
 		)
@@ -666,7 +660,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 			Commits: et.commitState.drain(),
 		}
 
-		return actions.concat(et.persisted.addNewEpochStart(config.Config))
+		return actions
 	}
 
 	return &Actions{}
