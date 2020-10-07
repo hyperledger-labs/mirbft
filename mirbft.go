@@ -171,23 +171,16 @@ func (dw *dummyWAL) LoadAll(forEach func(uint64, *pb.Persistent)) error {
 				SeqNo:           0,
 				CheckpointValue: dw.initialCheckpointValue,
 				NetworkState:    dw.initialNetworkState,
-				EpochConfig: &pb.EpochConfig{
-					Number:            0,
-					PlannedExpiration: 0,
-				},
 			},
 		},
 	})
 
 	forEach(2, &pb.Persistent{
-		Type: &pb.Persistent_EpochChange{
-			EpochChange: &pb.EpochChange{
-				NewEpoch: 1,
-				Checkpoints: []*pb.Checkpoint{
-					{
-						SeqNo: 0,
-						Value: dw.initialCheckpointValue,
-					},
+		Type: &pb.Persistent_FEntry{
+			FEntry: &pb.FEntry{
+				EndsEpochConfig: &pb.EpochConfig{
+					Number:  0,
+					Leaders: dw.initialNetworkState.Config.Nodes,
 				},
 			},
 		},

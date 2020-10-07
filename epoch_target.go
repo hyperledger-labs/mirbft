@@ -320,9 +320,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		actions.concat(et.persisted.addQEntry(qEntry))
 	}
 
-	return actions.concat(
-		et.persisted.addNewEpochEcho(et.leaderNewEpoch.NewConfig),
-	).send(
+	return actions.send(
 		et.networkConfig.Nodes,
 		&pb.Msg{
 			Type: &pb.Msg_NewEpochEcho{
@@ -555,9 +553,7 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *Actions {
 			}))
 		}
 
-		return actions.concat(
-			et.persisted.addNewEpochReady(config),
-		).send(
+		return actions.send(
 			et.networkConfig.Nodes,
 			&pb.Msg{
 				Type: &pb.Msg_NewEpochReady{
@@ -603,9 +599,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochConf
 	if et.state < etReadying {
 		et.state = etReadying
 
-		actions := et.persisted.addNewEpochReady(msg)
-
-		actions.send(
+		actions := (&Actions{}).send(
 			et.networkConfig.Nodes,
 			&pb.Msg{
 				Type: &pb.Msg_NewEpochReady{
@@ -640,12 +634,12 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 
 				// fmt.Printf("JKY: in epoch change to epoch %d, committing seq_no=%d\n", et.number, d.QEntry.SeqNo)
 				et.commitState.commit(d.QEntry)
-			case *pb.Persistent_EpochChange:
-				if d.EpochChange.NewEpoch < config.Config.Number {
+			case *pb.Persistent_ECEntry:
+				if d.ECEntry.EpochNumber < config.Config.Number {
 					continue
 				}
 
-				if d.EpochChange.NewEpoch > config.Config.Number {
+				if d.ECEntry.EpochNumber > config.Config.Number {
 					panic("dev sanity test")
 				}
 

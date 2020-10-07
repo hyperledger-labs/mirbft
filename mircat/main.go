@@ -144,6 +144,7 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) {
 
 	start := time.Now()
 	node.machine.ApplyEvent(event.StateEvent)
+	// TODO, capture any actions returned, aggregate them, for display with actions_received
 	node.executionTime += time.Since(start)
 }
 

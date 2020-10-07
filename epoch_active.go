@@ -40,7 +40,7 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitSta
 
 	for head := persisted.logHead; head != nil; head = head.next {
 		switch d := head.entry.Type.(type) {
-		case *pb.Persistent_EpochChange:
+		case *pb.Persistent_ECEntry:
 			startingEntry = head.next
 		case *pb.Persistent_CEntry:
 			startingEntry = head.next

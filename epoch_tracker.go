@@ -48,34 +48,98 @@ func newEpochTracker(
 	}
 }
 
-func (et *epochTracker) reinitialize() {
+func (et *epochTracker) reinitialize() *Actions {
+	// TODO, properly finish reinitializing all targets
+	et.networkConfig = nil
+
+	actions := &Actions{}
+	var lastCEntry *pb.CEntry
+	var lastNEntry *pb.NEntry
+	var lastECEntry *pb.ECEntry
+	var lastFEntry *pb.FEntry
+
 	et.persisted.iterate(logIterator{
+		onNEntry: func(nEntry *pb.NEntry) {
+			lastNEntry = nEntry
+		},
+		onFEntry: func(fEntry *pb.FEntry) {
+			if lastCEntry == nil {
+				panic("dev sanity test, a FEntry only makes sense after a CEntry")
+			}
+			actions.concat(et.persisted.truncate(lastCEntry.SeqNo))
+
+			// Any previous records we read in the log (except the last checkpoint)
+			// should have been truncated already, but append and truncate is not
+			// necessarily a single atomic operation.
+			lastNEntry = nil
+			lastECEntry = nil
+			et.networkConfig = lastCEntry.NetworkState.Config
+			lastFEntry = fEntry
+		},
 		onCEntry: func(cEntry *pb.CEntry) {
+			lastCEntry = cEntry
 			if et.networkConfig == nil {
 				et.networkConfig = cEntry.NetworkState.Config
 			}
-			et.currentEpoch = et.target(cEntry.EpochConfig.Number)
-			et.currentEpoch.state = etReady
-			// TODO, need to solicit current epoch config from network
-			// and eventually suspect of failure in case there is not still a quorum
-			// active in this epoch.
 		},
-		onEpochChange: func(epochChange *pb.EpochChange) {
-			parsedEpochChange, err := newParsedEpochChange(epochChange)
-			if err != nil {
-				panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
-			}
-
-			et.setCurrentEpoch(et.target(epochChange.NewEpoch), parsedEpochChange)
-			et.currentEpoch.myLeaderChoice = et.networkConfig.Nodes // XXX this is generally wrong, but using while we modify the startup
+		onECEntry: func(ecEntry *pb.ECEntry) {
+			lastECEntry = ecEntry
 		},
 
-		// TODO, implement these
-		onNewEpochEcho:  func(*pb.NewEpochConfig) {},
-		onNewEpochReady: func(*pb.NewEpochConfig) {},
-		onNewEpochStart: func(*pb.EpochConfig) {},
-		onSuspect:       func(*pb.Suspect) {},
+		// TODO, implement
+		onSuspect: func(*pb.Suspect) {},
 	})
+
+	var lastEpochConfig *pb.EpochConfig
+	graceful := false
+	switch {
+	case lastNEntry != nil && lastFEntry != nil:
+		if lastNEntry.EpochConfig.Number <= lastFEntry.EndsEpochConfig.Number {
+			panic("dev sanity test")
+		}
+		lastEpochConfig = lastNEntry.EpochConfig
+		graceful = false
+	case lastNEntry != nil:
+		lastEpochConfig = lastNEntry.EpochConfig
+		graceful = false
+	case lastFEntry != nil:
+		lastEpochConfig = lastFEntry.EndsEpochConfig
+		graceful = true
+	default:
+		panic("no active epoch and no last epoch in log")
+	}
+
+	switch {
+	case lastNEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastNEntry.EpochConfig.Number):
+		// We're in the middle of a currently active epoch
+		panic("support epoch resuming")
+	case lastFEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastFEntry.EndsEpochConfig.Number):
+		// An epoch has just gracefully ended, and we have not yet tried to move to the next
+		lastECEntry = &pb.ECEntry{
+			EpochNumber: lastFEntry.EndsEpochConfig.Number + 1,
+		}
+		actions.concat(et.persisted.addECEntry(lastECEntry))
+		fallthrough
+	case lastECEntry != nil:
+		// An epoch has ended (ungracefully or otherwise), and we have sent our epoch change
+		epochChange := et.persisted.constructEpochChange(lastECEntry.EpochNumber)
+		parsedEpochChange, err := newParsedEpochChange(epochChange)
+		if err != nil {
+			panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
+		}
+
+		et.setCurrentEpoch(et.target(epochChange.NewEpoch), parsedEpochChange)
+
+		// XXX this leader selection is wrong, but using while we modify the startup.
+		// instead base it on the lastEpochConfig and whether that epoch ended gracefully.
+		_, _ = lastEpochConfig, graceful
+		et.currentEpoch.myLeaderChoice = et.networkConfig.Nodes
+	default:
+		// There's no active epoch, it did not end gracefully, or ungracefully
+		panic("no recorded active epoch, ended epoch, or epoch change in log")
+	}
+
+	return actions
 }
 
 func (et *epochTracker) advanceState() *Actions {
@@ -83,18 +147,21 @@ func (et *epochTracker) advanceState() *Actions {
 		return et.currentEpoch.advanceState()
 	}
 
-	epochChange := et.persisted.constructEpochChange(et.currentEpoch.number + 1)
+	newEpochNumber := et.currentEpoch.number + 1
+	epochChange := et.persisted.constructEpochChange(newEpochNumber)
 
 	myEpochChange, err := newParsedEpochChange(epochChange)
 	if err != nil {
 		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 	}
 
-	newTarget := et.target(et.currentEpoch.number + 1)
+	newTarget := et.target(newEpochNumber)
 	et.setCurrentEpoch(newTarget, myEpochChange)
 	newTarget.myLeaderChoice = []uint64{et.myConfig.Id} // XXX, wrong
 
-	return et.persisted.addEpochChange(epochChange).send(
+	return et.persisted.addECEntry(&pb.ECEntry{
+		EpochNumber: newEpochNumber,
+	}).send(
 		et.networkConfig.Nodes,
 		&pb.Msg{
 			Type: &pb.Msg_EpochChange{

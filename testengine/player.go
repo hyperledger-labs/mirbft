@@ -89,6 +89,7 @@ func (p *Player) Step() error {
 
 		node.Processing = node.Actions
 		node.Actions = &mirbft.Actions{}
+
 		return nil
 	}
 
@@ -97,6 +98,8 @@ func (p *Player) Step() error {
 	node.Actions.Hash = append(node.Actions.Hash, newActions.Hash...)
 	node.Actions.Commits = append(node.Actions.Commits, newActions.Commits...)
 	node.Actions.WriteAhead = append(node.Actions.WriteAhead, newActions.WriteAhead...)
+	node.Actions.ForwardRequests = append(node.Actions.ForwardRequests, newActions.ForwardRequests...)
+	node.Actions.StoreRequests = append(node.Actions.StoreRequests, newActions.StoreRequests...)
 
 	node.Status = node.StateMachine.Status()
 

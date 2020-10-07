@@ -133,12 +133,30 @@ message Persistent {
         QEntry q_entry = 1;
         PEntry p_entry = 2;
         CEntry c_entry = 3;
-	EpochChange epoch_change = 4;
-	NewEpochConfig new_epoch_echo = 5;
-	NewEpochConfig new_epoch_ready = 6;
-	Suspect suspect = 8;
-	// TODO, suspect_ready
+        NEntry n_entry = 4;
+        FEntry f_entry = 5;
+	ECEntry e_c_entry = 6;
+	Suspect suspect = 7;
+	// TODO, suspect_ready?
     }
+}
+
+
+// NEntry indicates that a new set of sequences are being allocated, and
+// will be persisted immediately before log truncation occurs.
+message NEntry {
+    EpochConfig epoch_config = 1;
+    // TODO, include whether we've suspected
+}
+
+message FEntry {
+    EpochConfig ends_epoch_config = 1;
+}
+
+// ECEntry indicates that an epoch change has been sent, and that log truncation
+// must halt until the next epoch begins.
+message ECEntry {
+    uint64 epoch_number = 1;
 }
 
 // QEntry is an entry which must be persisted before a batch is Preprepared (ie,
@@ -162,7 +180,6 @@ message CEntry {
     uint64 seq_no = 1;
     bytes checkpoint_value = 2;
     NetworkState network_state = 3;
-    EpochConfig epoch_config = 4;
 }
 
 message Msg {

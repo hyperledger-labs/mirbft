@@ -13,14 +13,14 @@ import (
 )
 
 type logIterator struct {
-	onQEntry        func(*pb.QEntry)
-	onPEntry        func(*pb.PEntry)
-	onCEntry        func(*pb.CEntry)
-	onEpochChange   func(*pb.EpochChange)
-	onNewEpochEcho  func(*pb.NewEpochConfig)
-	onNewEpochReady func(*pb.NewEpochConfig)
-	onNewEpochStart func(*pb.EpochConfig)
-	onSuspect       func(*pb.Suspect)
+	onQEntry   func(*pb.QEntry)
+	onPEntry   func(*pb.PEntry)
+	onCEntry   func(*pb.CEntry)
+	onNEntry   func(*pb.NEntry)
+	onFEntry   func(*pb.FEntry)
+	onECEntry  func(*pb.ECEntry)
+	onSuspect  func(*pb.Suspect)
+	shouldExit func() bool
 	// TODO, suspect_ready
 }
 
@@ -120,30 +120,10 @@ func (p *persisted) addSuspect(suspect *pb.Suspect) *Actions {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addEpochChange(epochChange *pb.EpochChange) *Actions {
+func (p *persisted) addECEntry(ecEntry *pb.ECEntry) *Actions {
 	d := &pb.Persistent{
-		Type: &pb.Persistent_EpochChange{
-			EpochChange: epochChange,
-		},
-	}
-
-	return p.appendLogEntry(d)
-}
-
-func (p *persisted) addNewEpochEcho(newEpochConfig *pb.NewEpochConfig) *Actions {
-	d := &pb.Persistent{
-		Type: &pb.Persistent_NewEpochEcho{
-			NewEpochEcho: newEpochConfig,
-		},
-	}
-
-	return p.appendLogEntry(d)
-}
-
-func (p *persisted) addNewEpochReady(newEpochConfig *pb.NewEpochConfig) *Actions {
-	d := &pb.Persistent{
-		Type: &pb.Persistent_NewEpochReady{
-			NewEpochReady: newEpochConfig,
+		Type: &pb.Persistent_ECEntry{
+			ECEntry: ecEntry,
 		},
 	}
 
@@ -199,17 +179,17 @@ func (p *persisted) iterate(li logIterator) {
 			if li.onCEntry != nil {
 				li.onCEntry(d.CEntry)
 			}
-		case *pb.Persistent_EpochChange:
-			if li.onEpochChange != nil {
-				li.onEpochChange(d.EpochChange)
+		case *pb.Persistent_NEntry:
+			if li.onNEntry != nil {
+				li.onNEntry(d.NEntry)
 			}
-		case *pb.Persistent_NewEpochEcho:
-			if li.onNewEpochEcho != nil {
-				li.onNewEpochEcho(d.NewEpochEcho)
+		case *pb.Persistent_FEntry:
+			if li.onFEntry != nil {
+				li.onFEntry(d.FEntry)
 			}
-		case *pb.Persistent_NewEpochReady:
-			if li.onNewEpochReady != nil {
-				li.onNewEpochReady(d.NewEpochReady)
+		case *pb.Persistent_ECEntry:
+			if li.onECEntry != nil {
+				li.onECEntry(d.ECEntry)
 			}
 		case *pb.Persistent_Suspect:
 			if li.onSuspect != nil {
@@ -218,6 +198,10 @@ func (p *persisted) iterate(li logIterator) {
 			// TODO, suspect_ready
 		default:
 			panic(fmt.Sprintf("unsupported log entry type '%T'", logEntry.entry.Type))
+		}
+
+		if li.shouldExit != nil && li.shouldExit() {
+			break
 		}
 	}
 }
@@ -231,18 +215,28 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 	// how many are in the log for each sequence so that we may
 	// skip all but the last entry for each sequence number
 	pSkips := map[uint64]int{}
-	for head := p.logHead; head != nil; head = head.next {
-		d, ok := head.entry.Type.(*pb.Persistent_PEntry)
-		if !ok {
-			continue
-		}
-		count := pSkips[d.PEntry.SeqNo]
-		pSkips[d.PEntry.SeqNo] = count + 1
-	}
-
 	var logEpoch *uint64
-	// fmt.Printf("JKY: Looping through log\n")
 	p.iterate(logIterator{
+		shouldExit: func() bool {
+			return logEpoch != nil && *logEpoch >= newEpoch
+		},
+		onPEntry: func(pEntry *pb.PEntry) {
+			count := pSkips[pEntry.SeqNo]
+			pSkips[pEntry.SeqNo] = count + 1
+		},
+		onNEntry: func(nEntry *pb.NEntry) {
+			logEpoch = &nEntry.EpochConfig.Number
+		},
+		onFEntry: func(fEntry *pb.FEntry) {
+			logEpoch = &fEntry.EndsEpochConfig.Number
+		},
+	})
+
+	logEpoch = nil
+	p.iterate(logIterator{
+		shouldExit: func() bool {
+			return logEpoch != nil && *logEpoch >= newEpoch
+		},
 		onPEntry: func(pEntry *pb.PEntry) {
 			count := pSkips[pEntry.SeqNo]
 			if count != 1 {
@@ -262,20 +256,22 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 				Digest: qEntry.Digest,
 			})
 		},
+		onNEntry: func(nEntry *pb.NEntry) {
+			logEpoch = &nEntry.EpochConfig.Number
+		},
+		onFEntry: func(fEntry *pb.FEntry) {
+			logEpoch = &fEntry.EndsEpochConfig.Number
+		},
 		onCEntry: func(cEntry *pb.CEntry) {
 			newEpochChange.Checkpoints = append(newEpochChange.Checkpoints, &pb.Checkpoint{
 				SeqNo: cEntry.SeqNo,
 				Value: cEntry.CheckpointValue,
 			})
-			if cEntry.EpochConfig != nil {
-				logEpoch = &cEntry.EpochConfig.Number
-			}
 		},
-		onEpochChange: func(epochChange *pb.EpochChange) {
-			if *logEpoch+1 != epochChange.NewEpoch {
-				panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", epochChange.NewEpoch, *logEpoch))
+		onECEntry: func(ecEntry *pb.ECEntry) {
+			if *logEpoch+1 != ecEntry.EpochNumber {
+				panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", ecEntry.EpochNumber, *logEpoch))
 			}
-			logEpoch = &epochChange.NewEpoch
 		},
 	})
 

@@ -12,6 +12,7 @@ import (
 	"container/list"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"hash"
 	"math/rand"
 
@@ -44,9 +45,45 @@ type RuntimeParameters struct {
 	PersistLatency int
 }
 
+type WAL struct {
+	LowIndex uint64
+	List     *list.List
+}
+
+func NewWAL() *WAL {
+	return &WAL{
+		List: list.New(),
+	}
+}
+
+func (wal *WAL) Append(index uint64, p *pb.Persistent) {
+	if index != wal.LowIndex+uint64(wal.List.Len())+1 {
+		panic(fmt.Sprintf("WAL out of order: expect next index %d, but got %d", wal.LowIndex+uint64(wal.List.Len())+1, index))
+	}
+
+	wal.List.PushBack(p)
+}
+
+func (wal *WAL) Truncate(index uint64) {
+	if index < wal.LowIndex {
+		panic(fmt.Sprintf("asked to truncated to index %d, but lowIndex is %d", index, wal.LowIndex))
+	}
+
+	toRemove := int(index - wal.LowIndex)
+	if toRemove >= wal.List.Len() {
+		panic(fmt.Sprintf("asked to truncate to index %d, but highest index is %d", index, wal.LowIndex+uint64(wal.List.Len())))
+	}
+
+	for ; toRemove > 0; toRemove-- {
+		wal.List.Remove(wal.List.Front())
+		wal.LowIndex++
+	}
+}
+
 type RecorderNode struct {
 	PlaybackNode         *PlaybackNode
 	State                *NodeState
+	WAL                  *WAL
 	Config               *RecorderNodeConfig
 	AwaitingProcessEvent bool
 }
@@ -152,9 +189,16 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 		Rand:    rand.New(rand.NewSource(r.RandomSeed)),
 	}
 
+	player, err := NewPlayer(eventLog, r.Logger)
+	if err != nil {
+		return nil, errors.WithMessage(err, "could not construct player")
+	}
+
 	nodes := make([]*RecorderNode, len(r.RecorderNodeConfigs))
 	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
 		nodeID := uint64(i)
+
+		wal := NewWAL()
 
 		eventLog.InsertStateEvent(
 			nodeID,
@@ -166,30 +210,17 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 			0,
 		)
 
-		eventLog.InsertStateEvent(
-			nodeID,
-			&pb.StateEvent{
-				Type: &pb.StateEvent_LoadEntry{
-					LoadEntry: &pb.StateEvent_PersistedEntry{
-						Index: 0,
-						Data: &pb.Persistent{
-							Type: &pb.Persistent_CEntry{
-								CEntry: &pb.CEntry{
-									SeqNo:           0,
-									CheckpointValue: []byte("fake-initial-value"),
-									NetworkState:    r.NetworkState,
-									EpochConfig: &pb.EpochConfig{
-										Number:            0,
-										PlannedExpiration: 0,
-									},
-								},
-							},
-						},
-					},
+		firstWALEntry := &pb.Persistent{
+			Type: &pb.Persistent_CEntry{
+				CEntry: &pb.CEntry{
+					SeqNo:           0,
+					CheckpointValue: []byte("fake-initial-value"),
+					NetworkState:    r.NetworkState,
 				},
 			},
-			1,
-		)
+		}
+
+		wal.Append(1, firstWALEntry)
 
 		eventLog.InsertStateEvent(
 			nodeID,
@@ -197,19 +228,33 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 				Type: &pb.StateEvent_LoadEntry{
 					LoadEntry: &pb.StateEvent_PersistedEntry{
 						Index: 1,
-						Data: &pb.Persistent{
-							Type: &pb.Persistent_EpochChange{
-								EpochChange: &pb.EpochChange{
-									NewEpoch: 1,
-									Checkpoints: []*pb.Checkpoint{
-										{
-											SeqNo: 0,
-											Value: []byte("fake-initial-value"),
-										},
-									},
-								},
-							},
-						},
+						Data:  firstWALEntry,
+					},
+				},
+			},
+			1,
+		)
+
+		secondWALEntry := &pb.Persistent{
+			Type: &pb.Persistent_FEntry{
+				FEntry: &pb.FEntry{
+					EndsEpochConfig: &pb.EpochConfig{
+						Number:  0,
+						Leaders: r.NetworkState.Config.Nodes,
+					},
+				},
+			},
+		}
+
+		wal.Append(2, secondWALEntry)
+
+		eventLog.InsertStateEvent(
+			nodeID,
+			&pb.StateEvent{
+				Type: &pb.StateEvent_LoadEntry{
+					LoadEntry: &pb.StateEvent_PersistedEntry{
+						Index: 2,
+						Data:  secondWALEntry,
 					},
 				},
 			},
@@ -227,19 +272,13 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 		)
 
 		eventLog.InsertTickEvent(nodeID, int64(recorderNodeConfig.RuntimeParms.TickInterval))
-	}
 
-	player, err := NewPlayer(eventLog, r.Logger)
-	if err != nil {
-		return nil, errors.WithMessage(err, "could not construct player")
-	}
-
-	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
 		nodes[i] = &RecorderNode{
 			State: &NodeState{
 				Hasher:         r.Hasher(),
 				ReconfigPoints: r.ReconfigPoints,
 			},
+			WAL:          wal,
 			PlaybackNode: player.Node(uint64(i)),
 			Config:       recorderNodeConfig,
 		}
@@ -333,6 +372,18 @@ func (r *Recording) Step() error {
 		}
 		node.AwaitingProcessEvent = false
 		processing := playbackNode.Processing
+
+		for _, write := range processing.WriteAhead {
+			switch {
+			case write.Append != nil:
+				node.WAL.Append(write.Append.Index, write.Append.Data)
+			case write.Truncate != nil:
+				node.WAL.Truncate(*write.Truncate)
+			default:
+				panic("Append or Truncate must be set")
+			}
+		}
+
 		for _, send := range processing.Send {
 			for _, i := range send.Targets {
 				linkLatency := runtimeParms.LinkLatency

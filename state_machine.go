@@ -120,7 +120,6 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 		SeqNo:           result.SeqNo,
 		CheckpointValue: result.Value,
 		NetworkState:    result.NetworkState,
-		EpochConfig:     epochConfig,
 	}).send(
 		cs.activeState.Config.Nodes,
 		&pb.Msg{
@@ -315,14 +314,14 @@ func (sm *StateMachine) applyPersisted(entry *WALEntry) {
 	sm.persisted.appendInitialLoad(entry)
 }
 
-func (sm *StateMachine) completeInitialization() {
+func (sm *StateMachine) completeInitialization() *Actions {
 	if sm.state != smLoadingPersisted {
 		panic("state machine has already finished loading persisted data")
 	}
 
-	sm.reinitialize()
-
 	sm.state = smInitialized
+
+	return sm.reinitialize()
 }
 
 func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
@@ -345,8 +344,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		})
 		return &Actions{}
 	case *pb.StateEvent_CompleteInitialization:
-		sm.completeInitialization()
-		return &Actions{}
+		return sm.completeInitialization()
 	case *pb.StateEvent_Tick:
 		assertInitialized()
 		actions.concat(sm.clientTracker.tick())
@@ -422,11 +420,11 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 // varying from component to component, useful state will be retained.  For instance,
 // the clientTracker retains in-window ACKs for still-extant clients.  The checkpointTracker
 // retains checkpoint messages sent by other replicas, etc.
-func (sm *StateMachine) reinitialize() {
+func (sm *StateMachine) reinitialize() *Actions {
 	sm.clientTracker.reinitialize()
 	sm.commitState.reinitialize()
 	sm.checkpointTracker.reinitialize()
-	sm.epochTracker.reinitialize()
+	return sm.epochTracker.reinitialize()
 	// TODO, sm.batchTracker should probably be reinitialized.... but it's harmless not to for now
 }
 
