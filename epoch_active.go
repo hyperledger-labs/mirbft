@@ -34,7 +34,7 @@ type activeEpoch struct {
 	ticksSinceProgress  uint32
 }
 
-func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitState *commitState, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) *activeEpoch {
+func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitState *commitState, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) (*activeEpoch, *Actions) {
 	var startingEntry *logEntry
 	var maxCheckpoint *pb.CEntry
 
@@ -79,6 +79,8 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitSta
 		lowestUnallocated[int(seqToBucket(firstSeqNo, networkConfig))] = firstSeqNo
 	}
 
+	actions := &Actions{}
+
 	sequences := make([][]*sequence, 0, 3)
 	ci := int(networkConfig.CheckpointInterval)
 	for seqNo := maxCheckpoint.SeqNo + 1; seqNo <= commitState.stopAtSeqNo; seqNo++ {
@@ -90,6 +92,12 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitSta
 			sequences = append(sequences, make([]*sequence, ci))
 		}
 		ciOffset := i % ci
+		if ciOffset == 0 {
+			actions.concat(persisted.addNEntry(&pb.NEntry{
+				SeqNo:       seqNo,
+				EpochConfig: epochConfig,
+			}))
+		}
 		sequences[ciIndex][ciOffset] = newSequence(owner, epochConfig.Number, seqNo, persisted, networkConfig, myConfig, logger)
 	}
 
@@ -167,7 +175,7 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitSta
 		lowestUncommitted: lowestUncommitted,
 		outstandingReqs:   outstandingReqs,
 		logger:            logger,
-	}
+	}, actions
 }
 
 func (e *activeEpoch) seqToBucket(seqNo uint64) bucketID {
@@ -284,6 +292,10 @@ func (e *activeEpoch) advance() *Actions {
 		len(e.sequences) <= 3 {
 		ci := int(e.networkConfig.CheckpointInterval)
 		newSequences := make([]*sequence, ci)
+		actions.concat(e.persisted.addNEntry(&pb.NEntry{
+			SeqNo:       e.highWatermark() + 1,
+			EpochConfig: e.epochConfig,
+		}))
 		for i := range newSequences {
 			seqNo := e.highWatermark() + 1 + uint64(i)
 			// fmt.Printf("  JKY: allocating new equences for seqNo %d\n", seqNo)

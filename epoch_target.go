@@ -230,12 +230,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 	newEpochConfig := et.leaderNewEpoch.NewConfig
 
-	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.lowWatermark {
-		if newEpochConfig.StartingCheckpoint.SeqNo <= et.commitState.lastCommit {
-			// We've committed through this checkpoint, but are awaiting the result
-			return actions
-		}
-
+	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.lastCommit {
 		panic("we need checkpoint state transfer to handle this case")
 	}
 
@@ -298,10 +293,48 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		return actions
 	}
 
+	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.lowWatermark {
+		// Per the check above, we know
+		//   newEpochConfig.StartingCheckpoint.SeqNo <= et.commitState.lastCommit
+		// So we've committed through this checkpoint, but need to wait for it
+		// to be computed before we can safely echo
+		return actions
+	}
+
 	et.state = etEchoing
+
+	if newEpochConfig.StartingCheckpoint.SeqNo == et.commitState.stopAtSeqNo && len(newEpochConfig.FinalPreprepares) > 0 {
+		// We know at this point that
+		// newEpochConfig.StartingCheckpoint.SeqNo <= et.commitState.lowWatermark
+		// and always et.commitState.lowWatermark <= et.commitState.stopAtSeqNo
+		// Further, since this epoch change is correct, we know that some correct replica
+		// prepared some sequence beyond the starting checkpoint.  Since a correct replica
+		// will wait for a strong checkpoint quorum before preparing beyond a reconfiguration
+		// we therefore know that this checkpoint is in fact stable, and we must
+		// reinitialize under the new network configuration before processing further.
+
+		// XXX the problem becomes though, that in order to reinitialize, we need to
+		// append the FEntry, but, then we truncate the log, and if we crash, we come
+		// back up unaware of our previous epoch change message.  Fine, we know
+		// the checkpoint is strong, but, without epoch message reliable
+		// (re)broadcast, the new view timer might never start at other nodes
+		// and we could get stuck in this epoch forever.
+
+		panic("deal with this")
+	}
+
+	// XXX what if the final preprepares span both an old and new config?
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
+
+		if (seqNo-1)%uint64(et.networkConfig.CheckpointInterval) == 0 {
+			actions.concat(et.persisted.addNEntry(&pb.NEntry{
+				SeqNo:       seqNo,
+				EpochConfig: newEpochConfig.Config,
+			}))
+		}
+
 		if len(digest) == 0 {
 			actions.concat(et.persisted.addQEntry(&pb.QEntry{
 				SeqNo: seqNo,
@@ -681,7 +714,9 @@ func (et *epochTarget) advanceState() *Actions {
 		case etReadying: // Have received a quorum of echos, waiting a on qourum of readies
 			actions.concat(et.checkNewEpochReadyQuorum())
 		case etReady: // New epoch is ready to begin
-			et.activeEpoch = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.commitState, et.clientTracker, et.myConfig, et.logger)
+			var epochActions *Actions
+			et.activeEpoch, epochActions = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.commitState, et.clientTracker, et.myConfig, et.logger)
+			actions.concat(epochActions)
 			// TODO, handle case where planned epoch expiration is now
 			et.state = etInProgress
 			// It's important not to step through into the next state transition,

@@ -96,6 +96,16 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
 	return p.appendLogEntry(d)
 }
 
+func (p *persisted) addNEntry(nEntry *pb.NEntry) *Actions {
+	d := &pb.Persistent{
+		Type: &pb.Persistent_NEntry{
+			NEntry: nEntry,
+		},
+	}
+
+	return p.appendLogEntry(d)
+}
+
 func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 	if cEntry.NetworkState == nil {
 		panic("network config must be set")
@@ -131,31 +141,25 @@ func (p *persisted) addECEntry(ecEntry *pb.ECEntry) *Actions {
 }
 
 func (p *persisted) truncate(lowWatermark uint64) *Actions {
-	var lastCEntry *logEntry
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
 		switch d := logEntry.entry.Type.(type) {
-		case *pb.Persistent_PEntry:
-			if d.PEntry.SeqNo <= lowWatermark {
-				continue
-			}
-		case *pb.Persistent_QEntry:
-			if d.QEntry.SeqNo <= lowWatermark {
-				continue
-			}
 		case *pb.Persistent_CEntry:
-			lastCEntry = logEntry
 			if d.CEntry.SeqNo < lowWatermark {
+				continue
+			}
+		case *pb.Persistent_NEntry:
+			if d.NEntry.SeqNo <= lowWatermark {
 				continue
 			}
 		default:
 			continue
 		}
 
-		p.logHead = lastCEntry
+		p.logHead = logEntry
 		return &Actions{
 			WriteAhead: []*Write{
 				{
-					Truncate: &lastCEntry.index,
+					Truncate: &logEntry.index,
 				},
 			},
 		}
@@ -165,7 +169,9 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 }
 
 func (p *persisted) iterate(li logIterator) {
+	// fmt.Printf("\nJKY: starting log iteration\n")
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
+		// fmt.Printf("JKY: iterating over log entry of type %T\n", logEntry.entry.Type)
 		switch d := logEntry.entry.Type.(type) {
 		case *pb.Persistent_PEntry:
 			if li.onPEntry != nil {

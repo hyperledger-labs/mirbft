@@ -145,7 +145,8 @@ message Persistent {
 // NEntry indicates that a new set of sequences are being allocated, and
 // will be persisted immediately before log truncation occurs.
 message NEntry {
-    EpochConfig epoch_config = 1;
+    uint64 seq_no = 1;
+    EpochConfig epoch_config = 2;
     // TODO, include whether we've suspected
 }
 
