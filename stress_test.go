@@ -242,7 +242,7 @@ var _ = Describe("StressyTest", func() {
 				fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(replica.Log.Entries))
 			}
 
-			fmt.Printf("\nLog available at %s\n", filepath.Join(replica.TmpDir, "recording.eventlog"))
+			fmt.Printf("\nLog available at %s\n", replica.EventLogPath())
 		}
 
 	})
@@ -311,6 +311,10 @@ type TestReplica struct {
 	DoneC               <-chan struct{}
 }
 
+func (tr *TestReplica) EventLogPath() string {
+	return filepath.Join(tr.TmpDir, "eventlog.gz")
+}
+
 func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -322,6 +326,18 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	walPath := filepath.Join(tr.TmpDir, "wal")
 	err = os.MkdirAll(walPath, 0700)
 	Expect(err).NotTo(HaveOccurred())
+
+	file, err := os.Create(tr.EventLogPath())
+	defer file.Close()
+	Expect(err).NotTo(HaveOccurred())
+
+	interceptor := recorder.NewInterceptor(tr.Config.ID, file)
+	defer func() {
+		err := interceptor.Stop()
+		_ = err
+		// Expect(err).NotTo(HaveOccurred())
+	}()
+	tr.Config.EventInterceptor = interceptor // XXX a hack, get rid of it
 
 	wal, err := simplewal.Open(walPath)
 	Expect(err).NotTo(HaveOccurred())
@@ -377,14 +393,10 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		process = processor.Process
 	}
 
-	recordingFile := filepath.Join(tr.TmpDir, "recording.eventlog")
-	recording, err := os.Create(recordingFile)
-	Expect(err).NotTo(HaveOccurred())
-
-	go node.Config.EventInterceptor.(*recorder.Interceptor).Drain(recording)
-	defer node.Config.EventInterceptor.(*recorder.Interceptor).Stop()
-
 	proposer, err := node.ClientProposer(context.Background(), 0)
+	if err != nil {
+		fmt.Printf("%+v\n", err)
+	}
 	Expect(err).NotTo(HaveOccurred())
 
 	expectedProposalCount := tr.FakeClient.MsgCount
@@ -459,23 +471,15 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 	tmpDir, err := ioutil.TempDir("", "stress_test.*")
 	Expect(err).NotTo(HaveOccurred())
 
-	startTime := time.Now()
 	for i := range replicas {
 		config := &mirbft.Config{
 			ID:                   uint64(i),
-			Logger:               logger.Named(fmt.Sprintf("node%d", i)),
 			BatchSize:            1,
 			SuspectTicks:         4,
 			HeartbeatTicks:       2,
 			NewEpochTimeoutTicks: 8,
 			BufferSize:           500,
-			EventInterceptor: recorder.NewInterceptor(
-				uint64(i),
-				func() int64 {
-					return time.Since(startTime).Milliseconds()
-				},
-				10000,
-			),
+			Logger:               logger.Named(fmt.Sprintf("node%d", i)),
 		}
 
 		if testConfig.BatchSize != 0 {

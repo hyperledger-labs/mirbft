@@ -53,6 +53,7 @@ type Config struct {
 // event from arriving at the state machine until it returns.
 type EventInterceptor interface {
 	// Intercept is invoked prior to passing each state event to
-	// the state machine.
-	Intercept(s *pb.StateEvent)
+	// the state machine.  If Intercept returns an error, the
+	// state machine halts.
+	Intercept(s *pb.StateEvent) error
 }

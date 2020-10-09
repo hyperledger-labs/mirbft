@@ -353,5 +353,8 @@ func main() {
 	if err != nil {
 		kingpin.Fatalf("Error, %s, try --help", err)
 	}
-	args.execute(os.Stdout)
+	err = args.execute(os.Stdout)
+	if err != nil {
+		kingpin.Fatalf("Error executing: %s", err)
+	}
 }
