@@ -328,8 +328,8 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	Expect(err).NotTo(HaveOccurred())
 
 	file, err := os.Create(tr.EventLogPath())
-	defer file.Close()
 	Expect(err).NotTo(HaveOccurred())
+	defer file.Close()
 
 	interceptor := eventlog.NewRecorder(tr.Config.ID, file)
 	defer func() {

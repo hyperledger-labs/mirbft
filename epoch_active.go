@@ -305,8 +305,6 @@ func (e *activeEpoch) advance() *Actions {
 		}
 		e.sequences = append(e.sequences, newSequences)
 		// fmt.Printf("JKY: draining proposer, adding new sequences\n")
-	} else {
-		// fmt.Printf("    JKY not adding new sequences highWatermark=%d plannedExpiration=%d len(e.sequences)=%d stopAtSeqNo=%d\n", e.highWatermark(), e.epochConfig.PlannedExpiration, len(e.sequences), e.commitState.stopAtSeqNo)
 	}
 
 	e.proposer.advance(e.lowestUncommitted)

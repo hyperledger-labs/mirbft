@@ -113,13 +113,6 @@ import (
 // weakList -- all requests which are correct, but we have not replicated locally -- a list of
 // replicatingMap -- all requests which are currently being fetched
 
-var zeroPtr *uint64
-
-func init() {
-	var zero uint64
-	zeroPtr = &zero
-}
-
 // appendList is a useful data structure for us because it allows appending
 // of new elements, with stable iteration across garabage collection.  By
 // stable iteration, we mean that even if an element is removed from the list
@@ -910,8 +903,6 @@ func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck, force
 	}
 
 	crn.strongRequests[string(ack.Digest)] = clientReq
-
-	return
 }
 
 func (crn *clientReqNo) tick() *Actions {
