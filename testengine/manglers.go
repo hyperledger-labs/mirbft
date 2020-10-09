@@ -9,8 +9,8 @@ package testengine
 import (
 	"fmt"
 
+	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
-	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 	"google.golang.org/protobuf/proto"
 )
 

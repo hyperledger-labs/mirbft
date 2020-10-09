@@ -14,9 +14,9 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/IBM/mirbft/eventlog"
+	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/IBM/mirbft/recorder"
-	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 )
 
 type EventLog struct {
@@ -40,7 +40,7 @@ type EventLog struct {
 }
 
 func ReadEventLog(source io.Reader) (el *EventLog, err error) {
-	reader, err := recorder.NewReader(source)
+	reader, err := eventlog.NewReader(source)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (l *EventLog) ReadEvent() (*rpb.RecordedEvent, error) {
 	l.LastConsumed = l.List.Remove(nele).(*rpb.RecordedEvent)
 	l.FakeTime = l.LastConsumed.Time
 	if l.Output != nil {
-		err := recorder.WriteRecordedEvent(l.Output, l.LastConsumed)
+		err := eventlog.WriteRecordedEvent(l.Output, l.LastConsumed)
 		if err != nil {
 			return nil, errors.WithMessage(err, "could not write event before processing")
 		}

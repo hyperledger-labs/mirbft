@@ -17,8 +17,8 @@ import (
 	"math/rand"
 
 	"github.com/IBM/mirbft"
+	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
-	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"

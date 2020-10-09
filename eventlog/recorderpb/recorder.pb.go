@@ -7,7 +7,7 @@
 // versions:
 // 	protoc-gen-go v1.25.0
 // 	protoc        v3.10.1
-// source: recorder/recorderpb/recorder.proto
+// source: eventlog/recorderpb/recorder.proto
 
 package recorderpb
 
@@ -44,7 +44,7 @@ type RecordedEvent struct {
 func (x *RecordedEvent) Reset() {
 	*x = RecordedEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_recorder_recorderpb_recorder_proto_msgTypes[0]
+		mi := &file_eventlog_recorderpb_recorder_proto_msgTypes[0]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -57,7 +57,7 @@ func (x *RecordedEvent) String() string {
 func (*RecordedEvent) ProtoMessage() {}
 
 func (x *RecordedEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_recorder_recorderpb_recorder_proto_msgTypes[0]
+	mi := &file_eventlog_recorderpb_recorder_proto_msgTypes[0]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -70,7 +70,7 @@ func (x *RecordedEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordedEvent.ProtoReflect.Descriptor instead.
 func (*RecordedEvent) Descriptor() ([]byte, []int) {
-	return file_recorder_recorderpb_recorder_proto_rawDescGZIP(), []int{0}
+	return file_eventlog_recorderpb_recorder_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *RecordedEvent) GetNodeId() uint64 {
@@ -94,10 +94,10 @@ func (x *RecordedEvent) GetStateEvent() *mirbftpb.StateEvent {
 	return nil
 }
 
-var File_recorder_recorderpb_recorder_proto protoreflect.FileDescriptor
+var File_eventlog_recorderpb_recorder_proto protoreflect.FileDescriptor
 
-var file_recorder_recorderpb_recorder_proto_rawDesc = []byte{
-	0x0a, 0x22, 0x72, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x65, 0x72, 0x2f, 0x72, 0x65, 0x63, 0x6f, 0x72,
+var file_eventlog_recorderpb_recorder_proto_rawDesc = []byte{
+	0x0a, 0x22, 0x65, 0x76, 0x65, 0x6e, 0x74, 0x6c, 0x6f, 0x67, 0x2f, 0x72, 0x65, 0x63, 0x6f, 0x72,
 	0x64, 0x65, 0x72, 0x70, 0x62, 0x2f, 0x72, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x65, 0x72, 0x2e, 0x70,
 	0x72, 0x6f, 0x74, 0x6f, 0x12, 0x0a, 0x72, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x65, 0x72, 0x70, 0x62,
 	0x1a, 0x15, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2f, 0x6d, 0x69, 0x72, 0x62, 0x66,
@@ -110,29 +110,29 @@ var file_recorder_recorderpb_recorder_proto_rawDesc = []byte{
 	0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74,
 	0x52, 0x0a, 0x73, 0x74, 0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x42, 0x2b, 0x5a, 0x29,
 	0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x49, 0x42, 0x4d, 0x2f, 0x6d,
-	0x69, 0x72, 0x62, 0x66, 0x74, 0x2f, 0x72, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x65, 0x72, 0x2f, 0x72,
+	0x69, 0x72, 0x62, 0x66, 0x74, 0x2f, 0x65, 0x76, 0x65, 0x6e, 0x74, 0x6c, 0x6f, 0x67, 0x2f, 0x72,
 	0x65, 0x63, 0x6f, 0x72, 0x64, 0x65, 0x72, 0x70, 0x62, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f,
 	0x33,
 }
 
 var (
-	file_recorder_recorderpb_recorder_proto_rawDescOnce sync.Once
-	file_recorder_recorderpb_recorder_proto_rawDescData = file_recorder_recorderpb_recorder_proto_rawDesc
+	file_eventlog_recorderpb_recorder_proto_rawDescOnce sync.Once
+	file_eventlog_recorderpb_recorder_proto_rawDescData = file_eventlog_recorderpb_recorder_proto_rawDesc
 )
 
-func file_recorder_recorderpb_recorder_proto_rawDescGZIP() []byte {
-	file_recorder_recorderpb_recorder_proto_rawDescOnce.Do(func() {
-		file_recorder_recorderpb_recorder_proto_rawDescData = protoimpl.X.CompressGZIP(file_recorder_recorderpb_recorder_proto_rawDescData)
+func file_eventlog_recorderpb_recorder_proto_rawDescGZIP() []byte {
+	file_eventlog_recorderpb_recorder_proto_rawDescOnce.Do(func() {
+		file_eventlog_recorderpb_recorder_proto_rawDescData = protoimpl.X.CompressGZIP(file_eventlog_recorderpb_recorder_proto_rawDescData)
 	})
-	return file_recorder_recorderpb_recorder_proto_rawDescData
+	return file_eventlog_recorderpb_recorder_proto_rawDescData
 }
 
-var file_recorder_recorderpb_recorder_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_recorder_recorderpb_recorder_proto_goTypes = []interface{}{
+var file_eventlog_recorderpb_recorder_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_eventlog_recorderpb_recorder_proto_goTypes = []interface{}{
 	(*RecordedEvent)(nil),       // 0: recorderpb.RecordedEvent
 	(*mirbftpb.StateEvent)(nil), // 1: mirbftpb.StateEvent
 }
-var file_recorder_recorderpb_recorder_proto_depIdxs = []int32{
+var file_eventlog_recorderpb_recorder_proto_depIdxs = []int32{
 	1, // 0: recorderpb.RecordedEvent.state_event:type_name -> mirbftpb.StateEvent
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
@@ -141,13 +141,13 @@ var file_recorder_recorderpb_recorder_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_recorder_recorderpb_recorder_proto_init() }
-func file_recorder_recorderpb_recorder_proto_init() {
-	if File_recorder_recorderpb_recorder_proto != nil {
+func init() { file_eventlog_recorderpb_recorder_proto_init() }
+func file_eventlog_recorderpb_recorder_proto_init() {
+	if File_eventlog_recorderpb_recorder_proto != nil {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_recorder_recorderpb_recorder_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_eventlog_recorderpb_recorder_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*RecordedEvent); i {
 			case 0:
 				return &v.state
@@ -164,18 +164,18 @@ func file_recorder_recorderpb_recorder_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: file_recorder_recorderpb_recorder_proto_rawDesc,
+			RawDescriptor: file_eventlog_recorderpb_recorder_proto_rawDesc,
 			NumEnums:      0,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_recorder_recorderpb_recorder_proto_goTypes,
-		DependencyIndexes: file_recorder_recorderpb_recorder_proto_depIdxs,
-		MessageInfos:      file_recorder_recorderpb_recorder_proto_msgTypes,
+		GoTypes:           file_eventlog_recorderpb_recorder_proto_goTypes,
+		DependencyIndexes: file_eventlog_recorderpb_recorder_proto_depIdxs,
+		MessageInfos:      file_eventlog_recorderpb_recorder_proto_msgTypes,
 	}.Build()
-	File_recorder_recorderpb_recorder_proto = out.File
-	file_recorder_recorderpb_recorder_proto_rawDesc = nil
-	file_recorder_recorderpb_recorder_proto_goTypes = nil
-	file_recorder_recorderpb_recorder_proto_depIdxs = nil
+	File_eventlog_recorderpb_recorder_proto = out.File
+	file_eventlog_recorderpb_recorder_proto_rawDesc = nil
+	file_eventlog_recorderpb_recorder_proto_goTypes = nil
+	file_eventlog_recorderpb_recorder_proto_depIdxs = nil
 }

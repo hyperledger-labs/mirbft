@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 */
 
 // mircat is a package for reviewing Mir state machine recordings.
-// It understands the format encoded via github.com/IBM/mirbft/recorder
+// It understands the format encoded via github.com/IBM/mirbft/eventlog
 // and is able to parse and filter these log files.  It is also able to
 // play them against an identical version of the state machine for problem
 // reproduction and debugging.
@@ -23,9 +23,9 @@ import (
 	"gopkg.in/alecthomas/kingpin.v2"
 
 	"github.com/IBM/mirbft"
+	"github.com/IBM/mirbft/eventlog"
+	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/IBM/mirbft/recorder"
-	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 	"github.com/IBM/mirbft/status"
 )
 
@@ -239,7 +239,7 @@ func (a *arguments) execute(output io.Writer) error {
 
 	s := newStateMachines()
 
-	reader, err := recorder.NewReader(a.input)
+	reader, err := eventlog.NewReader(a.input)
 	if err != nil {
 		return errors.WithMessage(err, "bad input file")
 	}
@@ -309,7 +309,7 @@ func (a *arguments) execute(output io.Writer) error {
 }
 
 func parseArgs(args []string) (*arguments, error) {
-	app := kingpin.New("mircat", "Utility for processing Mir recorder logs.")
+	app := kingpin.New("mircat", "Utility for processing Mir state event logs.")
 	input := app.Flag("input", "The input file to read (defaults to stdin).").Default(os.Stdin.Name()).File()
 	interactive := app.Flag("interactive", "Whether to apply this log to a Mir state machine.").Default("false").Bool()
 	nodeIDs := app.Flag("nodeID", "Report events from this nodeID only (useful for interleaved logs), may be repeated").Uint64List()

@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package recorder
+package eventlog
 
 import (
 	"bufio"
@@ -19,11 +19,11 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 
+	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
-	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 )
 
-type InterceptorOpt interface{}
+type RecorderOpt interface{}
 
 type timeSourceOpt func() int64
 
@@ -33,7 +33,7 @@ type timeSourceOpt func() int64
 // supplied sync point when trying to synchronize logs.
 // The default time source will timestamp with the time, in
 // milliseconds since the interceptor was created.
-func TimeSourceOpt(source func() int64) InterceptorOpt {
+func TimeSourceOpt(source func() int64) RecorderOpt {
 	return timeSourceOpt(source)
 }
 
@@ -47,7 +47,7 @@ type retainRequestDataOpt struct{}
 // debug/service.  However, for debugging application code, sometimes,
 // having the complete logs is available, so this option may be set
 // to true.
-func RetainRequestDataOpt() InterceptorOpt {
+func RetainRequestDataOpt() RecorderOpt {
 	return retainRequestDataOpt{}
 }
 
@@ -58,7 +58,7 @@ const DefaultCompressionLevel = gzip.DefaultCompression
 
 // CompressionLevelOpt takes any of the compression levels supported
 // by the golang standard gzip package.
-func CompressionLevelOpt(level int) InterceptorOpt {
+func CompressionLevelOpt(level int) RecorderOpt {
 	return compressionLevelOpt(level)
 }
 
@@ -72,14 +72,14 @@ type bufferSizeOpt int
 // interceptor buffer.  Once the buffer overflows, the state
 // machine will be blocked from receiving new state events
 // until the buffer has room.
-func BufferSizeOpt(size int) InterceptorOpt {
+func BufferSizeOpt(size int) RecorderOpt {
 	return bufferSizeOpt(size)
 }
 
-// Interceptor is intended to be used as an imlementation of the
+// Recorder is intended to be used as an imlementation of the
 // mirbft.EventInterceptor interface.  It receives state events,
 // serializes them, compresses them, and writes them to a stream.
-type Interceptor struct {
+type Recorder struct {
 	nodeID            uint64
 	timeSource        func() int64
 	compressionLevel  int
@@ -92,10 +92,10 @@ type Interceptor struct {
 	exitErrMutex sync.Mutex
 }
 
-func NewInterceptor(nodeID uint64, dest io.Writer, opts ...InterceptorOpt) *Interceptor {
+func NewRecorder(nodeID uint64, dest io.Writer, opts ...RecorderOpt) *Recorder {
 	startTime := time.Now()
 
-	i := &Interceptor{
+	i := &Recorder{
 		nodeID: nodeID,
 		timeSource: func() int64 {
 			return time.Since(startTime).Milliseconds()
@@ -133,7 +133,7 @@ type eventTime struct {
 // If there is no room in the buffer, it blocks.  If draining the buffer
 // to the output stream has completed (successfully or otherwise), Intercept
 // returns an error.
-func (i *Interceptor) Intercept(event *pb.StateEvent) error {
+func (i *Recorder) Intercept(event *pb.StateEvent) error {
 	select {
 	case i.eventC <- eventTime{
 		event: event,
@@ -150,7 +150,7 @@ func (i *Interceptor) Intercept(event *pb.StateEvent) error {
 // Stop must be invoked to release the resources associated with this
 // Interceptor, and should only be invoked after the mir node has completely
 // exited.  The returned error
-func (i *Interceptor) Stop() error {
+func (i *Recorder) Stop() error {
 	close(i.doneC)
 	<-i.exitC
 	i.exitErrMutex.Lock()
@@ -163,7 +163,7 @@ func (i *Interceptor) Stop() error {
 
 var errStopped = fmt.Errorf("interceptor stopped at caller request")
 
-func (i *Interceptor) run(dest io.Writer) (exitErr error) {
+func (i *Recorder) run(dest io.Writer) (exitErr error) {
 	defer func() {
 		i.exitErrMutex.Lock()
 		i.exitErr = exitErr

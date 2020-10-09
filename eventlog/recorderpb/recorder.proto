@@ -8,7 +8,7 @@ syntax = "proto3";
 
 package recorderpb;
 
-option go_package = "github.com/IBM/mirbft/recorder/recorderpb";
+option go_package = "github.com/IBM/mirbft/eventlog/recorderpb";
 
 import "mirbftpb/mirbft.proto";
 

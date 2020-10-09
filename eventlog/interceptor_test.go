@@ -1,4 +1,10 @@
-package recorder_test
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+package eventlog_test
 
 import (
 	"bytes"
@@ -9,9 +15,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/IBM/mirbft/eventlog"
+	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/IBM/mirbft/recorder"
-	rpb "github.com/IBM/mirbft/recorder/recorderpb"
 )
 
 var tickEvent = &pb.StateEvent{
@@ -20,7 +26,7 @@ var tickEvent = &pb.StateEvent{
 	},
 }
 
-var _ = Describe("Interceptor", func() {
+var _ = Describe("Recorder", func() {
 	var (
 		output *bytes.Buffer
 	)
@@ -30,11 +36,11 @@ var _ = Describe("Interceptor", func() {
 	})
 
 	It("intercepts and writes state events", func() {
-		interceptor := recorder.NewInterceptor(
+		interceptor := eventlog.NewRecorder(
 			1,
 			output,
-			recorder.TimeSourceOpt(func() int64 { return 2 }),
-			recorder.BufferSizeOpt(3),
+			eventlog.TimeSourceOpt(func() int64 { return 2 }),
+			eventlog.BufferSizeOpt(3),
 		)
 		interceptor.Intercept(tickEvent)
 		interceptor.Intercept(tickEvent)
@@ -54,10 +60,10 @@ var _ = Describe("Reader", func() {
 
 	BeforeEach(func() {
 		output = &bytes.Buffer{}
-		interceptor := recorder.NewInterceptor(
+		interceptor := eventlog.NewRecorder(
 			1,
 			output,
-			recorder.TimeSourceOpt(func() int64 { return 2 }),
+			eventlog.TimeSourceOpt(func() int64 { return 2 }),
 		)
 		interceptor.Intercept(tickEvent)
 		interceptor.Intercept(tickEvent)
@@ -66,7 +72,7 @@ var _ = Describe("Reader", func() {
 	})
 
 	It("can be read back with a Reader", func() {
-		reader, err := recorder.NewReader(output)
+		reader, err := eventlog.NewReader(output)
 		Expect(err).NotTo(HaveOccurred())
 
 		recordedTickEvent := &rpb.RecordedEvent{
@@ -93,7 +99,7 @@ var _ = Describe("Reader", func() {
 		})
 
 		It("reading returns an error", func() {
-			_, err := recorder.NewReader(output)
+			_, err := eventlog.NewReader(output)
 			Expect(err).To(MatchError("could not read source as a gzip stream: unexpected EOF"))
 		})
 	})

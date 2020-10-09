@@ -23,8 +23,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/IBM/mirbft"
+	"github.com/IBM/mirbft/eventlog"
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/IBM/mirbft/recorder"
 	"github.com/IBM/mirbft/reqstore"
 	"github.com/IBM/mirbft/simplewal"
 	"github.com/IBM/mirbft/status"
@@ -331,11 +331,10 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	defer file.Close()
 	Expect(err).NotTo(HaveOccurred())
 
-	interceptor := recorder.NewInterceptor(tr.Config.ID, file)
+	interceptor := eventlog.NewRecorder(tr.Config.ID, file)
 	defer func() {
 		err := interceptor.Stop()
-		_ = err
-		// Expect(err).NotTo(HaveOccurred())
+		Expect(err).NotTo(HaveOccurred())
 	}()
 	tr.Config.EventInterceptor = interceptor // XXX a hack, get rid of it
 
