@@ -342,7 +342,10 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 			continue
 		}
 
-		batch, _ := et.batchTracker.getBatch(digest)
+		batch, ok := et.batchTracker.getBatch(digest)
+		if !ok {
+			panic(fmt.Sprintf("dev sanity check -- batch %x was just found above, not is now missing", digest))
+		}
 
 		qEntry := &pb.QEntry{
 			SeqNo:    seqNo,
