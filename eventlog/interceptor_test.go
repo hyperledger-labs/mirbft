@@ -46,7 +46,7 @@ var _ = Describe("Recorder", func() {
 		interceptor.Intercept(tickEvent)
 		err := interceptor.Stop()
 		Expect(err).NotTo(HaveOccurred())
-		Expect(output.Len()).To(Equal(35))
+		Expect(output.Len()).To(Equal(46))
 	})
 
 	// TODO, add tests with write failures, write blocking, etc. generate mock

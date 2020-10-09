@@ -54,7 +54,9 @@ func RetainRequestDataOpt() RecorderOpt {
 type compressionLevelOpt int
 
 // DefaultCompressionLevel is used for event capture when not overridden.
-const DefaultCompressionLevel = gzip.DefaultCompression
+// In emperical tests, best speed was only a few tenths of a percent
+// worse than best compression, but your results may vary.
+const DefaultCompressionLevel = gzip.BestSpeed
 
 // CompressionLevelOpt takes any of the compression levels supported
 // by the golang standard gzip package.
@@ -171,7 +173,10 @@ func (i *Recorder) run(dest io.Writer) (exitErr error) {
 		close(i.exitC)
 	}()
 
-	gzWriter := gzip.NewWriter(dest)
+	gzWriter, err := gzip.NewWriterLevel(dest, i.compressionLevel)
+	if err != nil {
+		return err
+	}
 	defer gzWriter.Close()
 
 	write := func(eventTime eventTime) error {
