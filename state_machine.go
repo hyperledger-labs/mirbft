@@ -574,8 +574,9 @@ func (sm *StateMachine) Status() *status.StateMachine {
 
 	nodes := make([]*status.NodeBuffer, len(sm.checkpointTracker.networkConfig.Nodes))
 	for i, id := range sm.checkpointTracker.networkConfig.Nodes {
-		nodeID := nodeID(id)
-		nodes[i] = sm.epochTracker.currentEpoch.nodeMsgs[nodeID].status()
+		nodes[i] = &status.NodeBuffer{
+			ID: id,
+		} // TODO, actually populate this again
 	}
 
 	lowWatermark, highWatermark, bucketStatus := sm.epochTracker.currentEpoch.bucketStatus()

@@ -13,6 +13,12 @@ import (
 	"github.com/IBM/mirbft/status"
 )
 
+type preprepareBuffer struct {
+	nextSeqNo  uint64
+	numBuckets uint64
+	buffer     *msgBuffer
+}
+
 type activeEpoch struct {
 	epochConfig   *pb.EpochConfig
 	networkConfig *pb.NetworkState_Config
@@ -27,6 +33,8 @@ type activeEpoch struct {
 	buckets   map[bucketID]nodeID
 	sequences [][]*sequence
 
+	preprepareBuffers []*preprepareBuffer // indexed by bucket
+	otherBuffers      map[nodeID]*msgBuffer
 	lowestUncommitted uint64   // seqNo
 	lowestUnallocated []uint64 // seqNo indexed by bucket
 
@@ -162,6 +170,19 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitSta
 		buckets,
 	)
 
+	preprepareBuffers := make([]*preprepareBuffer, len(lowestUnallocated))
+	for i, lu := range lowestUnallocated {
+		preprepareBuffers[i] = &preprepareBuffer{
+			nextSeqNo: lu,
+			buffer:    newMsgBuffer(myConfig, logger),
+		}
+	}
+
+	otherBuffers := map[nodeID]*msgBuffer{}
+	for _, node := range networkConfig.Nodes {
+		otherBuffers[nodeID(node)] = newMsgBuffer(myConfig, logger)
+	}
+
 	return &activeEpoch{
 		buckets:           buckets,
 		myConfig:          myConfig,
@@ -171,6 +192,8 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitSta
 		commitState:       commitState,
 		proposer:          proposer,
 		sequences:         sequences,
+		preprepareBuffers: preprepareBuffers,
+		otherBuffers:      otherBuffers,
 		lowestUnallocated: lowestUnallocated,
 		lowestUncommitted: lowestUncommitted,
 		outstandingReqs:   outstandingReqs,
@@ -192,15 +215,132 @@ func (e *activeEpoch) sequence(seqNo uint64) *sequence {
 	return e.sequences[ciIndex][ciOffset]
 }
 
+func (ae *activeEpoch) filter(source nodeID, msg *pb.Msg) applyable {
+	switch innerMsg := msg.Type.(type) {
+	case *pb.Msg_Preprepare:
+		seqNo := innerMsg.Preprepare.SeqNo
+
+		bucketID := ae.seqToBucket(seqNo)
+		owner := ae.buckets[bucketID]
+		if owner != source {
+			return invalid
+		}
+
+		if seqNo > ae.epochConfig.PlannedExpiration {
+			return invalid
+		}
+
+		if seqNo > ae.highWatermark() {
+			return future
+		}
+
+		if seqNo < ae.lowWatermark() {
+			return past
+		}
+
+		nextPreprepare := ae.preprepareBuffers[int(bucketID)].nextSeqNo
+		switch {
+		case seqNo < nextPreprepare:
+			return past
+		case seqNo > nextPreprepare:
+			return future
+		default:
+			return current
+		}
+	case *pb.Msg_Prepare:
+		seqNo := innerMsg.Prepare.SeqNo
+
+		bucketID := ae.seqToBucket(seqNo)
+		owner := ae.buckets[bucketID]
+		if owner == source {
+			return invalid
+		}
+
+		if seqNo > ae.epochConfig.PlannedExpiration {
+			return invalid
+		}
+
+		switch {
+		case seqNo < ae.lowWatermark():
+			return past
+		case seqNo > ae.highWatermark():
+			return future
+		default:
+			return current
+		}
+	case *pb.Msg_Commit:
+		seqNo := innerMsg.Commit.SeqNo
+
+		if seqNo > ae.epochConfig.PlannedExpiration {
+			return invalid
+		}
+
+		switch {
+		case seqNo < ae.lowWatermark():
+			return past
+		case seqNo > ae.highWatermark():
+			return future
+		default:
+			return current
+		}
+	default:
+		panic(fmt.Sprintf("unexpected msg type: %T", msg.Type))
+	}
+}
+
+func (ae *activeEpoch) apply(source nodeID, msg *pb.Msg) *Actions {
+	actions := &Actions{}
+
+	switch innerMsg := msg.Type.(type) {
+	case *pb.Msg_Preprepare:
+		bucket := ae.seqToBucket(innerMsg.Preprepare.SeqNo)
+		preprepareBuffer := ae.preprepareBuffers[bucket]
+		nextMsg := msg
+		for nextMsg != nil {
+			ppMsg := nextMsg.Type.(*pb.Msg_Preprepare).Preprepare
+			actions.concat(ae.applyPreprepareMsg(source, ppMsg.SeqNo, ppMsg.Batch))
+			preprepareBuffer.nextSeqNo += uint64(len(ae.buckets))
+			nextMsg = preprepareBuffer.buffer.next(func(nextMsg *pb.Msg) applyable {
+				return ae.filter(source, nextMsg)
+			})
+		}
+	case *pb.Msg_Prepare:
+		msg := innerMsg.Prepare
+		actions.concat(ae.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
+	case *pb.Msg_Commit:
+		msg := innerMsg.Commit
+		actions.concat(ae.applyCommitMsg(source, msg.SeqNo, msg.Digest))
+	default:
+		panic(fmt.Sprintf("unexpected msg type: %T", msg.Type))
+	}
+
+	return actions
+}
+
+func (ae *activeEpoch) step(source nodeID, msg *pb.Msg) *Actions {
+	switch ae.filter(source, msg) {
+	case past:
+	case future:
+		switch innerMsg := msg.Type.(type) {
+		case *pb.Msg_Preprepare:
+			bucket := ae.seqToBucket(innerMsg.Preprepare.SeqNo)
+			ae.preprepareBuffers[int(bucket)].buffer.store(msg)
+		default:
+			ae.otherBuffers[source].store(msg)
+		}
+	case invalid:
+		// TODO Log?
+	default: // current
+		return ae.apply(source, msg)
+	}
+	return &Actions{}
+}
+
 func (e *activeEpoch) inWatermarks(seqNo uint64) bool {
 	return seqNo >= e.lowWatermark() && seqNo <= e.highWatermark()
 }
 
 func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*pb.RequestAck) *Actions {
-	if !e.inWatermarks(seqNo) {
-		return &Actions{}
-	}
-
 	seq := e.sequence(seqNo)
 
 	if seq.owner == nodeID(e.myConfig.Id) {
@@ -227,20 +367,12 @@ func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*p
 }
 
 func (e *activeEpoch) applyPrepareMsg(source nodeID, seqNo uint64, digest []byte) *Actions {
-	if !e.inWatermarks(seqNo) {
-		return &Actions{}
-	}
-
 	seq := e.sequence(seqNo)
 
 	return seq.applyPrepareMsg(source, digest)
 }
 
 func (e *activeEpoch) applyCommitMsg(source nodeID, seqNo uint64, digest []byte) *Actions {
-	if !e.inWatermarks(seqNo) {
-		return &Actions{}
-	}
-
 	seq := e.sequence(seqNo)
 
 	seq.applyCommitMsg(source, digest)
@@ -279,6 +411,44 @@ func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*Actions, bool) {
 	return e.advance(), false
 }
 
+func (e *activeEpoch) drainBuffers() *Actions {
+	actions := &Actions{}
+
+	for i := 0; i < len(e.buckets); i++ {
+		preprepareBuffer := e.preprepareBuffers[bucketID(i)]
+		source := e.buckets[bucketID(i)]
+		nextMsg := preprepareBuffer.buffer.next(func(msg *pb.Msg) applyable {
+			return e.filter(source, msg)
+		})
+		if nextMsg == nil {
+			continue
+		}
+
+		actions.concat(e.apply(source, nextMsg))
+		// Note, below, we loop until nextMsg is nil,
+		// but apply actually loops for us in the preprepare case
+		// the difference being that non-preprepare messages
+		// only change applayble state when watermarks move,
+		// preprepare messages change applyable state after the
+		// previous preprepare applies.
+	}
+
+	for _, id := range e.networkConfig.Nodes {
+		buffer := e.otherBuffers[nodeID(id)]
+		for {
+			nextMsg := buffer.next(func(msg *pb.Msg) applyable {
+				return e.filter(nodeID(id), msg)
+			}) // TODO, this is painfully inefficient, have an iterator on the buffer
+			if nextMsg == nil {
+				break
+			}
+			actions.concat(e.apply(nodeID(id), nextMsg))
+		}
+	}
+
+	return actions
+}
+
 func (e *activeEpoch) advance() *Actions {
 	actions := &Actions{}
 
@@ -305,6 +475,8 @@ func (e *activeEpoch) advance() *Actions {
 		}
 		e.sequences = append(e.sequences, newSequences)
 		// fmt.Printf("JKY: draining proposer, adding new sequences\n")
+
+		actions.concat(e.drainBuffers())
 	}
 
 	e.proposer.advance(e.lowestUncommitted)

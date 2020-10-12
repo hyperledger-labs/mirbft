@@ -27,11 +27,12 @@ var _ = XDescribe("sequence", func() {
 				Nodes: []uint64{0, 1, 2, 3},
 				F:     1,
 			},
-			epoch:    4,
-			seqNo:    5,
-			owner:    0,
-			prepares: map[string]map[nodeID]struct{}{},
-			commits:  map[string]map[nodeID]struct{}{},
+			epoch:       4,
+			seqNo:       5,
+			owner:       0,
+			nodeChoices: map[nodeID]*nodeSeqChoice{},
+			prepares:    map[string]int{},
+			commits:     map[string]int{},
 		}
 	})
 
@@ -237,10 +238,10 @@ var _ = XDescribe("sequence", func() {
 		BeforeEach(func() {
 			s.state = sequencePreprepared
 			s.digest = []byte("digest")
-			s.prepares["digest"] = map[nodeID]struct{}{
-				1: {},
-				2: {},
-			}
+			// s.prepares["digest"] = map[nodeID]struct{}{
+			// 1: {},
+			// 2: {},
+			// }
 		})
 
 		It("transitions from Preprepared to Prepared", func() {

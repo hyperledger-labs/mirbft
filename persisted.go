@@ -275,7 +275,7 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 			})
 		},
 		onECEntry: func(ecEntry *pb.ECEntry) {
-			if *logEpoch+1 != ecEntry.EpochNumber {
+			if logEpoch != nil && *logEpoch+1 != ecEntry.EpochNumber {
 				panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", ecEntry.EpochNumber, *logEpoch))
 			}
 		},

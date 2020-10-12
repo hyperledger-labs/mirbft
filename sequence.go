@@ -7,6 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"bytes"
+	"fmt"
+
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"go.uber.org/zap"
 )
@@ -22,6 +25,19 @@ const (
 	sequencePrepared
 	sequenceCommitted
 )
+
+type nodeSeqState int
+
+const (
+	nodeSeqUninitialized nodeSeqState = iota
+	nodeSeqPreprepared
+	nodeSeqPrepared
+)
+
+type nodeSeqChoice struct {
+	state  nodeSeqState
+	digest []byte
+}
 
 type sequence struct {
 	owner nodeID
@@ -48,8 +64,11 @@ type sequence struct {
 	// digest is the computed digest of the batch, may not be set until state > sequenceReady
 	digest []byte
 
-	prepares map[string]map[nodeID]struct{}
-	commits  map[string]map[nodeID]struct{}
+	// nodeChoices records what a particular node has already said about this sequence.
+	nodeChoices map[nodeID]*nodeSeqChoice
+
+	prepares map[string]int
+	commits  map[string]int
 }
 
 func newSequence(owner nodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *pb.NetworkState_Config, myConfig *pb.StateEvent_InitialParameters, logger Logger) *sequence {
@@ -62,9 +81,20 @@ func newSequence(owner nodeID, epoch, seqNo uint64, persisted *persisted, networ
 		networkConfig: networkConfig,
 		persisted:     persisted,
 		state:         sequenceUninitialized,
-		prepares:      map[string]map[nodeID]struct{}{},
-		commits:       map[string]map[nodeID]struct{}{},
+		nodeChoices:   map[nodeID]*nodeSeqChoice{},
+		prepares:      map[string]int{},
+		commits:       map[string]int{},
 	}
+}
+
+func (s *sequence) nodeChoice(source nodeID) *nodeSeqChoice {
+	choice, ok := s.nodeChoices[source]
+	if !ok {
+		choice = &nodeSeqChoice{}
+		s.nodeChoices[source] = choice
+	}
+
+	return choice
 }
 
 func (s *sequence) advanceState() *Actions {
@@ -153,7 +183,7 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[st
 func (s *sequence) satisfyOutstanding(fr *pb.RequestAck) *Actions {
 	_, ok := s.outstandingReqs[string(fr.Digest)]
 	if !ok {
-		panic("dev sanity check")
+		panic(fmt.Sprintf("dev sanity check -- told request %x was ready but we weren't waiting for it", fr.Digest))
 	}
 
 	delete(s.outstandingReqs, string(fr.Digest))
@@ -170,7 +200,6 @@ func (s *sequence) checkRequests() {
 }
 
 func (s *sequence) applyBatchHashResult(digest []byte) *Actions {
-
 	s.digest = digest
 
 	return s.applyPrepareMsg(s.owner, digest)
@@ -225,23 +254,36 @@ func (s *sequence) prepare() *Actions {
 }
 
 func (s *sequence) applyPrepareMsg(source nodeID, digest []byte) *Actions {
-	// TODO, if the digest is known, mark a mismatch as oddity
-	agreements := s.prepares[string(digest)]
-	if agreements == nil {
-		agreements = map[nodeID]struct{}{}
-		s.prepares[string(digest)] = agreements
+	choice := s.nodeChoice(source)
+
+	// We only check for duplicate prepares for non-owners, as the
+	// the only prepare we get from the owner is our own artificial,
+	// and the choice has already been recorded for the preprepare.
+	if source != s.owner && choice.state > nodeSeqUninitialized {
+		// TODO log oddity
+		return &Actions{}
 	}
-	agreements[source] = struct{}{}
-	s.prepares[string(digest)] = agreements
+
+	choice.state = nodeSeqPreprepared
+	choice.digest = digest
+
+	s.prepares[string(digest)] = s.prepares[string(digest)] + 1
 
 	return s.advanceState()
 }
 
 func (s *sequence) checkPrepareQuorum() *Actions {
 	agreements := s.prepares[string(s.digest)]
+
 	// Do not prepare unless we have sent our prepare as well
 	// as this ensures we've persisted our qSet
-	if _, ok := agreements[nodeID(s.myConfig.Id)]; !ok {
+	myChoice := s.nodeChoice(nodeID(s.myConfig.Id))
+	if myChoice.state < nodeSeqPreprepared {
+		return &Actions{}
+	}
+
+	if !bytes.Equal(myChoice.digest, s.digest) {
+		// TODO, log oddity, we have different digest than what net says is correct
 		return &Actions{}
 	}
 
@@ -249,7 +291,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 	// for the leader will be applied as a prepare here
 	requiredPrepares := intersectionQuorum(s.networkConfig)
 
-	if len(agreements) < requiredPrepares {
+	if agreements < requiredPrepares {
 		return &Actions{}
 	}
 
@@ -276,13 +318,20 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 }
 
 func (s *sequence) applyCommitMsg(source nodeID, digest []byte) *Actions {
-	// TODO, if the digest is known, mark a mismatch as oddity
-	agreements := s.commits[string(digest)]
-	if agreements == nil {
-		agreements = map[nodeID]struct{}{}
-		s.commits[string(digest)] = agreements
+	choice := s.nodeChoice(source)
+	if choice.state > nodeSeqPreprepared {
+		// TODO log oddity
+		return &Actions{}
 	}
-	agreements[source] = struct{}{}
+
+	choice.state = nodeSeqPrepared
+
+	if choice.state == nodeSeqUninitialized {
+		// We also count a commit as an implicit prepare if we have not gotten one
+		s.prepares[string(digest)] = s.prepares[string(digest)]
+	}
+
+	s.commits[string(digest)] = s.commits[string(digest)] + 1
 
 	return s.advanceState()
 }
@@ -291,13 +340,14 @@ func (s *sequence) checkCommitQuorum() {
 	agreements := s.commits[string(s.digest)]
 	// Do not commit unless we have sent a commit
 	// and therefore already have persisted our pSet and qSet
-	if _, ok := agreements[nodeID(s.myConfig.Id)]; !ok {
+	myChoice := s.nodeChoice(nodeID(s.myConfig.Id))
+	if myChoice.state < nodeSeqPrepared {
 		return
 	}
 
 	requiredCommits := intersectionQuorum(s.networkConfig)
 
-	if len(agreements) < requiredCommits {
+	if agreements < requiredCommits {
 		return
 	}
 

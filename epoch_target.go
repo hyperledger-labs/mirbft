@@ -14,7 +14,6 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/status"
 
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -53,8 +52,8 @@ type epochTarget struct {
 	leaderNewEpoch  *pb.NewEpoch       // The NewEpoch msg we received directly from the leader
 	networkNewEpoch *pb.NewEpochConfig // The NewEpoch msg as received via the bracha broadcast
 	isLeader        bool
+	prestartBuffers map[nodeID]*msgBuffer
 
-	nodeMsgs      map[nodeID]*nodeMsgs
 	persisted     *persisted
 	clientTracker *clientTracker
 	batchTracker  *batchTracker
@@ -73,80 +72,41 @@ func newEpochTarget(
 	myConfig *pb.StateEvent_InitialParameters,
 	logger Logger,
 ) *epochTarget {
-	// TODO if we like this pattern, it should get passed down from
-	// state machine, but, leaving here for refactor purposes
-	oddities := &oddities{
-		logger: logger,
-	}
-
-	nodeMsgs := map[nodeID]*nodeMsgs{}
+	prestartBuffers := map[nodeID]*msgBuffer{}
 	for _, id := range networkConfig.Nodes {
-		nodeMsgs[nodeID(id)] = newNodeMsgs(nodeID(id), networkConfig, logger, myConfig, oddities)
+		prestartBuffers[nodeID(id)] = newMsgBuffer(myConfig, logger)
 	}
 
 	return &epochTarget{
-		number:        number,
-		commitState:   commitState,
-		suspicions:    map[nodeID]struct{}{},
-		changes:       map[nodeID]*epochChange{},
-		strongChanges: map[nodeID]*parsedEpochChange{},
-		echos:         map[*pb.NewEpochConfig]map[nodeID]struct{}{},
-		readies:       map[*pb.NewEpochConfig]map[nodeID]struct{}{},
-		isLeader:      number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
-		nodeMsgs:      nodeMsgs,
-		persisted:     persisted,
-		clientTracker: clientTracker,
-		batchTracker:  batchTracker,
-		networkConfig: networkConfig,
-		myConfig:      myConfig,
-		logger:        logger,
+		number:          number,
+		commitState:     commitState,
+		suspicions:      map[nodeID]struct{}{},
+		changes:         map[nodeID]*epochChange{},
+		strongChanges:   map[nodeID]*parsedEpochChange{},
+		echos:           map[*pb.NewEpochConfig]map[nodeID]struct{}{},
+		readies:         map[*pb.NewEpochConfig]map[nodeID]struct{}{},
+		isLeader:        number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
+		prestartBuffers: prestartBuffers,
+		persisted:       persisted,
+		clientTracker:   clientTracker,
+		batchTracker:    batchTracker,
+		networkConfig:   networkConfig,
+		myConfig:        myConfig,
+		logger:          logger,
 	}
 }
 
 func (et *epochTarget) step(source nodeID, msg *pb.Msg) *Actions {
-	nodeMsgs, ok := et.nodeMsgs[source]
-	if !ok {
-		et.logger.Panic("received a message from a node ID that does not exist", zap.Int("source", int(source)))
+	if et.state < etInProgress {
+		et.prestartBuffers[source].store(msg)
+		return &Actions{}
 	}
 
-	nodeMsgs.ingest(msg)
-
-	return et.drainNodeMsgs()
-}
-
-func (et *epochTarget) drainNodeMsgs() *Actions {
-	actions := &Actions{}
-
-	for {
-		moreActions := false
-		for _, id := range et.networkConfig.Nodes {
-			source := nodeID(id)
-			nodeMsgs := et.nodeMsgs[source]
-			msg := nodeMsgs.next()
-			if msg == nil {
-				continue
-			}
-			moreActions = true
-
-			switch innerMsg := msg.Type.(type) {
-			case *pb.Msg_Preprepare:
-				msg := innerMsg.Preprepare
-				actions.concat(et.activeEpoch.applyPreprepareMsg(source, msg.SeqNo, msg.Batch))
-			case *pb.Msg_Prepare:
-				msg := innerMsg.Prepare
-				actions.concat(et.activeEpoch.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
-			case *pb.Msg_Commit:
-				msg := innerMsg.Commit
-				actions.concat(et.activeEpoch.applyCommitMsg(source, msg.SeqNo, msg.Digest))
-			default:
-				panic("unexpected type")
-			}
-		}
-
-		if !moreActions {
-			return actions
-		}
+	if et.state == etDone {
+		return &Actions{}
 	}
+
+	return et.activeEpoch.step(source, msg)
 }
 
 func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *pb.NetworkState_Config) *pb.NewEpoch {
@@ -661,28 +621,27 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 		et.networkNewEpoch = config
 
 		currentEpoch := false
-		for logEntry := et.persisted.logHead; logEntry != nil; logEntry = logEntry.next {
-			switch d := logEntry.entry.Type.(type) {
-			case *pb.Persistent_QEntry:
+		et.persisted.iterate(logIterator{
+			onQEntry: func(qEntry *pb.QEntry) {
 				if !currentEpoch {
-					continue
+					return
 				}
 
 				// fmt.Printf("JKY: in epoch change to epoch %d, committing seq_no=%d\n", et.number, d.QEntry.SeqNo)
-				et.commitState.commit(d.QEntry)
-			case *pb.Persistent_ECEntry:
-				if d.ECEntry.EpochNumber < config.Config.Number {
-					continue
+				et.commitState.commit(qEntry)
+			},
+			onECEntry: func(ecEntry *pb.ECEntry) {
+				if ecEntry.EpochNumber < config.Config.Number {
+					return
 				}
 
-				if d.ECEntry.EpochNumber > config.Config.Number {
+				if ecEntry.EpochNumber > config.Config.Number {
 					panic("dev sanity test")
 				}
 
 				currentEpoch = true
-			}
-
-		}
+			},
+		})
 
 		// TODO, this is a really ugly hack, I don't like it
 		// hopefully we can clean this up by making transfer of control cleaner
@@ -722,22 +681,29 @@ func (et *epochTarget) advanceState() *Actions {
 			actions.concat(epochActions)
 			// TODO, handle case where planned epoch expiration is now
 			et.state = etInProgress
+			for _, id := range et.networkConfig.Nodes {
+				buffer := et.prestartBuffers[nodeID(id)]
+				for {
+					nextMsg := buffer.next(func(*pb.Msg) applyable {
+						return current // A bit of a hack, just iterating
+					})
+					if nextMsg == nil {
+						break
+					}
+
+					actions.concat(et.activeEpoch.step(nodeID(id), nextMsg))
+				}
+			}
+			actions.concat(et.activeEpoch.drainBuffers())
 			// It's important not to step through into the next state transition,
 			// as we must commit the seqs proposed by other replicas in previous
 			// epochs prior to attempting to propose our own (and potentially
 			// re-proposing the same rquests)
-			for _, nodeMsgs := range et.nodeMsgs {
-				nodeMsgs.setActiveEpoch(et.activeEpoch)
-			}
-			return actions
 		case etInProgress: // No pending change
 			actions.concat(et.activeEpoch.outstandingReqs.advanceRequests())
 			actions.concat(et.activeEpoch.advance())
-			actions.concat(et.drainNodeMsgs())
 		case etDone: // We have sent an epoch change, ending this epoch for us
-			for _, nodeMsgs := range et.nodeMsgs {
-				nodeMsgs.setActiveEpoch(nil)
-			}
+			// TODO, release/empty buffers
 		default:
 			panic("dev sanity test")
 		}
@@ -758,11 +724,7 @@ func (et *epochTarget) moveLowWatermark(seqNo uint64) *Actions {
 		et.state = etDone
 	}
 
-	for _, nodeMsgs := range et.nodeMsgs {
-		nodeMsgs.epochMsgs.moveWatermarks(seqNo)
-	}
-
-	return actions.concat(et.drainNodeMsgs())
+	return actions
 }
 
 func (et *epochTarget) applySuspectMsg(source nodeID) {
@@ -781,11 +743,10 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 		return
 	}
 
-	if et.state <= etFetching {
+	if et.state <= etFetching || et.leaderNewEpoch == nil {
 		lowWatermark = et.myEpochChange.lowWatermark + 1
 		highWatermark = lowWatermark + uint64(2*et.networkConfig.CheckpointInterval) - 1
 	} else {
-		// We are echoing or better, so leaderNewEpoch is set
 		lowWatermark = et.leaderNewEpoch.NewConfig.StartingCheckpoint.SeqNo + 1
 		highWatermark = lowWatermark + uint64(2*et.networkConfig.CheckpointInterval) - 1
 	}
