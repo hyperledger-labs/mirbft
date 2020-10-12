@@ -98,23 +98,12 @@ func someCorrectQuorum(nc *pb.NetworkState_Config) int {
 	return int(nc.F) + 1
 }
 
-func initialSequence(epochConfig *pb.EpochConfig, networkConfig *pb.NetworkState_Config) uint64 {
-	if epochConfig.PlannedExpiration > networkConfig.MaxEpochLength {
-		return epochConfig.PlannedExpiration - networkConfig.MaxEpochLength + 1
-	}
-	return 1
-}
-
 func clientReqToBucket(clientID, reqNo uint64, nc *pb.NetworkState_Config) bucketID {
 	return bucketID((clientID + reqNo) % uint64(nc.NumberOfBuckets))
 }
 
 func seqToBucket(seqNo uint64, nc *pb.NetworkState_Config) bucketID {
 	return bucketID(seqNo % uint64(nc.NumberOfBuckets))
-}
-
-func seqToColumn(seqNo uint64, ec *pb.EpochConfig, nc *pb.NetworkState_Config) uint64 {
-	return (seqNo-initialSequence(ec, nc))/uint64(nc.NumberOfBuckets) + 1
 }
 
 func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64, epochChanges map[nodeID]*parsedEpochChange) *pb.NewEpochConfig {

@@ -14,9 +14,8 @@ import (
 )
 
 type preprepareBuffer struct {
-	nextSeqNo  uint64
-	numBuckets uint64
-	buffer     *msgBuffer
+	nextSeqNo uint64
+	buffer    *msgBuffer
 }
 
 type activeEpoch struct {
