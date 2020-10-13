@@ -165,15 +165,7 @@ func (ct *checkpointTracker) garbageCollect() uint64 {
 	}
 
 	for _, id := range ct.networkConfig.Nodes {
-		msgBuffer := ct.msgBuffers[nodeID(id)]
-		for {
-			msg := msgBuffer.next(ct.filter)
-			if msg == nil {
-				break
-			}
-
-			ct.applyMsg(nodeID(id), msg)
-		}
+		ct.msgBuffers[nodeID(id)].iterate(ct.filter, ct.applyMsg)
 	}
 
 	ct.state = cpsIdle

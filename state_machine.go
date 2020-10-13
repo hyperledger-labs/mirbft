@@ -130,7 +130,7 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 				},
 			},
 		},
-	)
+	).concat(cs.clientTracker.drain())
 }
 
 func (cs *commitState) commit(qEntry *pb.QEntry) {

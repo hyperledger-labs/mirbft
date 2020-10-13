@@ -134,3 +134,28 @@ func (mb *msgBuffer) next(filter func(source nodeID, msg *pb.Msg) applyable) *pb
 
 	return nil
 }
+
+func (mb *msgBuffer) iterate(
+	filter func(source nodeID, msg *pb.Msg) applyable,
+	apply func(source nodeID, msg *pb.Msg),
+) {
+	e := mb.buffer.Front()
+	for e != nil {
+		msg := e.Value.(*pb.Msg)
+		x := e
+		e = e.Next()
+		switch filter(mb.nodeBuffer.id, msg) {
+		case past:
+			mb.buffer.Remove(x)
+			mb.nodeBuffer.msgRemoved(msg)
+		case current:
+			mb.buffer.Remove(x)
+			mb.nodeBuffer.msgRemoved(msg)
+			apply(mb.nodeBuffer.id, msg)
+		case future:
+		case invalid:
+			mb.buffer.Remove(x)
+			mb.nodeBuffer.msgRemoved(msg)
+		}
+	}
+}

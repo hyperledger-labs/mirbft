@@ -426,7 +426,7 @@ func (e *activeEpoch) drainBuffers() *Actions {
 		}
 
 		actions.concat(e.apply(source, nextMsg))
-		// Note, below, we loop until nextMsg is nil,
+		// Note, below, we iterate over all msgs
 		// but apply actually loops for us in the preprepare case
 		// the difference being that non-preprepare messages
 		// only change applayble state when watermarks move,
@@ -435,15 +435,9 @@ func (e *activeEpoch) drainBuffers() *Actions {
 	}
 
 	for _, id := range e.networkConfig.Nodes {
-		buffer := e.otherBuffers[nodeID(id)]
-		for {
-			// TODO, this is painfully inefficient, have an iterator on the buffer
-			nextMsg := buffer.next(e.filter)
-			if nextMsg == nil {
-				break
-			}
-			actions.concat(e.apply(nodeID(id), nextMsg))
-		}
+		e.otherBuffers[nodeID(id)].iterate(e.filter, func(id nodeID, msg *pb.Msg) {
+			actions.concat(e.apply(id, msg))
+		})
 	}
 
 	return actions

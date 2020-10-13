@@ -400,6 +400,8 @@ func (ct *clientTracker) filter(_ nodeID, msg *pb.Msg) applyable {
 			return future
 		}
 		// TODO, we need to validate that the request is correct before further processing
+		// probably by having a separate forward request queue to iterate through, maybe
+		// even using a readyList type iterator if we're feeling fancy.
 		switch {
 		case client.lowWatermark > requestAck.ReqNo:
 			return past
@@ -561,19 +563,20 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 
 	ct.clientStates = newClientStates
 
-	for _, id := range ct.networkConfig.Nodes {
-		msgBuffer := ct.msgBuffers[nodeID(id)]
-		for {
-			// TODO, really inefficient
-			msg := msgBuffer.next(ct.filter)
-			if msg == nil {
-				break
-			}
-			ct.applyMsg(nodeID(id), msg)
-		}
-	}
-
 	return newClientStates
+}
+
+// drain should be invoked after the checkpoint is computed and advances the high watermark.
+// In actuality, it would probably be safe to invoke this at the end of
+// commitsCompletedForCheckpointWindow, but, wiring it is difficult, and the delay is minimal.
+func (ct *clientTracker) drain() *Actions {
+	actions := &Actions{}
+	for _, id := range ct.networkConfig.Nodes {
+		ct.msgBuffers[nodeID(id)].iterate(ct.filter, func(source nodeID, msg *pb.Msg) {
+			actions.concat(ct.applyMsg(source, msg))
+		})
+	}
+	return actions
 }
 
 func (ct *clientTracker) replyFetchRequest(source nodeID, clientID, reqNo uint64, digest []byte) *Actions {

@@ -688,17 +688,14 @@ func (et *epochTarget) advanceState() *Actions {
 			// TODO, handle case where planned epoch expiration is now
 			et.state = etInProgress
 			for _, id := range et.networkConfig.Nodes {
-				buffer := et.prestartBuffers[nodeID(id)]
-				for {
-					nextMsg := buffer.next(func(nodeID, *pb.Msg) applyable {
+				et.prestartBuffers[nodeID(id)].iterate(
+					func(nodeID, *pb.Msg) applyable {
 						return current // A bit of a hack, just iterating
-					})
-					if nextMsg == nil {
-						break
-					}
-
-					actions.concat(et.activeEpoch.step(nodeID(id), nextMsg))
-				}
+					},
+					func(id nodeID, msg *pb.Msg) {
+						actions.concat(et.activeEpoch.step(nodeID(id), msg))
+					},
+				)
 			}
 			actions.concat(et.activeEpoch.drainBuffers())
 			// It's important not to step through into the next state transition,
