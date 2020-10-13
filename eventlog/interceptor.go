@@ -229,6 +229,25 @@ func redactEvent(event *pb.StateEvent) *pb.StateEvent {
 				},
 			},
 		}
+	case *pb.StateEvent_Step:
+		switch e := d.Step.Msg.Type.(type) {
+		case *pb.Msg_ForwardRequest:
+			return &pb.StateEvent{
+				Type: &pb.StateEvent_Step{
+					Step: &pb.StateEvent_InboundMsg{
+						Source: d.Step.Source,
+						Msg: &pb.Msg{
+							Type: &pb.Msg_ForwardRequest{
+								ForwardRequest: &pb.ForwardRequest{
+									RequestAck: e.ForwardRequest.RequestAck,
+								},
+							},
+						},
+					},
+				},
+			}
+		default:
+		}
 	case *pb.StateEvent_AddResults:
 		if len(d.AddResults.Digests) == 0 {
 			break
