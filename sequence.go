@@ -55,6 +55,10 @@ type sequence struct {
 	// qEntry is unset until after state >= sequencePreprepared
 	qEntry *pb.QEntry
 
+	// clientRequests is set along with batch when sequence >= sequenceAllocated only
+	// if we are the owner who is proposing this batch
+	clientRequests []*clientRequest
+
 	// batch is not set until after state >= sequenceAllocated
 	batch []*pb.RequestAck
 
@@ -123,12 +127,12 @@ func (s *sequence) advanceState() *Actions {
 }
 
 func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *Actions {
+	s.clientRequests = clientRequests
+
 	requestAcks := make([]*pb.RequestAck, len(clientRequests))
 	for i, clientRequest := range clientRequests {
 		requestAcks[i] = clientRequest.ack
 	}
-
-	// TODO, hold onto the clientRequests so that we know who to forward to
 
 	return s.allocate(requestAcks, nil)
 }
@@ -217,10 +221,16 @@ func (s *sequence) prepare() *Actions {
 	actions := &Actions{}
 
 	if uint64(s.owner) == s.myConfig.Id {
-		for _, fr := range s.batch {
+		for _, cr := range s.clientRequests {
+			nodes := []uint64{}
+			for _, id := range s.networkConfig.Nodes {
+				if _, ok := cr.agreements[nodeID(id)]; !ok {
+					nodes = append(nodes, id)
+				}
+			}
 			actions.forwardRequest(
-				s.networkConfig.Nodes,
-				fr,
+				nodes,
+				cr.ack,
 			)
 		}
 		actions.send(
