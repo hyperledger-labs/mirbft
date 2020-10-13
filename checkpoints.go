@@ -108,7 +108,7 @@ func (ct *checkpointTracker) reinitialize() {
 	ct.garbageCollect()
 }
 
-func (ct *checkpointTracker) filter(msg *pb.Msg) applyable {
+func (ct *checkpointTracker) filter(_ nodeID, msg *pb.Msg) applyable {
 	cpMsg := msg.Type.(*pb.Msg_Checkpoint).Checkpoint
 
 	switch {
@@ -118,12 +118,11 @@ func (ct *checkpointTracker) filter(msg *pb.Msg) applyable {
 		return future
 	default:
 		return current
-		// TODO, have notion of future... but also process
 	}
 }
 
 func (ct *checkpointTracker) step(source nodeID, msg *pb.Msg) {
-	switch ct.filter(msg) {
+	switch ct.filter(source, msg) {
 	case past:
 		return
 	case future:

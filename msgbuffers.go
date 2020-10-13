@@ -104,7 +104,7 @@ func (mb *msgBuffer) store(msg *pb.Msg) {
 	mb.nodeBuffer.msgStored(msg)
 }
 
-func (mb *msgBuffer) next(filter func(*pb.Msg) applyable) *pb.Msg {
+func (mb *msgBuffer) next(filter func(source nodeID, msg *pb.Msg) applyable) *pb.Msg {
 	e := mb.buffer.Front()
 	if e == nil {
 		return nil
@@ -112,7 +112,7 @@ func (mb *msgBuffer) next(filter func(*pb.Msg) applyable) *pb.Msg {
 
 	for e != nil {
 		msg := e.Value.(*pb.Msg)
-		switch filter(msg) {
+		switch filter(mb.nodeBuffer.id, msg) {
 		case past:
 			x := e
 			e = e.Next() // get next before removing current

@@ -305,9 +305,7 @@ func (ae *activeEpoch) apply(source nodeID, msg *pb.Msg) *Actions {
 			ppMsg := nextMsg.Type.(*pb.Msg_Preprepare).Preprepare
 			actions.concat(ae.applyPreprepareMsg(source, ppMsg.SeqNo, ppMsg.Batch))
 			preprepareBuffer.nextSeqNo += uint64(len(ae.buckets))
-			nextMsg = preprepareBuffer.buffer.next(func(nextMsg *pb.Msg) applyable {
-				return ae.filter(source, nextMsg)
-			})
+			nextMsg = preprepareBuffer.buffer.next(ae.filter)
 		}
 	case *pb.Msg_Prepare:
 		msg := innerMsg.Prepare
@@ -422,9 +420,7 @@ func (e *activeEpoch) drainBuffers() *Actions {
 	for i := 0; i < len(e.buckets); i++ {
 		preprepareBuffer := e.preprepareBuffers[bucketID(i)]
 		source := e.buckets[bucketID(i)]
-		nextMsg := preprepareBuffer.buffer.next(func(msg *pb.Msg) applyable {
-			return e.filter(source, msg)
-		})
+		nextMsg := preprepareBuffer.buffer.next(e.filter)
 		if nextMsg == nil {
 			continue
 		}
@@ -441,9 +437,8 @@ func (e *activeEpoch) drainBuffers() *Actions {
 	for _, id := range e.networkConfig.Nodes {
 		buffer := e.otherBuffers[nodeID(id)]
 		for {
-			nextMsg := buffer.next(func(msg *pb.Msg) applyable {
-				return e.filter(nodeID(id), msg)
-			}) // TODO, this is painfully inefficient, have an iterator on the buffer
+			// TODO, this is painfully inefficient, have an iterator on the buffer
+			nextMsg := buffer.next(e.filter)
 			if nextMsg == nil {
 				break
 			}

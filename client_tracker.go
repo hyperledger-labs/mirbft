@@ -374,7 +374,7 @@ func (ct *clientTracker) tick() *Actions {
 	return actions
 }
 
-func (ct *clientTracker) filter(msg *pb.Msg) applyable {
+func (ct *clientTracker) filter(_ nodeID, msg *pb.Msg) applyable {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_RequestAck:
 		// TODO, prevent ack spam of multiple msg digests from the same node
@@ -414,7 +414,7 @@ func (ct *clientTracker) filter(msg *pb.Msg) applyable {
 }
 
 func (ct *clientTracker) step(source nodeID, msg *pb.Msg) *Actions {
-	switch ct.filter(msg) {
+	switch ct.filter(source, msg) {
 	case past:
 		// discard
 		return &Actions{}
