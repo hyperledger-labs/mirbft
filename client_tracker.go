@@ -292,13 +292,15 @@ type clientTracker struct {
 	availableList *availableList // A list of requests which have f+1 ACKs and the requestData
 	myConfig      *pb.StateEvent_InitialParameters
 	persisted     *persisted
+	nodeBuffers   *nodeBuffers
 }
 
-func newClientWindows(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
+func newClientWindows(persisted *persisted, nodeBuffers *nodeBuffers, myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
 	ct := &clientTracker{
-		logger:    logger,
-		myConfig:  myConfig,
-		persisted: persisted,
+		logger:      logger,
+		myConfig:    myConfig,
+		persisted:   persisted,
+		nodeBuffers: nodeBuffers,
 	}
 
 	return ct
@@ -357,7 +359,7 @@ func (ct *clientTracker) reinitialize() {
 		if oldBuffer, ok := oldMsgBuffers[nodeID(id)]; ok {
 			ct.msgBuffers[nodeID(id)] = oldBuffer
 		} else {
-			ct.msgBuffers[nodeID(id)] = newMsgBuffer(ct.myConfig, ct.logger)
+			ct.msgBuffers[nodeID(id)] = newMsgBuffer("clients", ct.nodeBuffers.nodeBuffer(nodeID(id)))
 		}
 	}
 

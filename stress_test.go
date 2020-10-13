@@ -477,7 +477,7 @@ func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan stru
 			SuspectTicks:         4,
 			HeartbeatTicks:       2,
 			NewEpochTimeoutTicks: 8,
-			BufferSize:           500,
+			BufferSize:           5 * 1024 * 1024, // 5 MB
 			Logger:               logger.Named(fmt.Sprintf("node%d", i)),
 		}
 

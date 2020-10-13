@@ -35,15 +35,18 @@ type checkpointTracker struct {
 	networkConfig      *pb.NetworkState_Config
 	persisted          *persisted
 
-	myConfig *pb.StateEvent_InitialParameters
-	logger   Logger
+	nodeBuffers *nodeBuffers
+	myConfig    *pb.StateEvent_InitialParameters
+	logger      Logger
 }
 
-func newCheckpointTracker(seqNo uint64, networkState *pb.NetworkState, persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *checkpointTracker {
+func newCheckpointTracker(seqNo uint64, networkState *pb.NetworkState, persisted *persisted, nodeBuffers *nodeBuffers, myConfig *pb.StateEvent_InitialParameters, logger Logger) *checkpointTracker {
 	ct := &checkpointTracker{
-		myConfig:  myConfig,
-		state:     cpsIdle,
-		persisted: persisted,
+		myConfig:    myConfig,
+		state:       cpsIdle,
+		persisted:   persisted,
+		nodeBuffers: nodeBuffers,
+		logger:      logger,
 	}
 
 	return ct
@@ -79,7 +82,7 @@ func (ct *checkpointTracker) reinitialize() {
 		if buffer, ok := oldMsgBuffers[nodeID(id)]; ok {
 			ct.msgBuffers[nodeID(id)] = buffer
 		} else {
-			ct.msgBuffers[nodeID(id)] = newMsgBuffer(ct.myConfig, ct.logger)
+			ct.msgBuffers[nodeID(id)] = newMsgBuffer("checkpoints", ct.nodeBuffers.nodeBuffer(nodeID(id)))
 		}
 		validNodes[nodeID(id)] = struct{}{}
 	}

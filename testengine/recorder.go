@@ -494,7 +494,7 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 				HeartbeatTicks:       2,
 				SuspectTicks:         4,
 				NewEpochTimeoutTicks: 8,
-				BufferSize:           5000,
+				BufferSize:           5 * 1024 * 1024,
 				BatchSize:            1,
 			},
 			RuntimeParms: &RuntimeParameters{

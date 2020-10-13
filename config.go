@@ -34,9 +34,11 @@ type Config struct {
 	// than 1, as rebroadcast ticks are computed as half this value.
 	NewEpochTimeoutTicks uint32
 
-	// BufferSize is the number of messages buffered waiting for this node
-	// to process. If buffer is full, oldest message will be dropped to
-	// make room for new messages
+	// BufferSize is the total size of messages which can be held by the state
+	// machine, pending application, for each node.  This is necessary because
+	// there may be dependencies between messages (for instance, until a checkpoint
+	// result is computed, watermarks cannot advance).  This should be set
+	// to a minimum of a few MB.
 	BufferSize uint32
 
 	// EventInterceptor, if set, has its Intercept method invoked each time the

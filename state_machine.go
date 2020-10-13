@@ -264,6 +264,7 @@ type StateMachine struct {
 	commitState   *commitState
 	clientTracker *clientTracker
 
+	nodeBuffers       *nodeBuffers
 	batchTracker      *batchTracker
 	checkpointTracker *checkpointTracker
 	epochTracker      *epochTracker
@@ -290,12 +291,14 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 		},
 	}
 
-	sm.checkpointTracker = newCheckpointTracker(0, dummyInitialState, sm.persisted, sm.myConfig, sm.Logger)
-	sm.clientTracker = newClientWindows(sm.persisted, sm.myConfig, sm.Logger)
+	sm.nodeBuffers = newNodeBuffers(sm.myConfig, sm.Logger)
+	sm.checkpointTracker = newCheckpointTracker(0, dummyInitialState, sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger)
+	sm.clientTracker = newClientWindows(sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger)
 	sm.commitState = newCommitState(sm.persisted, sm.clientTracker)
 	sm.batchTracker = newBatchTracker(sm.persisted)
 	sm.epochTracker = newEpochTracker(
 		sm.persisted,
+		sm.nodeBuffers,
 		sm.commitState,
 		dummyInitialState.Config,
 		sm.Logger,

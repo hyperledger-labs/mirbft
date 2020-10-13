@@ -19,6 +19,7 @@ import (
 type epochTracker struct {
 	currentEpoch  *epochTarget
 	persisted     *persisted
+	nodeBuffers   *nodeBuffers
 	commitState   *commitState
 	networkConfig *pb.NetworkState_Config
 	logger        Logger
@@ -30,6 +31,7 @@ type epochTracker struct {
 
 func newEpochTracker(
 	persisted *persisted,
+	nodeBuffers *nodeBuffers,
 	commitState *commitState,
 	networkConfig *pb.NetworkState_Config,
 	logger Logger,
@@ -39,6 +41,7 @@ func newEpochTracker(
 ) *epochTracker {
 	return &epochTracker{
 		persisted:     persisted,
+		nodeBuffers:   nodeBuffers,
 		commitState:   commitState,
 		myConfig:      myConfig,
 		logger:        logger,
@@ -258,6 +261,7 @@ func (et *epochTracker) target(epoch uint64) *epochTarget {
 		target = newEpochTarget(
 			epoch,
 			et.persisted,
+			et.nodeBuffers,
 			et.commitState,
 			et.clientTracker,
 			et.batchTracker,

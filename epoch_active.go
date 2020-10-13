@@ -41,7 +41,7 @@ type activeEpoch struct {
 	ticksSinceProgress  uint32
 }
 
-func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitState *commitState, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) (*activeEpoch, *Actions) {
+func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) (*activeEpoch, *Actions) {
 	var startingEntry *logEntry
 	var maxCheckpoint *pb.CEntry
 
@@ -173,13 +173,19 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, commitSta
 	for i, lu := range lowestUnallocated {
 		preprepareBuffers[i] = &preprepareBuffer{
 			nextSeqNo: lu,
-			buffer:    newMsgBuffer(myConfig, logger),
+			buffer: newMsgBuffer(
+				fmt.Sprintf("epoch-%d-preprepare", epochConfig.Number),
+				nodeBuffers.nodeBuffer(buckets[bucketID(i)]),
+			),
 		}
 	}
 
 	otherBuffers := map[nodeID]*msgBuffer{}
 	for _, node := range networkConfig.Nodes {
-		otherBuffers[nodeID(node)] = newMsgBuffer(myConfig, logger)
+		otherBuffers[nodeID(node)] = newMsgBuffer(
+			fmt.Sprintf("epoch-%d-other", epochConfig.Number),
+			nodeBuffers.nodeBuffer(nodeID(node)),
+		)
 	}
 
 	return &activeEpoch{

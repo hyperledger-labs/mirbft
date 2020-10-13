@@ -55,6 +55,7 @@ type epochTarget struct {
 	prestartBuffers map[nodeID]*msgBuffer
 
 	persisted     *persisted
+	nodeBuffers   *nodeBuffers
 	clientTracker *clientTracker
 	batchTracker  *batchTracker
 	networkConfig *pb.NetworkState_Config
@@ -65,6 +66,7 @@ type epochTarget struct {
 func newEpochTarget(
 	number uint64,
 	persisted *persisted,
+	nodeBuffers *nodeBuffers,
 	commitState *commitState,
 	clientTracker *clientTracker,
 	batchTracker *batchTracker,
@@ -74,7 +76,10 @@ func newEpochTarget(
 ) *epochTarget {
 	prestartBuffers := map[nodeID]*msgBuffer{}
 	for _, id := range networkConfig.Nodes {
-		prestartBuffers[nodeID(id)] = newMsgBuffer(myConfig, logger)
+		prestartBuffers[nodeID(id)] = newMsgBuffer(
+			fmt.Sprintf("epoch-%d-prestart", number),
+			nodeBuffers.nodeBuffer(nodeID(id)),
+		)
 	}
 
 	return &epochTarget{
@@ -88,6 +93,7 @@ func newEpochTarget(
 		isLeader:        number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
 		prestartBuffers: prestartBuffers,
 		persisted:       persisted,
+		nodeBuffers:     nodeBuffers,
 		clientTracker:   clientTracker,
 		batchTracker:    batchTracker,
 		networkConfig:   networkConfig,
@@ -677,7 +683,7 @@ func (et *epochTarget) advanceState() *Actions {
 			actions.concat(et.checkNewEpochReadyQuorum())
 		case etReady: // New epoch is ready to begin
 			var epochActions *Actions
-			et.activeEpoch, epochActions = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.commitState, et.clientTracker, et.myConfig, et.logger)
+			et.activeEpoch, epochActions = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.nodeBuffers, et.commitState, et.clientTracker, et.myConfig, et.logger)
 			actions.concat(epochActions)
 			// TODO, handle case where planned epoch expiration is now
 			et.state = etInProgress
