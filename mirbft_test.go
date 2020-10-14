@@ -178,9 +178,9 @@ var _ = Describe("Mirbft", func() {
 		})
 	})
 
-	When("the network duplicates messages 10 percent of the time", func() {
+	When("the network duplicates messages 75 percent of the time", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.Duplicate(30).AtPercent(10).Messages()
+			recorder.Mangler = testengine.Duplicate(300).AtPercent(75).Messages()
 		})
 
 		It("still delivers all requests", func() {

@@ -50,15 +50,12 @@ func (p *Player) Node(id uint64) *PlaybackNode {
 		return node
 	}
 
-	sm := &mirbft.StateMachine{
-		Logger: p.Logger.Named(fmt.Sprintf("node%d", id)),
-	}
-
 	node = &PlaybackNode{
-		ID:           id,
-		StateMachine: sm,
-		Actions:      &mirbft.Actions{},
-		Status:       sm.Status(),
+		ID:      id,
+		Actions: &mirbft.Actions{},
+		Status: &status.StateMachine{
+			NodeID: id,
+		},
 	}
 
 	p.Nodes[id] = node
@@ -76,6 +73,14 @@ func (p *Player) Step() error {
 	node := p.Node(event.NodeId)
 
 	switch event.StateEvent.Type.(type) {
+	case *pb.StateEvent_Initialize:
+		sm := &mirbft.StateMachine{
+			Logger: p.Logger.Named(fmt.Sprintf("node%d", node.ID)),
+		}
+		node.StateMachine = sm
+		node.Actions = &mirbft.Actions{}
+		node.Status = sm.Status()
+		node.Processing = nil
 	case *pb.StateEvent_AddResults:
 		if node.Processing == nil {
 			return errors.Errorf("node %d is not currently processing but got an apply event", event.NodeId)

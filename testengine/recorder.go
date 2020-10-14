@@ -43,6 +43,7 @@ type RuntimeParameters struct {
 	ReadyLatency   int
 	ProcessLatency int
 	PersistLatency int
+	WALReadDelay   int
 }
 
 type WAL struct {
@@ -50,10 +51,33 @@ type WAL struct {
 	List     *list.List
 }
 
-func NewWAL() *WAL {
-	return &WAL{
+func NewWAL(initialState *pb.NetworkState, initialCP []byte) *WAL {
+	wal := &WAL{
 		List: list.New(),
 	}
+
+	wal.Append(1, &pb.Persistent{
+		Type: &pb.Persistent_CEntry{
+			CEntry: &pb.CEntry{
+				SeqNo:           0,
+				CheckpointValue: []byte("fake-initial-value"),
+				NetworkState:    initialState,
+			},
+		},
+	})
+
+	wal.Append(2, &pb.Persistent{
+		Type: &pb.Persistent_FEntry{
+			FEntry: &pb.FEntry{
+				EndsEpochConfig: &pb.EpochConfig{
+					Number:  0,
+					Leaders: initialState.Config.Nodes,
+				},
+			},
+		},
+	})
+
+	return wal
 }
 
 func (wal *WAL) Append(index uint64, p *pb.Persistent) {
@@ -77,6 +101,14 @@ func (wal *WAL) Truncate(index uint64) {
 	for ; toRemove > 0; toRemove-- {
 		wal.List.Remove(wal.List.Front())
 		wal.LowIndex++
+	}
+}
+
+func (wal *WAL) LoadAll(iter func(index uint64, p *pb.Persistent)) {
+	i := uint64(0)
+	for el := wal.List.Front(); el != nil; el = el.Next() {
+		i++
+		iter(wal.LowIndex+i, el.Value.(*pb.Persistent))
 	}
 }
 
@@ -198,7 +230,7 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
 		nodeID := uint64(i)
 
-		wal := NewWAL()
+		wal := NewWAL(r.NetworkState, []byte("fake-initial-value"))
 
 		eventLog.InsertStateEvent(
 			nodeID,
@@ -209,69 +241,6 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 			},
 			0,
 		)
-
-		firstWALEntry := &pb.Persistent{
-			Type: &pb.Persistent_CEntry{
-				CEntry: &pb.CEntry{
-					SeqNo:           0,
-					CheckpointValue: []byte("fake-initial-value"),
-					NetworkState:    r.NetworkState,
-				},
-			},
-		}
-
-		wal.Append(1, firstWALEntry)
-
-		eventLog.InsertStateEvent(
-			nodeID,
-			&pb.StateEvent{
-				Type: &pb.StateEvent_LoadEntry{
-					LoadEntry: &pb.StateEvent_PersistedEntry{
-						Index: 1,
-						Data:  firstWALEntry,
-					},
-				},
-			},
-			1,
-		)
-
-		secondWALEntry := &pb.Persistent{
-			Type: &pb.Persistent_FEntry{
-				FEntry: &pb.FEntry{
-					EndsEpochConfig: &pb.EpochConfig{
-						Number:  0,
-						Leaders: r.NetworkState.Config.Nodes,
-					},
-				},
-			},
-		}
-
-		wal.Append(2, secondWALEntry)
-
-		eventLog.InsertStateEvent(
-			nodeID,
-			&pb.StateEvent{
-				Type: &pb.StateEvent_LoadEntry{
-					LoadEntry: &pb.StateEvent_PersistedEntry{
-						Index: 2,
-						Data:  secondWALEntry,
-					},
-				},
-			},
-			2,
-		)
-
-		eventLog.InsertStateEvent(
-			nodeID,
-			&pb.StateEvent{
-				Type: &pb.StateEvent_CompleteInitialization{
-					CompleteInitialization: &pb.StateEvent_LoadCompleted{},
-				},
-			},
-			3,
-		)
-
-		eventLog.InsertTickEvent(nodeID, int64(recorderNodeConfig.RuntimeParms.TickInterval))
 
 		nodes[i] = &RecorderNode{
 			State: &NodeState{
@@ -429,6 +398,41 @@ func (r *Recording) Step() error {
 			},
 			int64(runtimeParms.ReadyLatency),
 		)
+	case *pb.StateEvent_Initialize:
+		delay := int64(0)
+
+		node.WAL.LoadAll(func(index uint64, p *pb.Persistent) {
+			delay += int64(runtimeParms.WALReadDelay)
+			r.EventLog.InsertStateEvent(
+				lastEvent.NodeId,
+				&pb.StateEvent{
+					Type: &pb.StateEvent_LoadEntry{
+						LoadEntry: &pb.StateEvent_PersistedEntry{
+							Index: index,
+							Data:  p,
+						},
+					},
+				},
+				delay,
+			)
+		})
+
+		// TODO, load the request store
+
+		r.EventLog.InsertStateEvent(
+			lastEvent.NodeId,
+			&pb.StateEvent{
+				Type: &pb.StateEvent_CompleteInitialization{
+					CompleteInitialization: &pb.StateEvent_LoadCompleted{},
+				},
+			},
+			delay,
+		)
+	case *pb.StateEvent_LoadEntry:
+	case *pb.StateEvent_CompleteInitialization:
+		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
+	default:
+		panic(fmt.Sprintf("unhandled state event type: %T", lastEvent.StateEvent.Type))
 	}
 
 	if playbackNode.Processing == nil &&
