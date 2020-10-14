@@ -122,7 +122,7 @@ type RecorderNode struct {
 
 type RecorderClient struct {
 	Config            *ClientConfig
-	LastNodeReqNoSend []uint64
+	NextNodeReqNoSend []uint64
 }
 
 func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.Request {
@@ -257,21 +257,10 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	for i, clientConfig := range r.ClientConfigs {
 		client := &RecorderClient{
 			Config:            clientConfig,
-			LastNodeReqNoSend: make([]uint64, len(nodes)),
+			NextNodeReqNoSend: make([]uint64, len(nodes)),
 		}
 
 		clients[i] = client
-
-		for i := 0; i < clientConfig.MaxInFlight; i++ {
-			req := client.RequestByReqNo(uint64(i))
-			if req == nil {
-				continue
-			}
-			for j := range nodes {
-				client.LastNodeReqNoSend[uint64(j)] = uint64(i)
-				eventLog.InsertProposeEvent(uint64(j), req, int64(client.Config.TxLatency))
-			}
-		}
 	}
 
 	return &Recording{
@@ -323,13 +312,13 @@ func (r *Recording) Step() error {
 					continue
 				}
 
-				for i := client.LastNodeReqNoSend[lastEvent.NodeId] + 1; i <= rw.HighWatermark; i++ {
+				for i := client.NextNodeReqNoSend[lastEvent.NodeId]; i <= rw.HighWatermark; i++ {
 					req := client.RequestByReqNo(i)
 					if req == nil {
 						continue
 					}
-					client.LastNodeReqNoSend[lastEvent.NodeId] = i
 					r.EventLog.InsertProposeEvent(lastEvent.NodeId, req, int64(client.Config.TxLatency))
+					client.NextNodeReqNoSend[lastEvent.NodeId] = i + 1
 				}
 			}
 		}
@@ -399,6 +388,20 @@ func (r *Recording) Step() error {
 			int64(runtimeParms.ReadyLatency),
 		)
 	case *pb.StateEvent_Initialize:
+		// If this is an Initialize, it is either the first event for the node,
+		// and nothing else is in the log, or, it is a restart.  In the case of
+		// a restart, we clear any outstanding events associated to this NodeID from
+		// the log.  This is especially important for things like pending actions,
+		// but also makes sense for things like in flight messages.
+		el := r.EventLog.List.Front()
+		for el != nil {
+			x := el
+			el = el.Next()
+			if x.Value.(*rpb.RecordedEvent).NodeId == lastEvent.NodeId {
+				fmt.Printf("JKY: removing %T\n", r.EventLog.List.Remove(x).(*rpb.RecordedEvent).StateEvent.Type)
+			}
+		}
+
 		delay := int64(0)
 
 		node.WAL.LoadAll(func(index uint64, p *pb.Persistent) {
@@ -428,6 +431,7 @@ func (r *Recording) Step() error {
 			},
 			delay,
 		)
+
 	case *pb.StateEvent_LoadEntry:
 	case *pb.StateEvent_CompleteInitialization:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
