@@ -115,7 +115,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the first node is silenced", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.Drop().Messages().FromNodes(0)
+			recorder.Mangler = testengine.MangleMsgs().FromNodes(0).Drop()
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
@@ -129,7 +129,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the third node is silenced", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.Drop().Messages().FromNodes(3)
+			recorder.Mangler = testengine.MangleMsgs().FromNodes(3).Drop()
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
@@ -143,7 +143,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network loses 2 percent of messages", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.Drop().AtPercent(2).Messages()
+			recorder.Mangler = testengine.MangleMsgs().AtPercent(2).Drop()
 		})
 
 		PIt("still delivers all requests", func() {
@@ -154,7 +154,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network loses many acks", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.Drop().AtPercent(20).OfMsgTypes("RequestAck")
+			recorder.Mangler = testengine.MangleMsgs().OfTypeRequestAck().AtPercent(20).Drop()
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
@@ -169,7 +169,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network messages have up to a 30ms jittery delay", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.Jitter(30).Messages()
+			recorder.Mangler = testengine.MangleMsgs().Jitter(30)
 		})
 
 		It("still delivers all requests", func() {
@@ -180,7 +180,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network duplicates messages 75 percent of the time", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.Duplicate(300).AtPercent(75).Messages()
+			recorder.Mangler = testengine.MangleMsgs().AtPercent(75).Duplicate(300)
 		})
 
 		It("still delivers all requests", func() {

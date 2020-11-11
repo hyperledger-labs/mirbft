@@ -88,7 +88,7 @@ var _ = Describe("Recorder", func() {
 				Expect(node.State.Length).To(Equal(totalReqs))
 
 				// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
-				Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("da16dfe9948fda2694e0825338d874cba74757fadd311f330ce15635fcafeee0"))
+				Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("0f53f38b0ba4f451f347d4456e54647a208396e9215c27e68b44a2481ca50576"))
 			}
 		})
 	})
