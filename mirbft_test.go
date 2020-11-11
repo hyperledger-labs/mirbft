@@ -111,6 +111,17 @@ var _ = Describe("Mirbft", func() {
 			_, err := recording.DrainClients(500)
 			Expect(err).NotTo(HaveOccurred())
 		})
+
+		When("the node crashes in the middle", func() {
+			BeforeEach(func() {
+				recorder.Mangler = testengine.MangleMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5).CrashAndRestartAfter(10, recorder.RecorderNodeConfigs[0].InitParms)
+			})
+
+			PIt("still delivers all requests", func() {
+				_, err := recording.DrainClients(500)
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
 	})
 
 	When("the first node is silenced", func() {

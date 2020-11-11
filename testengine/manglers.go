@@ -92,6 +92,13 @@ func (t termination) Duplicate(maxDelay int) Mangler {
 	return t.MangleWith(&DuplicateMangler{MaxDelay: maxDelay})
 }
 
+func (t termination) CrashAndRestartAfter(delay int64, initParms *pb.StateEvent_InitialParameters) Mangler {
+	return t.MangleWith(&CrashAndRestartAfterMangler{
+		InitParms: initParms,
+		Delay:     delay,
+	})
+}
+
 type mangleFilter struct {
 	clientID    func(id uint64) bool
 	msgContents func(msg *pb.Msg) bool
@@ -230,6 +237,7 @@ func initializeMangling(mangling interface{}) {
 type MsgTypeMangling struct {
 	termination
 
+	FromSelf     func() *MsgTypeMangling
 	FromNode     func(nodeID uint64) *MsgTypeMangling
 	FromNodes    func(nodeIDs ...uint64) *MsgTypeMangling
 	ToNode       func(nodeID uint64) *MsgTypeMangling
@@ -242,6 +250,7 @@ type MsgTypeMangling struct {
 type MsgMangling struct {
 	termination
 
+	FromSelf     func() *MsgMangling
 	FromNode     func(nodeID uint64) *MsgMangling
 	FromNodes    func(nodeIDs ...uint64) *MsgMangling
 	ToNode       func(nodeID uint64) *MsgMangling
@@ -335,6 +344,19 @@ func (mm *MsgMangling) OfTypeRequestAck() *MsgTypeMangling {
 }
 
 type baseMangling struct{}
+
+// FromSelf may only be safely bound into a mangling if
+// the mangling ensures all events are messages.  Note,
+// it is generally unsafe to modify these events, as
+// safety requires reliable links to ourselves.  But, this
+// can often be used as a useful trigger for other events.
+func (baseMangling) FromSelf() mangleFilter {
+	return mangleFilter{
+		msgSource: func(target, actualSource uint64) bool {
+			return target == actualSource
+		},
+	}
+}
 
 // FromNode may only be safely bound into a mangling if
 // the mangling ensures all events are messages.  Note,
@@ -454,4 +476,24 @@ func (jm *JitterMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.Rec
 	delay := int64(random % jm.MaxDelay)
 	event.Time += delay
 	return []*rpb.RecordedEvent{event}
+}
+
+type CrashAndRestartAfterMangler struct {
+	InitParms *pb.StateEvent_InitialParameters
+	Delay     int64
+}
+
+func (cm CrashAndRestartAfterMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+	return []*rpb.RecordedEvent{
+		event,
+		{
+			Time:   event.Time + cm.Delay,
+			NodeId: cm.InitParms.Id,
+			StateEvent: &pb.StateEvent{
+				Type: &pb.StateEvent_Initialize{
+					Initialize: cm.InitParms,
+				},
+			},
+		},
+	}
 }
