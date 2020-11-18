@@ -43,7 +43,7 @@ type activeEpoch struct {
 
 func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) *activeEpoch {
 	networkConfig := commitState.activeState.Config
-	startingSeqNo := commitState.highestCommit + 1
+	startingSeqNo := commitState.highestCommit
 
 	// fmt.Printf("JKY: starting new epoch seq is %d\n", startingSeqNo)
 
@@ -112,7 +112,6 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffe
 		persisted:         persisted,
 		commitState:       commitState,
 		proposer:          proposer,
-		sequences:         make([][]*sequence, 0, 3),
 		preprepareBuffers: preprepareBuffers,
 		otherBuffers:      otherBuffers,
 		lowestUnallocated: lowestUnallocated,
@@ -280,6 +279,7 @@ func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*p
 	}
 
 	e.lowestUnallocated[int(bucketID)] += uint64(len(e.buckets))
+	// fmt.Printf("   JKY: lowestUnallocated preprepare moved %d to %d\n", seq.seqNo, e.lowestUnallocated[int(bucketID)])
 
 	// Note, this allocates the sequence inside, as we need to track
 	// outstanding requests before transitioning the sequence to preprepared
@@ -302,6 +302,7 @@ func (e *activeEpoch) applyCommitMsg(source nodeID, seqNo uint64, digest []byte)
 
 	seq.applyCommitMsg(source, digest)
 	if seq.state != sequenceCommitted || seqNo != e.lowestUncommitted {
+		// fmt.Printf("JKY: not commiting as %d != %d \n", seqNo, e.lowestUncommitted)
 		return &Actions{}
 	}
 
@@ -394,11 +395,11 @@ func (e *activeEpoch) advance() *Actions {
 			newSequences[i] = newSequence(owner, epoch, seqNo, e.persisted, e.networkConfig, e.myConfig, e.logger)
 		}
 		e.sequences = append(e.sequences, newSequences)
-		// fmt.Printf("JKY: draining proposer, adding new sequences\n")
 	}
 
 	actions.concat(e.drainBuffers())
 
+	// fmt.Printf("JKY: draining proposer, adding new sequences for lowestUncommitted=%d, lowestUnallocated=%v\n", e.lowestUncommitted, e.lowestUnallocated)
 	e.proposer.advance(e.lowestUncommitted)
 
 	for bucketID, ownerID := range e.buckets {
@@ -426,7 +427,7 @@ func (e *activeEpoch) advance() *Actions {
 			actions.concat(seq.allocateAsOwner(prb.next()))
 
 			e.lowestUnallocated[int(bucketID)] += uint64(len(e.buckets))
-			// fmt.Printf("   JKY: allocation moved %d to %d\n", seqNo, e.lowestUnallocated[int(bucketID)])
+			// fmt.Printf("   JKY: lowestUnallocated allocation moved %d to %d\n", seqNo, e.lowestUnallocated[int(bucketID)])
 		}
 	}
 
@@ -492,7 +493,7 @@ func (e *activeEpoch) tick() *Actions {
 		actions.concat(seq.allocateAsOwner(clientReqs))
 
 		e.lowestUnallocated[bid] += uint64(len(e.buckets))
-		// fmt.Printf("   JKY: tick moved %d to %d\n", seq.seqNo, e.lowestUnallocated[bid])
+		// fmt.Printf("   JKY: lowestUnallocated tick moved %d to %d\n", seq.seqNo, e.lowestUnallocated[bid])
 	}
 
 	return actions

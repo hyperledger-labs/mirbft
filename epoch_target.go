@@ -29,7 +29,7 @@ const (
 	etResuming          // We crashed during this epoch, and are waiting to resume
 	etReady             // New epoch is ready to begin
 	etInProgress        // No pending change
-	etEnding            // The epoch has committed everything it can, but we are waiting for a stable checkpoint
+	etEnding            // The epoch has committed everything it can, and we have a stable checkpoint
 	etDone              // We have sent an epoch change, ending this epoch for us
 )
 
@@ -693,9 +693,11 @@ func (et *epochTarget) advanceState() *Actions {
 		case etResuming: // We crashed during this epoch, and are waiting for it to resume or fail
 			et.checkEpochResumed()
 		case etReady: // New epoch is ready to begin
+			// TODO, handle case where planned epoch expiration is now
 			et.activeEpoch = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.nodeBuffers, et.commitState, et.clientTracker, et.myConfig, et.logger)
 
-			// TODO, handle case where planned epoch expiration is now
+			actions.concat(et.activeEpoch.advance())
+
 			et.state = etInProgress
 			for _, id := range et.networkConfig.Nodes {
 				et.prestartBuffers[nodeID(id)].iterate(
@@ -708,14 +710,10 @@ func (et *epochTarget) advanceState() *Actions {
 				)
 			}
 			actions.concat(et.activeEpoch.drainBuffers())
-			// It's important not to step through into the next state transition,
-			// as we must commit the seqs proposed by other replicas in previous
-			// epochs prior to attempting to propose our own (and potentially
-			// re-proposing the same rquests)
 		case etInProgress: // No pending change
 			actions.concat(et.activeEpoch.outstandingReqs.advanceRequests())
 			actions.concat(et.activeEpoch.advance())
-		case etDone: // We have sent an epoch change, ending this epoch for us
+		case etDone: // This epoch is over, the tracker will send the epoch change
 			// TODO, release/empty buffers
 		default:
 			panic("dev sanity test")
@@ -749,7 +747,7 @@ func (et *epochTarget) applySuspectMsg(source nodeID) {
 }
 
 func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucketStatus []*status.Bucket) {
-	if et.activeEpoch != nil {
+	if et.activeEpoch != nil && len(et.activeEpoch.sequences) != 0 {
 		bucketStatus = et.activeEpoch.status()
 		lowWatermark = et.activeEpoch.lowWatermark()
 		highWatermark = et.activeEpoch.highWatermark()

@@ -166,15 +166,6 @@ func (s *serializer) run() (exitErr error) {
 		return errors.WithMessage(err, "failed to load persisted from WALStorage")
 	}
 
-	err = applyEvent(&pb.StateEvent{
-		Type: &pb.StateEvent_CompleteInitialization{
-			CompleteInitialization: &pb.StateEvent_LoadCompleted{},
-		},
-	})
-	if err != nil {
-		return err
-	}
-
 	err = s.reqStorage.Uncommitted(func(ack *pb.RequestAck) {
 		// Because we do not require that requests be iterate over
 		// in the order in which they were originally persisted, we could
@@ -185,20 +176,9 @@ func (s *serializer) run() (exitErr error) {
 		// retransmit interval.  This also prevents us from requesting
 		// that the WAL re-persist these requests.
 		applyEventDiscardingActions(&pb.StateEvent{
-			Type: &pb.StateEvent_AddResults{
-				AddResults: &pb.StateEvent_ActionResults{
-					Digests: []*pb.HashResult{
-						{
-							Digest: ack.Digest,
-							Type: &pb.HashResult_VerifyRequest_{
-								VerifyRequest: &pb.HashResult_VerifyRequest{
-									Source:      s.myConfig.ID,
-									RequestAck:  ack,
-									RequestData: nil, // This is weird, but benign, we never reference this field after hashing
-								},
-							},
-						},
-					},
+			Type: &pb.StateEvent_LoadRequest{
+				LoadRequest: &pb.StateEvent_OutstandingRequest{
+					RequestAck: ack,
 				},
 			},
 		})
@@ -206,6 +186,14 @@ func (s *serializer) run() (exitErr error) {
 
 	if err != nil {
 		return errors.WithMessage(err, "encounterer error reading uncommitted requests")
+	}
+	err = applyEvent(&pb.StateEvent{
+		Type: &pb.StateEvent_CompleteInitialization{
+			CompleteInitialization: &pb.StateEvent_LoadCompleted{},
+		},
+	})
+	if err != nil {
+		return err
 	}
 
 	var actionsC chan<- Actions

@@ -8,6 +8,7 @@ package mirbft
 
 import (
 	"bytes"
+	"container/list"
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -268,9 +269,10 @@ type StateMachine struct {
 
 	state stateMachineState
 
-	myConfig      *pb.StateEvent_InitialParameters
-	commitState   *commitState
-	clientTracker *clientTracker
+	myConfig       *pb.StateEvent_InitialParameters
+	commitState    *commitState
+	clientTracker  *clientTracker
+	superHackyReqs *list.List
 
 	nodeBuffers       *nodeBuffers
 	batchTracker      *batchTracker
@@ -287,6 +289,7 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 	sm.myConfig = parameters
 	sm.state = smLoadingPersisted
 	sm.persisted = newPersisted(sm.Logger)
+	sm.superHackyReqs = list.New()
 
 	// we use a dummy initial state for components to allow us to use
 	// a common 'reconfiguration'/'state transfer' path for initialization.
@@ -325,6 +328,10 @@ func (sm *StateMachine) applyPersisted(entry *WALEntry) {
 	sm.persisted.appendInitialLoad(entry)
 }
 
+func (sm *StateMachine) applyOutstandingRequest(outstandingReq *pb.StateEvent_OutstandingRequest) {
+	sm.superHackyReqs.PushBack(outstandingReq.RequestAck)
+}
+
 func (sm *StateMachine) completeInitialization() *Actions {
 	if sm.state != smLoadingPersisted {
 		panic("state machine has already finished loading persisted data")
@@ -353,6 +360,9 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 			Index: event.LoadEntry.Index,
 			Data:  event.LoadEntry.Data,
 		})
+		return &Actions{}
+	case *pb.StateEvent_LoadRequest:
+		sm.applyOutstandingRequest(event.LoadRequest)
 		return &Actions{}
 	case *pb.StateEvent_CompleteInitialization:
 		return sm.completeInitialization()
@@ -434,6 +444,14 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 func (sm *StateMachine) reinitialize() *Actions {
 	actions := sm.recoverLog()
 	sm.clientTracker.reinitialize()
+
+	for el := sm.superHackyReqs.Front(); el != nil; el = sm.superHackyReqs.Front() {
+		sm.clientTracker.applyRequestDigest(
+			sm.superHackyReqs.Remove(el).(*pb.RequestAck),
+			nil, // XXX silly, but necessary for the moment
+		)
+	}
+
 	sm.commitState.reinitialize()
 	sm.checkpointTracker.reinitialize()
 	sm.batchTracker.reinitialize()

@@ -360,6 +360,10 @@ message StateEvent {
         Persistent data = 2;
     }
 
+    message OutstandingRequest {
+        RequestAck request_ack = 1;
+    }
+
     message LoadCompleted {}
 
     message ActionResults {
@@ -383,12 +387,13 @@ message StateEvent {
     oneof type {
         InitialParameters initialize = 1;
 	PersistedEntry load_entry = 2;
-	LoadCompleted complete_initialization = 3;
-        ActionResults add_results = 4;
-        Proposal propose = 5;
-        InboundMsg step = 6;
-	TickElapsed tick = 7;
-	Ready actions_received = 8;
+	OutstandingRequest load_request = 3;
+	LoadCompleted complete_initialization = 4;
+        ActionResults add_results = 5;
+        Proposal propose = 6;
+        InboundMsg step = 7;
+	TickElapsed tick = 8;
+	Ready actions_received = 9;
     }
 }
 

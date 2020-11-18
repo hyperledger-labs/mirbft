@@ -44,6 +44,32 @@ type RuntimeParameters struct {
 	ProcessLatency int
 	PersistLatency int
 	WALReadDelay   int
+	ReqReadDelay   int
+}
+
+type ReqStore struct {
+	ReqAcks   *list.List
+	ReqAckMap map[*pb.RequestAck]*list.Element
+}
+
+func NewReqStore() *ReqStore {
+	return &ReqStore{
+		ReqAcks:   list.New(),
+		ReqAckMap: map[*pb.RequestAck]*list.Element{},
+	}
+}
+
+func (rs *ReqStore) Store(ack *pb.RequestAck, _ []byte) {
+	el := rs.ReqAcks.PushBack(ack)
+	rs.ReqAckMap[ack] = el
+	// TODO, deal with free-ing
+}
+
+func (rs *ReqStore) Uncommitted(forEach func(*pb.RequestAck)) error {
+	for el := rs.ReqAcks.Front(); el != nil; el = el.Next() {
+		forEach(el.Value.(*pb.RequestAck))
+	}
+	return nil
 }
 
 type WAL struct {
@@ -119,6 +145,7 @@ type RecorderNode struct {
 	PlaybackNode         *PlaybackNode
 	State                *NodeState
 	WAL                  *WAL
+	ReqStore             *ReqStore
 	Config               *RecorderNodeConfig
 	AwaitingProcessEvent bool
 }
@@ -251,6 +278,7 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 				ReconfigPoints: r.ReconfigPoints,
 			},
 			WAL:          wal,
+			ReqStore:     NewReqStore(),
 			PlaybackNode: player.Node(uint64(i)),
 			Config:       recorderNodeConfig,
 		}
@@ -333,6 +361,10 @@ func (r *Recording) Step() error {
 		}
 		node.AwaitingProcessEvent = false
 		processing := playbackNode.Processing
+
+		for _, req := range processing.StoreRequests {
+			node.ReqStore.Store(req.RequestAck, req.RequestData)
+		}
 
 		for _, write := range processing.WriteAhead {
 			switch {
@@ -424,7 +456,20 @@ func (r *Recording) Step() error {
 			)
 		})
 
-		// TODO, load the request store
+		node.ReqStore.Uncommitted(func(ack *pb.RequestAck) {
+			delay += int64(runtimeParms.ReqReadDelay)
+			r.EventLog.InsertStateEvent(
+				lastEvent.NodeId,
+				&pb.StateEvent{
+					Type: &pb.StateEvent_LoadRequest{
+						LoadRequest: &pb.StateEvent_OutstandingRequest{
+							RequestAck: ack,
+						},
+					},
+				},
+				delay,
+			)
+		})
 
 		r.EventLog.InsertStateEvent(
 			lastEvent.NodeId,
@@ -435,8 +480,8 @@ func (r *Recording) Step() error {
 			},
 			delay,
 		)
-
 	case *pb.StateEvent_LoadEntry:
+	case *pb.StateEvent_LoadRequest:
 	case *pb.StateEvent_CompleteInitialization:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	default:
