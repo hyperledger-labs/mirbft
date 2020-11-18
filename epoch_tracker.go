@@ -53,10 +53,9 @@ func newEpochTracker(
 
 func (et *epochTracker) reinitialize() *Actions {
 	// TODO, properly finish reinitializing all targets
-	et.networkConfig = nil
+	et.networkConfig = et.commitState.activeState.Config
 
 	actions := &Actions{}
-	var lastCEntry *pb.CEntry
 	var lastNEntry *pb.NEntry
 	var lastECEntry *pb.ECEntry
 	var lastFEntry *pb.FEntry
@@ -66,24 +65,7 @@ func (et *epochTracker) reinitialize() *Actions {
 			lastNEntry = nEntry
 		},
 		onFEntry: func(fEntry *pb.FEntry) {
-			if lastCEntry == nil {
-				panic("dev sanity test, a FEntry only makes sense after a CEntry")
-			}
-			actions.concat(et.persisted.truncate(lastCEntry.SeqNo))
-
-			// Any previous records we read in the log (except the last checkpoint)
-			// should have been truncated already, but append and truncate is not
-			// necessarily a single atomic operation.
-			lastNEntry = nil
-			lastECEntry = nil
-			et.networkConfig = lastCEntry.NetworkState.Config
 			lastFEntry = fEntry
-		},
-		onCEntry: func(cEntry *pb.CEntry) {
-			lastCEntry = cEntry
-			if et.networkConfig == nil {
-				et.networkConfig = cEntry.NetworkState.Config
-			}
 		},
 		onECEntry: func(ecEntry *pb.ECEntry) {
 			lastECEntry = ecEntry
@@ -115,7 +97,19 @@ func (et *epochTracker) reinitialize() *Actions {
 	switch {
 	case lastNEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastNEntry.EpochConfig.Number):
 		// We're in the middle of a currently active epoch
-		panic("support epoch resuming")
+		target := et.target(lastNEntry.EpochConfig.Number)
+		target.state = etResuming
+		et.currentEpoch = target
+		suspect := &pb.Suspect{
+			Epoch: lastNEntry.EpochConfig.Number,
+		}
+		actions.concat(et.persisted.addSuspect(suspect))
+		actions.send(et.networkConfig.Nodes, &pb.Msg{
+			Type: &pb.Msg_Suspect{
+				Suspect: suspect,
+			},
+		})
+		fmt.Printf("JKY: starting mid-epoch!\n")
 	case lastFEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastFEntry.EndsEpochConfig.Number):
 		// An epoch has just gracefully ended, and we have not yet tried to move to the next
 		lastECEntry = &pb.ECEntry{

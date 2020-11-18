@@ -41,25 +41,13 @@ type activeEpoch struct {
 	ticksSinceProgress  uint32
 }
 
-func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) (*activeEpoch, *Actions) {
-	var startingEntry *logEntry
-	var maxCheckpoint *pb.CEntry
+func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) *activeEpoch {
+	networkConfig := commitState.activeState.Config
+	startingSeqNo := commitState.highestCommit + 1
 
-	for head := persisted.logHead; head != nil; head = head.next {
-		switch d := head.entry.Type.(type) {
-		case *pb.Persistent_ECEntry:
-			startingEntry = head.next
-		case *pb.Persistent_CEntry:
-			startingEntry = head.next
-			maxCheckpoint = d.CEntry
-		}
-	}
+	// fmt.Printf("JKY: starting new epoch seq is %d\n", startingSeqNo)
 
-	networkConfig := maxCheckpoint.NetworkState.Config
-
-	// fmt.Printf("JKY: maxCheckpoint is %d\n", maxCheckpoint.SeqNo)
-
-	outstandingReqs := newOutstandingReqs(clientTracker, maxCheckpoint.NetworkState)
+	outstandingReqs := newOutstandingReqs(clientTracker, commitState.activeState)
 
 	buckets := map[bucketID]nodeID{}
 
@@ -82,87 +70,15 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffe
 
 	lowestUnallocated := make([]uint64, len(buckets))
 	for i := range lowestUnallocated {
-		firstSeqNo := maxCheckpoint.SeqNo + uint64(i+1)
+		firstSeqNo := startingSeqNo + uint64(i+1)
 		lowestUnallocated[int(seqToBucket(firstSeqNo, networkConfig))] = firstSeqNo
 	}
 
-	actions := &Actions{}
-
-	sequences := make([][]*sequence, 0, 3)
-	ci := int(networkConfig.CheckpointInterval)
-	for seqNo := maxCheckpoint.SeqNo + 1; seqNo <= commitState.stopAtSeqNo; seqNo++ {
-		bucket := seqToBucket(seqNo, networkConfig)
-		owner := buckets[bucket]
-		i := int(seqNo - maxCheckpoint.SeqNo - 1)
-		ciIndex := i / ci
-		if ciIndex == len(sequences) {
-			sequences = append(sequences, make([]*sequence, ci))
-		}
-		ciOffset := i % ci
-		if ciOffset == 0 {
-			actions.concat(persisted.addNEntry(&pb.NEntry{
-				SeqNo:       seqNo,
-				EpochConfig: epochConfig,
-			}))
-		}
-		sequences[ciIndex][ciOffset] = newSequence(owner, epochConfig.Number, seqNo, persisted, networkConfig, myConfig, logger)
-	}
-
-	for logEntry := startingEntry; logEntry != nil; logEntry = logEntry.next {
-		switch d := logEntry.entry.Type.(type) {
-		case *pb.Persistent_QEntry:
-			if d.QEntry.SeqNo <= maxCheckpoint.SeqNo {
-				// The epoch change selected an earlier checkpoint as its base
-				// but we have already committed this entry, skipping.
-				continue
-			}
-			ciIndex := (int(d.QEntry.SeqNo-maxCheckpoint.SeqNo) - 1) / ci
-			ciOffset := (int(d.QEntry.SeqNo-maxCheckpoint.SeqNo) - 1) % ci
-			if ciIndex >= len(sequences) {
-				panic(fmt.Sprintf("should never be possible, QEntry seqNo=%d but started from checkpoint %d with log width of %d", d.QEntry.SeqNo, maxCheckpoint.SeqNo, len(sequences)))
-			}
-			bucket := seqToBucket(d.QEntry.SeqNo, networkConfig)
-			if commitState.lastCommit >= d.QEntry.SeqNo {
-				// If we already committed this, attempting to find
-				// the requests in the outstandingReqs will fail
-				err := outstandingReqs.applyBatch(bucket, d.QEntry.Requests)
-				if err != nil {
-					panic(fmt.Sprintf("need to handle holes: %s", err))
-				}
-			}
-			lowestUnallocated[bucket] = d.QEntry.SeqNo + uint64(len(buckets))
-			sequences[ciIndex][ciOffset].qEntry = d.QEntry
-			sequences[ciIndex][ciOffset].digest = d.QEntry.Digest
-			sequences[ciIndex][ciOffset].state = sequencePreprepared
-		case *pb.Persistent_PEntry:
-			if d.PEntry.SeqNo <= maxCheckpoint.SeqNo {
-				// The epoch change selected an earlier checkpoint as its base
-				// but we have already committed this entry, skipping.
-				continue
-			}
-			ciIndex := (int(d.PEntry.SeqNo-maxCheckpoint.SeqNo) - 1) / ci
-			ciOffset := (int(d.PEntry.SeqNo-maxCheckpoint.SeqNo) - 1) % ci
-			if ciIndex >= len(sequences) {
-				panic(fmt.Sprintf("should never be possible, PEntry seqNo=%d but started from checkpoint %d with log width of %d", d.PEntry.SeqNo, maxCheckpoint.SeqNo, len(sequences)))
-			}
-
-			// XXX are we sure this is the right logic? In general,
-			// during epoch change we commit all the sequences during the change,
-			// and on crash, we start from a checkpoint.  Alternatively
-			// lastCommit is the last action we sent for a commit, not what
-			// we actually know to be committed.
-			if commitState.lastCommit >= d.PEntry.SeqNo {
-				sequences[ciIndex][ciOffset].state = sequenceCommitted
-			} else {
-				sequences[ciIndex][ciOffset].state = sequencePrepared
-			}
-		}
-	}
-
-	lowestUncommitted := commitState.lastCommit + 1
+	lowestUncommitted := commitState.highestCommit + 1
+	// fmt.Printf("JKY: setting lowestUncommitted to %d\n", lowestUncommitted)
 
 	proposer := newProposer(
-		maxCheckpoint.SeqNo,
+		startingSeqNo,
 		uint64(networkConfig.CheckpointInterval),
 		myConfig,
 		clientTracker,
@@ -196,14 +112,14 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffe
 		persisted:         persisted,
 		commitState:       commitState,
 		proposer:          proposer,
-		sequences:         sequences,
+		sequences:         make([][]*sequence, 0, 3),
 		preprepareBuffers: preprepareBuffers,
 		otherBuffers:      otherBuffers,
 		lowestUnallocated: lowestUnallocated,
 		lowestUncommitted: lowestUncommitted,
 		outstandingReqs:   outstandingReqs,
 		logger:            logger,
-	}, actions
+	}
 }
 
 func (e *activeEpoch) seqToBucket(seqNo uint64) bucketID {
@@ -214,10 +130,16 @@ func (e *activeEpoch) sequence(seqNo uint64) *sequence {
 	ci := int(e.networkConfig.CheckpointInterval)
 	ciIndex := int(seqNo-e.lowWatermark()) / ci
 	ciOffset := int(seqNo-e.lowWatermark()) % ci
-	if ciIndex > len(e.sequences) {
+	if ciIndex > len(e.sequences) || ciIndex < 0 || ciOffset < 0 {
 		panic(fmt.Sprintf("dev error: low=%d high=%d seqno=%d ciIndex=%d ciOffset=%d len(sequences)=%d", e.lowWatermark(), e.highWatermark(), seqNo, ciIndex, ciOffset, len(e.sequences)))
 	}
-	return e.sequences[ciIndex][ciOffset]
+
+	sequence := e.sequences[ciIndex][ciOffset]
+	if sequence.seqNo != seqNo {
+		panic(fmt.Sprintf("dev sanity test -- tried to get seqNo=%d, but ended up with seqNo=%d", seqNo, sequence.seqNo))
+	}
+
+	return sequence
 }
 
 func (ae *activeEpoch) filter(source nodeID, msg *pb.Msg) applyable {
@@ -407,11 +329,16 @@ func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*Actions, bool) {
 		return &Actions{}, true
 	}
 
-	ci := int(e.networkConfig.CheckpointInterval)
-	ciIndex := int(seqNo-e.lowWatermark()) / ci
-	e.sequences = e.sequences[ciIndex+1:]
+	actions := e.advance()
 
-	return e.advance(), false
+	for seqNo > e.lowWatermark() {
+		// fmt.Printf(" JKY: moving low watermark to %d, lowWatermark=%d highWatermark=%d\n", seqNo, e.lowWatermark(), e.highWatermark())
+
+		e.sequences = e.sequences[1:]
+
+	}
+
+	return actions, false
 }
 
 func (e *activeEpoch) drainBuffers() *Actions {
@@ -447,14 +374,13 @@ func (e *activeEpoch) advance() *Actions {
 	actions := &Actions{}
 
 	if e.highWatermark() > e.epochConfig.PlannedExpiration || e.highWatermark() > e.commitState.stopAtSeqNo {
-		panic("dev sanity check")
+		panic(fmt.Sprintf("dev sanity check -- highWatermark=%d plannedExpiration=%d stopAtSeqNo=%d", e.highWatermark(), e.epochConfig.PlannedExpiration, e.commitState.stopAtSeqNo))
 	}
 
-	if e.highWatermark() < e.epochConfig.PlannedExpiration &&
+	ci := int(e.networkConfig.CheckpointInterval)
 
-		e.highWatermark() < e.commitState.stopAtSeqNo &&
-		len(e.sequences) <= 3 {
-		ci := int(e.networkConfig.CheckpointInterval)
+	for e.highWatermark() < e.epochConfig.PlannedExpiration &&
+		e.highWatermark() < e.commitState.stopAtSeqNo {
 		newSequences := make([]*sequence, ci)
 		actions.concat(e.persisted.addNEntry(&pb.NEntry{
 			SeqNo:       e.highWatermark() + 1,
@@ -469,9 +395,9 @@ func (e *activeEpoch) advance() *Actions {
 		}
 		e.sequences = append(e.sequences, newSequences)
 		// fmt.Printf("JKY: draining proposer, adding new sequences\n")
-
-		actions.concat(e.drainBuffers())
 	}
+
+	actions.concat(e.drainBuffers())
 
 	e.proposer.advance(e.lowestUncommitted)
 
@@ -500,6 +426,7 @@ func (e *activeEpoch) advance() *Actions {
 			actions.concat(seq.allocateAsOwner(prb.next()))
 
 			e.lowestUnallocated[int(bucketID)] += uint64(len(e.buckets))
+			// fmt.Printf("   JKY: allocation moved %d to %d\n", seqNo, e.lowestUnallocated[int(bucketID)])
 		}
 	}
 
@@ -518,8 +445,8 @@ func (e *activeEpoch) applyBatchHashResult(seqNo uint64, digest []byte) *Actions
 }
 
 func (e *activeEpoch) tick() *Actions {
-	if e.lastCommittedAtTick < e.commitState.lastCommit {
-		e.lastCommittedAtTick = e.commitState.lastCommit
+	if e.lastCommittedAtTick < e.commitState.highestCommit {
+		e.lastCommittedAtTick = e.commitState.highestCommit
 		e.ticksSinceProgress = 0
 		return &Actions{}
 	}
@@ -565,6 +492,7 @@ func (e *activeEpoch) tick() *Actions {
 		actions.concat(seq.allocateAsOwner(clientReqs))
 
 		e.lowestUnallocated[bid] += uint64(len(e.buckets))
+		// fmt.Printf("   JKY: tick moved %d to %d\n", seq.seqNo, e.lowestUnallocated[bid])
 	}
 
 	return actions
@@ -575,6 +503,10 @@ func (e *activeEpoch) lowWatermark() uint64 {
 }
 
 func (e *activeEpoch) highWatermark() uint64 {
+	if len(e.sequences) == 0 {
+		return e.commitState.lowWatermark
+	}
+
 	interval := e.sequences[len(e.sequences)-1]
 	if interval[len(interval)-1] == nil {
 		panic(fmt.Sprintf("sequence in %v is nil", interval))
@@ -583,6 +515,10 @@ func (e *activeEpoch) highWatermark() uint64 {
 }
 
 func (e *activeEpoch) status() []*status.Bucket {
+	if len(e.sequences) == 0 {
+		return []*status.Bucket{}
+	}
+
 	buckets := make([]*status.Bucket, len(e.buckets))
 	for i := range buckets {
 		buckets[i] = &status.Bucket{

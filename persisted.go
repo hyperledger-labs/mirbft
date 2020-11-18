@@ -63,6 +63,7 @@ func (p *persisted) appendInitialLoad(entry *WALEntry) {
 		panic(fmt.Sprintf("WAL indexes out of order! Expected %d got %d", p.nextIndex, entry.Index))
 	}
 	p.nextIndex = entry.Index + 1
+	// fmt.Printf("JKY: inserted WAL startup entry %d\n", entry.Index)
 }
 
 func (p *persisted) appendLogEntry(entry *pb.Persistent) *Actions {
@@ -73,6 +74,7 @@ func (p *persisted) appendLogEntry(entry *pb.Persistent) *Actions {
 	p.logTail = p.logTail.next
 	result := (&Actions{}).persist(p.nextIndex, entry)
 	p.nextIndex++
+	// fmt.Printf("JKY: inserted WAL runtime entry %d\n", p.logTail.index)
 	return result
 }
 
@@ -155,6 +157,12 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 			continue
 		}
 
+		// fmt.Printf("JKY: truncating to %d\n", logEntry.index)
+
+		if p.logHead == logEntry {
+			break
+		}
+
 		p.logHead = logEntry
 		return &Actions{
 			WriteAhead: []*Write{
@@ -168,8 +176,15 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 	return &Actions{}
 }
 
+func (p *persisted) consolePrint() {
+	fmt.Printf("\nJKY: starting log iteration\n")
+	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
+		fmt.Printf("JKY: iterating over log entry of type %T\n", logEntry.entry.Type)
+		fmt.Printf("JKY:           % 7d                   %+v\n", logEntry.index, logEntry.entry)
+	}
+}
+
 func (p *persisted) iterate(li logIterator) {
-	// fmt.Printf("\nJKY: starting log iteration\n")
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
 		// fmt.Printf("JKY: iterating over log entry of type %T\n", logEntry.entry.Type)
 		switch d := logEntry.entry.Type.(type) {

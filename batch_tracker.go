@@ -16,6 +16,7 @@ import (
 type batchTracker struct {
 	batchesByDigest map[string]*batch
 	fetchInFlight   map[string][]uint64
+	persisted       *persisted
 }
 
 type batch struct {
@@ -24,18 +25,19 @@ type batch struct {
 }
 
 func newBatchTracker(persisted *persisted) *batchTracker {
-	bt := &batchTracker{
+	return &batchTracker{
 		batchesByDigest: map[string]*batch{},
 		fetchInFlight:   map[string][]uint64{},
+		persisted:       persisted,
 	}
+}
 
-	persisted.iterate(logIterator{
+func (bt *batchTracker) reinitialize() {
+	bt.persisted.iterate(logIterator{
 		onQEntry: func(qEntry *pb.QEntry) {
 			bt.addBatch(qEntry.SeqNo, qEntry.Digest, qEntry.Requests)
 		},
 	})
-
-	return bt
 }
 
 func (bt *batchTracker) step(source nodeID, msg *pb.Msg) *Actions {

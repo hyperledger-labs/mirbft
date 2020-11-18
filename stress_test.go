@@ -269,6 +269,7 @@ var _ = Describe("StressyTest", func() {
 				}
 			}
 		}
+
 	},
 		Entry("SingleNode greenpath", &TestConfig{
 			NodeCount: 1,

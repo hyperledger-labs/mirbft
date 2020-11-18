@@ -53,10 +53,11 @@ type WAL struct {
 
 func NewWAL(initialState *pb.NetworkState, initialCP []byte) *WAL {
 	wal := &WAL{
-		List: list.New(),
+		List:     list.New(),
+		LowIndex: 1,
 	}
 
-	wal.Append(1, &pb.Persistent{
+	wal.List.PushBack(&pb.Persistent{
 		Type: &pb.Persistent_CEntry{
 			CEntry: &pb.CEntry{
 				SeqNo:           0,
@@ -66,7 +67,7 @@ func NewWAL(initialState *pb.NetworkState, initialCP []byte) *WAL {
 		},
 	})
 
-	wal.Append(2, &pb.Persistent{
+	wal.List.PushBack(&pb.Persistent{
 		Type: &pb.Persistent_FEntry{
 			FEntry: &pb.FEntry{
 				EndsEpochConfig: &pb.EpochConfig{
@@ -81,7 +82,7 @@ func NewWAL(initialState *pb.NetworkState, initialCP []byte) *WAL {
 }
 
 func (wal *WAL) Append(index uint64, p *pb.Persistent) {
-	if index != wal.LowIndex+uint64(wal.List.Len())+1 {
+	if index != wal.LowIndex+uint64(wal.List.Len()) {
 		panic(fmt.Sprintf("WAL out of order: expect next index %d, but got %d", wal.LowIndex+uint64(wal.List.Len())+1, index))
 	}
 
@@ -98,6 +99,7 @@ func (wal *WAL) Truncate(index uint64) {
 		panic(fmt.Sprintf("asked to truncate to index %d, but highest index is %d", index, wal.LowIndex+uint64(wal.List.Len())))
 	}
 
+	// fmt.Printf("JKY WAL -- truncating to %d, removing %d since LowIndex %d\n", index, toRemove, wal.LowIndex)
 	for ; toRemove > 0; toRemove-- {
 		wal.List.Remove(wal.List.Front())
 		wal.LowIndex++
@@ -107,8 +109,9 @@ func (wal *WAL) Truncate(index uint64) {
 func (wal *WAL) LoadAll(iter func(index uint64, p *pb.Persistent)) {
 	i := uint64(0)
 	for el := wal.List.Front(); el != nil; el = el.Next() {
-		i++
+		// fmt.Printf("JKY WAL -- loading %d\n", wal.LowIndex+i)
 		iter(wal.LowIndex+i, el.Value.(*pb.Persistent))
+		i++
 	}
 }
 
@@ -398,7 +401,8 @@ func (r *Recording) Step() error {
 			x := el
 			el = el.Next()
 			if x.Value.(*rpb.RecordedEvent).NodeId == lastEvent.NodeId {
-				fmt.Printf("JKY: removing %T\n", r.EventLog.List.Remove(x).(*rpb.RecordedEvent).StateEvent.Type)
+				// fmt.Printf("JKY: removing %T\n", r.EventLog.List.Remove(x).(*rpb.RecordedEvent).StateEvent.Type)
+				r.EventLog.List.Remove(x)
 			}
 		}
 

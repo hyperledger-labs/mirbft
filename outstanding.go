@@ -14,7 +14,6 @@ import (
 
 func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkState) *allOutstandingReqs {
 	ao := &allOutstandingReqs{
-		numBuckets:          uint64(networkState.Config.NumberOfBuckets),
 		buckets:             map[bucketID]*bucketOutstandingReqs{},
 		correctRequests:     map[string]*pb.RequestAck{},
 		outstandingRequests: map[string]*sequence{},
@@ -30,43 +29,25 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 		ao.buckets[i] = bo
 
 		for _, client := range networkState.Clients {
-			var skipRequests map[uint64]struct{}
-			bm := bitmask(client.CommittedMask)
 			var firstUncommitted uint64
-			var firstOffset int
 			for j := 0; j < numBuckets; j++ {
 				reqNo := client.LowWatermark + uint64(j)
 				if clientReqToBucket(client.Id, reqNo, networkState.Config) == i {
 					firstUncommitted = reqNo
-					firstOffset = j
 					break
 				}
 			}
 
-			for bitIndex := firstOffset; bitIndex < bm.bits(); bitIndex += numBuckets {
-				if !bm.isBitSet(bitIndex) {
-					continue
-				}
-				// fmt.Printf("+++ JKY: found bit at bitIndex=%d was set\n", bitIndex)
-
-				reqNo := client.LowWatermark + uint64(bitIndex)
-				if reqNo == firstUncommitted {
-					firstUncommitted += uint64(numBuckets)
-					continue
-				}
-
-				if skipRequests == nil {
-					skipRequests = map[uint64]struct{}{}
-				}
-
-				skipRequests[reqNo] = struct{}{}
-			}
+			ctClient, _ := clientTracker.client(client.Id)
 
 			// fmt.Printf("+++ JKY: setting the nextReqNo for client %d bucket %d to %d, lowWatermark=%d, committedMask=%v numBuckets=%d\n", client.Id, i, firstUncommitted, client.LowWatermark, client.CommittedMask, numBuckets)
-			bo.clients[client.Id] = &clientOutstandingReqs{
-				nextReqNo:    firstUncommitted,
-				skipRequests: skipRequests,
+			cors := &clientOutstandingReqs{
+				nextReqNo:  firstUncommitted,
+				numBuckets: uint64(networkState.Config.NumberOfBuckets),
+				client:     ctClient,
 			}
+			cors.advance()
+			bo.clients[client.Id] = cors
 		}
 	}
 
@@ -76,7 +57,6 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 }
 
 type allOutstandingReqs struct {
-	numBuckets          uint64
 	buckets             map[bucketID]*bucketOutstandingReqs
 	availableIterator   *availableIterator
 	correctRequests     map[string]*pb.RequestAck
@@ -88,8 +68,21 @@ type bucketOutstandingReqs struct {
 }
 
 type clientOutstandingReqs struct {
-	nextReqNo    uint64
-	skipRequests map[uint64]struct{} // TODO, use
+	nextReqNo  uint64
+	numBuckets uint64
+	client     *client // TODO, use
+}
+
+func (cors *clientOutstandingReqs) advance() {
+	for cors.nextReqNo <= cors.client.highWatermark {
+		crn := cors.client.reqNo(cors.nextReqNo)
+		if crn.committed != nil {
+			cors.nextReqNo += cors.numBuckets
+			continue
+		}
+
+		break
+	}
 }
 
 func (ao *allOutstandingReqs) advanceRequests() *Actions {
@@ -126,7 +119,8 @@ func (ao *allOutstandingReqs) applyBatch(bucket bucketID, batch []*pb.RequestAck
 			return fmt.Errorf("expected ClientId=%d next request for Bucket=%d to have ReqNo=%d but got ReqNo=%d", req.ClientId, bucket, co.nextReqNo, req.ReqNo)
 		}
 
-		co.nextReqNo += ao.numBuckets
+		co.nextReqNo += co.numBuckets
+		co.advance()
 	}
 
 	return nil
@@ -161,7 +155,8 @@ func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []
 			outstandingReqs[key] = struct{}{}
 		}
 
-		co.nextReqNo += ao.numBuckets
+		co.nextReqNo += co.numBuckets
+		co.advance()
 	}
 
 	return seq.allocate(batch, outstandingReqs), nil

@@ -132,14 +132,22 @@ func newStateMachines() *stateMachines {
 }
 
 func (s *stateMachines) apply(event *rpb.RecordedEvent) {
-	node, ok := s.nodes[event.NodeId]
-	if !ok {
+	var node *stateMachine
+
+	if _, ok := event.StateEvent.Type.(*pb.StateEvent_Initialize); ok {
+		delete(s.nodes, event.NodeId)
 		node = &stateMachine{
 			machine: &mirbft.StateMachine{
 				Logger: s.logger.Named(fmt.Sprintf("node%d", event.NodeId)),
 			},
 		}
 		s.nodes[event.NodeId] = node
+	} else {
+		var ok bool
+		node, ok = s.nodes[event.NodeId]
+		if !ok {
+			panic(fmt.Sprintf("Malformed log.  Node %d attempted to apply event of type %T without initializing first.", event.NodeId, event.StateEvent.Type))
+		}
 	}
 
 	start := time.Now()

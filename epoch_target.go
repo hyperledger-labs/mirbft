@@ -26,6 +26,7 @@ const (
 	etFetching          // Have received and verified a new epoch messages, and are waiting to get state
 	etEchoing           // Have received and validated a new-epoch, waiting for a quorum of echos
 	etReadying          // Have received a quorum of echos, waiting a on qourum of readies
+	etResuming          // We crashed during this epoch, and are waiting to resume
 	etReady             // New epoch is ready to begin
 	etInProgress        // No pending change
 	etEnding            // The epoch has committed everything it can, but we are waiting for a stable checkpoint
@@ -40,6 +41,7 @@ type epochTarget struct {
 	commitState     *commitState
 	stateTicks      uint64
 	number          uint64
+	startingSeqNo   uint64
 	changes         map[nodeID]*epochChange
 	strongChanges   map[nodeID]*parsedEpochChange
 	echos           map[*pb.NewEpochConfig]map[nodeID]struct{}
@@ -196,7 +198,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 	newEpochConfig := et.leaderNewEpoch.NewConfig
 
-	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.lastCommit {
+	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.highestCommit {
 		panic("we need checkpoint state transfer to handle this case")
 	}
 
@@ -209,7 +211,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
 
-		if seqNo <= et.commitState.lastCommit {
+		if seqNo <= et.commitState.highestCommit {
 			continue
 		}
 
@@ -291,15 +293,12 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 	// XXX what if the final preprepares span both an old and new config?
 
+	actions.concat(et.persisted.addNEntry(&pb.NEntry{
+		SeqNo:       newEpochConfig.StartingCheckpoint.SeqNo + 1,
+		EpochConfig: newEpochConfig.Config,
+	}))
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
-
-		if (seqNo-1)%uint64(et.networkConfig.CheckpointInterval) == 0 {
-			actions.concat(et.persisted.addNEntry(&pb.NEntry{
-				SeqNo:       seqNo,
-				EpochConfig: newEpochConfig.Config,
-			}))
-		}
 
 		if len(digest) == 0 {
 			actions.concat(et.persisted.addQEntry(&pb.QEntry{
@@ -320,7 +319,17 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		}
 
 		actions.concat(et.persisted.addQEntry(qEntry))
+
+		if seqNo%uint64(et.networkConfig.CheckpointInterval) == 0 && seqNo < et.commitState.stopAtSeqNo {
+			actions.concat(et.persisted.addNEntry(&pb.NEntry{
+				SeqNo:       seqNo + 1,
+				EpochConfig: newEpochConfig.Config,
+			}))
+		}
 	}
+
+	et.startingSeqNo = newEpochConfig.StartingCheckpoint.SeqNo +
+		uint64(len(newEpochConfig.FinalPreprepares)) + 1
 
 	return actions.send(
 		et.networkConfig.Nodes,
@@ -616,13 +625,13 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *pb.NewEpochConf
 	return et.advanceState()
 }
 
-func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
+func (et *epochTarget) checkNewEpochReadyQuorum() {
 	for config, msgReadies := range et.readies {
 		if len(msgReadies) < intersectionQuorum(et.networkConfig) {
 			continue
 		}
 
-		et.state = etReady
+		et.state = etResuming
 
 		et.networkNewEpoch = config
 
@@ -648,17 +657,17 @@ func (et *epochTarget) checkNewEpochReadyQuorum() *Actions {
 				currentEpoch = true
 			},
 		})
+	}
+}
 
-		// TODO, this is a really ugly hack, I don't like it
-		// hopefully we can clean this up by making transfer of control cleaner
-		actions := &Actions{
-			Commits: et.commitState.drain(),
-		}
-
-		return actions
+func (et *epochTarget) checkEpochResumed() {
+	// fmt.Printf("JKY: checking if epoch resumed\n")
+	if et.commitState.stopAtSeqNo < et.startingSeqNo {
+		return
 	}
 
-	return &Actions{}
+	// fmt.Printf("JKY: it is resumed!\n")
+	et.state = etReady
 }
 
 func (et *epochTarget) advanceState() *Actions {
@@ -680,11 +689,12 @@ func (et *epochTarget) advanceState() *Actions {
 		case etEchoing: // Have received and validated a new-epoch, waiting for a quorum of echos
 			actions.concat(et.checkNewEpochEchoQuorum())
 		case etReadying: // Have received a quorum of echos, waiting a on qourum of readies
-			actions.concat(et.checkNewEpochReadyQuorum())
+			et.checkNewEpochReadyQuorum()
+		case etResuming: // We crashed during this epoch, and are waiting for it to resume or fail
+			et.checkEpochResumed()
 		case etReady: // New epoch is ready to begin
-			var epochActions *Actions
-			et.activeEpoch, epochActions = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.nodeBuffers, et.commitState, et.clientTracker, et.myConfig, et.logger)
-			actions.concat(epochActions)
+			et.activeEpoch = newActiveEpoch(et.networkNewEpoch.Config, et.persisted, et.nodeBuffers, et.commitState, et.clientTracker, et.myConfig, et.logger)
+
 			// TODO, handle case where planned epoch expiration is now
 			et.state = etInProgress
 			for _, id := range et.networkConfig.Nodes {
@@ -747,8 +757,10 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 	}
 
 	if et.state <= etFetching || et.leaderNewEpoch == nil {
-		lowWatermark = et.myEpochChange.lowWatermark + 1
-		highWatermark = lowWatermark + uint64(2*et.networkConfig.CheckpointInterval) - 1
+		if et.myEpochChange != nil {
+			lowWatermark = et.myEpochChange.lowWatermark + 1
+			highWatermark = lowWatermark + uint64(2*et.networkConfig.CheckpointInterval) - 1
+		}
 	} else {
 		lowWatermark = et.leaderNewEpoch.NewConfig.StartingCheckpoint.SeqNo + 1
 		highWatermark = lowWatermark + uint64(2*et.networkConfig.CheckpointInterval) - 1
@@ -791,7 +803,7 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 			setStatus(seqNo, status.SequencePrepared)
 		}
 
-		for seqNo := lowWatermark; seqNo <= et.commitState.lastCommit; seqNo++ {
+		for seqNo := lowWatermark; seqNo <= et.commitState.highestCommit; seqNo++ {
 			setStatus(seqNo, status.SequenceCommitted)
 		}
 		return
@@ -808,7 +820,7 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 			state = status.SequencePrepared
 		}
 
-		if seqNo <= et.commitState.lastCommit || et.state == etReady {
+		if seqNo <= et.commitState.highestCommit || et.state == etReady {
 			state = status.SequenceCommitted
 		}
 

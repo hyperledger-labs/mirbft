@@ -117,8 +117,8 @@ var _ = Describe("Mirbft", func() {
 				recorder.Mangler = testengine.MangleMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5).CrashAndRestartAfter(10, recorder.RecorderNodeConfigs[0].InitParms)
 			})
 
-			PIt("still delivers all requests", func() {
-				_, err := recording.DrainClients(500)
+			It("still delivers all requests", func() {
+				_, err := recording.DrainClients(5000)
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})

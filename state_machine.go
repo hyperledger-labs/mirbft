@@ -47,7 +47,8 @@ type commitState struct {
 	clientTracker *clientTracker
 
 	lowWatermark      uint64
-	lastCommit        uint64
+	lastAppliedCommit uint64
+	highestCommit     uint64
 	stopAtSeqNo       uint64
 	activeState       *pb.NetworkState
 	lowerHalfCommits  []*pb.QEntry
@@ -73,28 +74,28 @@ func (cs *commitState) reinitialize() {
 		},
 	})
 
-	switch {
-	case lastCEntry == nil:
-		panic("found no checkpoints in the log")
-	case secondToLastCEntry == nil:
-		cs.lowWatermark = lastCEntry.SeqNo
+	if secondToLastCEntry == nil || len(secondToLastCEntry.NetworkState.PendingReconfigurations) == 0 {
 		cs.activeState = lastCEntry.NetworkState
-	default: // lastCEntry != nil && secondToLastCEntry != nil
-		cs.lowWatermark = secondToLastCEntry.SeqNo
+		cs.lowWatermark = lastCEntry.SeqNo
+	} else {
 		cs.activeState = secondToLastCEntry.NetworkState
+		cs.lowWatermark = secondToLastCEntry.SeqNo
 	}
 
-	cs.lastCommit = lastCEntry.SeqNo
+	ci := uint64(cs.activeState.Config.CheckpointInterval)
+	if len(cs.activeState.PendingReconfigurations) == 0 {
+		cs.stopAtSeqNo = lastCEntry.SeqNo + 2*ci
+	} else {
+		cs.stopAtSeqNo = lastCEntry.SeqNo + ci
+	}
 
-	ci := int(cs.activeState.Config.CheckpointInterval)
+	cs.lastAppliedCommit = lastCEntry.SeqNo
+	cs.highestCommit = lastCEntry.SeqNo
 
 	cs.lowerHalfCommits = make([]*pb.QEntry, ci)
 	cs.upperHalfCommits = make([]*pb.QEntry, ci)
 
-	cs.stopAtSeqNo = cs.lowWatermark + uint64(ci)
-	if len(cs.activeState.PendingReconfigurations) == 0 {
-		cs.stopAtSeqNo += uint64(ci)
-	}
+	// fmt.Printf("JKY: initialized stopAtSeqNo to %d -- lowWatermark=%d pc=%d lastCEntry=%d\n", cs.stopAtSeqNo, cs.lowWatermark, len(cs.activeState.PendingReconfigurations), lastCEntry.SeqNo)
 }
 
 func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result *pb.CheckpointResult) *Actions {
@@ -106,7 +107,7 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 	}
 
 	if len(result.NetworkState.PendingReconfigurations) == 0 {
-		cs.stopAtSeqNo += ci
+		cs.stopAtSeqNo = result.SeqNo + 2*ci
 		// fmt.Printf("JKY: increasing stop at seqno to seqNo=%d\n", cs.stopAtSeqNo)
 	}
 
@@ -136,6 +137,13 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 func (cs *commitState) commit(qEntry *pb.QEntry) {
 	if qEntry.SeqNo > cs.stopAtSeqNo {
 		panic(fmt.Sprintf("dev sanity test -- asked to commit %d, but we asked to stop at %d", qEntry.SeqNo, cs.stopAtSeqNo))
+	}
+
+	if cs.highestCommit < qEntry.SeqNo {
+		if cs.highestCommit+1 != qEntry.SeqNo {
+			panic(fmt.Sprintf("dev sanity test -- asked to commit %d, but highest commit was %d", qEntry.SeqNo, cs.highestCommit))
+		}
+		cs.highestCommit = qEntry.SeqNo
 	}
 
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
@@ -199,24 +207,24 @@ func (cs *commitState) drain() []*Commit {
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 
 	var result []*Commit
-	for cs.lastCommit < cs.lowWatermark+2*ci {
-		if cs.lastCommit == cs.lowWatermark+ci && !cs.checkpointPending {
-			clientState := cs.clientTracker.commitsCompletedForCheckpointWindow(cs.lastCommit)
+	for cs.lastAppliedCommit < cs.lowWatermark+2*ci {
+		if cs.lastAppliedCommit == cs.lowWatermark+ci && !cs.checkpointPending {
+			clientState := cs.clientTracker.commitsCompletedForCheckpointWindow(cs.lastAppliedCommit)
 			networkConfig, clientConfigs := nextNetworkConfig(cs.activeState, clientState)
 			result = append(result, &Commit{
 				Checkpoint: &Checkpoint{
-					SeqNo:         cs.lastCommit,
+					SeqNo:         cs.lastAppliedCommit,
 					NetworkConfig: networkConfig,
 					ClientsState:  clientConfigs,
 				},
 			})
 
 			cs.checkpointPending = true
-			// fmt.Printf("--- JKY: adding checkpoint request for seq_no=%d to action results\n", cs.lastCommit)
+			// fmt.Printf("--- JKY: adding checkpoint request for seq_no=%d to action results\n", cs.lastAppliedCommit)
 
 		}
 
-		nextCommit := cs.lastCommit + 1
+		nextCommit := cs.lastAppliedCommit + 1
 		upper := nextCommit-cs.lowWatermark > ci
 		offset := int((nextCommit - (cs.lowWatermark + 1)) % ci)
 		var commits []*pb.QEntry
@@ -246,7 +254,7 @@ func (cs *commitState) drain() []*Commit {
 			cw.reqNo(fr.ReqNo).committed = &commit.SeqNo
 		}
 
-		cs.lastCommit = nextCommit
+		cs.lastAppliedCommit = nextCommit
 	}
 
 	return result
@@ -424,11 +432,36 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 // the clientTracker retains in-window ACKs for still-extant clients.  The checkpointTracker
 // retains checkpoint messages sent by other replicas, etc.
 func (sm *StateMachine) reinitialize() *Actions {
+	actions := sm.recoverLog()
 	sm.clientTracker.reinitialize()
 	sm.commitState.reinitialize()
 	sm.checkpointTracker.reinitialize()
-	return sm.epochTracker.reinitialize()
-	// TODO, sm.batchTracker should probably be reinitialized.... but it's harmless not to for now
+	sm.batchTracker.reinitialize()
+	return actions.concat(sm.epochTracker.reinitialize())
+}
+
+func (sm *StateMachine) recoverLog() *Actions {
+	var lastCEntry *pb.CEntry
+
+	actions := &Actions{}
+
+	sm.persisted.iterate(logIterator{
+		onCEntry: func(cEntry *pb.CEntry) {
+			lastCEntry = cEntry
+		},
+		onFEntry: func(fEntry *pb.FEntry) {
+			if lastCEntry == nil {
+				panic("FEntry without corresponding CEntry, log is corrupt")
+			}
+			actions.concat(sm.persisted.truncate(lastCEntry.SeqNo))
+		},
+	})
+
+	if lastCEntry == nil {
+		panic("found no checkpoints in the log")
+	}
+
+	return actions
 }
 
 func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
