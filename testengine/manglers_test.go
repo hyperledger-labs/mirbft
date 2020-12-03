@@ -8,11 +8,11 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-var _ = Describe("Manglers", func() {
-	Describe("initializeMangling", func() {
+var _ = Describe("Matchers", func() {
+	Describe("initializeMatching", func() {
 		It("binds the fields to the underlying implementations", func() {
-			mm := &MsgMangling{}
-			initializeMangling(mm)
+			mm := &MsgMatching{}
+			initializeMatching(mm)
 			Expect(mm.FromNode).NotTo(BeNil())
 			Expect(mm.FromNodes).NotTo(BeNil())
 			Expect(mm.ToNode).NotTo(BeNil())
@@ -20,12 +20,10 @@ var _ = Describe("Manglers", func() {
 			Expect(mm.AtPercent).NotTo(BeNil())
 
 			nmm := mm.AtPercent(30)
-			Expect(nmm).To(Equal(mm))
 			Expect(nmm.Filters).To(HaveLen(1))
 			Expect(nmm.Filters[0].apply(5, nil)).To(BeTrue())
 
 			nmm = nmm.ToNodes(3, 5)
-			Expect(nmm).To(Equal(mm))
 			Expect(nmm.Filters).To(HaveLen(2))
 			Expect(nmm.Filters[1].apply(0, &rpb.RecordedEvent{
 				NodeId: 2,
@@ -38,7 +36,7 @@ var _ = Describe("Manglers", func() {
 
 	Describe("MsgTypeMangling", func() {
 		It("matches the message type", func() {
-			mtm := MangleMsgs().OfTypePreprepare()
+			mtm := MatchMsgs().OfTypePreprepare()
 			Expect(mtm.Filters).To(HaveLen(2))
 			Expect(mtm.Filters[1].apply(0, &rpb.RecordedEvent{
 				StateEvent: &pb.StateEvent{
@@ -57,7 +55,7 @@ var _ = Describe("Manglers", func() {
 		})
 
 		It("does not match the wrong message type", func() {
-			mtm := MangleMsgs().OfTypePreprepare()
+			mtm := MatchMsgs().OfTypePreprepare()
 			Expect(mtm.Filters).To(HaveLen(2))
 			Expect(mtm.Filters[1].apply(0, &rpb.RecordedEvent{
 				StateEvent: &pb.StateEvent{

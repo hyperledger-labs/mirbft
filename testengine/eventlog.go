@@ -23,9 +23,6 @@ type EventLog struct {
 	// List is a list of *rpb.RecordedEvent messages, in order of time.
 	List *list.List
 
-	// LastConsumed is the message most recently removed from the front of the list for consumption.
-	LastConsumed *rpb.RecordedEvent
-
 	// FakeTime is the current 'time' according to this log.
 	FakeTime int64
 
@@ -34,6 +31,9 @@ type EventLog struct {
 
 	// Mangler give the ability to filter / managle events as they are inserted
 	Mangler Mangler
+
+	// Mangled tracks which events have already been mangled and need not be reprocessed
+	Mangled map[*rpb.RecordedEvent]struct{}
 
 	// Output is optionally a place to serialize RecordedEvents when consumed.
 	Output *gzip.Writer
@@ -64,21 +64,39 @@ func ReadEventLog(source io.Reader) (el *EventLog, err error) {
 }
 
 func (l *EventLog) ReadEvent() (*rpb.RecordedEvent, error) {
-	nele := l.List.Front()
-	if nele == nil {
-		return nil, io.EOF
+	if l.Mangled == nil {
+		l.Mangled = map[*rpb.RecordedEvent]struct{}{}
 	}
 
-	l.LastConsumed = l.List.Remove(nele).(*rpb.RecordedEvent)
-	l.FakeTime = l.LastConsumed.Time
-	if l.Output != nil {
-		err := eventlog.WriteRecordedEvent(l.Output, l.LastConsumed)
-		if err != nil {
-			return nil, errors.WithMessage(err, "could not write event before processing")
+	for {
+		nele := l.List.Front()
+		if nele == nil {
+			return nil, io.EOF
+		}
+
+		event := l.List.Remove(nele).(*rpb.RecordedEvent)
+		_, ok := l.Mangled[event]
+		if ok || l.Mangler == nil {
+			delete(l.Mangled, event)
+			l.FakeTime = event.Time
+			if l.Output != nil {
+				err := eventlog.WriteRecordedEvent(l.Output, event)
+				if err != nil {
+					return nil, errors.WithMessage(err, "could not write event before processing")
+				}
+			}
+			return event, nil
+		}
+
+		mangleResults := l.Mangler.Mangle(l.Rand.Int(), event)
+		for _, result := range mangleResults {
+			if !result.Remangle {
+				l.Mangled[result.Event] = struct{}{}
+			}
+
+			l.Insert(result.Event)
 		}
 	}
-
-	return l.LastConsumed, nil
 }
 
 func (l *EventLog) InsertTickEvent(target uint64, fromNow int64) {
@@ -139,26 +157,17 @@ func (l *EventLog) InsertProcess(target uint64, fromNow int64) {
 	)
 }
 
-func (l *EventLog) Insert(initialEvent *rpb.RecordedEvent) {
-	var events []*rpb.RecordedEvent
-	if l.Mangler != nil {
-		events = l.Mangler.Mangle(l.Rand.Int(), initialEvent)
-	} else {
-		events = []*rpb.RecordedEvent{initialEvent}
+func (l *EventLog) Insert(event *rpb.RecordedEvent) {
+	if event.Time < l.FakeTime {
+		panic("attempted to modify the past")
 	}
 
-	for _, event := range events {
-		if event.Time < l.FakeTime {
-			panic("attempted to modify the past")
+	for el := l.List.Front(); el != nil; el = el.Next() {
+		if el.Value.(*rpb.RecordedEvent).Time > event.Time {
+			l.List.InsertBefore(event, el)
+			return
 		}
-
-		for el := l.List.Front(); el != nil; el = el.Next() {
-			if el.Value.(*rpb.RecordedEvent).Time > event.Time {
-				l.List.InsertBefore(event, el)
-				return
-			}
-		}
-
-		l.List.PushBack(event)
 	}
+
+	l.List.PushBack(event)
 }

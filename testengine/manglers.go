@@ -16,6 +16,15 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type Mangler interface {
+	Mangle(random int, event *rpb.RecordedEvent) []MangleResult
+}
+
+type MangleResult struct {
+	Event    *rpb.RecordedEvent
+	Remangle bool
+}
+
 // EventMangling is meant to be an easy way to construct test descriptions.
 // Each method of a Mangling returns itself or another Mangling to make them easy
 // to concatenate.  For instance:
@@ -26,24 +35,103 @@ import (
 // But here, because filters are applied first to last, on 10 percent of messages,
 // if they are from nodes 1 and 3, they will be dropped.
 
-func MangleMsgs() *MsgMangling {
-	mm := &MsgMangling{}
-
-	mm.Filters = []mangleFilter{
-		{
-			stateEvent: func(event *pb.StateEvent) bool {
-				_, ok := event.Type.(*pb.StateEvent_Step)
-				return ok
-			},
-		},
-	}
-	initializeMangling(mm)
-
-	return mm
+type MangleMatcher interface {
+	Matches(random int, event *rpb.RecordedEvent) bool
 }
 
-func ClientProposal() *ClientMangling {
-	cm := &ClientMangling{}
+// Until is useful to perform a mangling until some condition is complete.  This is useful
+// especially for delaying an event until after a condition occurs, or for fixing a fault
+// after some period of time.
+func Until(matcher MangleMatcher) *Mangling {
+	matched := false
+	return &Mangling{
+		Filter: InlineMatcher(func(random int, event *rpb.RecordedEvent) bool {
+			if matched || matcher.Matches(random, event) {
+				matched = true
+				return false
+			}
+
+			return true
+		}),
+	}
+}
+
+// After is useful to begin a mangling after some action occurs.  This is useful especially
+// for allowing the network to get into a desired state before injecting a fault.
+func After(matcher MangleMatcher) *Mangling {
+	matched := false
+	return &Mangling{
+		Filter: InlineMatcher(func(random int, event *rpb.RecordedEvent) bool {
+			if matched || matcher.Matches(random, event) {
+				matched = true
+				return true
+			}
+
+			return false
+		}),
+	}
+}
+
+// For is a simple way to apply a mangler whenever a condition is satisfied.
+func For(matcher MangleMatcher) *Mangling {
+	return &Mangling{
+		Filter: matcher,
+	}
+}
+
+// Mangling is usually constructed via For/After/Until and is used to
+// conditionally apply a Mangler.
+type Mangling struct {
+	Filter MangleMatcher
+}
+
+func (m *Mangling) Do(mangler Mangler) Mangler {
+	return InlineMangler(func(random int, event *rpb.RecordedEvent) []MangleResult {
+		if !m.Filter.Matches(random, event) {
+			return []MangleResult{
+				{
+					Event: event,
+				},
+			}
+		}
+
+		return mangler.Mangle(random, event)
+	})
+}
+
+func (m *Mangling) Drop() Mangler {
+	return m.Do(DropMangler{})
+}
+
+func (m *Mangling) Jitter(maxDelay int) Mangler {
+	return m.Do(&JitterMangler{MaxDelay: maxDelay})
+}
+
+func (m *Mangling) Duplicate(maxDelay int) Mangler {
+	return m.Do(&DuplicateMangler{MaxDelay: maxDelay})
+}
+
+func (m *Mangling) Delay(delay int) Mangler {
+	return m.Do(&DelayMangler{Delay: delay})
+}
+
+func (m *Mangling) CrashAndRestartAfter(delay int64, initParms *pb.StateEvent_InitialParameters) Mangler {
+	return m.Do(&CrashAndRestartAfterMangler{
+		InitParms: initParms,
+		Delay:     delay,
+	})
+}
+
+func MatchMsgs() *MsgMatching {
+	return newMsgMatching()
+}
+
+func MatchNodeStartup() *StartupMatching {
+	return newStartupMatching()
+}
+
+func MatchClientProposal() *ClientMatching {
+	cm := &ClientMatching{}
 
 	cm.Filters = []mangleFilter{
 		{
@@ -53,50 +141,21 @@ func ClientProposal() *ClientMangling {
 			},
 		},
 	}
-	initializeMangling(cm)
+	initializeMatching(cm)
 
 	return cm
 }
 
-type InlineMangler func(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent
+type InlineMatcher func(random int, event *rpb.RecordedEvent) bool
 
-func (im InlineMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+func (im InlineMatcher) Matches(random int, event *rpb.RecordedEvent) bool {
 	return im(random, event)
 }
 
-type termination struct {
-	Filters []mangleFilter
-}
+type InlineMangler func(random int, event *rpb.RecordedEvent) []MangleResult
 
-func (t termination) MangleWith(mangler Mangler) Mangler {
-	return InlineMangler(func(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
-		for _, filter := range t.Filters {
-			if !filter.apply(random, event) {
-				return []*rpb.RecordedEvent{event}
-			}
-		}
-
-		return mangler.Mangle(random, event)
-	})
-}
-
-func (t termination) Drop() Mangler {
-	return t.MangleWith(DropMangler{})
-}
-
-func (t termination) Jitter(maxDelay int) Mangler {
-	return t.MangleWith(&JitterMangler{MaxDelay: maxDelay})
-}
-
-func (t termination) Duplicate(maxDelay int) Mangler {
-	return t.MangleWith(&DuplicateMangler{MaxDelay: maxDelay})
-}
-
-func (t termination) CrashAndRestartAfter(delay int64, initParms *pb.StateEvent_InitialParameters) Mangler {
-	return t.MangleWith(&CrashAndRestartAfterMangler{
-		InitParms: initParms,
-		Delay:     delay,
-	})
+func (im InlineMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
+	return im(random, event)
 }
 
 type mangleFilter struct {
@@ -175,7 +234,7 @@ func (mf mangleFilter) apply(random int, event *rpb.RecordedEvent) bool {
 	}
 }
 
-func initializeMangling(mangling interface{}) {
+func initializeMatching(mangling interface{}) {
 	value := reflect.ValueOf(mangling)
 	if value.Kind() != reflect.Ptr {
 		panic("expected mangling to be a pointer")
@@ -194,7 +253,7 @@ func initializeMangling(mangling interface{}) {
 	structType := structValue.Type()
 	for i := 0; i < structType.NumField(); i++ {
 		structField := structType.Field(i)
-		if structField.Name == "Filters" || structField.Name == "termination" {
+		if structField.Name == "Filters" || structField.Name == "matching" {
 			continue
 		}
 
@@ -226,121 +285,140 @@ func initializeMangling(mangling interface{}) {
 				panic(fmt.Sprintf("expected result of type mangleFilter but got %T", mf))
 			}
 
-			filtersField.Set(reflect.Append(filtersField, result[0]))
-			return []reflect.Value{value}
+			if structField.Type.NumOut() != 1 {
+				panic(fmt.Sprintf("expected field to only output 1 result but got %d", structField.Type.NumOut()))
+			}
+
+			outType := structField.Type.Out(0)
+			if outType.Kind() != reflect.Ptr {
+				panic(fmt.Sprintf("expected return type kind to be a ptr, but got %v", outType.Kind()))
+			}
+
+			newValue := reflect.New(outType.Elem())
+			newValue.Elem().FieldByName("Filters").Set(reflect.Append(filtersField, result[0]))
+			initializeMatching(newValue.Interface())
+
+			return []reflect.Value{newValue}
 		})
 
 		structValue.Field(i).Set(f)
 	}
 }
 
-type MsgTypeMangling struct {
-	termination
+type MsgTypeMatching struct {
+	matching
 
-	FromSelf     func() *MsgTypeMangling
-	FromNode     func(nodeID uint64) *MsgTypeMangling
-	FromNodes    func(nodeIDs ...uint64) *MsgTypeMangling
-	ToNode       func(nodeID uint64) *MsgTypeMangling
-	ToNodes      func(nodeIDs ...uint64) *MsgTypeMangling
-	AtPercent    func(percent int) *MsgTypeMangling
-	WithSequence func(seqNo uint64) *MsgTypeMangling
-	WithEpoch    func(epochNo uint64) *MsgTypeMangling
+	FromSelf     func() *MsgTypeMatching
+	FromNode     func(nodeID uint64) *MsgTypeMatching
+	FromNodes    func(nodeIDs ...uint64) *MsgTypeMatching
+	ToNode       func(nodeID uint64) *MsgTypeMatching
+	ToNodes      func(nodeIDs ...uint64) *MsgTypeMatching
+	AtPercent    func(percent int) *MsgTypeMatching
+	WithSequence func(seqNo uint64) *MsgTypeMatching
+	WithEpoch    func(epochNo uint64) *MsgTypeMatching
 }
 
-type MsgMangling struct {
-	termination
+type MsgMatching struct {
+	matching
 
-	FromSelf     func() *MsgMangling
-	FromNode     func(nodeID uint64) *MsgMangling
-	FromNodes    func(nodeIDs ...uint64) *MsgMangling
-	ToNode       func(nodeID uint64) *MsgMangling
-	ToNodes      func(nodeIDs ...uint64) *MsgMangling
-	AtPercent    func(percent int) *MsgMangling
-	WithSequence func(seqNo uint64) *MsgMangling
+	FromSelf             func() *MsgMatching
+	FromNode             func(nodeID uint64) *MsgMatching
+	FromNodes            func(nodeIDs ...uint64) *MsgMatching
+	ToNode               func(nodeID uint64) *MsgMatching
+	ToNodes              func(nodeIDs ...uint64) *MsgMatching
+	AtPercent            func(percent int) *MsgMatching
+	WithSequence         func(seqNo uint64) *MsgMatching
+	OfTypePreprepare     func() *MsgTypeMatching
+	OfTypePrepare        func() *MsgTypeMatching
+	OfTypeCommit         func() *MsgTypeMatching
+	OfTypeCheckpoint     func() *MsgTypeMatching
+	OfTypeSuspect        func() *MsgTypeMatching
+	OfTypeEpochChange    func() *MsgTypeMatching
+	OfTypeEpochChangeAck func() *MsgTypeMatching
+	OfTypeNewEpoch       func() *MsgTypeMatching
+	OfTypeNewEpochEcho   func() *MsgTypeMatching
+	OfTypeNewEpochReady  func() *MsgTypeMatching
+	OfTypeFetchBatch     func() *MsgTypeMatching
+	OfTypeForwardBatch   func() *MsgTypeMatching
+	OfTypeRequestAck     func() *MsgTypeMatching
 }
 
-type ClientMangling struct {
-	termination
+func newMsgMatching() *MsgMatching {
+	mm := &MsgMatching{}
 
-	ToNode     func(nodeID uint64) *ClientMangling
-	ToNodes    func(nodeIDs ...uint64) *ClientMangling
-	AtPercent  func(percent int) *ClientMangling
-	FromClient func(clientId uint64) *ClientMangling
-}
-
-func (mm *MsgMangling) ofType(msgType reflect.Type) *MsgTypeMangling {
-	mm.termination.Filters = append(mm.termination.Filters, mangleFilter{
-		msgContents: func(msg *pb.Msg) bool {
-			return reflect.TypeOf(msg.Type).AssignableTo(msgType)
+	mm.Filters = []mangleFilter{
+		{
+			stateEvent: func(event *pb.StateEvent) bool {
+				_, ok := event.Type.(*pb.StateEvent_Step)
+				return ok
+			},
 		},
-	})
+	}
+	initializeMatching(mm)
 
-	ppm := &MsgTypeMangling{
-		termination: mm.termination,
+	return mm
+}
+
+type StartupMatching struct {
+	matching
+
+	ForNode  func(nodeID uint64) *StartupMatching
+	ForNodes func(nodeIDs ...uint64) *StartupMatching
+}
+
+func newStartupMatching() *StartupMatching {
+	sm := &StartupMatching{}
+
+	sm.Filters = []mangleFilter{
+		{
+			stateEvent: func(event *pb.StateEvent) bool {
+				_, ok := event.Type.(*pb.StateEvent_Initialize)
+				return ok
+			},
+		},
+	}
+	initializeMatching(sm)
+
+	return sm
+}
+
+type ClientMatching struct {
+	matching
+
+	ToNode     func(nodeID uint64) *ClientMatching
+	ToNodes    func(nodeIDs ...uint64) *ClientMatching
+	AtPercent  func(percent int) *ClientMatching
+	FromClient func(clientId uint64) *ClientMatching
+}
+
+func newClientMatching() *ClientMatching {
+	cm := &ClientMatching{}
+
+	cm.Filters = []mangleFilter{
+		{
+			stateEvent: func(event *pb.StateEvent) bool {
+				_, ok := event.Type.(*pb.StateEvent_Propose)
+				return ok
+			},
+		},
+	}
+	initializeMatching(cm)
+
+	return cm
+}
+
+type matching struct {
+	Filters []mangleFilter
+}
+
+func (m matching) Matches(random int, event *rpb.RecordedEvent) bool {
+	for _, filter := range m.Filters {
+		if !filter.apply(random, event) {
+			return false
+		}
 	}
 
-	initializeMangling(ppm)
-	return ppm
-}
-
-func (mm *MsgMangling) OfTypePreprepare() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_Preprepare{}))
-}
-
-func (mm *MsgMangling) OfTypePrepare() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_Prepare{}))
-}
-
-func (mm *MsgMangling) OfTypeCommit() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_Commit{}))
-}
-
-func (mm *MsgMangling) OfTypeCheckpoint() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_Checkpoint{}))
-}
-
-func (mm *MsgMangling) OfTypeSuspect() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_Suspect{}))
-}
-
-func (mm *MsgMangling) OfTypeEpochChange() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_EpochChange{}))
-}
-
-func (mm *MsgMangling) OfTypeEpochChangeAck() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_EpochChangeAck{}))
-}
-
-func (mm *MsgMangling) OfTypeNewEpoch() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_NewEpoch{}))
-}
-
-func (mm *MsgMangling) OfTypeNewEpochEcho() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_NewEpochEcho{}))
-}
-
-func (mm *MsgMangling) OfTypeNewEpochReady() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_NewEpochReady{}))
-}
-
-func (mm *MsgMangling) OfTypeFetchBatch() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_FetchBatch{}))
-}
-
-func (mm *MsgMangling) OfTypeForwardBatch() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_ForwardBatch{}))
-}
-
-func (mm *MsgMangling) OfTypeFetchRequest() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_FetchRequest{}))
-}
-
-func (mm *MsgMangling) OfTypeForwardRequest() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_ForwardRequest{}))
-}
-
-func (mm *MsgMangling) OfTypeRequestAck() *MsgTypeMangling {
-	return mm.ofType(reflect.TypeOf(&pb.Msg_RequestAck{}))
+	return true
 }
 
 type baseMangling struct{}
@@ -386,6 +464,16 @@ func (baseMangling) FromNodes(sources ...uint64) mangleFilter {
 			return false
 		},
 	}
+}
+
+// ForNode is a synonymn for ToNode
+func (b baseMangling) ForNode(target uint64) mangleFilter {
+	return b.ToNode(target)
+}
+
+// ForNodes is a synonymn for ToNodes
+func (b baseMangling) ForNodes(targets ...uint64) mangleFilter {
+	return b.ToNodes(targets...)
 }
 
 // ToNode may be safely bound into all manglings.
@@ -450,9 +538,107 @@ func (baseMangling) FromClient(clientID uint64) mangleFilter {
 	}
 }
 
+func ofType(msgType reflect.Type) mangleFilter {
+	return mangleFilter{
+		msgContents: func(msg *pb.Msg) bool {
+			return reflect.TypeOf(msg.Type).AssignableTo(msgType)
+		},
+	}
+}
+
+// OfTypePreprepare may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypePreprepare() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_Preprepare{}))
+}
+
+// OfTypePrepare may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypePrepare() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_Prepare{}))
+}
+
+// OfTypeCommit may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeCommit() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_Commit{}))
+}
+
+// OfTypeCheckpoint may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeCheckpoint() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_Checkpoint{}))
+}
+
+// OfTypeSuspect may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeSuspect() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_Suspect{}))
+}
+
+// OfTypeEpochChange may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeEpochChange() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_EpochChange{}))
+}
+
+// OfTypeEpochChangeAck may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeEpochChangeAck() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_EpochChangeAck{}))
+}
+
+// OfTypeNewEpoch may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeNewEpoch() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_NewEpoch{}))
+}
+
+// OfTypeNewEpochEcho may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeNewEpochEcho() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_NewEpochEcho{}))
+}
+
+// OfTypeNewEpochReady may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeNewEpochReady() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_NewEpochReady{}))
+}
+
+// OfTypeFetchBatch may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeFetchBatch() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_FetchBatch{}))
+}
+
+// OfTypeForwardBatch may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeForwardBatch() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_ForwardBatch{}))
+}
+
+// OfTypeFetchRequest may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeFetchRequest() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_FetchRequest{}))
+}
+
+// OfTypeForwardRequest may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeForwardRequest() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_ForwardRequest{}))
+}
+
+// OfTypeRequestAck may only be safely bound to mangling if
+// the mangling ensures all events are step messages.
+func (baseMangling) OfTypeRequestAck() mangleFilter {
+	return ofType(reflect.TypeOf(&pb.Msg_RequestAck{}))
+}
+
 type DropMangler struct{}
 
-func (DropMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+func (DropMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
 	return nil
 }
 
@@ -460,11 +646,18 @@ type DuplicateMangler struct {
 	MaxDelay int
 }
 
-func (dm *DuplicateMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+func (dm *DuplicateMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
 	clone := proto.Clone(event).(*rpb.RecordedEvent)
 	delay := int64(random % dm.MaxDelay)
 	clone.Time += delay
-	return []*rpb.RecordedEvent{event, clone}
+	return []MangleResult{
+		{
+			Event: event,
+		},
+		{
+			Event: clone,
+		},
+	}
 }
 
 // JitterMangler will delay events a random amount of time, up to MaxDelay
@@ -472,10 +665,29 @@ type JitterMangler struct {
 	MaxDelay int
 }
 
-func (jm *JitterMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
+func (jm *JitterMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
 	delay := int64(random % jm.MaxDelay)
 	event.Time += delay
-	return []*rpb.RecordedEvent{event}
+	return []MangleResult{
+		{
+			Event: event,
+		},
+	}
+}
+
+// DelayMangler will delay events a specified amount of time
+type DelayMangler struct {
+	Delay int
+}
+
+func (dm *DelayMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
+	event.Time += int64(dm.Delay)
+	return []MangleResult{
+		{
+			Event:    event,
+			Remangle: true,
+		},
+	}
 }
 
 type CrashAndRestartAfterMangler struct {
@@ -483,15 +695,19 @@ type CrashAndRestartAfterMangler struct {
 	Delay     int64
 }
 
-func (cm CrashAndRestartAfterMangler) Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent {
-	return []*rpb.RecordedEvent{
-		event,
+func (cm CrashAndRestartAfterMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
+	return []MangleResult{
 		{
-			Time:   event.Time + cm.Delay,
-			NodeId: cm.InitParms.Id,
-			StateEvent: &pb.StateEvent{
-				Type: &pb.StateEvent_Initialize{
-					Initialize: cm.InitParms,
+			Event: event,
+		},
+		{
+			Event: &rpb.RecordedEvent{
+				Time:   event.Time + cm.Delay,
+				NodeId: cm.InitParms.Id,
+				StateEvent: &pb.StateEvent{
+					Type: &pb.StateEvent_Initialize{
+						Initialize: cm.InitParms,
+					},
 				},
 			},
 		},

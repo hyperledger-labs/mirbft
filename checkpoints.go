@@ -210,7 +210,7 @@ func (ct *checkpointTracker) applyCheckpointMsg(source nodeID, seqNo uint64, val
 	cp := ct.checkpoint(seqNo)
 	cp.applyCheckpointMsg(source, value)
 
-	if cp.stable && seqNo > ct.lowWatermark() {
+	if cp.stable && seqNo > ct.lowWatermark() && !aboveHighWatermark {
 		ct.state = cpsGarbageCollectable
 		return
 	}

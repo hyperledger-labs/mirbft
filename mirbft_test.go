@@ -10,20 +10,19 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	_ "github.com/IBM/mirbft"
-	"github.com/IBM/mirbft/testengine"
+	. "github.com/IBM/mirbft/testengine"
 )
 
 var _ = Describe("Mirbft", func() {
 	var (
-		recorder      *testengine.Recorder
-		recording     *testengine.Recording
+		recorder      *Recorder
+		recording     *Recording
 		recordingFile *os.File
 		gzWriter      *gzip.Writer
 	)
 
 	BeforeEach(func() {
-		recorder = testengine.BasicRecorder(4, 4, 100)
+		recorder = BasicRecorder(4, 4, 100)
 		Expect(recorder.NetworkState.Config.MaxEpochLength).To(Equal(uint64(200)))
 
 		tDesc := CurrentGinkgoTestDescription()
@@ -90,7 +89,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network is has just one client", func() {
 		BeforeEach(func() {
-			recorder = testengine.BasicRecorder(4, 1, 200)
+			recorder = BasicRecorder(4, 1, 200)
 		})
 
 		It("still delivers all requests", func() {
@@ -101,7 +100,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network is comprised of just one node", func() {
 		BeforeEach(func() {
-			recorder = testengine.BasicRecorder(1, 1, 20)
+			recorder = BasicRecorder(1, 1, 20)
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
@@ -114,7 +113,7 @@ var _ = Describe("Mirbft", func() {
 
 		When("the node crashes in the middle", func() {
 			BeforeEach(func() {
-				recorder.Mangler = testengine.MangleMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5).CrashAndRestartAfter(10, recorder.RecorderNodeConfigs[0].InitParms)
+				recorder.Mangler = For(MatchMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5)).CrashAndRestartAfter(10, recorder.RecorderNodeConfigs[0].InitParms)
 			})
 
 			It("still delivers all requests", func() {
@@ -126,7 +125,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the first node is silenced", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.MangleMsgs().FromNodes(0).Drop()
+			recorder.Mangler = For(MatchMsgs().FromNodes(0)).Drop()
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
@@ -140,7 +139,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the third node is silenced", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.MangleMsgs().FromNodes(3).Drop()
+			recorder.Mangler = For(MatchMsgs().FromNodes(3)).Drop()
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
@@ -152,9 +151,23 @@ var _ = Describe("Mirbft", func() {
 		})
 	})
 
+	When("the third node starts late", func() {
+		BeforeEach(func() {
+			recorder.Mangler = Until(MatchMsgs().FromNodes(1).OfTypeCommit().WithSequence(5)).Do(For(MatchNodeStartup().ForNode(3)).Delay(500))
+			for _, clientConfig := range recorder.ClientConfigs {
+				clientConfig.Total = 20
+			}
+		})
+
+		PIt("still delivers all requests", func() {
+			_, err := recording.DrainClients(50000)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
 	When("the network loses 2 percent of messages", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.MangleMsgs().AtPercent(2).Drop()
+			recorder.Mangler = For(MatchMsgs().AtPercent(2)).Drop()
 		})
 
 		PIt("still delivers all requests", func() {
@@ -165,7 +178,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network loses many acks", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.MangleMsgs().OfTypeRequestAck().AtPercent(20).Drop()
+			recorder.Mangler = For(MatchMsgs().OfTypeRequestAck().AtPercent(20)).Drop()
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
@@ -180,7 +193,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network messages have up to a 30ms jittery delay", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.MangleMsgs().Jitter(30)
+			recorder.Mangler = For(MatchMsgs()).Jitter(30)
 		})
 
 		It("still delivers all requests", func() {
@@ -191,7 +204,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network duplicates messages 75 percent of the time", func() {
 		BeforeEach(func() {
-			recorder.Mangler = testengine.MangleMsgs().AtPercent(75).Duplicate(300)
+			recorder.Mangler = For(MatchMsgs().AtPercent(75)).Duplicate(300)
 		})
 
 		It("still delivers all requests", func() {

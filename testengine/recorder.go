@@ -303,10 +303,6 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	}, nil
 }
 
-type Mangler interface {
-	Mangle(random int, event *rpb.RecordedEvent) []*rpb.RecordedEvent
-}
-
 type Recording struct {
 	Hasher   Hasher
 	EventLog *EventLog
@@ -380,12 +376,15 @@ func (r *Recording) Step() error {
 		for _, send := range processing.Send {
 			for _, i := range send.Targets {
 				linkLatency := runtimeParms.LinkLatency
-				if uint64(i) == lastEvent.NodeId {
+				if i == lastEvent.NodeId {
 					// There's no latency to send to ourselves
 					linkLatency = 0
 				}
+				if n := r.Player.Node(i); n.StateMachine == nil {
+					continue
+				}
 				r.EventLog.InsertStepEvent(
-					uint64(i),
+					i,
 					&pb.StateEvent_InboundMsg{
 						Source: lastEvent.NodeId,
 						Msg:    send.Msg,

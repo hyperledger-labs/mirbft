@@ -144,6 +144,12 @@ func (et *epochTracker) advanceState() *Actions {
 		return et.currentEpoch.advanceState()
 	}
 
+	if et.commitState.checkpointPending {
+		// It simplifies our lives considerably to wait for checkpoints
+		// before initiating epoch change.
+		return &Actions{}
+	}
+
 	newEpochNumber := et.currentEpoch.number + 1
 	epochChange := et.persisted.constructEpochChange(newEpochNumber)
 
