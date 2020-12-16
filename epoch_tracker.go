@@ -26,6 +26,7 @@ type epochTracker struct {
 	myConfig      *pb.StateEvent_InitialParameters
 	batchTracker  *batchTracker
 	clientTracker *clientTracker
+	futureMsgs    map[nodeID]*msgBuffer
 	targets       map[uint64]*epochTarget
 }
 
@@ -52,8 +53,20 @@ func newEpochTracker(
 }
 
 func (et *epochTracker) reinitialize() *Actions {
-	// TODO, properly finish reinitializing all targets
 	et.networkConfig = et.commitState.activeState.Config
+
+	newFutureMsgs := map[nodeID]*msgBuffer{}
+	for _, id := range et.networkConfig.Nodes {
+		futureMsgs, ok := et.futureMsgs[nodeID(id)]
+		if !ok {
+			futureMsgs = newMsgBuffer(
+				"future-epochs",
+				et.nodeBuffers.nodeBuffer(nodeID(id)),
+			)
+		}
+		newFutureMsgs[nodeID(id)] = futureMsgs
+	}
+	et.futureMsgs = newFutureMsgs
 
 	actions := &Actions{}
 	var lastNEntry *pb.NEntry
@@ -97,9 +110,18 @@ func (et *epochTracker) reinitialize() *Actions {
 	switch {
 	case lastNEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastNEntry.EpochConfig.Number):
 		// We're in the middle of a currently active epoch
-		target := et.target(lastNEntry.EpochConfig.Number)
-		target.state = etResuming
-		et.currentEpoch = target
+		et.currentEpoch = newEpochTarget(
+			lastNEntry.EpochConfig.Number,
+			et.persisted,
+			et.nodeBuffers,
+			et.commitState,
+			et.clientTracker,
+			et.batchTracker,
+			et.networkConfig,
+			et.myConfig,
+			et.logger,
+		)
+		et.currentEpoch.state = etResuming
 		suspect := &pb.Suspect{
 			Epoch: lastNEntry.EpochConfig.Number,
 		}
@@ -125,7 +147,19 @@ func (et *epochTracker) reinitialize() *Actions {
 			panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 		}
 
-		et.setCurrentEpoch(et.target(epochChange.NewEpoch), parsedEpochChange)
+		et.currentEpoch = newEpochTarget(
+			epochChange.NewEpoch,
+			et.persisted,
+			et.nodeBuffers,
+			et.commitState,
+			et.clientTracker,
+			et.batchTracker,
+			et.networkConfig,
+			et.myConfig,
+			et.logger,
+		)
+
+		et.currentEpoch.myEpochChange = parsedEpochChange
 
 		// XXX this leader selection is wrong, but using while we modify the startup.
 		// instead base it on the lastEpochConfig and whether that epoch ended gracefully.
@@ -134,6 +168,12 @@ func (et *epochTracker) reinitialize() *Actions {
 	default:
 		// There's no active epoch, it did not end gracefully, or ungracefully
 		panic("no recorded active epoch, ended epoch, or epoch change in log")
+	}
+
+	for _, id := range et.networkConfig.Nodes {
+		et.futureMsgs[nodeID(id)].iterate(et.filter, func(source nodeID, msg *pb.Msg) {
+			actions.concat(et.applyMsg(source, msg))
+		})
 	}
 
 	return actions
@@ -158,9 +198,19 @@ func (et *epochTracker) advanceState() *Actions {
 		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
 	}
 
-	newTarget := et.target(newEpochNumber)
-	et.setCurrentEpoch(newTarget, myEpochChange)
-	newTarget.myLeaderChoice = []uint64{et.myConfig.Id} // XXX, wrong
+	et.currentEpoch = newEpochTarget(
+		newEpochNumber,
+		et.persisted,
+		et.nodeBuffers,
+		et.commitState,
+		et.clientTracker,
+		et.batchTracker,
+		et.networkConfig,
+		et.myConfig,
+		et.logger,
+	)
+	et.currentEpoch.myEpochChange = myEpochChange
+	et.currentEpoch.myLeaderChoice = []uint64{et.myConfig.Id} // XXX, wrong
 
 	return et.persisted.addECEntry(&pb.ECEntry{
 		EpochNumber: newEpochNumber,
@@ -199,13 +249,35 @@ func epochForMsg(msg *pb.Msg) uint64 {
 	}
 }
 
-func (et *epochTracker) step(source nodeID, msg *pb.Msg) *Actions {
+func (et *epochTracker) filter(_ nodeID, msg *pb.Msg) applyable {
 	epochNumber := epochForMsg(msg)
-	if epochNumber < et.currentEpoch.number {
-		return &Actions{}
-	}
 
-	target := et.target(epochNumber)
+	switch {
+	case epochNumber < et.currentEpoch.number:
+		return past
+	case epochNumber > et.currentEpoch.number:
+		return future
+	default:
+		return current
+	}
+}
+
+func (et *epochTracker) step(source nodeID, msg *pb.Msg) *Actions {
+	switch et.filter(source, msg) {
+	case past:
+		return &Actions{}
+	case future:
+		et.futureMsgs[source].store(msg)
+		return &Actions{}
+	case current:
+		return et.applyMsg(source, msg)
+	default:
+		panic("expected msg to be past, current, or future")
+	}
+}
+
+func (et *epochTracker) applyMsg(source nodeID, msg *pb.Msg) *Actions {
+	target := et.currentEpoch
 
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_Preprepare:
@@ -222,7 +294,7 @@ func (et *epochTracker) step(source nodeID, msg *pb.Msg) *Actions {
 	case *pb.Msg_EpochChangeAck:
 		return target.applyEpochChangeAckMsg(source, nodeID(innerMsg.EpochChangeAck.Originator), innerMsg.EpochChangeAck.EpochChange)
 	case *pb.Msg_NewEpoch:
-		if epochNumber%uint64(len(et.networkConfig.Nodes)) != uint64(source) {
+		if innerMsg.NewEpoch.NewConfig.Config.Number%uint64(len(et.networkConfig.Nodes)) != uint64(source) {
 			// TODO, log oddity
 			return &Actions{}
 		}
@@ -247,41 +319,6 @@ func (et *epochTracker) applyBatchHashResult(epoch, seqNo uint64, digest []byte)
 
 func (et *epochTracker) tick() *Actions {
 	return et.currentEpoch.tick()
-}
-
-func (et *epochTracker) target(epoch uint64) *epochTarget {
-	// TODO, we need to garbage collect in responst to
-	// spammy suspicions and epoch changes.  Basically
-	// if every suspect/epoch change has a corresponding
-	// higher epoch sibling for that node in a later epoch
-	// then we should clean up.
-
-	target, ok := et.targets[epoch]
-	if !ok {
-		target = newEpochTarget(
-			epoch,
-			et.persisted,
-			et.nodeBuffers,
-			et.commitState,
-			et.clientTracker,
-			et.batchTracker,
-			et.networkConfig,
-			et.myConfig,
-			et.logger,
-		)
-		et.targets[epoch] = target
-	}
-	return target
-}
-
-func (et *epochTracker) setCurrentEpoch(target *epochTarget, myEpochChange *parsedEpochChange) {
-	for number := range et.targets {
-		if number < target.number {
-			delete(et.targets, number)
-		}
-	}
-	target.myEpochChange = myEpochChange
-	et.currentEpoch = target
 }
 
 func (et *epochTracker) moveLowWatermark(seqNo uint64) *Actions {
@@ -342,12 +379,16 @@ func (et *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
 
 func (et *epochTracker) applyEpochChangeDigest(hashResult *pb.HashResult_EpochChange, digest []byte) *Actions {
 	targetNumber := hashResult.EpochChange.NewEpoch
-	if targetNumber < et.currentEpoch.number {
-		// This is a state change, let's ignore it
+	switch {
+	case targetNumber < et.currentEpoch.number:
+		// This is for an old epoch we no long care about
 		return &Actions{}
+	case targetNumber > et.currentEpoch.number:
+		panic("dev sanity check -- how can we get an epoch change digest for an epoch we aren't processing yet")
+	default:
+		return et.currentEpoch.applyEpochChangeDigest(hashResult, digest)
+
 	}
-	target := et.target(targetNumber)
-	return target.applyEpochChangeDigest(hashResult, digest)
 }
 
 // Summary of Bracha reliable broadcast from:
