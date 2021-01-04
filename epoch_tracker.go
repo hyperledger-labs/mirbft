@@ -212,7 +212,7 @@ func (et *epochTracker) advanceState() *Actions {
 	et.currentEpoch.myEpochChange = myEpochChange
 	et.currentEpoch.myLeaderChoice = []uint64{et.myConfig.Id} // XXX, wrong
 
-	return et.persisted.addECEntry(&pb.ECEntry{
+	actions := et.persisted.addECEntry(&pb.ECEntry{
 		EpochNumber: newEpochNumber,
 	}).send(
 		et.networkConfig.Nodes,
@@ -222,6 +222,14 @@ func (et *epochTracker) advanceState() *Actions {
 			},
 		},
 	)
+
+	for _, id := range et.networkConfig.Nodes {
+		et.futureMsgs[nodeID(id)].iterate(et.filter, func(source nodeID, msg *pb.Msg) {
+			actions.concat(et.applyMsg(source, msg))
+		})
+	}
+
+	return actions
 }
 
 func epochForMsg(msg *pb.Msg) uint64 {
@@ -325,58 +333,6 @@ func (et *epochTracker) moveLowWatermark(seqNo uint64) *Actions {
 	return et.currentEpoch.moveLowWatermark(seqNo)
 }
 
-/*
-func (et *epochTracker) chooseLeaders(epochChange *parsedEpochChange) []uint64 {
-	if et.lastActiveEpoch == nil {
-		panic("this shouldn't happen")
-	}
-
-	oldLeaders := et.lastActiveEpoch.config.leaders
-	if len(oldLeaders) == 1 {
-		return []uint64{et.myConfig.ID}
-	}
-
-	// XXX the below logic is definitely wrong, it doesn't always result in a node
-	// being kicked.
-
-	var badNode uint64
-	if et.lastActiveEpoch.config.number+1 == epochChange.underlying.NewEpoch {
-		var lowestEntry uint64
-		for i := epochChange.lowWatermark + 1; i < epochChange.lowWatermark+uint64(et.networkConfig.ChetkpointInterval)*2; i++ {
-			if _, ok := epochChange.pSet[i]; !ok {
-				lowestEntry = i
-				break
-			}
-		}
-
-		if lowestEntry == 0 {
-			// All of the sequence numbers within the watermarks prepared, so it's
-			// unclear why the epoch failed, eliminate the previous epoch leader
-			badNode = et.lastActiveEpoch.config.number % uint64(len(et.networkConfig.Nodes))
-		} else {
-			bucket := et.lastActiveEpoch.config.seqToBucket(lowestEntry)
-			badNode = uint64(et.lastActiveEpoch.config.buckets[bucket])
-		}
-	} else {
-		// If we never saw the last epoch start, we assume
-		// that replica must be faulty.
-		// Subtraction on epoch number is safe, as for epoch 0, lastActiveEpoch is nil
-		badNode = (epochChange.underlying.NewEpoch - 1) % uint64(len(et.networkConfig.Nodes))
-	}
-
-	newLeaders := make([]uint64, 0, len(oldLeaders)-1)
-	for _, oldLeader := range oldLeaders {
-		if oldLeader == badNode {
-			continue
-		}
-		newLeaders = append(newLeaders, oldLeader)
-	}
-
-	return newLeaders
-
-}
-*/
-
 func (et *epochTracker) applyEpochChangeDigest(hashResult *pb.HashResult_EpochChange, digest []byte) *Actions {
 	targetNumber := hashResult.EpochChange.NewEpoch
 	switch {
@@ -390,25 +346,6 @@ func (et *epochTracker) applyEpochChangeDigest(hashResult *pb.HashResult_EpochCh
 
 	}
 }
-
-// Summary of Bracha reliable broadcast from:
-//   https://dcl.epfl.ch/site/_media/education/sdc_byzconsensus.pdf
-//
-// upon r-broadcast(m): // only Ps
-// send message (SEND, m) to all
-//
-// upon reteiving a message (SEND, m) from Ps:
-// send message (ECHO, m) to all
-//
-// upon reteiving ceil((n+t+1)/2)
-// e messages(ECHO, m) and not having sent a READY message:
-// send message (READY, m) to all
-//
-// upon reteiving t+1 messages(READY, m) and not having sent a READY message:
-// send message (READY, m) to all
-//
-// upon reteiving 2t + 1 messages (READY, m):
-// r-deliver(m)
 
 func (et *epochTracker) status() *status.EpochTracker {
 	targets := make([]*status.EpochTarget, 0, len(et.targets))

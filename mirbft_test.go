@@ -153,7 +153,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("the third node starts late", func() {
 		BeforeEach(func() {
-			recorder.Mangler = Until(MatchMsgs().FromNodes(1).OfTypeCommit().WithSequence(5)).Do(For(MatchNodeStartup().ForNode(3)).Delay(500))
+			recorder.Mangler = Until(MatchMsgs().FromNode(1).OfTypeCheckpoint().WithSequence(20)).Do(For(MatchNodeStartup().ForNode(3)).Delay(500))
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
