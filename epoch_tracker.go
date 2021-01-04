@@ -28,6 +28,10 @@ type epochTracker struct {
 	clientTracker *clientTracker
 	futureMsgs    map[nodeID]*msgBuffer
 	targets       map[uint64]*epochTarget
+
+	maxEpochs              map[nodeID]uint64
+	maxCorrectEpoch        uint64
+	ticksOutOfCorrectEpoch int
 }
 
 func newEpochTracker(
@@ -49,6 +53,7 @@ func newEpochTracker(
 		batchTracker:  batchTracker,
 		clientTracker: clientTracker,
 		targets:       map[uint64]*epochTarget{},
+		maxEpochs:     map[nodeID]uint64{},
 	}
 }
 
@@ -191,6 +196,9 @@ func (et *epochTracker) advanceState() *Actions {
 	}
 
 	newEpochNumber := et.currentEpoch.number + 1
+	if et.maxCorrectEpoch > newEpochNumber {
+		newEpochNumber = et.maxCorrectEpoch
+	}
 	epochChange := et.persisted.constructEpochChange(newEpochNumber)
 
 	myEpochChange, err := newParsedEpochChange(epochChange)
@@ -271,16 +279,23 @@ func (et *epochTracker) filter(_ nodeID, msg *pb.Msg) applyable {
 }
 
 func (et *epochTracker) step(source nodeID, msg *pb.Msg) *Actions {
-	switch et.filter(source, msg) {
-	case past:
+	epochNumber := epochForMsg(msg)
+
+	switch {
+	case epochNumber < et.currentEpoch.number:
+		// past
 		return &Actions{}
-	case future:
+	case epochNumber > et.currentEpoch.number:
+		// future
+		maxEpoch := et.maxEpochs[source]
+		if maxEpoch < epochNumber {
+			et.maxEpochs[source] = epochNumber
+		}
 		et.futureMsgs[source].store(msg)
 		return &Actions{}
-	case current:
-		return et.applyMsg(source, msg)
 	default:
-		panic("expected msg to be past, current, or future")
+		// current
+		return et.applyMsg(source, msg)
 	}
 }
 
@@ -326,6 +341,34 @@ func (et *epochTracker) applyBatchHashResult(epoch, seqNo uint64, digest []byte)
 }
 
 func (et *epochTracker) tick() *Actions {
+	for _, maxEpoch := range et.maxEpochs {
+		if maxEpoch <= et.maxCorrectEpoch {
+			continue
+		}
+		matches := 1
+		for _, matchingEpoch := range et.maxEpochs {
+			if matchingEpoch < maxEpoch {
+				continue
+			}
+			matches++
+		}
+
+		if matches < someCorrectQuorum(et.networkConfig) {
+			continue
+		}
+
+		et.maxCorrectEpoch = maxEpoch
+	}
+
+	if et.maxCorrectEpoch > et.currentEpoch.number {
+		et.ticksOutOfCorrectEpoch++
+
+		// TODO make this configurable
+		if et.ticksOutOfCorrectEpoch > 10 {
+			et.currentEpoch.state = etDone
+		}
+	}
+
 	return et.currentEpoch.tick()
 }
 

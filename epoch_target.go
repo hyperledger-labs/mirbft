@@ -343,14 +343,15 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 func (et *epochTarget) tick() *Actions {
 	et.stateTicks++
-	switch et.state {
-	case etPrepending:
+	if et.state == etPrepending {
+		// Waiting for a quorum of epoch changes
 		return et.tickPrepending()
-	case etPending:
+	} else if et.state <= etResuming {
+		// Waiting for the new epoch config
 		return et.tickPending()
-	case etInProgress:
+	} else if et.state <= etInProgress {
+		// Active in the epoch
 		return et.activeEpoch.tick()
-	default: // case done:
 	}
 
 	return &Actions{}
@@ -448,7 +449,7 @@ func (et *epochTarget) applyEpochChangeMsg(source nodeID, msg *pb.EpochChange) *
 }
 
 func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg *pb.EpochChange) *Actions {
-	// TODO, make sure nodemsgs prevents us from receiving an epoch change twice
+	// TODO, prevent multiple different acks from the same source for the same target
 	hashRequest := &HashRequest{
 		Data: epochChangeHashData(msg),
 		Origin: &pb.HashResult{

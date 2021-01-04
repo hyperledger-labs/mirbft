@@ -289,11 +289,14 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 				Value: cEntry.CheckpointValue,
 			})
 		},
-		onECEntry: func(ecEntry *pb.ECEntry) {
-			if logEpoch != nil && *logEpoch+1 != ecEntry.EpochNumber {
-				panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", ecEntry.EpochNumber, *logEpoch))
-			}
-		},
+		/*
+		// This is actually okay, since we could be catching up and need to skip epochs
+				onECEntry: func(ecEntry *pb.ECEntry) {
+					if logEpoch != nil && *logEpoch+1 != ecEntry.EpochNumber {
+						panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", ecEntry.EpochNumber, *logEpoch))
+					}
+				},
+		*/
 	})
 
 	return newEpochChange
