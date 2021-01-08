@@ -390,10 +390,11 @@ message StateEvent {
 	OutstandingRequest load_request = 3;
 	LoadCompleted complete_initialization = 4;
         ActionResults add_results = 5;
-        Proposal propose = 6;
-        InboundMsg step = 7;
-	TickElapsed tick = 8;
-	Ready actions_received = 9;
+        CEntry Transfer = 6;
+        Proposal propose = 7;
+        InboundMsg step = 8;
+	TickElapsed tick = 9;
+	Ready actions_received = 10;
     }
 }
 

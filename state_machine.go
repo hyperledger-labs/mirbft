@@ -158,6 +158,9 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		actions.concat(sm.processResults(
 			event.AddResults,
 		))
+	case *pb.StateEvent_Transfer:
+		// TODO, check that we are in state transfer
+		panic("IMPLEMENTING STATE TRANSFER")
 	case *pb.StateEvent_ActionsReceived:
 		// This is a bit odd, in that it's a no-op, but it's harmless
 		// and allows for much more insightful playback events (allowing

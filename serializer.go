@@ -24,15 +24,16 @@ type clientReq struct {
 // serializer provides a single threaded way to access the Mir state machine
 // and passes work to/from the state machine.
 type serializer struct {
-	actionsC chan Actions
-	doneC    chan struct{}
-	clientC  chan *clientReq
-	propC    chan *pb.StateEvent_Proposal
-	resultsC chan *pb.StateEvent_ActionResults
-	statusC  chan chan<- *status.StateMachine
-	stepC    chan *pb.StateEvent_Step
-	tickC    chan struct{}
-	errC     chan struct{}
+	actionsC  chan Actions
+	doneC     chan struct{}
+	clientC   chan *clientReq
+	propC     chan *pb.StateEvent_Proposal
+	resultsC  chan *pb.StateEvent_ActionResults
+	transferC chan *pb.StateEvent_Transfer
+	statusC   chan chan<- *status.StateMachine
+	stepC     chan *pb.StateEvent_Step
+	tickC     chan struct{}
+	errC      chan struct{}
 
 	myConfig   *Config
 	walStorage WALStorage
@@ -51,6 +52,7 @@ func newSerializer(myConfig *Config, walStorage WALStorage, reqStorage RequestSt
 		propC:      make(chan *pb.StateEvent_Proposal),
 		clientC:    make(chan *clientReq),
 		resultsC:   make(chan *pb.StateEvent_ActionResults),
+		transferC:  make(chan *pb.StateEvent_Transfer),
 		statusC:    make(chan chan<- *status.StateMachine),
 		stepC:      make(chan *pb.StateEvent_Step),
 		tickC:      make(chan struct{}),
@@ -219,6 +221,10 @@ func (s *serializer) run() (exitErr error) {
 				Type: &pb.StateEvent_ActionsReceived{
 					ActionsReceived: &pb.StateEvent_Ready{},
 				},
+			})
+		case transfer := <-s.transferC:
+			err = applyEvent(&pb.StateEvent{
+				Type: transfer,
 			})
 		case results := <-s.resultsC:
 			err = applyEvent(&pb.StateEvent{

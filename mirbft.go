@@ -387,7 +387,7 @@ func (n *Node) Tick() error {
 // AddResults is a callback from the consumer to the state machine, informing the
 // state machine that Actions have been carried out, and the result of those
 // Actions is applicable.  In the case that the node is stopped, it returns
-// ErrStopped, otherwise nil is returned.
+// the exit error otherwise nil is returned.
 func (n *Node) AddResults(results ActionResults) error {
 	stateEventResults := &pb.StateEvent_ActionResults{
 		Digests:     make([]*pb.HashResult, len(results.Digests)),
@@ -414,6 +414,44 @@ func (n *Node) AddResults(results ActionResults) error {
 
 	select {
 	case n.s.resultsC <- stateEventResults:
+		return nil
+	case <-n.s.errC:
+		return n.s.getExitErr()
+	}
+}
+
+// StateTransferComplete should be called by the consumer in response to a StateTransfer action
+// once state transfer has completed.  In the case that the node is stopped, it returns
+// the exit error, otherwise nil is returned.
+func (n *Node) StateTransferComplete(stateTarget *StateTarget, networkState *pb.NetworkState) error {
+	select {
+	case n.s.transferC <- &pb.StateEvent_Transfer{
+		Transfer: &pb.CEntry{
+			SeqNo:           stateTarget.SeqNo,
+			CheckpointValue: stateTarget.Value,
+			NetworkState:    networkState,
+		},
+	}:
+		return nil
+	case <-n.s.errC:
+		return n.s.getExitErr()
+	}
+}
+
+// StateTransferFailed should be called by the consumerr in response to a StateTransfer action
+// if a state transfer is unable to complete.  This should only be called when the state target is
+// unavailable because it has been garbage collected at all correct nodes.  This call will trigger
+// the state machine to request another state transfer to the latest known state target (which
+// may be the same target in the event that the network has stalled).
+func (n *Node) StateTransferFailed(stateTarget *StateTarget) error {
+	select {
+	case n.s.transferC <- &pb.StateEvent_Transfer{
+		Transfer: &pb.CEntry{
+			SeqNo:           stateTarget.SeqNo,
+			CheckpointValue: stateTarget.Value,
+			NetworkState:    nil, // nil state indicates error
+		},
+	}:
 		return nil
 	case <-n.s.errC:
 		return n.s.getExitErr()
