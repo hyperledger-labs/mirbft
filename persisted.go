@@ -19,6 +19,7 @@ type logIterator struct {
 	onNEntry   func(*pb.NEntry)
 	onFEntry   func(*pb.FEntry)
 	onECEntry  func(*pb.ECEntry)
+	onTEntry   func(*pb.TEntry)
 	onSuspect  func(*pb.Suspect)
 	shouldExit func() bool
 	// TODO, suspect_ready
@@ -142,6 +143,16 @@ func (p *persisted) addECEntry(ecEntry *pb.ECEntry) *Actions {
 	return p.appendLogEntry(d)
 }
 
+func (p *persisted) addTEntry(tEntry *pb.TEntry) *Actions {
+	d := &pb.Persistent{
+		Type: &pb.Persistent_TEntry{
+			TEntry: tEntry,
+		},
+	}
+
+	return p.appendLogEntry(d)
+}
+
 func (p *persisted) truncate(lowWatermark uint64) *Actions {
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
 		switch d := logEntry.entry.Type.(type) {
@@ -211,6 +222,10 @@ func (p *persisted) iterate(li logIterator) {
 		case *pb.Persistent_ECEntry:
 			if li.onECEntry != nil {
 				li.onECEntry(d.ECEntry)
+			}
+		case *pb.Persistent_TEntry:
+			if li.onTEntry != nil {
+				li.onTEntry(d.TEntry)
 			}
 		case *pb.Persistent_Suspect:
 			if li.onSuspect != nil {
@@ -290,12 +305,12 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 			})
 		},
 		/*
-		// This is actually okay, since we could be catching up and need to skip epochs
-				onECEntry: func(ecEntry *pb.ECEntry) {
-					if logEpoch != nil && *logEpoch+1 != ecEntry.EpochNumber {
-						panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", ecEntry.EpochNumber, *logEpoch))
-					}
-				},
+			// This is actually okay, since we could be catching up and need to skip epochs
+					onECEntry: func(ecEntry *pb.ECEntry) {
+						if logEpoch != nil && *logEpoch+1 != ecEntry.EpochNumber {
+							panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", ecEntry.EpochNumber, *logEpoch))
+						}
+					},
 		*/
 	})
 

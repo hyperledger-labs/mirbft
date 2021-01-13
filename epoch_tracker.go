@@ -77,6 +77,7 @@ func (et *epochTracker) reinitialize() *Actions {
 	var lastNEntry *pb.NEntry
 	var lastECEntry *pb.ECEntry
 	var lastFEntry *pb.FEntry
+	var highestPreprepared uint64
 
 	et.persisted.iterate(logIterator{
 		onNEntry: func(nEntry *pb.NEntry) {
@@ -87,6 +88,11 @@ func (et *epochTracker) reinitialize() *Actions {
 		},
 		onECEntry: func(ecEntry *pb.ECEntry) {
 			lastECEntry = ecEntry
+		},
+		onQEntry: func(qEntry *pb.QEntry) {
+			if qEntry.SeqNo > highestPreprepared {
+				highestPreprepared = qEntry.SeqNo
+			}
 		},
 
 		// TODO, implement
@@ -126,6 +132,18 @@ func (et *epochTracker) reinitialize() *Actions {
 			et.myConfig,
 			et.logger,
 		)
+
+		startingSeqNo := highestPreprepared + 1
+		for startingSeqNo%uint64(et.networkConfig.CheckpointInterval) != 1 {
+			// Advance the starting seqno to the first sequence after
+			// some checkpoint.  This ensures we do not start consenting
+			// on sequences we have already consented on.  If we have
+			// startingSeqNo != highestPreprepared + 1 after this loop,
+			// then state transfer will be required, though we do
+			// not have a state target yet.
+			startingSeqNo++
+		}
+		et.currentEpoch.startingSeqNo = startingSeqNo
 		et.currentEpoch.state = etResuming
 		suspect := &pb.Suspect{
 			Epoch: lastNEntry.EpochConfig.Number,

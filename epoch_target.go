@@ -194,14 +194,18 @@ func (et *epochTarget) verifyNewEpochState() *Actions {
 }
 
 func (et *epochTarget) fetchNewEpochState() *Actions {
-	actions := &Actions{}
-
 	newEpochConfig := et.leaderNewEpoch.NewConfig
 
-	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.highestCommit {
-		panic("we need checkpoint state transfer to handle this case")
+	if et.commitState.transferring {
+		// Wait until state transfer completes before attempting to process the new view
+		return &Actions{}
 	}
 
+	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.highestCommit {
+		return et.commitState.transferTo(newEpochConfig.StartingCheckpoint.SeqNo, newEpochConfig.StartingCheckpoint.Value)
+	}
+
+	actions := &Actions{}
 	fetchPending := false
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
@@ -663,12 +667,19 @@ func (et *epochTarget) checkNewEpochReadyQuorum() {
 
 func (et *epochTarget) checkEpochResumed() {
 	// fmt.Printf("JKY: checking if epoch resumed\n")
-	if et.commitState.stopAtSeqNo < et.startingSeqNo {
-		return
+	switch {
+	case et.commitState.stopAtSeqNo < et.startingSeqNo:
+		// we are waiting for a checkpoint to commit
+	case et.commitState.lowWatermark+1 != et.startingSeqNo:
+		// we are waiting for state transfer to initiate and complete
+	default:
+		// There is room to allocate sequences, and the commit
+		// state is ready for those sequences to commit, begin
+		// processing the epoch.
+		et.state = etReady
+		// fmt.Printf("JKY: it is resumed!\n")
 	}
 
-	// fmt.Printf("JKY: it is resumed!\n")
-	et.state = etReady
 }
 
 func (et *epochTarget) advanceState() *Actions {

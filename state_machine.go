@@ -159,8 +159,12 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 			event.AddResults,
 		))
 	case *pb.StateEvent_Transfer:
-		// TODO, check that we are in state transfer
-		panic("IMPLEMENTING STATE TRANSFER")
+		if !sm.commitState.transferring {
+			panic("state transfer event received but the state machine did not request transfer")
+		}
+
+		sm.persisted.addCEntry(event.Transfer)
+		actions.concat(sm.reinitialize())
 	case *pb.StateEvent_ActionsReceived:
 		// This is a bit odd, in that it's a no-op, but it's harmless
 		// and allows for much more insightful playback events (allowing
@@ -227,7 +231,7 @@ func (sm *StateMachine) reinitialize() *Actions {
 		)
 	}
 
-	sm.commitState.reinitialize()
+	actions.concat(sm.commitState.reinitialize())
 	sm.checkpointTracker.reinitialize()
 	sm.batchTracker.reinitialize()
 	return actions.concat(sm.epochTracker.reinitialize())

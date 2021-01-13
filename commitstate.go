@@ -35,6 +35,7 @@ type commitState struct {
 	lowerHalfCommits  []*pb.QEntry
 	upperHalfCommits  []*pb.QEntry
 	checkpointPending bool
+	transferring      bool
 }
 
 func newCommitState(persisted *persisted, clientTracker *clientTracker) *commitState {
@@ -46,12 +47,16 @@ func newCommitState(persisted *persisted, clientTracker *clientTracker) *commitS
 	return cs
 }
 
-func (cs *commitState) reinitialize() {
+func (cs *commitState) reinitialize() *Actions {
 	var lastCEntry, secondToLastCEntry *pb.CEntry
+	var lastTEntry *pb.TEntry
 
 	cs.persisted.iterate(logIterator{
 		onCEntry: func(cEntry *pb.CEntry) {
 			lastCEntry, secondToLastCEntry = cEntry, lastCEntry
+		},
+		onTEntry: func(tEntry *pb.TEntry) {
+			lastTEntry = tEntry
 		},
 	})
 
@@ -76,12 +81,44 @@ func (cs *commitState) reinitialize() {
 	cs.lowerHalfCommits = make([]*pb.QEntry, ci)
 	cs.upperHalfCommits = make([]*pb.QEntry, ci)
 
-	// fmt.Printf("JKY: initialized stopAtSeqNo to %d -- lowWatermark=%d pc=%d lastCEntry=%d\n", cs.stopAtSeqNo, cs.lowWatermark, len(cs.activeState.PendingReconfigurations), lastCEntry.SeqNo)
+	if lastTEntry == nil || lastCEntry.SeqNo >= lastTEntry.SeqNo {
+		// fmt.Printf("JKY: initialized stopAtSeqNo to %d -- lowWatermark=%d pc=%d lastCEntry=%d\n", cs.stopAtSeqNo, cs.lowWatermark, len(cs.activeState.PendingReconfigurations), lastCEntry.SeqNo)
+		return &Actions{}
+	}
+
+	// We crashed during a state transfer
+	cs.transferring = true
+	return &Actions{
+		StateTransfer: &StateTarget{
+			SeqNo: lastTEntry.SeqNo,
+			Value: lastTEntry.Value,
+		},
+	}
+}
+
+func (cs *commitState) transferTo(seqNo uint64, value []byte) *Actions {
+	if cs.transferring {
+		panic("dev sanity test -- a state transfer is already in progress")
+	}
+	cs.transferring = true
+	return cs.persisted.addTEntry(&pb.TEntry{
+		SeqNo: seqNo,
+		Value: value,
+	}).concat(&Actions{
+		StateTransfer: &StateTarget{
+			SeqNo: seqNo,
+			Value: value,
+		},
+	})
 }
 
 func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result *pb.CheckpointResult) *Actions {
 	// fmt.Printf("JKY: Applying checkpoint result for seqNo=%d\n", result.SeqNo)
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
+
+	if cs.transferring {
+		return &Actions{}
+	}
 
 	if result.SeqNo != cs.lowWatermark+ci {
 		panic("dev sanity test -- should remove as we could get stale checkpoint results")
@@ -116,6 +153,10 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 }
 
 func (cs *commitState) commit(qEntry *pb.QEntry) {
+	if cs.transferring {
+		panic("dev sanity test -- we should never commit during state transfer")
+	}
+
 	if qEntry.SeqNo > cs.stopAtSeqNo {
 		panic(fmt.Sprintf("dev sanity test -- asked to commit %d, but we asked to stop at %d", qEntry.SeqNo, cs.stopAtSeqNo))
 	}
