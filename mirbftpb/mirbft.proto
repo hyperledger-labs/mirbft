@@ -397,7 +397,7 @@ message StateEvent {
 	OutstandingRequest load_request = 3;
 	LoadCompleted complete_initialization = 4;
         ActionResults add_results = 5;
-        CEntry Transfer = 6;
+        CEntry Transfer = 6; // XXX probably wrap this?
         Proposal propose = 7;
         InboundMsg step = 8;
 	TickElapsed tick = 9;

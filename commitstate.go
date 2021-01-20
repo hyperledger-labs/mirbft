@@ -83,6 +83,7 @@ func (cs *commitState) reinitialize() *Actions {
 
 	if lastTEntry == nil || lastCEntry.SeqNo >= lastTEntry.SeqNo {
 		// fmt.Printf("JKY: initialized stopAtSeqNo to %d -- lowWatermark=%d pc=%d lastCEntry=%d\n", cs.stopAtSeqNo, cs.lowWatermark, len(cs.activeState.PendingReconfigurations), lastCEntry.SeqNo)
+		cs.transferring = false
 		return &Actions{}
 	}
 

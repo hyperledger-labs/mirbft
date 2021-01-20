@@ -180,8 +180,10 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 		eventTypeText = "ActionsReceived"
 	case *pb.StateEvent_Step:
 		eventTypeText = "Step"
+	case *pb.StateEvent_Transfer:
+		eventTypeText = "StateTransfer"
 	default:
-		panic("Unknown event type")
+		panic(fmt.Sprintf("Unknown event type '%T'", event.StateEvent.Type))
 	}
 
 	if excludeByType(eventTypeText, a.eventTypes, a.notEventTypes) {
@@ -235,8 +237,10 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 		if excludeByType(stepTypeText, a.stepTypes, a.notStepTypes) {
 			return false
 		}
+	case *pb.StateEvent_Transfer:
+		eventTypeText = "StateTransfer"
 	default:
-		panic("Unknown event type")
+		panic(fmt.Sprintf("Unknown event type '%T'", event.StateEvent.Type))
 	}
 
 	return true

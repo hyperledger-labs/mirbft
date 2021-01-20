@@ -426,6 +426,9 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		case actions := <-node.Ready():
 			results := process(&actions)
 			node.AddResults(*results)
+			if actions.StateTransfer != nil {
+				panic("we need to implement state transfer for these tests")
+			}
 		case <-node.Err():
 			return node.Status(context.Background())
 		case <-ticker.C:

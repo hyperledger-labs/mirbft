@@ -198,10 +198,12 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 
 	if et.commitState.transferring {
 		// Wait until state transfer completes before attempting to process the new view
+		// fmt.Printf("JKY: waiting on state transfer\n")
 		return &Actions{}
 	}
 
 	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.highestCommit {
+		fmt.Printf("JKY: transferring!\n")
 		return et.commitState.transferTo(newEpochConfig.StartingCheckpoint.SeqNo, newEpochConfig.StartingCheckpoint.Value)
 	}
 

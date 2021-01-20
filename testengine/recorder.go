@@ -38,13 +38,14 @@ type RecorderNodeConfig struct {
 }
 
 type RuntimeParameters struct {
-	TickInterval   int
-	LinkLatency    int
-	ReadyLatency   int
-	ProcessLatency int
-	PersistLatency int
-	WALReadDelay   int
-	ReqReadDelay   int
+	TickInterval         int
+	LinkLatency          int
+	ReadyLatency         int
+	ProcessLatency       int
+	PersistLatency       int
+	WALReadDelay         int
+	ReqReadDelay         int
+	StateTransferLatency int
 }
 
 type ReqStore struct {
@@ -109,7 +110,7 @@ func NewWAL(initialState *pb.NetworkState, initialCP []byte) *WAL {
 
 func (wal *WAL) Append(index uint64, p *pb.Persistent) {
 	if index != wal.LowIndex+uint64(wal.List.Len()) {
-		panic(fmt.Sprintf("WAL out of order: expect next index %d, but got %d", wal.LowIndex+uint64(wal.List.Len())+1, index))
+		panic(fmt.Sprintf("WAL out of order: expect next index %d, but got %d", wal.LowIndex+uint64(wal.List.Len()), index))
 	}
 
 	wal.List.PushBack(p)
@@ -174,20 +175,53 @@ func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.Request {
 }
 
 type NodeState struct {
-	Hasher                  hash.Hash
-	Value                   []byte
-	Length                  uint64
+	Hasher                  Hasher
+	ActiveHash              hash.Hash
+	LastSeqNo               uint64
 	ReconfigPoints          []*ReconfigPoint
 	PendingReconfigurations []*pb.Reconfiguration
+	Checkpoints             *list.List
+	CheckpointsBySeqNo      map[uint64]*list.Element
+}
+
+func (ns *NodeState) Set(seqNo uint64, value []byte, networkState *pb.NetworkState) *pb.CheckpointResult {
+	ns.ActiveHash = ns.Hasher()
+
+	checkpoint := &pb.CheckpointResult{
+		SeqNo:        seqNo,
+		NetworkState: networkState,
+		Value:        value,
+	}
+
+	ns.LastSeqNo = seqNo
+
+	el := ns.Checkpoints.PushBack(checkpoint)
+	ns.CheckpointsBySeqNo[seqNo] = el
+	if ns.Checkpoints.Len() > 100 {
+		// prevent the size of the storage from growing indefinitely,
+		// keep only the last 100 checkpoints.
+		del := ns.Checkpoints.Remove(ns.Checkpoints.Front())
+		delete(ns.CheckpointsBySeqNo, del.(*pb.CheckpointResult).SeqNo)
+	}
+
+	return checkpoint
+}
+
+func (ns *NodeState) LastCheckpoint() *pb.CheckpointResult {
+	return ns.Checkpoints.Back().Value.(*pb.CheckpointResult)
 }
 
 func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*pb.CheckpointResult {
 	var results []*pb.CheckpointResult
 	for _, commit := range commits {
 		if commit.Batch != nil {
+			ns.LastSeqNo++
+			if commit.Batch.SeqNo != ns.LastSeqNo {
+				panic(fmt.Sprintf("unexpected out of order commit sequence number, expected %d, got %d", ns.LastSeqNo, commit.Batch.SeqNo))
+			}
+
 			for _, request := range commit.Batch.Requests {
-				ns.Hasher.Write(request.Digest)
-				ns.Length++
+				ns.ActiveHash.Write(request.Digest)
 
 				for _, reconfigPoint := range ns.ReconfigPoints {
 					if reconfigPoint.ClientID == request.ClientId &&
@@ -201,19 +235,22 @@ func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*pb.Checkpo
 		}
 
 		// We must have a checkpoint
-		// XXX include the network config stuff into the value
 
-		results = append(results, &pb.CheckpointResult{
-			SeqNo: commit.Checkpoint.SeqNo,
-			NetworkState: &pb.NetworkState{
+		if commit.Checkpoint.SeqNo != ns.LastSeqNo {
+			panic("asked to checkpoint for uncommitted sequence")
+		}
+
+		checkpoint := ns.Set(
+			commit.Checkpoint.SeqNo,
+			ns.ActiveHash.Sum(nil),
+			&pb.NetworkState{
 				Config:  commit.Checkpoint.NetworkConfig,
 				Clients: commit.Checkpoint.ClientsState,
 			},
-			Value: ns.Hasher.Sum(nil),
-		})
-	}
+		)
 
-	ns.Value = ns.Hasher.Sum(nil)
+		results = append(results, checkpoint)
+	}
 
 	return results
 
@@ -260,7 +297,9 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
 		nodeID := uint64(i)
 
-		wal := NewWAL(r.NetworkState, []byte("fake-initial-value"))
+		checkpointValue := []byte("fake-initial-value")
+
+		wal := NewWAL(r.NetworkState, checkpointValue)
 
 		eventLog.InsertStateEvent(
 			nodeID,
@@ -272,11 +311,15 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 			0,
 		)
 
+		nodeState := &NodeState{
+			Hasher:             r.Hasher,
+			ReconfigPoints:     r.ReconfigPoints,
+			Checkpoints:        list.New(),
+			CheckpointsBySeqNo: map[uint64]*list.Element{},
+		}
+
 		nodes[i] = &RecorderNode{
-			State: &NodeState{
-				Hasher:         r.Hasher(),
-				ReconfigPoints: r.ReconfigPoints,
-			},
+			State:        nodeState,
 			WAL:          wal,
 			ReqStore:     NewReqStore(),
 			PlaybackNode: player.Node(uint64(i)),
@@ -328,24 +371,31 @@ func (r *Recording) Step() error {
 	playbackNode := node.PlaybackNode
 	nodeState := node.State
 
-	switch lastEvent.StateEvent.Type.(type) {
+	switch stateEvent := lastEvent.StateEvent.Type.(type) {
 	case *pb.StateEvent_Tick:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	case *pb.StateEvent_AddResults:
-		nodeStatus := node.PlaybackNode.Status
-		for _, rw := range nodeStatus.ClientWindows {
+		// fmt.Printf("JKY: checking clients\n")
+		for _, rw := range nodeState.LastCheckpoint().NetworkState.Clients {
+			// fmt.Printf("JKY: checking client %d\n", rw.Id)
 			for _, client := range r.Clients {
-				if client.Config.ID != rw.ClientID {
+				if client.Config.ID != rw.Id {
 					continue
 				}
 
-				for i := client.NextNodeReqNoSend[lastEvent.NodeId]; i <= rw.HighWatermark; i++ {
+				highWatermark := rw.LowWatermark + uint64(rw.Width) - uint64(rw.WidthConsumedLastCheckpoint)
+
+				// fmt.Printf("JKY: client highWatermark %d next reqno to send is %d\n", highWatermark, client.NextNodeReqNoSend[lastEvent.NodeId])
+
+				for i := client.NextNodeReqNoSend[lastEvent.NodeId]; i < highWatermark && i < client.Config.Total; i++ {
 					req := client.RequestByReqNo(i)
 					if req == nil {
 						continue
 					}
 					r.EventLog.InsertProposeEvent(lastEvent.NodeId, req, int64(client.Config.TxLatency))
 					client.NextNodeReqNoSend[lastEvent.NodeId] = i + 1
+
+					// fmt.Printf("  JKY: proposed request %d\n", req.ReqNo)
 				}
 			}
 		}
@@ -421,6 +471,37 @@ func (r *Recording) Step() error {
 			},
 			int64(runtimeParms.ReadyLatency),
 		)
+
+		if processing.StateTransfer != nil {
+			// fmt.Printf("JKY: got transfer request in testengine  <===========================\n")
+			var networkState *pb.NetworkState
+			for _, node := range r.Nodes {
+				el, ok := node.State.CheckpointsBySeqNo[processing.StateTransfer.SeqNo]
+				if !ok {
+					// if no node has the state, networkState will be nil
+					// which signals to the state machine to try another target
+					continue
+				}
+
+				networkState = el.Value.(*pb.CheckpointResult).NetworkState
+				break
+			}
+			r.EventLog.InsertStateEvent(
+				lastEvent.NodeId,
+				&pb.StateEvent{
+					Type: &pb.StateEvent_Transfer{
+						Transfer: &pb.CEntry{
+							SeqNo:           processing.StateTransfer.SeqNo,
+							CheckpointValue: processing.StateTransfer.Value,
+							NetworkState:    networkState,
+						},
+					},
+				},
+				int64(runtimeParms.StateTransferLatency),
+			)
+		} else {
+			// fmt.Printf("JKY: no transfer request\n")
+		}
 	case *pb.StateEvent_Initialize:
 		// If this is an Initialize, it is either the first event for the node,
 		// and nothing else is in the log, or, it is a restart.  In the case of
@@ -439,6 +520,8 @@ func (r *Recording) Step() error {
 
 		delay := int64(0)
 
+		var maxCEntry *pb.CEntry
+
 		node.WAL.LoadAll(func(index uint64, p *pb.Persistent) {
 			delay += int64(runtimeParms.WALReadDelay)
 			r.EventLog.InsertStateEvent(
@@ -453,7 +536,13 @@ func (r *Recording) Step() error {
 				},
 				delay,
 			)
+
+			if cEntryT, ok := p.Type.(*pb.Persistent_CEntry); ok {
+				maxCEntry = cEntryT.CEntry
+			}
 		})
+
+		nodeState.Set(maxCEntry.SeqNo, maxCEntry.CheckpointValue, maxCEntry.NetworkState)
 
 		node.ReqStore.Uncommitted(func(ack *pb.RequestAck) {
 			delay += int64(runtimeParms.ReqReadDelay)
@@ -481,6 +570,9 @@ func (r *Recording) Step() error {
 		)
 	case *pb.StateEvent_LoadEntry:
 	case *pb.StateEvent_LoadRequest:
+	case *pb.StateEvent_Transfer:
+		// fmt.Printf("JKY: Applying transfer to recorder state\n")
+		node.State.Set(stateEvent.Transfer.SeqNo, stateEvent.Transfer.CheckpointValue, stateEvent.Transfer.NetworkState)
 	case *pb.StateEvent_CompleteInitialization:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	default:
@@ -492,6 +584,9 @@ func (r *Recording) Step() error {
 		!node.AwaitingProcessEvent {
 		r.EventLog.InsertProcess(lastEvent.NodeId, int64(runtimeParms.ProcessLatency))
 		node.AwaitingProcessEvent = true
+		// fmt.Printf("JKY: inserting process event\n")
+	} else {
+		// fmt.Printf("JKY: not inserting process event: %v %v %v\n", playbackNode.Processing == nil, !isEmpty(playbackNode.Actions), !node.AwaitingProcessEvent)
 	}
 
 	return nil
@@ -503,7 +598,8 @@ func isEmpty(actions *mirbft.Actions) bool {
 		len(actions.Hash) == 0 &&
 		len(actions.StoreRequests) == 0 &&
 		len(actions.ForwardRequests) == 0 &&
-		len(actions.Commits) == 0
+		len(actions.Commits) == 0 &&
+		actions.StateTransfer == nil
 }
 
 // DrainClients will execute the recording until all client requests have committed.
@@ -511,9 +607,9 @@ func isEmpty(actions *mirbft.Actions) bool {
 // If any step returns an error, this function returns that error.
 func (r *Recording) DrainClients(timeout int) (count int, err error) {
 
-	totalReqs := uint64(0)
+	targetReqs := map[uint64]uint64{}
 	for _, client := range r.Clients {
-		totalReqs += client.Config.Total
+		targetReqs[client.Config.ID] = client.Config.Total
 	}
 
 	for {
@@ -524,10 +620,13 @@ func (r *Recording) DrainClients(timeout int) (count int, err error) {
 		}
 
 		allDone := true
+	outer:
 		for _, node := range r.Nodes {
-			if node.State.Length < totalReqs {
-				allDone = false
-				break
+			for _, client := range node.State.LastCheckpoint().NetworkState.Clients {
+				if targetReqs[client.Id] != client.LowWatermark {
+					allDone = false
+					break outer
+				}
 			}
 		}
 
@@ -536,7 +635,15 @@ func (r *Recording) DrainClients(timeout int) (count int, err error) {
 		}
 
 		if count > timeout {
-			return 0, errors.Errorf("timed out after %d entries", count)
+			var errText string
+			for _, node := range r.Nodes {
+				for _, client := range node.State.LastCheckpoint().NetworkState.Clients {
+					if targetReqs[client.Id] != client.LowWatermark {
+						errText = fmt.Sprintf("(at least) node%d failed with client %d committing only through %d when expected %d", node.Config.InitParms.Id, client.Id, targetReqs[client.Id], client.LowWatermark)
+					}
+				}
+			}
+			return 0, errors.Errorf("timed out after %d entries:%s", count, errText)
 		}
 	}
 }
@@ -554,11 +661,12 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 				BatchSize:            1,
 			},
 			RuntimeParms: &RuntimeParameters{
-				TickInterval:   500,
-				LinkLatency:    100,
-				ReadyLatency:   50,
-				ProcessLatency: 10,
-				PersistLatency: 10,
+				TickInterval:         500,
+				LinkLatency:          100,
+				ReadyLatency:         50,
+				ProcessLatency:       10,
+				PersistLatency:       10,
+				StateTransferLatency: 800,
 			},
 		})
 	}

@@ -17,17 +17,18 @@ import (
 )
 
 type epochTracker struct {
-	currentEpoch  *epochTarget
-	persisted     *persisted
-	nodeBuffers   *nodeBuffers
-	commitState   *commitState
-	networkConfig *pb.NetworkState_Config
-	logger        Logger
-	myConfig      *pb.StateEvent_InitialParameters
-	batchTracker  *batchTracker
-	clientTracker *clientTracker
-	futureMsgs    map[nodeID]*msgBuffer
-	targets       map[uint64]*epochTarget
+	currentEpoch       *epochTarget
+	persisted          *persisted
+	nodeBuffers        *nodeBuffers
+	commitState        *commitState
+	networkConfig      *pb.NetworkState_Config
+	logger             Logger
+	myConfig           *pb.StateEvent_InitialParameters
+	batchTracker       *batchTracker
+	clientTracker      *clientTracker
+	futureMsgs         map[nodeID]*msgBuffer
+	targets            map[uint64]*epochTarget
+	needsStateTransfer bool
 
 	maxEpochs              map[nodeID]uint64
 	maxCorrectEpoch        uint64
@@ -94,6 +95,13 @@ func (et *epochTracker) reinitialize() *Actions {
 				highestPreprepared = qEntry.SeqNo
 			}
 		},
+		onCEntry: func(cEntry *pb.CEntry) {
+			// In the state transfer case, we may
+			// have a CEntry for a seqno we have no QEntry
+			if cEntry.SeqNo > highestPreprepared {
+				highestPreprepared = cEntry.SeqNo
+			}
+		},
 
 		// TODO, implement
 		onSuspect: func(*pb.Suspect) {},
@@ -142,6 +150,7 @@ func (et *epochTracker) reinitialize() *Actions {
 			// then state transfer will be required, though we do
 			// not have a state target yet.
 			startingSeqNo++
+			et.needsStateTransfer = true
 		}
 		et.currentEpoch.startingSeqNo = startingSeqNo
 		et.currentEpoch.state = etResuming
@@ -154,7 +163,7 @@ func (et *epochTracker) reinitialize() *Actions {
 				Suspect: suspect,
 			},
 		})
-		fmt.Printf("JKY: starting mid-epoch!\n")
+		// fmt.Printf("JKY: starting mid-epoch!\n")
 	case lastFEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastFEntry.EndsEpochConfig.Number):
 		// An epoch has just gracefully ended, and we have not yet tried to move to the next
 		lastECEntry = &pb.ECEntry{
@@ -164,6 +173,14 @@ func (et *epochTracker) reinitialize() *Actions {
 		fallthrough
 	case lastECEntry != nil:
 		// An epoch has ended (ungracefully or otherwise), and we have sent our epoch change
+
+		// fmt.Printf("JKY: reinitializing during ungraceful change\n")
+
+		if et.currentEpoch != nil && et.currentEpoch.number == lastECEntry.EpochNumber {
+			// We have been reinitialized during an epoch change, no need to start fresh
+			return actions.concat(et.currentEpoch.advanceState())
+		}
+
 		epochChange := et.persisted.constructEpochChange(lastECEntry.EpochNumber)
 		parsedEpochChange, err := newParsedEpochChange(epochChange)
 		if err != nil {

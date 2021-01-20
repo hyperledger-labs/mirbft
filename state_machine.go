@@ -163,7 +163,9 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 			panic("state transfer event received but the state machine did not request transfer")
 		}
 
-		sm.persisted.addCEntry(event.Transfer)
+		fmt.Printf("JKY: performing state transfer to %d\n", event.Transfer.SeqNo)
+
+		actions.concat(sm.persisted.addCEntry(event.Transfer))
 		actions.concat(sm.reinitialize())
 	case *pb.StateEvent_ActionsReceived:
 		// This is a bit odd, in that it's a no-op, but it's harmless

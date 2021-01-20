@@ -94,6 +94,7 @@ func (a *Actions) clear() {
 	a.Commits = nil
 	a.StoreRequests = nil
 	a.ForwardRequests = nil
+	a.StateTransfer = nil
 }
 
 func (a *Actions) isEmpty() bool {
@@ -102,7 +103,8 @@ func (a *Actions) isEmpty() bool {
 		len(a.WriteAhead) == 0 &&
 		len(a.StoreRequests) == 0 &&
 		len(a.ForwardRequests) == 0 &&
-		len(a.Commits) == 0
+		len(a.Commits) == 0 &&
+		a.StateTransfer == nil
 }
 
 // concat takes a set of actions and for each field, appends it to
@@ -114,6 +116,12 @@ func (a *Actions) concat(o *Actions) *Actions {
 	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
 	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
 	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
+	if o.StateTransfer != nil {
+		if a.StateTransfer != nil {
+			panic("attempted to concatenate two concurrent state transfer requests")
+		}
+		a.StateTransfer = o.StateTransfer
+	}
 	return a
 }
 

@@ -81,6 +81,8 @@ func (p *Player) Step() error {
 		node.Actions = &mirbft.Actions{}
 		node.Status = sm.Status()
 		node.Processing = nil
+	case *pb.StateEvent_Transfer:
+		// fmt.Printf("JKY: player applying state transfer\n")
 	case *pb.StateEvent_AddResults:
 		if node.Processing == nil {
 			return errors.Errorf("node %d is not currently processing but got an apply event", event.NodeId)
@@ -94,8 +96,6 @@ func (p *Player) Step() error {
 
 		node.Processing = node.Actions
 		node.Actions = &mirbft.Actions{}
-
-		return nil
 	}
 
 	newActions := node.StateMachine.ApplyEvent(event.StateEvent)
@@ -105,6 +105,13 @@ func (p *Player) Step() error {
 	node.Actions.WriteAhead = append(node.Actions.WriteAhead, newActions.WriteAhead...)
 	node.Actions.ForwardRequests = append(node.Actions.ForwardRequests, newActions.ForwardRequests...)
 	node.Actions.StoreRequests = append(node.Actions.StoreRequests, newActions.StoreRequests...)
+	if newActions.StateTransfer != nil {
+		if node.Actions.StateTransfer != nil {
+			return errors.Errorf("node %d has requested state transfer twice without resolution", event.NodeId)
+		}
+
+		node.Actions.StateTransfer = newActions.StateTransfer
+	}
 
 	node.Status = node.StateMachine.Status()
 
