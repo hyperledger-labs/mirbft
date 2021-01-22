@@ -12,9 +12,11 @@ SPDX-License-Identifier: Apache-2.0
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"sort"
 	"time"
 
@@ -101,6 +103,7 @@ func excludedByNodeID(re *rpb.RecordedEvent, nodeIDs []uint64) bool {
 type arguments struct {
 	input         io.ReadCloser
 	interactive   bool
+	printActions  bool
 	nodeIDs       []uint64
 	eventTypes    []string
 	notEventTypes []string
@@ -116,8 +119,9 @@ type stateMachines struct {
 }
 
 type stateMachine struct {
-	machine       *mirbft.StateMachine
-	executionTime time.Duration
+	machine        *mirbft.StateMachine
+	pendingActions *mirbft.Actions
+	executionTime  time.Duration
 }
 
 func newStateMachines() *stateMachines {
@@ -131,7 +135,7 @@ func newStateMachines() *stateMachines {
 	}
 }
 
-func (s *stateMachines) apply(event *rpb.RecordedEvent) {
+func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *mirbft.Actions, err error) {
 	var node *stateMachine
 
 	if _, ok := event.StateEvent.Type.(*pb.StateEvent_Initialize); ok {
@@ -140,20 +144,159 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) {
 			machine: &mirbft.StateMachine{
 				Logger: s.logger.Named(fmt.Sprintf("node%d", event.NodeId)),
 			},
+			pendingActions: &mirbft.Actions{},
 		}
 		s.nodes[event.NodeId] = node
 	} else {
 		var ok bool
 		node, ok = s.nodes[event.NodeId]
 		if !ok {
-			panic(fmt.Sprintf("Malformed log.  Node %d attempted to apply event of type %T without initializing first.", event.NodeId, event.StateEvent.Type))
+			return nil, errors.Errorf("malformed log: node %d attempted to apply event of type %T without initializing first.", event.NodeId, event.StateEvent.Type)
 		}
 	}
 
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.Errorf("node %d panic-ed while applying state event to state machine:\n\n%s\n\n%s", event.NodeId, r, debug.Stack())
+		}
+	}()
+
 	start := time.Now()
-	node.machine.ApplyEvent(event.StateEvent)
-	// TODO, capture any actions returned, aggregate them, for display with actions_received
+	actions := node.machine.ApplyEvent(event.StateEvent)
 	node.executionTime += time.Since(start)
+	node.pendingActions, err = actionsConcat(node.pendingActions, actions)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, ok := event.StateEvent.Type.(*pb.StateEvent_ActionsReceived); ok {
+		receivedActions, node.pendingActions = node.pendingActions, &mirbft.Actions{}
+	}
+
+	return receivedActions, nil
+}
+
+// actionsConcat appends the actions of o to the actions a
+func actionsConcat(a, o *mirbft.Actions) (*mirbft.Actions, error) {
+	a.Send = append(a.Send, o.Send...)
+	a.Commits = append(a.Commits, o.Commits...)
+	a.Hash = append(a.Hash, o.Hash...)
+	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
+	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
+	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
+	if o.StateTransfer != nil {
+		if a.StateTransfer != nil {
+			return nil, fmt.Errorf("attempted to concatenate two concurrent state transfer requests")
+		}
+		a.StateTransfer = o.StateTransfer
+	}
+	return a, nil
+}
+
+func actionsString(a *mirbft.Actions, truncateBytes bool, padding int) (string, error) {
+	var buffer bytes.Buffer
+	writeLine := func(s string, extraPadding int) {
+		for i := 0; i < padding+extraPadding; i++ {
+			buffer.WriteString(" ")
+		}
+		buffer.WriteString(s)
+		buffer.WriteString("\n")
+	}
+
+	if len(a.Send) > 0 {
+		writeLine("send:", 0)
+		for _, send := range a.Send {
+			msgText, err := textFormat(send.Msg, truncateBytes)
+			if err != nil {
+				return "", err
+			}
+			writeLine(fmt.Sprintf("{targets: %v, msg: %s}", send.Targets, msgText), 2)
+		}
+	}
+
+	if len(a.Commits) > 0 {
+		writeLine("commit:", 0)
+		for _, commit := range a.Commits {
+			if commit.Batch != nil {
+				batchText, err := textFormat(commit.Batch, truncateBytes)
+				if err != nil {
+					return "", err
+				}
+				writeLine(fmt.Sprintf("{batch: %s}", batchText), 2)
+			} else {
+				networkStateText, err := textFormat(&pb.NetworkState{
+					Config:  commit.Checkpoint.NetworkConfig,
+					Clients: commit.Checkpoint.ClientsState,
+				}, truncateBytes)
+				if err != nil {
+					return "", err
+				}
+				writeLine(
+					fmt.Sprintf(
+						"{checkpoint: [seq_no=%d network_state=%s}",
+						commit.Checkpoint.SeqNo,
+						networkStateText,
+					),
+					2,
+				)
+			}
+		}
+	}
+
+	if len(a.Hash) > 0 {
+		writeLine("hash:", 0)
+		for _, hashReq := range a.Hash {
+			originText, err := textFormat(hashReq.Origin, truncateBytes)
+			if err != nil {
+				return "", err
+			}
+			writeLine(fmt.Sprintf("{origin: %s}", originText), 2)
+		}
+	}
+
+	if len(a.WriteAhead) > 0 {
+		writeLine("write_ahead:", 0)
+		for _, write := range a.WriteAhead {
+			if write.Truncate != nil {
+				writeLine(fmt.Sprintf("{truncate: index=%d}", *write.Truncate), 2)
+			} else {
+				dataText, err := textFormat(write.Append.Data, truncateBytes)
+				if err != nil {
+					return "", err
+				}
+				writeLine(fmt.Sprintf("{append: index=%d data=%s}", write.Append.Index, dataText), 2)
+			}
+		}
+	}
+
+	if len(a.StoreRequests) > 0 {
+		writeLine("store_requests:", 0)
+		for _, req := range a.StoreRequests {
+			reqText, err := textFormat(req, truncateBytes)
+			if err != nil {
+				return "", err
+			}
+			writeLine(fmt.Sprintf("{request: %s}", reqText), 2)
+		}
+	}
+
+	if len(a.ForwardRequests) > 0 {
+		writeLine("forward_requests:", 0)
+		for _, forwardReq := range a.ForwardRequests {
+			reqText, err := textFormat(forwardReq.RequestAck, truncateBytes)
+			if err != nil {
+				return "", err
+			}
+			writeLine(fmt.Sprintf("{targets: %v, request_ack: %s}", forwardReq.Targets, reqText), 2)
+		}
+	}
+
+	if a.StateTransfer != nil {
+		writeLine(fmt.Sprintf("state_transfer: seq_no=%d value=%d", a.StateTransfer.SeqNo, a.StateTransfer.Value), 0)
+
+	}
+
+	return buffer.String(), nil
 }
 
 func (s *stateMachines) status(event *rpb.RecordedEvent) *status.StateMachine {
@@ -287,11 +430,23 @@ func (a *arguments) execute(output io.Writer) error {
 			if err != nil {
 				return errors.WithMessage(err, "could not marshal event")
 			}
+
 			fmt.Fprintf(output, "% 6d %s\n", index, string(text))
 		}
 
 		if a.interactive {
-			s.apply(event)
+			actions, err := s.apply(event)
+			if err != nil {
+				return err
+			}
+
+			if actions != nil && a.printActions {
+				text, err := actionsString(actions, !a.verboseText, 6)
+				if err != nil {
+					return errors.WithMessage(err, "could not marshal actions")
+				}
+				fmt.Fprint(output, text)
+			}
 
 			// note, config options enforce that is statusIndex is set, so is interactive
 			if statusIndex {
@@ -324,6 +479,7 @@ func parseArgs(args []string) (*arguments, error) {
 	app := kingpin.New("mircat", "Utility for processing Mir state event logs.")
 	input := app.Flag("input", "The input file to read (defaults to stdin).").Default(os.Stdin.Name()).File()
 	interactive := app.Flag("interactive", "Whether to apply this log to a Mir state machine.").Default("false").Bool()
+	printActions := app.Flag("printActions", "Whether to display the aggregated actions on actions received (requires interactive).").Default("false").Bool()
 	nodeIDs := app.Flag("nodeID", "Report events from this nodeID only (useful for interleaved logs), may be repeated").Uint64List()
 	eventTypes := app.Flag("eventType", "Which event types to report.").Enums(allEventTypes...)
 	notEventTypes := app.Flag("notEventType", "Which eventtypes to exclude. (Cannot combine with --eventTypes)").Enums(allEventTypes...)
@@ -344,11 +500,14 @@ func parseArgs(args []string) (*arguments, error) {
 		return nil, errors.Errorf("cannot set both --stepType and --notStepType")
 	case *statusIndices != nil && !*interactive:
 		return nil, errors.Errorf("cannot set status indices for non-interactive playback")
+	case *printActions && !*interactive:
+		return nil, errors.Errorf("cannot set printActions for non-interactive playback")
 	}
 
 	return &arguments{
 		input:         *input,
 		interactive:   *interactive,
+		printActions:  *printActions,
 		nodeIDs:       *nodeIDs,
 		eventTypes:    *eventTypes,
 		notEventTypes: *notEventTypes,
@@ -363,10 +522,11 @@ func main() {
 	kingpin.Version("0.0.1")
 	args, err := parseArgs(os.Args[1:])
 	if err != nil {
-		kingpin.Fatalf("Error, %s, try --help", err)
+		kingpin.Fatalf("failed to parse arguments, %s, try --help", err)
 	}
 	err = args.execute(os.Stdout)
 	if err != nil {
-		kingpin.Fatalf("Error executing: %s", err)
+		fmt.Println("")
+		kingpin.Fatalf("%s", err)
 	}
 }
