@@ -169,6 +169,13 @@ func (cs *commitState) commit(qEntry *pb.QEntry) {
 		cs.highestCommit = qEntry.SeqNo
 	}
 
+	if qEntry.SeqNo <= cs.lowWatermark {
+		// During an epoch change, we may be asked to
+		// commit seqnos which we have already committed
+		// (and cannot check), so ignore.
+		return
+	}
+
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 	upper := qEntry.SeqNo-cs.lowWatermark > ci
 	offset := int((qEntry.SeqNo - (cs.lowWatermark + 1)) % ci)

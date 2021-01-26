@@ -203,7 +203,7 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 	}
 
 	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.highestCommit {
-		fmt.Printf("JKY: transferring!\n")
+		// fmt.Printf("JKY: transferring!\n")
 		return et.commitState.transferTo(newEpochConfig.StartingCheckpoint.SeqNo, newEpochConfig.StartingCheckpoint.Value)
 	}
 

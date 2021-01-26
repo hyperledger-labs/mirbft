@@ -639,7 +639,7 @@ func (r *Recording) DrainClients(timeout int) (count int, err error) {
 			for _, node := range r.Nodes {
 				for _, client := range node.State.LastCheckpoint().NetworkState.Clients {
 					if targetReqs[client.Id] != client.LowWatermark {
-						errText = fmt.Sprintf("(at least) node%d failed with client %d committing only through %d when expected %d", node.Config.InitParms.Id, client.Id, targetReqs[client.Id], client.LowWatermark)
+						errText = fmt.Sprintf("(at least) node%d failed with client %d committing only through %d when expected %d", node.Config.InitParms.Id, client.Id, client.LowWatermark, targetReqs[client.Id])
 					}
 				}
 			}

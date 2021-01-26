@@ -334,6 +334,21 @@ func (ct *clientTracker) reinitialize() {
 	oldClients := ct.clients
 	ct.clients = map[uint64]*client{}
 	ct.clientStates = highCEntry.NetworkState.Clients
+	// fmt.Printf("JKY: reinitializing clients with CEntry %d\n", highCEntry.SeqNo)
+	/*
+		for _, client := range ct.clientStates {
+			fmt.Printf("     client%d lowWatermark=%d consumedLastCheckpoint=%d width=%d alreadyCommitted=%x\n", client.Id, client.LowWatermark, client.WidthConsumedLastCheckpoint, client.Width, client.CommittedMask)
+			fmt.Printf("     ")
+			for i := 0; i < 8*len(client.CommittedMask); i++ {
+				if bitmask(client.CommittedMask).isBitSet(i) {
+					fmt.Printf("1")
+				} else {
+					fmt.Printf("0")
+				}
+			}
+			fmt.Printf("\n")
+		}
+	*/
 	for _, clientState := range ct.clientStates {
 		client, ok := oldClients[clientState.Id]
 		if !ok {
@@ -497,11 +512,11 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 					panic("dev sanity test")
 				}
 				lastCommitted = &crn.reqNo
-				// fmt.Printf("JKY: found clientID=%d reqNo=%d _did_ commit\n", oldClientState.Id, crn.reqNo)
+				// fmt.Printf("JKY: found clientID=%d reqNo=%d _did_ commit at %d\n", oldClientState.Id, crn.reqNo, *crn.committed)
 				continue
 			}
-			// fmt.Printf("JKY: found clientID=%d reqNo=%d did not commit\n", oldClientState.Id, crn.reqNo)
 			if firstUncommitted == nil {
+				// fmt.Printf("JKY: found clientID=%d reqNo=%d is firstUncommitted\n", oldClientState.Id, crn.reqNo)
 				firstUncommitted = &crn.reqNo
 			}
 		}
@@ -525,7 +540,7 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 			continue
 		}
 
-		// fmt.Printf("JKY: making bitmask... lastCommitted=%d firstUncommmitted=%d\n", *lastCommitted, *firstUncommitted)
+		// fmt.Printf("JKY: making bitmask... lastCommitted=%d firstUncommitted=%d\n", *lastCommitted, *firstUncommitted)
 
 		mask := bitmask(make([]byte, int(*lastCommitted-*firstUncommitted)/8+1))
 		for i := 0; i <= int(*lastCommitted-*firstUncommitted); i++ {
@@ -546,7 +561,7 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 
 		lowWatermark := *firstUncommitted
 
-		// fmt.Printf("JKY: commmited through seqNo=%d lowWatermark=%d oldLowWatermark=%d withConsumed=%d\n", seqNo, lowWatermark, oldClientState.LowWatermark, lowWatermark-oldClientState.LowWatermark)
+		// fmt.Printf("JKY: client %d committed through seqNo=%d lowWatermark=%d oldLowWatermark=%d withConsumed=%d\n", oldClientState.Id, seqNo, lowWatermark, oldClientState.LowWatermark, lowWatermark-oldClientState.LowWatermark)
 
 		newClientStates[i] = &pb.NetworkState_Client{
 			Id:                          oldClientState.Id,
@@ -1043,13 +1058,15 @@ func (cr *clientRequest) fetch() *Actions {
 	}
 
 	// TODO, with access to network config, we could pick f+1
-	// XXX non-deterministic as well, need an iteration order or to sort.
 	nodes := make([]uint64, len(cr.agreements))
 	i := 0
 	for nodeID := range cr.agreements {
 		nodes[i] = uint64(nodeID)
 		i++
 	}
+	sort.Slice(nodes, func(i, j int) bool {
+		return i <= j
+	})
 
 	cr.fetching = true
 	cr.ticksFetching = 0
@@ -1114,8 +1131,9 @@ func (c *client) reinitialize(networkConfig *pb.NetworkState_Config, lowSeqNo, h
 	for i := 0; i <= int(lowClientState.Width); i++ {
 		highOffset := int(highClientState.LowWatermark - lowClientState.LowWatermark)
 
+		// fmt.Printf("JKY: checking if client %d reqno=%d as committed before seqno=%d for offset=%d\n", highClientState.Id, uint64(i)+lowClientState.LowWatermark, highSeqNo, highOffset)
 		var committed *uint64
-		if highClientState.LowWatermark > lowWatermark+uint64(i) || bm.isBitSet(highOffset) {
+		if highClientState.LowWatermark > lowWatermark+uint64(i) || bm.isBitSet(i+highOffset) {
 			committed = &highSeqNo // we might not garbage collect this optimally, but that's okay
 		}
 
@@ -1132,6 +1150,7 @@ func (c *client) reinitialize(networkConfig *pb.NetworkState_Config, lowSeqNo, h
 		oldReqNoEl, ok := oldReqNoMap[reqNo]
 		if ok {
 			oldReqNo = oldReqNoEl.Value.(*clientReqNo)
+			oldReqNo.committed = committed
 		} else {
 			oldReqNo = &clientReqNo{
 				clientID:        lowClientState.Id,

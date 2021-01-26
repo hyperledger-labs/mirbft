@@ -170,7 +170,7 @@ var _ = Describe("Mirbft", func() {
 			recorder.Mangler = For(MatchMsgs().AtPercent(2)).Drop()
 		})
 
-		PIt("still delivers all requests", func() {
+		It("still delivers all requests", func() {
 			_, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -178,15 +178,15 @@ var _ = Describe("Mirbft", func() {
 
 	When("the network loses many acks", func() {
 		BeforeEach(func() {
-			recorder.Mangler = For(MatchMsgs().OfTypeRequestAck().AtPercent(20)).Drop()
+			recorder.Mangler = For(MatchMsgs().FromNodes(0, 1).OfTypeRequestAck().AtPercent(70)).Drop()
 			for _, clientConfig := range recorder.ClientConfigs {
 				clientConfig.Total = 20
 			}
 			// TODO, we need to configure a very short ack re-transmit interval
 		})
 
-		PIt("still delivers all requests", func() {
-			_, err := recording.DrainClients(7000)
+		It("still delivers all requests", func() {
+			_, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})

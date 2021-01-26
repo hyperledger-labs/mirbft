@@ -70,7 +70,7 @@ type bucketOutstandingReqs struct {
 type clientOutstandingReqs struct {
 	nextReqNo  uint64
 	numBuckets uint64
-	client     *client // TODO, use
+	client     *client
 }
 
 func (cors *clientOutstandingReqs) advance() {
@@ -83,6 +83,8 @@ func (cors *clientOutstandingReqs) advance() {
 
 		break
 	}
+
+	// fmt.Printf("JKY: Setting client %d nextReqNo to %d\n", cors.client.clientState.Id, cors.nextReqNo)
 }
 
 func (ao *allOutstandingReqs) advanceRequests() *Actions {
