@@ -14,14 +14,15 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash"
+	"io"
 	"math/rand"
+	"os"
 
 	"github.com/IBM/mirbft"
 	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 )
 
 type Hasher func() hash.Hash
@@ -275,7 +276,7 @@ type Recorder struct {
 	ClientConfigs       []*ClientConfig
 	ReconfigPoints      []*ReconfigPoint
 	Mangler             Mangler
-	Logger              *zap.Logger
+	LogOutput           io.Writer
 	Hasher              Hasher
 	RandomSeed          int64
 }
@@ -288,7 +289,7 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 		Rand:    rand.New(rand.NewSource(r.RandomSeed)),
 	}
 
-	player, err := NewPlayer(eventLog, r.Logger)
+	player, err := NewPlayer(eventLog, r.LogOutput)
 	if err != nil {
 		return nil, errors.WithMessage(err, "could not construct player")
 	}
@@ -689,16 +690,10 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 		clientIDs[i] = clientConfigs[i].ID
 	}
 
-	logger, err := zap.NewProduction()
-	// logger, err := zap.NewDevelopment()
-	if err != nil {
-		panic(err)
-	}
-
 	return &Recorder{
 		NetworkState:        networkState,
 		RecorderNodeConfigs: recorderNodeConfigs,
-		Logger:              logger,
+		LogOutput:           os.Stdout,
 		Hasher:              sha256.New,
 		ClientConfigs:       clientConfigs,
 	}

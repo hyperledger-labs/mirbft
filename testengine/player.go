@@ -8,13 +8,13 @@ package testengine
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/IBM/mirbft"
 	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/status"
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 )
 
 type EventSource interface {
@@ -32,14 +32,14 @@ type PlaybackNode struct {
 type Player struct {
 	LastEvent   *rpb.RecordedEvent
 	EventSource EventSource
-	Logger      *zap.Logger
+	LogOutput   io.Writer
 	Nodes       map[uint64]*PlaybackNode
 }
 
-func NewPlayer(es EventSource, logger *zap.Logger) (*Player, error) {
+func NewPlayer(es EventSource, logOutput io.Writer) (*Player, error) {
 	return &Player{
 		EventSource: es,
-		Logger:      logger,
+		LogOutput:   logOutput,
 		Nodes:       map[uint64]*PlaybackNode{},
 	}, nil
 }
@@ -63,6 +63,30 @@ func (p *Player) Node(id uint64) *PlaybackNode {
 	return node
 }
 
+type NamedLogger struct {
+	Level  mirbft.LogLevel
+	Name   string
+	Output io.Writer
+}
+
+func (nl NamedLogger) Log(level mirbft.LogLevel, msg string, args ...interface{}) {
+	if level < nl.Level {
+		return
+	}
+
+	fmt.Fprint(nl.Output, nl.Name)
+	fmt.Fprint(nl.Output, ": ")
+	fmt.Fprint(nl.Output, msg)
+	for i := 0; i < len(args); i++ {
+		if i+1 < len(args) {
+			fmt.Fprintf(nl.Output, " %s=%v", args[i], args[i+1])
+		} else {
+			fmt.Fprintf(nl.Output, " %s=%%MISSING%%", args[i])
+		}
+	}
+	fmt.Fprintf(nl.Output, "\n")
+}
+
 func (p *Player) Step() error {
 	event, err := p.EventSource.ReadEvent()
 	if event == nil || err != nil {
@@ -75,7 +99,11 @@ func (p *Player) Step() error {
 	switch event.StateEvent.Type.(type) {
 	case *pb.StateEvent_Initialize:
 		sm := &mirbft.StateMachine{
-			Logger: p.Logger.Named(fmt.Sprintf("node%d", node.ID)),
+			Logger: NamedLogger{
+				Output: p.LogOutput,
+				Level:  mirbft.LevelInfo,
+				Name:   fmt.Sprintf("node%d", node.ID),
+			},
 		}
 		node.StateMachine = sm
 		node.Actions = &mirbft.Actions{}

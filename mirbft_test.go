@@ -40,10 +40,6 @@ var _ = Describe("Mirbft", func() {
 	})
 
 	AfterEach(func() {
-		if recorder.Logger != nil {
-			recorder.Logger.Sync()
-		}
-
 		if gzWriter != nil {
 			gzWriter.Close()
 		}

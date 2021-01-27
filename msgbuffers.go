@@ -49,7 +49,7 @@ type nodeBuffer struct {
 }
 
 func (nb *nodeBuffer) logDrop(component string, msg *pb.Msg) {
-	nb.logger.Warn(fmt.Sprintf("dropping buffered msg component=%s, msgType=%T\n", component, msg.Type))
+	nb.logger.Log(LevelWarn, "dropping buffered msg", "component", component, "type", fmt.Sprintf("%T", msg.Type))
 }
 
 func (nb *nodeBuffer) msgRemoved(msg *pb.Msg) {
