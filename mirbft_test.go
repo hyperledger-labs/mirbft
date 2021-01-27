@@ -202,6 +202,17 @@ var _ = Describe("Mirbft", func() {
 		})
 	})
 
+	When("the network messages have up to a 1000ms jittery delay", func() {
+		BeforeEach(func() {
+			recorder.Mangler = For(MatchMsgs()).Jitter(1000)
+		})
+
+		It("still delivers all requests", func() {
+			_, err := recording.DrainClients(50000)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
 	When("the network duplicates messages 75 percent of the time", func() {
 		BeforeEach(func() {
 			recorder.Mangler = For(MatchMsgs().AtPercent(75)).Duplicate(300)
