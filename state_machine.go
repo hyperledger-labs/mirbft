@@ -27,6 +27,65 @@ type nodeID uint64
 
 type stateMachineState int
 
+func assertFailed(failure, format string, args ...interface{}) {
+	panic(
+		fmt.Sprintf(
+			fmt.Sprintf("assertion failed, code bug? -- %s -- %%%s", failure, format),
+			args...,
+		),
+	)
+}
+
+func assertTrue(value bool, text string) {
+	assertTruef(value, text)
+}
+
+func assertTruef(value bool, format string, args ...interface{}) {
+	if !value {
+		assertFailed("expected false to be true", format, args...)
+	}
+}
+
+func assertEqual(lhs, rhs interface{}, text string) {
+	assertEqualf(lhs, rhs, text)
+}
+
+func assertEqualf(lhs, rhs interface{}, format string, args ...interface{}) {
+	if lhs != rhs {
+		assertFailed(fmt.Sprintf("expected %v == %v", lhs, rhs), format, args...)
+	}
+}
+
+func assertNotEqual(lhs, rhs interface{}, text string) {
+	assertNotEqualf(lhs, rhs, text)
+}
+
+func assertNotEqualf(lhs, rhs interface{}, format string, args ...interface{}) {
+	if lhs == rhs {
+		assertFailed(fmt.Sprintf("expected %v != %v", lhs, rhs), format, args...)
+	}
+}
+
+func assertGreaterThanOrEqual(lhs, rhs uint64, text string) {
+	assertGreaterThanOrEqualf(lhs, rhs, text)
+}
+
+func assertGreaterThanOrEqualf(lhs, rhs uint64, format string, args ...interface{}) {
+	if lhs < rhs {
+		assertFailed(fmt.Sprintf("expected %v >= %v", lhs, rhs), format, args...)
+	}
+}
+
+func assertGreaterThan(lhs, rhs uint64, text string) {
+	assertGreaterThanOrEqualf(lhs, rhs, text)
+}
+
+func assertGreaterThanf(lhs, rhs uint64, format string, args ...interface{}) {
+	if lhs <= rhs {
+		assertFailed(fmt.Sprintf("expected %v > %v", lhs, rhs), format, args...)
+	}
+}
+
 const (
 	smUninitialized stateMachineState = iota
 	smLoadingPersisted
@@ -54,9 +113,7 @@ type StateMachine struct {
 }
 
 func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) {
-	if sm.state != smUninitialized {
-		panic("state machine has already been initialized")
-	}
+	assertEqualf(sm.state, smUninitialized, "state machine has already been initialized")
 
 	sm.myConfig = parameters
 	sm.state = smLoadingPersisted
@@ -93,10 +150,7 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 }
 
 func (sm *StateMachine) applyPersisted(entry *WALEntry) {
-	if sm.state != smLoadingPersisted {
-		panic("state machine has already finished loading persisted data")
-	}
-
+	assertEqualf(sm.state, smLoadingPersisted, "state machine has already finished loading persisted data")
 	sm.persisted.appendInitialLoad(entry)
 }
 
@@ -105,9 +159,7 @@ func (sm *StateMachine) applyOutstandingRequest(outstandingReq *pb.StateEvent_Ou
 }
 
 func (sm *StateMachine) completeInitialization() *Actions {
-	if sm.state != smLoadingPersisted {
-		panic("state machine has already finished loading persisted data")
-	}
+	assertEqualf(sm.state, smLoadingPersisted, "state machine has already finished loading persisted data")
 
 	sm.state = smInitialized
 
@@ -116,9 +168,7 @@ func (sm *StateMachine) completeInitialization() *Actions {
 
 func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	assertInitialized := func() {
-		if sm.state != smInitialized {
-			panic("cannot apply events to an uninitialized state machine")
-		}
+		assertEqualf(sm.state, smInitialized, "cannot apply events to an uninitialized state machine")
 	}
 
 	actions := &Actions{}
@@ -159,9 +209,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 			event.AddResults,
 		))
 	case *pb.StateEvent_Transfer:
-		if !sm.commitState.transferring {
-			panic("state transfer event received but the state machine did not request transfer")
-		}
+		assertEqualf(sm.commitState.transferring, true, "state transfer event received but the state machine did not request transfer")
 
 		// fmt.Printf("JKY: performing state transfer to %d\n", event.Transfer.SeqNo)
 
@@ -249,16 +297,12 @@ func (sm *StateMachine) recoverLog() *Actions {
 			lastCEntry = cEntry
 		},
 		onFEntry: func(fEntry *pb.FEntry) {
-			if lastCEntry == nil {
-				panic("FEntry without corresponding CEntry, log is corrupt")
-			}
+			assertNotEqualf(lastCEntry, nil, "FEntry without corresponding CEntry, log is corrupt")
 			actions.concat(sm.persisted.truncate(lastCEntry.SeqNo))
 		},
 	})
 
-	if lastCEntry == nil {
-		panic("found no checkpoints in the log")
-	}
+	assertNotEqualf(lastCEntry, nil, "found no checkpoints in the log")
 
 	return actions
 }

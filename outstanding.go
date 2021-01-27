@@ -107,9 +107,7 @@ func (ao *allOutstandingReqs) advanceRequests() *Actions {
 
 func (ao *allOutstandingReqs) applyBatch(bucket bucketID, batch []*pb.RequestAck) error {
 	bo, ok := ao.buckets[bucket]
-	if !ok {
-		panic("dev sanity test")
-	}
+	assertTruef(ok, "told to apply batch for bucket %d which does not exist", bucket)
 
 	for _, req := range batch {
 		co, ok := bo.clients[req.ClientId]
@@ -131,9 +129,7 @@ func (ao *allOutstandingReqs) applyBatch(bucket bucketID, batch []*pb.RequestAck
 // TODO, bucket probably can/should be stored in the *sequence
 func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []*pb.RequestAck) (*Actions, error) {
 	bo, ok := ao.buckets[bucket]
-	if !ok {
-		panic("dev sanity test")
-	}
+	assertTruef(ok, "told to apply acks for bucket %d which does not exist", bucket)
 
 	outstandingReqs := map[string]struct{}{}
 

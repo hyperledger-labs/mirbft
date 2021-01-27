@@ -61,7 +61,7 @@ func (p *persisted) appendInitialLoad(entry *WALEntry) {
 		p.logTail = p.logTail.next
 	}
 	if p.nextIndex != entry.Index {
-		panic(fmt.Sprintf("WAL indexes out of order! Expected %d got %d", p.nextIndex, entry.Index))
+		panic(fmt.Sprintf("WAL indexes out of order! Expected %d got %d, was your WAL corrupted?", p.nextIndex, entry.Index))
 	}
 	p.nextIndex = entry.Index + 1
 	// fmt.Printf("JKY: inserted WAL startup entry %d\n", entry.Index)
@@ -110,9 +110,7 @@ func (p *persisted) addNEntry(nEntry *pb.NEntry) *Actions {
 }
 
 func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
-	if cEntry.NetworkState == nil {
-		panic("network config must be set")
-	}
+	assertNotEqual(cEntry.NetworkState, nil, "network config must be set")
 
 	d := &pb.Persistent{
 		Type: &pb.Persistent_CEntry{

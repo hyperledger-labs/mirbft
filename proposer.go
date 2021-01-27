@@ -9,7 +9,6 @@ package mirbft
 import (
 	"container/list"
 	"encoding/binary"
-	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
@@ -94,16 +93,13 @@ func (p *proposer) advance(toSeqNo uint64) {
 		proposalBucket.advance(toSeqNo)
 
 		if len(crn.strongRequests) > 1 {
-			if _, ok := crn.strongRequests[""]; !ok {
-				panic("dev sanity test")
-			}
+			nullReq, ok := crn.strongRequests[""]
+			assertTrue(ok, "if multiple requests have quorum, one must be the null request")
 
 			// We must have a null request here, so prefer it.
-			proposalBucket.queueRequest(crn.validAfterSeqNo, crn.strongRequests[""])
+			proposalBucket.queueRequest(crn.validAfterSeqNo, nullReq)
 		} else {
-			if len(crn.strongRequests) != 1 {
-				panic("dev sanity test")
-			}
+			assertEqual(len(crn.strongRequests), 1, "exactly one strong request must exist")
 
 			// There must be exactly one strong request
 			for _, clientReq := range crn.strongRequests {
@@ -122,9 +118,7 @@ func (prb *proposalBucket) queueRequest(validAfterSeqNo uint64, cr *clientReques
 	if prb.currentCheckpoint >= validAfterSeqNo {
 		prb.readyList.PushBack(cr)
 	} else {
-		if validAfterSeqNo != prb.currentCheckpoint+prb.checkpointInterval {
-			panic(fmt.Sprintf("dev sanity check -- expected %d == %d", validAfterSeqNo, prb.currentCheckpoint+prb.checkpointInterval))
-		}
+		assertEqual(validAfterSeqNo, prb.currentCheckpoint+prb.checkpointInterval, "requests should never ready beyond the next checkpoint interval")
 		prb.nextReadyList.PushBack(cr)
 	}
 }

@@ -8,7 +8,6 @@ package mirbft
 
 import (
 	"bytes"
-	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 
@@ -98,9 +97,7 @@ func (cs *commitState) reinitialize() *Actions {
 }
 
 func (cs *commitState) transferTo(seqNo uint64, value []byte) *Actions {
-	if cs.transferring {
-		panic("dev sanity test -- a state transfer is already in progress")
-	}
+	assertEqual(cs.transferring, false, "multiple state transfers are not supported concurrently")
 	cs.transferring = true
 	return cs.persisted.addTEntry(&pb.TEntry{
 		SeqNo: seqNo,
@@ -122,7 +119,7 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 	}
 
 	if result.SeqNo != cs.lowWatermark+ci {
-		panic("dev sanity test -- should remove as we could get stale checkpoint results")
+		panic("dev sanity test -- this panic is helpful for dev, but needs to be removed as we could get stale checkpoint results")
 	}
 
 	if len(result.NetworkState.PendingReconfigurations) == 0 {
@@ -154,26 +151,19 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 }
 
 func (cs *commitState) commit(qEntry *pb.QEntry) {
-	if cs.transferring {
-		panic("dev sanity test -- we should never commit during state transfer")
-	}
-
-	if qEntry.SeqNo > cs.stopAtSeqNo {
-		panic(fmt.Sprintf("dev sanity test -- asked to commit %d, but we asked to stop at %d", qEntry.SeqNo, cs.stopAtSeqNo))
-	}
-
-	if cs.highestCommit < qEntry.SeqNo {
-		if cs.highestCommit+1 != qEntry.SeqNo {
-			panic(fmt.Sprintf("dev sanity test -- asked to commit %d, but highest commit was %d", qEntry.SeqNo, cs.highestCommit))
-		}
-		cs.highestCommit = qEntry.SeqNo
-	}
+	assertEqual(cs.transferring, false, "we should never commit during state transfer")
+	assertGreaterThanOrEqual(cs.stopAtSeqNo, qEntry.SeqNo, "commit sequence exceeds stop sequence")
 
 	if qEntry.SeqNo <= cs.lowWatermark {
 		// During an epoch change, we may be asked to
 		// commit seqnos which we have already committed
 		// (and cannot check), so ignore.
 		return
+	}
+
+	if cs.highestCommit < qEntry.SeqNo {
+		assertEqual(cs.highestCommit+1, qEntry.SeqNo, "next commit should always be exactly one greater than the highest")
+		cs.highestCommit = qEntry.SeqNo
 	}
 
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
@@ -187,9 +177,7 @@ func (cs *commitState) commit(qEntry *pb.QEntry) {
 	}
 
 	if commits[offset] != nil {
-		if !bytes.Equal(commits[offset].Digest, qEntry.Digest) {
-			panic(fmt.Sprintf("dev sanity check -- previously committed %x but now have %x for seqNo=%d", commits[offset].Digest, qEntry.Digest, qEntry.SeqNo))
-		}
+		assertTruef(bytes.Equal(commits[offset].Digest, qEntry.Digest), "previously committed %x but now have %x for seq_no=%d", commits[offset].Digest, qEntry.Digest, qEntry.SeqNo)
 	} else {
 		commits[offset] = qEntry
 	}
@@ -221,9 +209,8 @@ func nextNetworkConfig(startingState *pb.NetworkState, clientConfigs []*pb.Netwo
 				break
 			}
 
-			if !found {
-				panic("asked to remove client which doesn't exist") // TODO, heavy handed, back off to a warning
-			}
+			// TODO, heavy handed, back off to a warning
+			assertTruef(found, "asked to remove client %d which doesn't exist", rc.RemoveClient)
 		case *pb.Reconfiguration_NewConfig:
 			nextConfig = rc.NewConfig
 		}
@@ -268,9 +255,7 @@ func (cs *commitState) drain() []*Commit {
 			break
 		}
 
-		if commit.SeqNo != nextCommit {
-			panic(fmt.Sprintf("dev sanity check -- expected seqNo=%d == commit=%d, upper=%v\n", nextCommit, commit.SeqNo, upper))
-		}
+		assertEqual(commit.SeqNo, nextCommit, "attempted out of order commit")
 
 		result = append(result, &Commit{
 			Batch: commit,
@@ -278,9 +263,7 @@ func (cs *commitState) drain() []*Commit {
 		for _, fr := range commit.Requests {
 			// fmt.Printf("JKY: Attempting to commit seqNo=%d with req=%d.%d\n", commit.SeqNo, fr.ClientId, fr.ReqNo)
 			cw, ok := cs.clientTracker.client(fr.ClientId)
-			if !ok {
-				panic("we never should have committed this without the client available")
-			}
+			assertEqual(ok, true, "commit references client which client tracker does not have")
 			cw.reqNo(fr.ReqNo).committed = &commit.SeqNo
 		}
 

@@ -168,6 +168,7 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 		}
 
 		if maxCheckpoint.SeqNo == key.SeqNo {
+			// TODO, this is exceeding our byzantine assumptions, what to do?
 			panic(fmt.Sprintf("two correct quorums have different checkpoints for same seqno %d -- %x != %x", key.SeqNo, []byte(maxCheckpoint.Value), []byte(key.Value)))
 		}
 
@@ -330,9 +331,8 @@ func epochChangeHashData(epochChange *pb.EpochChange) [][]byte {
 		hashData[qEntryOffset+3*i+2] = qEntry.Digest
 	}
 
-	if qEntryOffset+len(epochChange.QSet)*3 != len(hashData) {
-		panic("TODO, remove me, but this is bad")
-	}
+	// TODO, is this worth checking?
+	assertEqual(qEntryOffset+len(epochChange.QSet)*3, len(hashData), "allocated more hash data byte slices than needed")
 
 	return hashData
 }

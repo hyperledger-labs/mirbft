@@ -12,8 +12,6 @@ import (
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/status"
-
-	"github.com/pkg/errors"
 )
 
 type epochTracker struct {
@@ -111,9 +109,7 @@ func (et *epochTracker) reinitialize() *Actions {
 	graceful := false
 	switch {
 	case lastNEntry != nil && lastFEntry != nil:
-		if lastNEntry.EpochConfig.Number <= lastFEntry.EndsEpochConfig.Number {
-			panic("dev sanity test")
-		}
+		assertGreaterThan(lastNEntry.EpochConfig.Number, lastFEntry.EndsEpochConfig.Number, "new epoch number must not be less than last terminated epoch")
 		lastEpochConfig = lastNEntry.EpochConfig
 		graceful = false
 	case lastNEntry != nil:
@@ -183,9 +179,7 @@ func (et *epochTracker) reinitialize() *Actions {
 
 		epochChange := et.persisted.constructEpochChange(lastECEntry.EpochNumber)
 		parsedEpochChange, err := newParsedEpochChange(epochChange)
-		if err != nil {
-			panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
-		}
+		assertEqualf(err, nil, "could not parse epoch change we generated: %s", err)
 
 		et.currentEpoch = newEpochTarget(
 			epochChange.NewEpoch,
@@ -237,9 +231,7 @@ func (et *epochTracker) advanceState() *Actions {
 	epochChange := et.persisted.constructEpochChange(newEpochNumber)
 
 	myEpochChange, err := newParsedEpochChange(epochChange)
-	if err != nil {
-		panic(errors.WithMessage(err, "could not parse the epoch change I generated"))
-	}
+	assertEqualf(err, nil, "could not parse epoch change we generated: %s", err)
 
 	et.currentEpoch = newEpochTarget(
 		newEpochNumber,
@@ -418,11 +410,10 @@ func (et *epochTracker) applyEpochChangeDigest(hashResult *pb.HashResult_EpochCh
 		// This is for an old epoch we no long care about
 		return &Actions{}
 	case targetNumber > et.currentEpoch.number:
-		panic("dev sanity check -- how can we get an epoch change digest for an epoch we aren't processing yet")
-	default:
-		return et.currentEpoch.applyEpochChangeDigest(hashResult, digest)
+		assertFailed("", "got an epoch change digest for epoch %d we are processing %d", targetNumber, et.currentEpoch.number)
 
 	}
+	return et.currentEpoch.applyEpochChangeDigest(hashResult, digest)
 }
 
 func (et *epochTracker) status() *status.EpochTracker {

@@ -8,10 +8,8 @@ package mirbft
 
 import (
 	"bytes"
-	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"go.uber.org/zap"
 )
 
 type sequenceState int
@@ -141,9 +139,7 @@ func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *Actions {
 // If the state machine is not in the uninitialized state, it returns an error.  Otherwise,
 // It transitions to preprepared and returns a ValidationRequest message.
 func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[string]struct{}) *Actions {
-	if s.state != sequenceUninitialized {
-		s.logger.Panic("illegal state for allocate", zap.Int("State", int(s.state)), zap.Uint64("SeqNo", s.seqNo), zap.Uint64("Epoch", s.epoch))
-	}
+	assertEqualf(s.state, sequenceUninitialized, "seq_no=%d must be uninitialized to allocate", s.seqNo)
 
 	s.state = sequenceAllocated
 	s.batch = requestAcks
@@ -186,9 +182,7 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[st
 
 func (s *sequence) satisfyOutstanding(fr *pb.RequestAck) *Actions {
 	_, ok := s.outstandingReqs[string(fr.Digest)]
-	if !ok {
-		panic(fmt.Sprintf("dev sanity check -- told request %x was ready but we weren't waiting for it", fr.Digest))
-	}
+	assertTruef(ok, "told request %x was ready but we weren't waiting for it", fr.Digest)
 
 	delete(s.outstandingReqs, string(fr.Digest))
 

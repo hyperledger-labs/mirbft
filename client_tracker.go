@@ -318,9 +318,7 @@ func (ct *clientTracker) reinitialize() {
 		},
 	})
 
-	if lowCEntry == nil {
-		panic("no checkpoints in log")
-	}
+	assertNotEqual(lowCEntry, nil, "log must have checkpoint")
 
 	latestClientStates := map[uint64]*pb.NetworkState_Client{}
 	for _, clientState := range highCEntry.NetworkState.Clients {
@@ -499,18 +497,14 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 	newClientStates := make([]*pb.NetworkState_Client, len(ct.clientStates))
 	for i, oldClientState := range ct.clientStates {
 		cw, ok := ct.clients[oldClientState.Id]
-		if !ok {
-			panic("dev sanity test")
-		}
+		assertEqual(ok, true, "a client in the config must exist among tracked clients")
 
 		var firstUncommitted, lastCommitted *uint64
 
 		for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
 			crn := el.Value.(*clientReqNo)
 			if crn.committed != nil {
-				if *crn.committed > seqNo {
-					panic("dev sanity test")
-				}
+				assertGreaterThanOrEqual(seqNo, *crn.committed, "requested has commit sequence after current checkpoint")
 				lastCommitted = &crn.reqNo
 				// fmt.Printf("JKY: found clientID=%d reqNo=%d _did_ commit at %d\n", oldClientState.Id, crn.reqNo, *crn.committed)
 				continue
@@ -527,9 +521,7 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 		}
 
 		if firstUncommitted == nil {
-			if *lastCommitted != cw.highWatermark {
-				panic("dev sanity test, if no client reqs are uncommitted, then all though the high watermark should be committed")
-			}
+			assertEqual(*lastCommitted, cw.highWatermark, "if no client reqs are uncommitted, then all though the high watermark should be committed")
 
 			newClientStates[i] = &pb.NetworkState_Client{
 				Id:                          oldClientState.Id,
@@ -551,9 +543,7 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 			}
 			// fmt.Printf("JKY: found clientID=%d reqNo=%d _did_ commit beyond our low watermark\n", oldClientState.Id, reqNo)
 
-			if i == 0 {
-				panic("dev sanity test, if this is the first uncommitted, how is it committed")
-			}
+			assertNotEqual(i, 0, "the first uncommitted cannot be marked committed")
 
 			mask.setBit(i)
 
@@ -668,9 +658,7 @@ func (ct *clientTracker) applyForwardRequest(source nodeID, msg *pb.ForwardReque
 
 func (ct *clientTracker) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 	cw, ok := ct.clients[ack.ClientId]
-	if !ok {
-		panic("dev sanity test")
-	}
+	assertEqual(ok, true, "the step filtering should delay reqs for non-existent clients")
 
 	clientRequest, clientReqNo, newlyCorrectReq := cw.ack(source, ack)
 
@@ -709,9 +697,7 @@ func (ct *clientTracker) advanceReady(client *client) {
 		}
 
 		crne, ok := client.reqNoMap[i]
-		if !ok {
-			panic(fmt.Sprintf("dev sanity test: no mapping from reqNo %d", i))
-		}
+		assertEqualf(ok, true, "client_id=%d mapping should exist from req_no=%d but does not", client.clientState.Id, i)
 
 		crn := crne.Value.(*clientReqNo)
 
@@ -1024,7 +1010,7 @@ func (crn *clientReqNo) tick() *Actions {
 			break
 		}
 	default:
-		panic("dev sanity test")
+		panic("we have sent an ack for a request, but do not have the ack")
 	}
 
 	crn.acksSent++
@@ -1171,9 +1157,7 @@ func (cw *client) allocate(startingAtSeqNo uint64, state *pb.NetworkState_Client
 	newHighWatermark := state.LowWatermark + uint64(state.Width)
 
 	intermediateHighWatermark := newHighWatermark - uint64(state.WidthConsumedLastCheckpoint)
-	if intermediateHighWatermark != cw.highWatermark {
-		panic(fmt.Sprintf("dev sanity check -- seqNo=%d intermediateHighWatermark=%d cw.highWatermark=%d newHighWatermark=%d state.WidthConsumedLastCheckpoint=%d", startingAtSeqNo, intermediateHighWatermark, cw.highWatermark, newHighWatermark, state.WidthConsumedLastCheckpoint))
-	}
+	assertEqual(intermediateHighWatermark, cw.highWatermark, "the high watermark of our last active checkpoint must match the new intermediate watermark from the new checkpoint interval")
 
 	for reqNo := intermediateHighWatermark + 1; reqNo <= newHighWatermark; reqNo++ {
 		el := cw.reqNoList.PushBack(&clientReqNo{
@@ -1231,9 +1215,7 @@ func (cw *client) moveLowWatermark(maxSeqNo uint64) {
 
 func (cw *client) ack(source nodeID, ack *pb.RequestAck) (*clientRequest, *clientReqNo, bool) {
 	crne, ok := cw.reqNoMap[ack.ReqNo]
-	if !ok {
-		panic(fmt.Sprintf("dev sanity check -- got ack for %d, but lowWatermark=%d highWatermark=%d", ack.ReqNo, cw.lowWatermark, cw.highWatermark))
-	}
+	assertEqualf(ok, true, "client_id=%d got ack for req_no=%d, but lowWatermark=%d highWatermark=%d", cw.clientState.Id, ack.ReqNo, cw.lowWatermark, cw.highWatermark)
 
 	crn := crne.Value.(*clientReqNo)
 
@@ -1259,9 +1241,7 @@ func (cw *client) inWatermarks(reqNo uint64) bool {
 
 func (cw *client) reqNo(reqNo uint64) *clientReqNo {
 	el := cw.reqNoMap[reqNo]
-	if el == nil {
-		panic(fmt.Sprintf("requested reqNo=%d but we do not have it\n", reqNo))
-	}
+	assertNotEqualf(el, nil, "client_id=%d should have req_no=%d but does not", cw.clientState.Id, reqNo)
 	return el.Value.(*clientReqNo)
 }
 

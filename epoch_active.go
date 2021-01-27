@@ -129,14 +129,12 @@ func (e *activeEpoch) sequence(seqNo uint64) *sequence {
 	ci := int(e.networkConfig.CheckpointInterval)
 	ciIndex := int(seqNo-e.lowWatermark()) / ci
 	ciOffset := int(seqNo-e.lowWatermark()) % ci
-	if ciIndex > len(e.sequences) || ciIndex < 0 || ciOffset < 0 {
+	if ciIndex >= len(e.sequences) || ciIndex < 0 || ciOffset < 0 {
 		panic(fmt.Sprintf("dev error: low=%d high=%d seqno=%d ciIndex=%d ciOffset=%d len(sequences)=%d", e.lowWatermark(), e.highWatermark(), seqNo, ciIndex, ciOffset, len(e.sequences)))
 	}
 
 	sequence := e.sequences[ciIndex][ciOffset]
-	if sequence.seqNo != seqNo {
-		panic(fmt.Sprintf("dev sanity test -- tried to get seqNo=%d, but ended up with seqNo=%d", seqNo, sequence.seqNo))
-	}
+	assertEqual(sequence.seqNo, seqNo, "sequence retrieved had different seq_no than expected")
 
 	return sequence
 }
@@ -274,9 +272,7 @@ func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*p
 
 	bucketID := e.seqToBucket(seqNo)
 
-	if seqNo != e.lowestUnallocated[int(bucketID)] {
-		panic(fmt.Sprintf("dev test, this really shouldn't happen: seqNo=%d e.lowestUnallocated=%d\n", seqNo, e.lowestUnallocated[int(bucketID)]))
-	}
+	assertEqualf(seqNo, e.lowestUnallocated[int(bucketID)], "step should defer all but the next expected preprepare")
 
 	e.lowestUnallocated[int(bucketID)] += uint64(len(e.buckets))
 	// fmt.Printf("   JKY: lowestUnallocated preprepare moved %d to %d\n", seq.seqNo, e.lowestUnallocated[int(bucketID)])
@@ -285,6 +281,7 @@ func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*p
 	// outstanding requests before transitioning the sequence to preprepared
 	actions, err := e.outstandingReqs.applyAcks(bucketID, seq, batch)
 	if err != nil {
+		// TODO implement suspect on bad batch
 		panic(fmt.Sprintf("handle me, seq_no=%d we need to stop the bucket and suspect: %s", seqNo, err))
 	}
 
@@ -374,9 +371,8 @@ func (e *activeEpoch) drainBuffers() *Actions {
 func (e *activeEpoch) advance() *Actions {
 	actions := &Actions{}
 
-	if e.highWatermark() > e.epochConfig.PlannedExpiration || e.highWatermark() > e.commitState.stopAtSeqNo {
-		panic(fmt.Sprintf("dev sanity check -- highWatermark=%d plannedExpiration=%d stopAtSeqNo=%d", e.highWatermark(), e.epochConfig.PlannedExpiration, e.commitState.stopAtSeqNo))
-	}
+	assertGreaterThanOrEqual(e.epochConfig.PlannedExpiration, e.highWatermark(), "high watermark should never extend beyond the planned epoch expiration")
+	assertGreaterThanOrEqual(e.commitState.stopAtSeqNo, e.highWatermark(), "high watermark should never extend beyond the stop at sequence")
 
 	ci := int(e.networkConfig.CheckpointInterval)
 
@@ -509,9 +505,7 @@ func (e *activeEpoch) highWatermark() uint64 {
 	}
 
 	interval := e.sequences[len(e.sequences)-1]
-	if interval[len(interval)-1] == nil {
-		panic(fmt.Sprintf("sequence in %v is nil", interval))
-	}
+	assertNotEqualf(interval[len(interval)-1], nil, "sequence in %v should be populated", interval)
 	return interval[len(interval)-1].seqNo
 }
 
