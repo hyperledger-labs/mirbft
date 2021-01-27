@@ -28,8 +28,6 @@ import (
 	"github.com/IBM/mirbft/reqstore"
 	"github.com/IBM/mirbft/simplewal"
 	"github.com/IBM/mirbft/status"
-
-	"go.uber.org/zap"
 )
 
 type FakeClient struct {
@@ -178,7 +176,6 @@ func Uint64ToBytes(value uint64) []byte {
 var _ = Describe("StressyTest", func() {
 	var (
 		doneC                 chan struct{}
-		logger                *zap.Logger
 		expectedProposalCount int
 		proposals             map[uint64]*pb.Request
 		wg                    sync.WaitGroup
@@ -188,11 +185,6 @@ var _ = Describe("StressyTest", func() {
 	)
 
 	BeforeEach(func() {
-		var err error
-		//logger, err = zap.NewDevelopment()
-		logger, err = zap.NewProduction()
-		Expect(err).NotTo(HaveOccurred())
-
 		proposals = map[uint64]*pb.Request{}
 
 		doneC = make(chan struct{})
@@ -201,7 +193,6 @@ var _ = Describe("StressyTest", func() {
 
 	AfterEach(func() {
 		close(doneC)
-		logger.Sync()
 		wg.Wait()
 
 		if nodeStatusesC == nil {
@@ -249,7 +240,7 @@ var _ = Describe("StressyTest", func() {
 
 	DescribeTable("commits all messages", func(testConfig *TestConfig) {
 		nodeStatusesC = make(chan []*NodeStatus, 1)
-		network = CreateNetwork(testConfig, logger, doneC)
+		network = CreateNetwork(testConfig, doneC)
 		go func() {
 			nodeStatusesC <- network.Run()
 		}()
@@ -450,7 +441,7 @@ type NodeStatus struct {
 	ExitErr error
 }
 
-func CreateNetwork(testConfig *TestConfig, logger *zap.Logger, doneC <-chan struct{}) *Network {
+func CreateNetwork(testConfig *TestConfig, doneC <-chan struct{}) *Network {
 	transport := NewFakeTransport(testConfig.NodeCount)
 
 	networkState := mirbft.StandardInitialNetworkState(testConfig.NodeCount, 0)

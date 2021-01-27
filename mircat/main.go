@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 	"gopkg.in/alecthomas/kingpin.v2"
 
 	"github.com/IBM/mirbft"
@@ -103,6 +102,7 @@ func excludedByNodeID(re *rpb.RecordedEvent, nodeIDs []uint64) bool {
 type arguments struct {
 	input         io.ReadCloser
 	interactive   bool
+	logLevel      mirbft.LogLevel
 	printActions  bool
 	nodeIDs       []uint64
 	eventTypes    []string
@@ -113,9 +113,34 @@ type arguments struct {
 	verboseText   bool
 }
 
+type namedLogger struct {
+	level  mirbft.LogLevel
+	name   string
+	output io.Writer
+}
+
+func (nl namedLogger) Log(level mirbft.LogLevel, msg string, args ...interface{}) {
+	if level < nl.level {
+		return
+	}
+
+	fmt.Fprint(nl.output, nl.name)
+	fmt.Fprint(nl.output, ": ")
+	fmt.Fprint(nl.output, msg)
+	for i := 0; i < len(args); i++ {
+		if i+1 < len(args) {
+			fmt.Fprintf(nl.output, " %s=%v", args[i], args[i+1])
+		} else {
+			fmt.Fprintf(nl.output, " %s=%%MISSING%%", args[i])
+		}
+	}
+	fmt.Fprintf(nl.output, "\n")
+}
+
 type stateMachines struct {
-	logger *zap.Logger
-	nodes  map[uint64]*stateMachine
+	logLevel mirbft.LogLevel
+	nodes    map[uint64]*stateMachine
+	output   io.Writer
 }
 
 type stateMachine struct {
@@ -124,14 +149,11 @@ type stateMachine struct {
 	executionTime  time.Duration
 }
 
-func newStateMachines() *stateMachines {
-	logger, err := zap.NewProduction()
-	if err != nil {
-		panic(err)
-	}
+func newStateMachines(output io.Writer, logLevel mirbft.LogLevel) *stateMachines {
 	return &stateMachines{
-		logger: logger,
-		nodes:  map[uint64]*stateMachine{},
+		output:   output,
+		logLevel: logLevel,
+		nodes:    map[uint64]*stateMachine{},
 	}
 }
 
@@ -142,7 +164,11 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *mirbft
 		delete(s.nodes, event.NodeId)
 		node = &stateMachine{
 			machine: &mirbft.StateMachine{
-				Logger: s.logger.Named(fmt.Sprintf("node%d", event.NodeId)),
+				Logger: namedLogger{
+					name:   fmt.Sprintf("node%d", event.NodeId),
+					output: s.output,
+					level:  s.logLevel,
+				},
 			},
 			pendingActions: &mirbft.Actions{},
 		}
@@ -392,7 +418,7 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 func (a *arguments) execute(output io.Writer) error {
 	defer a.input.Close()
 
-	s := newStateMachines()
+	s := newStateMachines(output, a.logLevel)
 
 	reader, err := eventlog.NewReader(a.input)
 	if err != nil {
@@ -487,6 +513,7 @@ func parseArgs(args []string) (*arguments, error) {
 	notStepTypes := app.Flag("notStepType", "Which step message types to exclude. (Cannot combine with --stepTypes)").Enums(allMsgTypes...)
 	verboseText := app.Flag("verboseText", "Whether to be verbose (output full bytes) in the text frmatting.").Default("false").Bool()
 	statusIndices := app.Flag("statusIndex", "Print node status at given index in the log (repeatable).").Uint64List()
+	logLevel := app.Flag("logLevel", "When run in interactive mode, the log level for the state machine with which to output.").Enum("debug", "info", "warn", "error")
 
 	_, err := app.Parse(args)
 	if err != nil {
@@ -502,6 +529,21 @@ func parseArgs(args []string) (*arguments, error) {
 		return nil, errors.Errorf("cannot set status indices for non-interactive playback")
 	case *printActions && !*interactive:
 		return nil, errors.Errorf("cannot set printActions for non-interactive playback")
+	case *logLevel != "" && !*interactive:
+		return nil, errors.Errorf("cannot set logLevel for non-interactive playback")
+	}
+
+	mirLogLevel := mirbft.LevelInfo
+
+	switch *logLevel {
+	case "debug":
+		mirLogLevel = mirbft.LevelDebug
+	case "info":
+		mirLogLevel = mirbft.LevelInfo
+	case "warn":
+		mirLogLevel = mirbft.LevelWarn
+	case "error":
+		mirLogLevel = mirbft.LevelError
 	}
 
 	return &arguments{
@@ -510,6 +552,7 @@ func parseArgs(args []string) (*arguments, error) {
 		printActions:  *printActions,
 		nodeIDs:       *nodeIDs,
 		eventTypes:    *eventTypes,
+		logLevel:      mirLogLevel,
 		notEventTypes: *notEventTypes,
 		stepTypes:     *stepTypes,
 		notStepTypes:  *notStepTypes,

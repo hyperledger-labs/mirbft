@@ -13,7 +13,6 @@ import (
 	"github.com/IBM/mirbft/status"
 
 	"github.com/pkg/errors"
-	// "go.uber.org/zap"
 )
 
 type clientReq struct {

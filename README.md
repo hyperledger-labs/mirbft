@@ -39,7 +39,7 @@ networkState := mirbft.StandardInitialNetworkState(4, 0)
 
 nodeConfig := &mirbft.Config{
 	ID:     uint64(i),
-	Logger: zap.NewExample(),
+	Logger: mirbft.ConsoleInfoLogger,
 	BatchSize: 20,
 	HeartbeatTicks:       2,
 	SuspectTicks:         4,

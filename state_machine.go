@@ -376,7 +376,6 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 	actions := &Actions{}
 
 	for _, checkpointResult := range results.Checkpoints {
-		// sm.Logger.Debug("applying checkpoint result", zap.Uint64("SeqNo", checkpointResult.SeqNo))
 		var epochConfig *pb.EpochConfig
 		if sm.epochTracker.currentEpoch.activeEpoch != nil {
 			// Of course this means epochConfig may be nil, and that's okay

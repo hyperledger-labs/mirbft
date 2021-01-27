@@ -17,14 +17,11 @@ var _ = Describe("Recorder", func() {
 	var (
 		recorder      *testengine.Recorder
 		recording     *testengine.Recording
-		totalReqs     uint64
 		recordingFile *os.File
 		gzWriter      *gzip.Writer
 	)
 
 	BeforeEach(func() {
-		totalReqs = 4 * 200
-
 		tDesc := CurrentGinkgoTestDescription()
 		var err error
 		recordingFile, err = ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
@@ -34,10 +31,6 @@ var _ = Describe("Recorder", func() {
 	})
 
 	AfterEach(func() {
-		if recorder.Logger != nil {
-			recorder.Logger.Sync()
-		}
-
 		if gzWriter != nil {
 			gzWriter.Close()
 		}
@@ -64,7 +57,6 @@ var _ = Describe("Recorder", func() {
 
 	When("There is a four node network", func() {
 		BeforeEach(func() {
-			totalReqs = 4 * 200
 			recorder = testengine.BasicRecorder(4, 4, 200)
 			recorder.NetworkState.Config.MaxEpochLength = 100000 // XXX this works around a bug in the library for now
 
@@ -76,19 +68,18 @@ var _ = Describe("Recorder", func() {
 		It("Executes and produces a log", func() {
 			count, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(44010))
+			Expect(count).To(Equal(43930))
 
 			fmt.Printf("Executing test required a log of %d events\n", count)
 
 			for _, node := range recording.Nodes {
 				status := node.PlaybackNode.StateMachine.Status()
 				Expect(status.EpochTracker.LastActiveEpoch).To(Equal(uint64(1)))
-				Expect(status.EpochTracker.EpochTargets).To(HaveLen(1))
-				Expect(status.EpochTracker.EpochTargets[0].Suspicions).To(BeEmpty())
-				Expect(node.State.Length).To(Equal(totalReqs))
+				Expect(status.EpochTracker.EpochTargets).To(HaveLen(0))
+				//Expect(status.EpochTracker.EpochTargets[0].Suspicions).To(BeEmpty())
 
-				// Expect(fmt.Sprintf("%x", node.State.Value)).To(BeEmpty())
-				Expect(fmt.Sprintf("%x", node.State.Value)).To(Equal("0f53f38b0ba4f451f347d4456e54647a208396e9215c27e68b44a2481ca50576"))
+				// Expect(fmt.Sprintf("%x", node.State.ActiveHash.Sum(nil))).To(BeEmpty())
+				Expect(fmt.Sprintf("%x", node.State.ActiveHash.Sum(nil))).To(Equal("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"))
 			}
 		})
 	})
@@ -105,7 +96,7 @@ var _ = Describe("Recorder", func() {
 		It("still executes and produces a log", func() {
 			count, err := recording.DrainClients(100)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(49))
+			Expect(count).To(Equal(63))
 		})
 	})
 })
