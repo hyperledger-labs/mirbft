@@ -1051,7 +1051,7 @@ func (cr *clientRequest) fetch() *Actions {
 		i++
 	}
 	sort.Slice(nodes, func(i, j int) bool {
-		return i <= j
+		return nodes[i] <= nodes[j]
 	})
 
 	cr.fetching = true
