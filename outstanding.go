@@ -105,27 +105,6 @@ func (ao *allOutstandingReqs) advanceRequests() *Actions {
 	return actions
 }
 
-func (ao *allOutstandingReqs) applyBatch(bucket bucketID, batch []*pb.RequestAck) error {
-	bo, ok := ao.buckets[bucket]
-	assertTruef(ok, "told to apply batch for bucket %d which does not exist", bucket)
-
-	for _, req := range batch {
-		co, ok := bo.clients[req.ClientId]
-		if !ok {
-			return fmt.Errorf("no such client")
-		}
-
-		if co.nextReqNo != req.ReqNo {
-			return fmt.Errorf("expected ClientId=%d next request for Bucket=%d to have ReqNo=%d but got ReqNo=%d", req.ClientId, bucket, co.nextReqNo, req.ReqNo)
-		}
-
-		co.nextReqNo += co.numBuckets
-		co.advance()
-	}
-
-	return nil
-}
-
 // TODO, bucket probably can/should be stored in the *sequence
 func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []*pb.RequestAck) (*Actions, error) {
 	bo, ok := ao.buckets[bucket]

@@ -391,6 +391,9 @@ type ClientMatching struct {
 	FromClient func(clientId uint64) *ClientMatching
 }
 
+// XXX tmp staticcheck hack
+var _ = newClientMatching
+
 func newClientMatching() *ClientMatching {
 	cm := &ClientMatching{}
 

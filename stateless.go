@@ -17,9 +17,11 @@ import (
 
 type bitmask []byte
 
+/*
 func (bm bitmask) bits() int {
 	return 8 * len(bm)
 }
+*/
 
 func (bm bitmask) isBitSet(bitIndex int) bool {
 	byteIndex := bitIndex / 8

@@ -77,7 +77,7 @@ func assertGreaterThanOrEqualf(lhs, rhs uint64, format string, args ...interface
 }
 
 func assertGreaterThan(lhs, rhs uint64, text string) {
-	assertGreaterThanOrEqualf(lhs, rhs, text)
+	assertGreaterThanf(lhs, rhs, text)
 }
 
 func assertGreaterThanf(lhs, rhs uint64, format string, args ...interface{}) {

@@ -474,7 +474,6 @@ func (r *Recording) Step() error {
 		)
 
 		if processing.StateTransfer != nil {
-			// fmt.Printf("JKY: got transfer request in testengine  <===========================\n")
 			var networkState *pb.NetworkState
 			for _, node := range r.Nodes {
 				el, ok := node.State.CheckpointsBySeqNo[processing.StateTransfer.SeqNo]
@@ -500,8 +499,6 @@ func (r *Recording) Step() error {
 				},
 				int64(runtimeParms.StateTransferLatency),
 			)
-		} else {
-			// fmt.Printf("JKY: no transfer request\n")
 		}
 	case *pb.StateEvent_Initialize:
 		// If this is an Initialize, it is either the first event for the node,
@@ -585,9 +582,6 @@ func (r *Recording) Step() error {
 		!node.AwaitingProcessEvent {
 		r.EventLog.InsertProcess(lastEvent.NodeId, int64(runtimeParms.ProcessLatency))
 		node.AwaitingProcessEvent = true
-		// fmt.Printf("JKY: inserting process event\n")
-	} else {
-		// fmt.Printf("JKY: not inserting process event: %v %v %v\n", playbackNode.Processing == nil, !isEmpty(playbackNode.Actions), !node.AwaitingProcessEvent)
 	}
 
 	return nil

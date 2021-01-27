@@ -185,6 +185,7 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 	return &Actions{}
 }
 
+/*
 func (p *persisted) consolePrint() {
 	fmt.Printf("\nJKY: starting log iteration\n")
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
@@ -192,6 +193,7 @@ func (p *persisted) consolePrint() {
 		fmt.Printf("JKY:           % 7d                   %+v\n", logEntry.index, logEntry.entry)
 	}
 }
+*/
 
 func (p *persisted) iterate(li logIterator) {
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
