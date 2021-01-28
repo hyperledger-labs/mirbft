@@ -28,11 +28,11 @@ For more information, see the detailed [design document](/docs/Design.md).  Note
 
 ## Using Mir
  
-This repository is a new project and under active development and as such, is not suitable for use (yet!). It's a fair ways further along that it was in early 2020, and we hope to have a release in the coming months.  For now, if you'd like to see a sample application, please look at [mirbft-sample](https://github.com/jyellick/mirbft-sample).
+This repository is a new project and under active development and as such, unless you're interested in contributing, it's probably not a good choice for your project (yet!). Most all basic features are present, including state transfer and reconfiguration.  For now, if you'd like to see a sample application based on some older code, please look at [mirbft-sample](https://github.com/jyellick/mirbft-sample), but this can and should be updated..
 
 ### Preview
 
-Currently, the Mir APIs are still stabilizing, and there are significant caveats associated with assorted features.  Notably, there are not yet APIs for state transfer (though this feature is nearly complete), although there are APIs for reconfiguration, it does not entirely work, and there are some assorted unhandled internal cases (like some known missing validation in new epoch messages, poor new epoch leader selection, slow graceful epoch rotation, and more).  However, the APIs are stabilizing, and the overall code architecture is finalizing.
+Currently, the Mir APIs are mostly stable, but there are significant caveats associated with assorted features.  There are APIs for reconfiguration, but it does not entirely work, and there are some assorted unhandled internal cases (like some known missing validation in new epoch messages, poor new epoch leader selection, and more).  However, the overall code architecture is finalizing, and it should be possible to parse it and begin to replicate the patterns and begin contributing.
 
 ```
 networkState := mirbft.StandardInitialNetworkState(4, 0)
