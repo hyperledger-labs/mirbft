@@ -80,6 +80,7 @@ func (nl NamedLogger) Log(level mirbft.LogLevel, msg string, args ...interface{}
 	for i := 0; i < len(args); i++ {
 		if i+1 < len(args) {
 			fmt.Fprintf(nl.Output, " %s=%v", args[i], args[i+1])
+			i++
 		} else {
 			fmt.Fprintf(nl.Output, " %s=%%MISSING%%", args[i])
 		}
@@ -110,7 +111,6 @@ func (p *Player) Step() error {
 		node.Status = sm.Status()
 		node.Processing = nil
 	case *pb.StateEvent_Transfer:
-		// fmt.Printf("JKY: player applying state transfer\n")
 	case *pb.StateEvent_AddResults:
 		if node.Processing == nil {
 			return errors.Errorf("node %d is not currently processing but got an apply event", event.NodeId)

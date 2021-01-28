@@ -127,7 +127,6 @@ func (wal *WAL) Truncate(index uint64) {
 		panic(fmt.Sprintf("asked to truncate to index %d, but highest index is %d", index, wal.LowIndex+uint64(wal.List.Len())))
 	}
 
-	// fmt.Printf("JKY WAL -- truncating to %d, removing %d since LowIndex %d\n", index, toRemove, wal.LowIndex)
 	for ; toRemove > 0; toRemove-- {
 		wal.List.Remove(wal.List.Front())
 		wal.LowIndex++
@@ -137,7 +136,6 @@ func (wal *WAL) Truncate(index uint64) {
 func (wal *WAL) LoadAll(iter func(index uint64, p *pb.Persistent)) {
 	i := uint64(0)
 	for el := wal.List.Front(); el != nil; el = el.Next() {
-		// fmt.Printf("JKY WAL -- loading %d\n", wal.LowIndex+i)
 		iter(wal.LowIndex+i, el.Value.(*pb.Persistent))
 		i++
 	}
@@ -376,17 +374,13 @@ func (r *Recording) Step() error {
 	case *pb.StateEvent_Tick:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	case *pb.StateEvent_AddResults:
-		// fmt.Printf("JKY: checking clients\n")
 		for _, rw := range nodeState.LastCheckpoint().NetworkState.Clients {
-			// fmt.Printf("JKY: checking client %d\n", rw.Id)
 			for _, client := range r.Clients {
 				if client.Config.ID != rw.Id {
 					continue
 				}
 
 				highWatermark := rw.LowWatermark + uint64(rw.Width) - uint64(rw.WidthConsumedLastCheckpoint)
-
-				// fmt.Printf("JKY: client highWatermark %d next reqno to send is %d\n", highWatermark, client.NextNodeReqNoSend[lastEvent.NodeId])
 
 				for i := client.NextNodeReqNoSend[lastEvent.NodeId]; i < highWatermark && i < client.Config.Total; i++ {
 					req := client.RequestByReqNo(i)
@@ -396,7 +390,6 @@ func (r *Recording) Step() error {
 					r.EventLog.InsertProposeEvent(lastEvent.NodeId, req, int64(client.Config.TxLatency))
 					client.NextNodeReqNoSend[lastEvent.NodeId] = i + 1
 
-					// fmt.Printf("  JKY: proposed request %d\n", req.ReqNo)
 				}
 			}
 		}
@@ -511,7 +504,6 @@ func (r *Recording) Step() error {
 			x := el
 			el = el.Next()
 			if x.Value.(*rpb.RecordedEvent).NodeId == lastEvent.NodeId {
-				// fmt.Printf("JKY: removing %T\n", r.EventLog.List.Remove(x).(*rpb.RecordedEvent).StateEvent.Type)
 				r.EventLog.List.Remove(x)
 			}
 		}
@@ -569,7 +561,6 @@ func (r *Recording) Step() error {
 	case *pb.StateEvent_LoadEntry:
 	case *pb.StateEvent_LoadRequest:
 	case *pb.StateEvent_Transfer:
-		// fmt.Printf("JKY: Applying transfer to recorder state\n")
 		node.State.Set(stateEvent.Transfer.SeqNo, stateEvent.Transfer.CheckpointValue, stateEvent.Transfer.NetworkState)
 	case *pb.StateEvent_CompleteInitialization:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))

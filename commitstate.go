@@ -25,6 +25,7 @@ import (
 type commitState struct {
 	persisted     *persisted
 	clientTracker *clientTracker
+	logger        Logger
 
 	lowWatermark      uint64
 	lastAppliedCommit uint64
@@ -37,10 +38,11 @@ type commitState struct {
 	transferring      bool
 }
 
-func newCommitState(persisted *persisted, clientTracker *clientTracker) *commitState {
+func newCommitState(persisted *persisted, clientTracker *clientTracker, logger Logger) *commitState {
 	cs := &commitState{
 		clientTracker: clientTracker,
 		persisted:     persisted,
+		logger:        logger,
 	}
 
 	return cs
@@ -81,10 +83,12 @@ func (cs *commitState) reinitialize() *Actions {
 	cs.upperHalfCommits = make([]*pb.QEntry, ci)
 
 	if lastTEntry == nil || lastCEntry.SeqNo >= lastTEntry.SeqNo {
-		// fmt.Printf("JKY: initialized stopAtSeqNo to %d -- lowWatermark=%d pc=%d lastCEntry=%d\n", cs.stopAtSeqNo, cs.lowWatermark, len(cs.activeState.PendingReconfigurations), lastCEntry.SeqNo)
+		cs.logger.Log(LevelDebug, "reinitialized commit-state", "low_watermark", cs.lowWatermark, "stop_at_seq_no", cs.stopAtSeqNo, "len(pending_reconfigurations)", len(cs.activeState.PendingReconfigurations), "last_checkpoint_seq_no", lastCEntry.SeqNo)
 		cs.transferring = false
 		return &Actions{}
 	}
+
+	cs.logger.Log(LevelInfo, "reinitialized commit-state detected crash during state transfer", "target_seq_no", lastTEntry.SeqNo, "target_value", lastTEntry.Value)
 
 	// We crashed during a state transfer
 	cs.transferring = true
@@ -97,6 +101,7 @@ func (cs *commitState) reinitialize() *Actions {
 }
 
 func (cs *commitState) transferTo(seqNo uint64, value []byte) *Actions {
+	cs.logger.Log(LevelDebug, "initiating state transfer", "target_seq_no", seqNo, "target_value", value)
 	assertEqual(cs.transferring, false, "multiple state transfers are not supported concurrently")
 	cs.transferring = true
 	return cs.persisted.addTEntry(&pb.TEntry{
@@ -111,7 +116,7 @@ func (cs *commitState) transferTo(seqNo uint64, value []byte) *Actions {
 }
 
 func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result *pb.CheckpointResult) *Actions {
-	// fmt.Printf("JKY: Applying checkpoint result for seqNo=%d\n", result.SeqNo)
+	cs.logger.Log(LevelDebug, "applying checkpoint result", "seq_no", result.SeqNo, "value", result.Value)
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 
 	if cs.transferring {
@@ -124,7 +129,8 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 
 	if len(result.NetworkState.PendingReconfigurations) == 0 {
 		cs.stopAtSeqNo = result.SeqNo + 2*ci
-		// fmt.Printf("JKY: increasing stop at seqno to seqNo=%d\n", cs.stopAtSeqNo)
+	} else {
+		cs.logger.Log(LevelDebug, "checkpoint result has pending reconfigurations, not extending stop", "stop_at_seq_no", cs.stopAtSeqNo)
 	}
 
 	cs.activeState = result.NetworkState
@@ -237,7 +243,7 @@ func (cs *commitState) drain() []*Commit {
 			})
 
 			cs.checkpointPending = true
-			// fmt.Printf("--- JKY: adding checkpoint request for seq_no=%d to action results\n", cs.lastAppliedCommit)
+			cs.logger.Log(LevelDebug, "all previous sequences has committed, requesting checkpoint", "seq_no", cs.lastAppliedCommit)
 
 		}
 
@@ -261,7 +267,6 @@ func (cs *commitState) drain() []*Commit {
 			Batch: commit,
 		})
 		for _, fr := range commit.Requests {
-			// fmt.Printf("JKY: Attempting to commit seqNo=%d with req=%d.%d\n", commit.SeqNo, fr.ClientId, fr.ReqNo)
 			cw, ok := cs.clientTracker.client(fr.ClientId)
 			assertEqual(ok, true, "commit references client which client tracker does not have")
 			cw.reqNo(fr.ReqNo).committed = &commit.SeqNo

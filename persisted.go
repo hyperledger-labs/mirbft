@@ -64,7 +64,6 @@ func (p *persisted) appendInitialLoad(entry *WALEntry) {
 		panic(fmt.Sprintf("WAL indexes out of order! Expected %d got %d, was your WAL corrupted?", p.nextIndex, entry.Index))
 	}
 	p.nextIndex = entry.Index + 1
-	// fmt.Printf("JKY: inserted WAL startup entry %d\n", entry.Index)
 }
 
 func (p *persisted) appendLogEntry(entry *pb.Persistent) *Actions {
@@ -75,7 +74,6 @@ func (p *persisted) appendLogEntry(entry *pb.Persistent) *Actions {
 	p.logTail = p.logTail.next
 	result := (&Actions{}).persist(p.nextIndex, entry)
 	p.nextIndex++
-	// fmt.Printf("JKY: inserted WAL runtime entry %d\n", p.logTail.index)
 	return result
 }
 
@@ -166,7 +164,7 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 			continue
 		}
 
-		// fmt.Printf("JKY: truncating to %d\n", logEntry.index)
+		p.logger.Log(LevelDebug, "truncating WAL", "seq_no", lowWatermark, "index", logEntry.index)
 
 		if p.logHead == logEntry {
 			break
@@ -185,19 +183,20 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 	return &Actions{}
 }
 
-/*
-func (p *persisted) consolePrint() {
-	fmt.Printf("\nJKY: starting log iteration\n")
+// staticcheck hack
+var _ = (&persisted{}).logEntries
+
+// logWAL is not called in the course of normal operation but it can be extremely useful
+// to call from other parts of the code in debugging situations
+func (p *persisted) logEntries() {
+	p.logger.Log(LevelDebug, "printing persisted log entries")
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
-		fmt.Printf("JKY: iterating over log entry of type %T\n", logEntry.entry.Type)
-		fmt.Printf("JKY:           % 7d                   %+v\n", logEntry.index, logEntry.entry)
+		p.logger.Log(LevelDebug, "  log entry", "type", fmt.Sprintf("%T", logEntry.entry.Type), "index", logEntry.index, "value", fmt.Sprintf("%+v", logEntry.entry))
 	}
 }
-*/
 
 func (p *persisted) iterate(li logIterator) {
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
-		// fmt.Printf("JKY: iterating over log entry of type %T\n", logEntry.entry.Type)
 		switch d := logEntry.entry.Type.(type) {
 		case *pb.Persistent_PEntry:
 			if li.onPEntry != nil {

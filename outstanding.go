@@ -12,7 +12,7 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkState) *allOutstandingReqs {
+func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkState, logger Logger) *allOutstandingReqs {
 	ao := &allOutstandingReqs{
 		buckets:             map[bucketID]*bucketOutstandingReqs{},
 		correctRequests:     map[string]*pb.RequestAck{},
@@ -40,7 +40,8 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 
 			ctClient, _ := clientTracker.client(client.Id)
 
-			// fmt.Printf("+++ JKY: setting the nextReqNo for client %d bucket %d to %d, lowWatermark=%d, committedMask=%v numBuckets=%d\n", client.Id, i, firstUncommitted, client.LowWatermark, client.CommittedMask, numBuckets)
+			logger.Log(LevelDebug, "initializing outstanding reqs for client", "client_id", client.Id, "bucket_id", i, "low_watermark", client.LowWatermark)
+
 			cors := &clientOutstandingReqs{
 				nextReqNo:  firstUncommitted,
 				numBuckets: uint64(networkState.Config.NumberOfBuckets),
@@ -83,8 +84,6 @@ func (cors *clientOutstandingReqs) advance() {
 
 		break
 	}
-
-	// fmt.Printf("JKY: Setting client %d nextReqNo to %d\n", cors.client.clientState.Id, cors.nextReqNo)
 }
 
 func (ao *allOutstandingReqs) advanceRequests() *Actions {

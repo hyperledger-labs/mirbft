@@ -30,6 +30,7 @@ func (l consoleLogger) Log(level LogLevel, text string, args ...interface{}) {
 	for i := 0; i < len(args); i++ {
 		if i+1 < len(args) {
 			fmt.Printf(" %s=%v", args[i], args[i+1])
+			i++
 		} else {
 			fmt.Printf(" %s=%%MISSING%%", args[i])
 		}

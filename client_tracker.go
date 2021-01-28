@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"bytes"
 	"container/list"
 	"fmt"
 	"sort"
@@ -332,21 +333,6 @@ func (ct *clientTracker) reinitialize() {
 	oldClients := ct.clients
 	ct.clients = map[uint64]*client{}
 	ct.clientStates = highCEntry.NetworkState.Clients
-	// fmt.Printf("JKY: reinitializing clients with CEntry %d\n", highCEntry.SeqNo)
-	/*
-		for _, client := range ct.clientStates {
-			fmt.Printf("     client%d lowWatermark=%d consumedLastCheckpoint=%d width=%d alreadyCommitted=%x\n", client.Id, client.LowWatermark, client.WidthConsumedLastCheckpoint, client.Width, client.CommittedMask)
-			fmt.Printf("     ")
-			for i := 0; i < 8*len(client.CommittedMask); i++ {
-				if bitmask(client.CommittedMask).isBitSet(i) {
-					fmt.Printf("1")
-				} else {
-					fmt.Printf("0")
-				}
-			}
-			fmt.Printf("\n")
-		}
-	*/
 	for _, clientState := range ct.clientStates {
 		client, ok := oldClients[clientState.Id]
 		if !ok {
@@ -506,11 +492,9 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 			if crn.committed != nil {
 				assertGreaterThanOrEqual(seqNo, *crn.committed, "requested has commit sequence after current checkpoint")
 				lastCommitted = &crn.reqNo
-				// fmt.Printf("JKY: found clientID=%d reqNo=%d _did_ commit at %d\n", oldClientState.Id, crn.reqNo, *crn.committed)
 				continue
 			}
 			if firstUncommitted == nil {
-				// fmt.Printf("JKY: found clientID=%d reqNo=%d is firstUncommitted\n", oldClientState.Id, crn.reqNo)
 				firstUncommitted = &crn.reqNo
 			}
 		}
@@ -532,16 +516,12 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 			continue
 		}
 
-		// fmt.Printf("JKY: making bitmask... lastCommitted=%d firstUncommitted=%d\n", *lastCommitted, *firstUncommitted)
-
 		mask := bitmask(make([]byte, int(*lastCommitted-*firstUncommitted)/8+1))
 		for i := 0; i <= int(*lastCommitted-*firstUncommitted); i++ {
 			reqNo := *firstUncommitted + uint64(i)
 			if cw.reqNoMap[reqNo].Value.(*clientReqNo).committed == nil {
-				// fmt.Printf("JKY: found clientID=%d reqNo=%d did not commit beyond our low watermark\n", oldClientState.Id, reqNo)
 				continue
 			}
-			// fmt.Printf("JKY: found clientID=%d reqNo=%d _did_ commit beyond our low watermark\n", oldClientState.Id, reqNo)
 
 			assertNotEqual(i, 0, "the first uncommitted cannot be marked committed")
 
@@ -551,7 +531,7 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 
 		lowWatermark := *firstUncommitted
 
-		// fmt.Printf("JKY: client %d committed through seqNo=%d lowWatermark=%d oldLowWatermark=%d withConsumed=%d\n", oldClientState.Id, seqNo, lowWatermark, oldClientState.LowWatermark, lowWatermark-oldClientState.LowWatermark)
+		ct.logger.Log(LevelDebug, "client committed requests during checkpoint interval", "client_id", oldClientState.Id, "seq_no", seqNo, "new_low_watermark", lowWatermark, "old_low_watermark", oldClientState.LowWatermark, "commit_mask", mask)
 
 		newClientStates[i] = &pb.NetworkState_Client{
 			Id:                          oldClientState.Id,
@@ -560,8 +540,6 @@ func (ct *clientTracker) commitsCompletedForCheckpointWindow(seqNo uint64) []*pb
 			LowWatermark:                lowWatermark,
 			CommittedMask:               mask,
 		}
-
-		// fmt.Printf("+++ JKY: setting clientID=%d lowWatermark=%d committedMask=%x\n", oldClientState.Id, lowWatermark, mask)
 
 		cw.allocate(seqNo, newClientStates[i])
 	}
@@ -966,6 +944,8 @@ func (crn *clientReqNo) tick() *Actions {
 		}
 	}
 
+	var toFetch []*clientRequest
+
 	// Third, for every correct request we have, if we have been trying to fetch it
 	// long enough, but received no response, let's try fetching it again.
 	for _, cr := range crn.weakRequests {
@@ -982,7 +962,14 @@ func (crn *clientReqNo) tick() *Actions {
 
 		cr.fetching = false
 
-		// XXX this is non-deterministic because of map iteration outer loop
+		toFetch = append(toFetch, cr)
+	}
+
+	sort.Slice(toFetch, func(i, j int) bool {
+		return bytes.Compare(toFetch[i].ack.Digest, toFetch[j].ack.Digest) > 0
+	})
+
+	for _, cr := range toFetch {
 		actions.concat(cr.fetch())
 	}
 
@@ -1113,14 +1100,15 @@ func (c *client) reinitialize(networkConfig *pb.NetworkState_Config, lowSeqNo, h
 		expired:       make(chan struct{}),
 	}
 
+	totalCommitted := 0
 	bm := bitmask(highClientState.CommittedMask)
 	for i := 0; i <= int(lowClientState.Width); i++ {
 		highOffset := int(highClientState.LowWatermark - lowClientState.LowWatermark)
 
-		// fmt.Printf("JKY: checking if client %d reqno=%d as committed before seqno=%d for offset=%d\n", highClientState.Id, uint64(i)+lowClientState.LowWatermark, highSeqNo, highOffset)
 		var committed *uint64
 		if highClientState.LowWatermark > lowWatermark+uint64(i) || bm.isBitSet(i+highOffset) {
 			committed = &highSeqNo // we might not garbage collect this optimally, but that's okay
+			totalCommitted++
 		}
 
 		var validAfterSeqNo uint64
@@ -1151,6 +1139,8 @@ func (c *client) reinitialize(networkConfig *pb.NetworkState_Config, lowSeqNo, h
 		el := c.reqNoList.PushBack(oldReqNo)
 		c.reqNoMap[reqNo] = el
 	}
+
+	c.logger.Log(LevelDebug, "reinitialized client", "client_id", c.clientState.Id, "low_watermark", c.lowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark, "committed_beyond_low_watermark", totalCommitted)
 }
 
 func (cw *client) allocate(startingAtSeqNo uint64, state *pb.NetworkState_Client) {
@@ -1203,8 +1193,6 @@ func (cw *client) moveLowWatermark(maxSeqNo uint64) {
 		for _, cr := range crn.requests {
 			cr.garbage = true
 		}
-
-		// fmt.Printf("JKY: removing client_id=%d req_no=%d\n", cw.clientState.Id, crn.reqNo)
 
 		cw.reqNoList.Remove(oel)
 		delete(cw.reqNoMap, crn.reqNo)

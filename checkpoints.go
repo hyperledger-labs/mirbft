@@ -179,6 +179,7 @@ func (ct *checkpointTracker) checkpoint(seqNo uint64) *checkpoint {
 			seqNo:         seqNo,
 			networkConfig: ct.networkConfig,
 			myConfig:      ct.myConfig,
+			logger:        ct.logger,
 		}
 		ct.checkpointMap[seqNo] = cp
 	}
@@ -195,8 +196,6 @@ func (ct *checkpointTracker) lowWatermark() uint64 {
 }
 
 func (ct *checkpointTracker) applyCheckpointMsg(source nodeID, seqNo uint64, value []byte) {
-	// fmt.Printf("\n!!!\n JKY: applying checkpoint from %d for seqNo=%d\n\n", source, seqNo)
-
 	aboveHighWatermark := seqNo > ct.highWatermark()
 	if aboveHighWatermark {
 		highest, ok := ct.highestCheckpoints[source]
@@ -259,6 +258,7 @@ type checkpoint struct {
 	seqNo         uint64
 	myConfig      *pb.StateEvent_InitialParameters
 	networkConfig *pb.NetworkState_Config
+	logger        Logger
 
 	values         map[string][]nodeID
 	committedValue []byte
@@ -295,6 +295,9 @@ func (cw *checkpoint) applyCheckpointMsg(source nodeID, value []byte) {
 		// This checkpoint has enough agreements, including my own, it may now be garbage collectable
 		// Note, this must be >= (not ==) because my agreement could come after 2f+1 from the network.
 		if agreements >= intersectionQuorum(cw.networkConfig) {
+			if !cw.stable {
+				cw.logger.Log(LevelDebug, "checkpoint is now stable", "seq_no", cw.seqNo)
+			}
 			cw.stable = true
 		}
 	}

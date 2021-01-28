@@ -130,6 +130,7 @@ func (nl namedLogger) Log(level mirbft.LogLevel, msg string, args ...interface{}
 	for i := 0; i < len(args); i++ {
 		if i+1 < len(args) {
 			fmt.Fprintf(nl.output, " %s=%v", args[i], args[i+1])
+			i++
 		} else {
 			fmt.Fprintf(nl.output, " %s=%%MISSING%%", args[i])
 		}

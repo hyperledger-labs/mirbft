@@ -124,7 +124,6 @@ func (prb *proposalBucket) queueRequest(validAfterSeqNo uint64, cr *clientReques
 }
 
 func (prb *proposalBucket) advance(toSeqNo uint64) {
-	// fmt.Printf("JKY advancing toSeqNo=%d readyList=%d nextReadyList=%d currentCheckpoint=%d\n", toSeqNo, prb.readyList.Len(), prb.nextReadyList.Len(), prb.currentCheckpoint)
 	if toSeqNo >= prb.currentCheckpoint+prb.checkpointInterval {
 		prb.currentCheckpoint += prb.checkpointInterval
 		prb.readyList.PushBackList(prb.nextReadyList)

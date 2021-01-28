@@ -124,7 +124,8 @@ func (et *epochTracker) reinitialize() *Actions {
 
 	switch {
 	case lastNEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastNEntry.EpochConfig.Number):
-		// We're in the middle of a currently active epoch
+		et.logger.Log(LevelDebug, "reinitializing during a currently active epoch")
+
 		et.currentEpoch = newEpochTarget(
 			lastNEntry.EpochConfig.Number,
 			et.persisted,
@@ -159,8 +160,8 @@ func (et *epochTracker) reinitialize() *Actions {
 				Suspect: suspect,
 			},
 		})
-		// fmt.Printf("JKY: starting mid-epoch!\n")
 	case lastFEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastFEntry.EndsEpochConfig.Number):
+		et.logger.Log(LevelDebug, "reinitializing immediately after graceful epoch end, but before epoch change sent, creating epoch change")
 		// An epoch has just gracefully ended, and we have not yet tried to move to the next
 		lastECEntry = &pb.ECEntry{
 			EpochNumber: lastFEntry.EndsEpochConfig.Number + 1,
@@ -170,7 +171,7 @@ func (et *epochTracker) reinitialize() *Actions {
 	case lastECEntry != nil:
 		// An epoch has ended (ungracefully or otherwise), and we have sent our epoch change
 
-		// fmt.Printf("JKY: reinitializing during ungraceful change\n")
+		et.logger.Log(LevelDebug, "reinitializing after epoch change persisted")
 
 		if et.currentEpoch != nil && et.currentEpoch.number == lastECEntry.EpochNumber {
 			// We have been reinitialized during an epoch change, no need to start fresh

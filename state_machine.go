@@ -134,7 +134,7 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 	sm.nodeBuffers = newNodeBuffers(sm.myConfig, sm.Logger)
 	sm.checkpointTracker = newCheckpointTracker(0, dummyInitialState, sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger)
 	sm.clientTracker = newClientWindows(sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger)
-	sm.commitState = newCommitState(sm.persisted, sm.clientTracker)
+	sm.commitState = newCommitState(sm.persisted, sm.clientTracker, sm.Logger)
 	sm.batchTracker = newBatchTracker(sm.persisted)
 	sm.epochTracker = newEpochTracker(
 		sm.persisted,
@@ -211,7 +211,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	case *pb.StateEvent_Transfer:
 		assertEqualf(sm.commitState.transferring, true, "state transfer event received but the state machine did not request transfer")
 
-		// fmt.Printf("JKY: performing state transfer to %d\n", event.Transfer.SeqNo)
+		sm.Logger.Log(LevelDebug, "state transfer completed", "seq_no", event.Transfer.SeqNo)
 
 		actions.concat(sm.persisted.addCEntry(event.Transfer))
 		actions.concat(sm.reinitialize())
@@ -232,7 +232,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 	// the next checkpoint.)
 	if sm.checkpointTracker.state == cpsGarbageCollectable {
 		newLow := sm.checkpointTracker.garbageCollect()
-		// fmt.Printf("JKY: garbage collecting to %d\n", newLow)
+		sm.Logger.Log(LevelDebug, "garbage collecting through", "seq_no", newLow)
 
 		sm.persisted.truncate(newLow)
 
@@ -271,6 +271,8 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 // the clientTracker retains in-window ACKs for still-extant clients.  The checkpointTracker
 // retains checkpoint messages sent by other replicas, etc.
 func (sm *StateMachine) reinitialize() *Actions {
+	defer sm.Logger.Log(LevelInfo, "state machine reinitialized (either due to start, state transfer, or reconfiguration)")
+
 	actions := sm.recoverLog()
 	sm.clientTracker.reinitialize()
 

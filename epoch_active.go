@@ -45,9 +45,9 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffe
 	networkConfig := commitState.activeState.Config
 	startingSeqNo := commitState.highestCommit
 
-	// fmt.Printf("JKY: starting new epoch seq is %d\n", startingSeqNo)
+	logger.Log(LevelInfo, "starting new active epoch", "epoch_no", epochConfig.Number, "seq_no", startingSeqNo)
 
-	outstandingReqs := newOutstandingReqs(clientTracker, commitState.activeState)
+	outstandingReqs := newOutstandingReqs(clientTracker, commitState.activeState, logger)
 
 	buckets := map[bucketID]nodeID{}
 
@@ -75,7 +75,6 @@ func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffe
 	}
 
 	lowestUncommitted := commitState.highestCommit + 1
-	// fmt.Printf("JKY: setting lowestUncommitted to %d\n", lowestUncommitted)
 
 	proposer := newProposer(
 		startingSeqNo,
@@ -275,7 +274,6 @@ func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*p
 	assertEqualf(seqNo, e.lowestUnallocated[int(bucketID)], "step should defer all but the next expected preprepare")
 
 	e.lowestUnallocated[int(bucketID)] += uint64(len(e.buckets))
-	// fmt.Printf("   JKY: lowestUnallocated preprepare moved %d to %d\n", seq.seqNo, e.lowestUnallocated[int(bucketID)])
 
 	// Note, this allocates the sequence inside, as we need to track
 	// outstanding requests before transitioning the sequence to preprepared
@@ -299,7 +297,6 @@ func (e *activeEpoch) applyCommitMsg(source nodeID, seqNo uint64, digest []byte)
 
 	seq.applyCommitMsg(source, digest)
 	if seq.state != sequenceCommitted || seqNo != e.lowestUncommitted {
-		// fmt.Printf("JKY: not commiting as %d != %d \n", seqNo, e.lowestUncommitted)
 		return &Actions{}
 	}
 
@@ -330,10 +327,9 @@ func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*Actions, bool) {
 	actions := e.advance()
 
 	for seqNo > e.lowWatermark() {
-		// fmt.Printf(" JKY: moving low watermark to %d, lowWatermark=%d highWatermark=%d\n", seqNo, e.lowWatermark(), e.highWatermark())
+		e.logger.Log(LevelDebug, "moved active epoch low watermarks", "low_watermark", e.lowWatermark(), "high_watermark", e.highWatermark())
 
 		e.sequences = e.sequences[1:]
-
 	}
 
 	return actions, false
@@ -385,7 +381,6 @@ func (e *activeEpoch) advance() *Actions {
 		}))
 		for i := range newSequences {
 			seqNo := e.highWatermark() + 1 + uint64(i)
-			// fmt.Printf("  JKY: allocating new equences for seqNo %d\n", seqNo)
 			epoch := e.epochConfig.Number
 			owner := e.buckets[e.seqToBucket(seqNo)]
 			newSequences[i] = newSequence(owner, epoch, seqNo, e.persisted, e.networkConfig, e.myConfig, e.logger)
@@ -395,7 +390,6 @@ func (e *activeEpoch) advance() *Actions {
 
 	actions.concat(e.drainBuffers())
 
-	// fmt.Printf("JKY: draining proposer, adding new sequences for lowestUncommitted=%d, lowestUnallocated=%v\n", e.lowestUncommitted, e.lowestUnallocated)
 	e.proposer.advance(e.lowestUncommitted)
 
 	for bucketID, ownerID := range e.buckets {
@@ -403,7 +397,6 @@ func (e *activeEpoch) advance() *Actions {
 			continue
 		}
 
-		// fmt.Printf("JKY: draining proposer, for my bucket %d\n", bucketID)
 		prb := e.proposer.proposalBucket(bucketID)
 
 		for {
@@ -413,17 +406,14 @@ func (e *activeEpoch) advance() *Actions {
 			}
 
 			if !prb.hasPending(seqNo) {
-				// fmt.Printf("  JKY: my bucket has no pending requests for seqNo %d\n", seqNo)
 				break
 			}
 
-			// fmt.Printf("JKY: allocating seqNo %d\n", seqNo)
 			seq := e.sequence(seqNo)
 
 			actions.concat(seq.allocateAsOwner(prb.next()))
 
 			e.lowestUnallocated[int(bucketID)] += uint64(len(e.buckets))
-			// fmt.Printf("   JKY: lowestUnallocated allocation moved %d to %d\n", seqNo, e.lowestUnallocated[int(bucketID)])
 		}
 	}
 
@@ -432,7 +422,9 @@ func (e *activeEpoch) advance() *Actions {
 
 func (e *activeEpoch) applyBatchHashResult(seqNo uint64, digest []byte) *Actions {
 	if !e.inWatermarks(seqNo) {
-		// TODO, log?
+		// this possibly could be logged, as it indicates consumer error possibly.
+		// on the other hand during or after state transfer this could be entirely
+		// benign.
 		return &Actions{}
 	}
 
@@ -461,6 +453,7 @@ func (e *activeEpoch) tick() *Actions {
 			},
 		})
 		actions.concat(e.persisted.addSuspect(suspect))
+		e.logger.Log(LevelDebug, "suspect epoch to have failed due to lack of active progress", "epoch_no", e.epochConfig.Number)
 	}
 
 	if e.myConfig.HeartbeatTicks == 0 || e.ticksSinceProgress%e.myConfig.HeartbeatTicks != 0 {
@@ -489,7 +482,6 @@ func (e *activeEpoch) tick() *Actions {
 		actions.concat(seq.allocateAsOwner(clientReqs))
 
 		e.lowestUnallocated[bid] += uint64(len(e.buckets))
-		// fmt.Printf("   JKY: lowestUnallocated tick moved %d to %d\n", seq.seqNo, e.lowestUnallocated[bid])
 	}
 
 	return actions
