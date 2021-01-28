@@ -30,6 +30,23 @@ import (
 	"github.com/IBM/mirbft/status"
 )
 
+var (
+	tickInterval = 100 * time.Millisecond
+)
+
+func init() {
+	val := os.Getenv("MIRBFT_TEST_STRESS_TICK_INTERVAL")
+	if val != "" {
+		dur, err := time.ParseDuration(val)
+		if err != nil {
+			fmt.Printf("Could not parse duration for stress tick interval: %s\n", err)
+			return
+		}
+		fmt.Printf("Setting tick interval to be %v\n", dur)
+		tickInterval = dur
+	}
+}
+
 type FakeClient struct {
 	MsgCount uint64
 }
@@ -308,7 +325,7 @@ func (tr *TestReplica) EventLogPath() string {
 }
 
 func (tr *TestReplica) Run() (*status.StateMachine, error) {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 
 	reqStorePath := filepath.Join(tr.TmpDir, "reqstore")
