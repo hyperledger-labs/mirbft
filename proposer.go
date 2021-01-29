@@ -15,7 +15,7 @@ import (
 
 func uint64ToBytes(value uint64) []byte {
 	byteValue := make([]byte, 8)
-	binary.LittleEndian.PutUint64(byteValue, value)
+	binary.BigEndian.PutUint64(byteValue, value)
 	return byteValue
 }
 
