@@ -114,84 +114,68 @@ import (
 // weakList -- all requests which are correct, but we have not replicated locally -- a list of
 // replicatingMap -- all requests which are currently being fetched
 
-// appendList is a useful data structure for us because it allows appending
-// of new elements, with stable iteration across garabage collection.  By
-// stable iteration, we mean that even if an element is removed from the list
-// any active iterators will still encounter that element, and eventually
-// reach the tail of the list.  Contrast this with the golang stdlib doubly
-// linked list which, when elements are removed, can no longer be used to
-// iterate over the list.
+// appendList is a data structure uniquely suited to the operations of the state machine
+// it allows for a single iterator consumer, which may be reset on events like epoch change.
+// Entries are first added into the 'pending' list, and as they are iterated over, they
+// are moved to the consumed list.  At any point, entries may be removed from either list.
+// The behavior of the iterator is always to simply begin at the head of the pending list,
+// moving elements to the consumed list until it is exhausted.  New elements are always
+// pushed onto the back of the pending list.
 type appendList struct {
-	head *appendListEntry
-	tail *appendListEntry
-}
-
-type appendListEntry struct {
-	next  *appendListEntry
-	value interface{}
-}
-
-type appendListIterator struct {
-	lastEntry  *appendListEntry
-	appendList *appendList
-}
-
-func (ale *appendListEntry) isSkipElement() bool {
-	return ale.value == nil
+	consumed *list.List
+	pending  *list.List
 }
 
 func newAppendList() *appendList {
-	startElement := &appendListEntry{}
 	return &appendList{
-		head: startElement,
-		tail: startElement,
+		consumed: list.New(),
+		pending:  list.New(),
 	}
+}
+
+func (al *appendList) resetIterator() {
+	al.pending.PushFrontList(al.consumed)
+	al.consumed = list.New()
+}
+
+func (al *appendList) hasNext() bool {
+	return al.pending.Len() > 0
+}
+
+func (al *appendList) next() interface{} {
+	value := al.pending.Remove(al.pending.Front())
+	al.consumed.PushBack(value)
+	return value
 }
 
 func (al *appendList) pushBack(value interface{}) {
-	newEntry := &appendListEntry{
-		value: value,
-	}
-
-	al.tail.next = newEntry
-	al.tail = newEntry
+	al.pending.PushBack(value)
 }
 
-func (al *appendList) iterator() *appendListIterator {
-	return &appendListIterator{
-		appendList: al,
-		lastEntry: &appendListEntry{
-			next: al.head,
-		},
-	}
-}
-
-func (ali *appendListIterator) hasNext() bool {
-	for {
-		currentEntry := ali.lastEntry.next
-		if currentEntry.next == nil {
-			return false
+func (al *appendList) garbageCollect(gcFunc func(value interface{}) bool) {
+	el := al.consumed.Front()
+	for el != nil {
+		if gcFunc(el.Value) {
+			xel := el
+			el = el.Next()
+			al.consumed.Remove(xel)
+			continue
 		}
-		if !currentEntry.next.isSkipElement() {
-			return true
+
+		el = el.Next()
+	}
+
+	el = al.pending.Front()
+	for el != nil {
+		if gcFunc(el.Value) {
+			xel := el
+			el = el.Next()
+			al.pending.Remove(xel)
+			continue
 		}
-		ali.lastEntry = currentEntry
+
+		el = el.Next()
 	}
-}
-
-func (ali *appendListIterator) next() interface{} {
-	currentEntry := ali.lastEntry.next
-	ali.lastEntry = currentEntry
-	return currentEntry.next.value
-}
-
-func (ali *appendListIterator) remove() {
-	currentEntry := ali.lastEntry.next
-	if currentEntry.next == nil {
-		ali.appendList.pushBack(nil)
-	}
-
-	ali.lastEntry.next = currentEntry.next
 }
 
 type readyList struct {
@@ -204,47 +188,32 @@ func newReadyList() *readyList {
 	}
 }
 
-type readyIterator struct {
-	appendListIterator *appendListIterator
+func (rl *readyList) resetIterator() {
+	rl.appendList.resetIterator()
 }
 
-func (ri *readyIterator) hasNext() bool {
-	return ri.appendListIterator.hasNext()
+func (rl *readyList) hasNext() bool {
+	return rl.appendList.hasNext()
 }
 
-func (ri *readyIterator) next() *clientReqNo {
-	return ri.appendListIterator.next().(*clientReqNo)
+func (rl *readyList) next() *clientReqNo {
+	return rl.appendList.next().(*clientReqNo)
 }
 
 func (rl *readyList) pushBack(crn *clientReqNo) {
 	rl.appendList.pushBack(crn)
 }
 
-func (rl *readyList) iterator() *readyIterator {
-	return &readyIterator{
-		appendListIterator: rl.appendList.iterator(),
-	}
-}
-
 func (rl *readyList) garbageCollect(seqNo uint64) {
-	i := rl.iterator()
-	for i.hasNext() {
-		crn := i.next()
+	rl.appendList.garbageCollect(func(value interface{}) bool {
+		crn := value.(*clientReqNo)
 		c := crn.committed
-		if c == nil || *c > seqNo {
-			continue
-		}
-
-		i.appendListIterator.remove()
-	}
+		return c != nil && *c <= seqNo
+	})
 }
 
 type availableList struct {
 	appendList *appendList
-}
-
-type availableIterator struct {
-	appendListIterator *appendListIterator
 }
 
 func newAvailableList() *availableList {
@@ -257,30 +226,23 @@ func (al *availableList) pushBack(ack *clientRequest) {
 	al.appendList.pushBack(ack)
 }
 
-func (al *availableList) iterator() *availableIterator {
-	return &availableIterator{
-		appendListIterator: al.appendList.iterator(),
-	}
+func (al *availableList) resetIterator() {
+	al.appendList.resetIterator()
 }
 
-func (al *availableIterator) hasNext() bool {
-	return al.appendListIterator.hasNext()
+func (al *availableList) hasNext() bool {
+	return al.appendList.hasNext()
 }
 
-func (al *availableIterator) next() *clientRequest {
-	return al.appendListIterator.next().(*clientRequest)
+func (al *availableList) next() *clientRequest {
+	return al.appendList.next().(*clientRequest)
 }
 
 func (al *availableList) garbageCollect(seqNo uint64) {
-	i := al.iterator()
-	for i.hasNext() {
-		cr := i.next()
-		if !cr.garbage {
-			continue
-		}
-
-		i.appendListIterator.remove()
-	}
+	al.appendList.garbageCollect(func(value interface{}) bool {
+		cr := value.(*clientRequest)
+		return cr.garbage
+	})
 }
 
 type clientTracker struct {

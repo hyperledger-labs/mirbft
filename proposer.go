@@ -22,7 +22,7 @@ func uint64ToBytes(value uint64) []byte {
 type proposer struct {
 	myConfig        *pb.StateEvent_InitialParameters
 	proposalBuckets map[bucketID]*proposalBucket
-	readyIterator   *readyIterator
+	readyIterator   *readyList
 	totalBuckets    int
 }
 
@@ -64,11 +64,13 @@ func newProposer(baseCheckpoint uint64, checkpointInterval uint64, myConfig *pb.
 		}
 	}
 
+	clientTracker.readyList.resetIterator()
+
 	return &proposer{
 		myConfig:        myConfig,
 		totalBuckets:    len(buckets),
 		proposalBuckets: proposalBuckets,
-		readyIterator:   clientTracker.readyList.iterator(),
+		readyIterator:   clientTracker.readyList,
 	}
 }
 

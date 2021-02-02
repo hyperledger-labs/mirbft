@@ -13,11 +13,13 @@ import (
 )
 
 func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkState, logger Logger) *allOutstandingReqs {
+	clientTracker.availableList.resetIterator()
+
 	ao := &allOutstandingReqs{
 		buckets:             map[bucketID]*bucketOutstandingReqs{},
 		correctRequests:     map[string]*pb.RequestAck{},
 		outstandingRequests: map[string]*sequence{},
-		availableIterator:   clientTracker.availableList.iterator(),
+		availableIterator:   clientTracker.availableList,
 	}
 
 	numBuckets := int(networkState.Config.NumberOfBuckets)
@@ -59,7 +61,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 
 type allOutstandingReqs struct {
 	buckets             map[bucketID]*bucketOutstandingReqs
-	availableIterator   *availableIterator
+	availableIterator   *availableList
 	correctRequests     map[string]*pb.RequestAck
 	outstandingRequests map[string]*sequence
 }
