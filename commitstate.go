@@ -153,7 +153,7 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 				},
 			},
 		},
-	).concat(cs.clientTracker.drain())
+	)
 }
 
 func (cs *commitState) commit(qEntry *pb.QEntry) {
@@ -232,7 +232,7 @@ func (cs *commitState) drain() []*Commit {
 	var result []*Commit
 	for cs.lastAppliedCommit < cs.lowWatermark+2*ci {
 		if cs.lastAppliedCommit == cs.lowWatermark+ci && !cs.checkpointPending {
-			clientState := cs.clientTracker.commitsCompletedForCheckpointWindow(cs.lastAppliedCommit)
+			clientState := cs.clientTracker.computeNewClientStates(cs.lastAppliedCommit)
 			networkConfig, clientConfigs := nextNetworkConfig(cs.activeState, clientState)
 			result = append(result, &Commit{
 				Checkpoint: &Checkpoint{
@@ -266,12 +266,7 @@ func (cs *commitState) drain() []*Commit {
 		result = append(result, &Commit{
 			Batch: commit,
 		})
-		for _, fr := range commit.Requests {
-			cw, ok := cs.clientTracker.client(fr.ClientId)
-			assertEqual(ok, true, "commit references client which client tracker does not have")
-			cw.reqNo(fr.ReqNo).committed = &commit.SeqNo
-		}
-
+		cs.clientTracker.markCommitted(commit)
 		cs.lastAppliedCommit = nextCommit
 	}
 

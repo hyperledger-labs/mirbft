@@ -56,13 +56,14 @@ type epochTarget struct {
 	isLeader        bool
 	prestartBuffers map[nodeID]*msgBuffer
 
-	persisted     *persisted
-	nodeBuffers   *nodeBuffers
-	clientTracker *clientTracker
-	batchTracker  *batchTracker
-	networkConfig *pb.NetworkState_Config
-	myConfig      *pb.StateEvent_InitialParameters
-	logger        Logger
+	persisted              *persisted
+	nodeBuffers            *nodeBuffers
+	clientTracker          *clientTracker
+	clientHashDisseminator *clientHashDisseminator
+	batchTracker           *batchTracker
+	networkConfig          *pb.NetworkState_Config
+	myConfig               *pb.StateEvent_InitialParameters
+	logger                 Logger
 }
 
 func newEpochTarget(
@@ -71,6 +72,7 @@ func newEpochTarget(
 	nodeBuffers *nodeBuffers,
 	commitState *commitState,
 	clientTracker *clientTracker,
+	clientHashDisseminator *clientHashDisseminator,
 	batchTracker *batchTracker,
 	networkConfig *pb.NetworkState_Config,
 	myConfig *pb.StateEvent_InitialParameters,
@@ -85,22 +87,23 @@ func newEpochTarget(
 	}
 
 	return &epochTarget{
-		number:          number,
-		commitState:     commitState,
-		suspicions:      map[nodeID]struct{}{},
-		changes:         map[nodeID]*epochChange{},
-		strongChanges:   map[nodeID]*parsedEpochChange{},
-		echos:           map[*pb.NewEpochConfig]map[nodeID]struct{}{},
-		readies:         map[*pb.NewEpochConfig]map[nodeID]struct{}{},
-		isLeader:        number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
-		prestartBuffers: prestartBuffers,
-		persisted:       persisted,
-		nodeBuffers:     nodeBuffers,
-		clientTracker:   clientTracker,
-		batchTracker:    batchTracker,
-		networkConfig:   networkConfig,
-		myConfig:        myConfig,
-		logger:          logger,
+		number:                 number,
+		commitState:            commitState,
+		suspicions:             map[nodeID]struct{}{},
+		changes:                map[nodeID]*epochChange{},
+		strongChanges:          map[nodeID]*parsedEpochChange{},
+		echos:                  map[*pb.NewEpochConfig]map[nodeID]struct{}{},
+		readies:                map[*pb.NewEpochConfig]map[nodeID]struct{}{},
+		isLeader:               number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
+		prestartBuffers:        prestartBuffers,
+		persisted:              persisted,
+		nodeBuffers:            nodeBuffers,
+		clientTracker:          clientTracker,
+		clientHashDisseminator: clientHashDisseminator,
+		batchTracker:           batchTracker,
+		networkConfig:          networkConfig,
+		myConfig:               myConfig,
+		logger:                 logger,
 	}
 }
 
@@ -249,9 +252,10 @@ func (et *epochTarget) fetchNewEpochState() *Actions {
 		batch.observedSequences[seqNo] = struct{}{}
 
 		for _, requestAck := range batch.requestAcks {
+			// TODO, do we really want this? We should not need acks to commit, and we fetch explicitly maybe?
 			var cr *clientRequest
 			for _, id := range sources {
-				cr = et.clientTracker.ack(nodeID(id), requestAck)
+				cr = et.clientHashDisseminator.ack(nodeID(id), requestAck)
 			}
 
 			if _, ok := cr.agreements[nodeID(et.myConfig.Id)]; ok {

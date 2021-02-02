@@ -30,7 +30,7 @@ type stateMachineState int
 func assertFailed(failure, format string, args ...interface{}) {
 	panic(
 		fmt.Sprintf(
-			fmt.Sprintf("assertion failed, code bug? -- %s -- %%%s", failure, format),
+			fmt.Sprintf("assertion failed, code bug? -- %s -- %s", failure, format),
 			args...,
 		),
 	)
@@ -100,10 +100,11 @@ type StateMachine struct {
 
 	state stateMachineState
 
-	myConfig       *pb.StateEvent_InitialParameters
-	commitState    *commitState
-	clientTracker  *clientTracker
-	superHackyReqs *list.List
+	myConfig               *pb.StateEvent_InitialParameters
+	commitState            *commitState
+	clientTracker          *clientTracker
+	clientHashDisseminator *clientHashDisseminator
+	superHackyReqs         *list.List
 
 	nodeBuffers       *nodeBuffers
 	batchTracker      *batchTracker
@@ -133,8 +134,9 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 
 	sm.nodeBuffers = newNodeBuffers(sm.myConfig, sm.Logger)
 	sm.checkpointTracker = newCheckpointTracker(0, dummyInitialState, sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger)
-	sm.clientTracker = newClientWindows(sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger)
+	sm.clientTracker = newClientTracker(sm.persisted, sm.myConfig, sm.Logger)
 	sm.commitState = newCommitState(sm.persisted, sm.clientTracker, sm.Logger)
+	sm.clientHashDisseminator = newClientHashDisseminator(sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger, sm.clientTracker, sm.commitState)
 	sm.batchTracker = newBatchTracker(sm.persisted)
 	sm.epochTracker = newEpochTracker(
 		sm.persisted,
@@ -145,6 +147,7 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 		sm.myConfig,
 		sm.batchTracker,
 		sm.clientTracker,
+		sm.clientHashDisseminator,
 	)
 
 }
@@ -190,7 +193,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		return sm.completeInitialization()
 	case *pb.StateEvent_Tick:
 		assertInitialized()
-		actions.concat(sm.clientTracker.tick())
+		actions.concat(sm.clientHashDisseminator.tick())
 		actions.concat(sm.epochTracker.tick())
 	case *pb.StateEvent_Step:
 		assertInitialized()
@@ -237,6 +240,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		sm.persisted.truncate(newLow)
 
 		sm.clientTracker.garbageCollect(newLow)
+		sm.clientHashDisseminator.garbageCollect(newLow)
 		if newLow > uint64(sm.checkpointTracker.networkConfig.CheckpointInterval) {
 			// Note, we leave an extra checkpoint worth of batches around, to help
 			// during epoch change.
@@ -275,15 +279,16 @@ func (sm *StateMachine) reinitialize() *Actions {
 
 	actions := sm.recoverLog()
 	sm.clientTracker.reinitialize()
+	actions.concat(sm.commitState.reinitialize())
+	sm.clientHashDisseminator.reinitialize()
 
 	for el := sm.superHackyReqs.Front(); el != nil; el = sm.superHackyReqs.Front() {
-		sm.clientTracker.applyRequestDigest(
+		sm.clientHashDisseminator.applyRequestDigest(
 			sm.superHackyReqs.Remove(el).(*pb.RequestAck),
 			nil, // XXX silly, but necessary for the moment
 		)
 	}
 
-	actions.concat(sm.commitState.reinitialize())
 	sm.checkpointTracker.reinitialize()
 	sm.batchTracker.reinitialize()
 	return actions.concat(sm.epochTracker.reinitialize())
@@ -337,11 +342,11 @@ func (sm *StateMachine) step(source nodeID, msg *pb.Msg) *Actions {
 	actions := &Actions{}
 	switch msg.Type.(type) {
 	case *pb.Msg_RequestAck:
-		return actions.concat(sm.clientTracker.step(source, msg))
+		return actions.concat(sm.clientHashDisseminator.step(source, msg))
 	case *pb.Msg_FetchRequest:
-		return actions.concat(sm.clientTracker.step(source, msg))
+		return actions.concat(sm.clientHashDisseminator.step(source, msg))
 	case *pb.Msg_ForwardRequest:
-		return actions.concat(sm.clientTracker.step(source, msg))
+		return actions.concat(sm.clientHashDisseminator.step(source, msg))
 	case *pb.Msg_Checkpoint:
 		sm.checkpointTracker.step(source, msg)
 		return &Actions{}
@@ -387,6 +392,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 		}
 
 		actions.concat(sm.commitState.applyCheckpointResult(epochConfig, checkpointResult))
+		actions.concat(sm.clientHashDisseminator.drain())
 	}
 
 	for _, hashResult := range results.Digests {
@@ -397,7 +403,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 			actions.concat(sm.epochTracker.applyBatchHashResult(batch.Epoch, batch.SeqNo, hashResult.Digest))
 		case *pb.HashResult_Request_:
 			req := hashType.Request.Request
-			actions.concat(sm.clientTracker.applyRequestDigest(
+			actions.concat(sm.clientHashDisseminator.applyRequestDigest(
 				&pb.RequestAck{
 					ClientId: req.ClientId,
 					ReqNo:    req.ReqNo,
@@ -411,7 +417,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 				panic("byzantine")
 				// XXX this should not panic, but put to make dev easier
 			}
-			actions.concat(sm.clientTracker.applyRequestDigest(
+			actions.concat(sm.clientHashDisseminator.applyRequestDigest(
 				request.RequestAck,
 				request.RequestData,
 			))
@@ -433,7 +439,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 }
 
 func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
-	client, ok := sm.clientTracker.client(clientID)
+	client, ok := sm.clientHashDisseminator.client(clientID)
 	if !ok {
 		return nil
 	}
@@ -449,7 +455,7 @@ func (sm *StateMachine) Status() *status.StateMachine {
 	clientTrackerStatus := make([]*status.ClientTracker, len(sm.clientTracker.clientStates))
 
 	for i, clientState := range sm.clientTracker.clientStates {
-		clientTrackerStatus[i] = sm.clientTracker.clients[clientState.Id].status()
+		clientTrackerStatus[i] = sm.clientHashDisseminator.clients[clientState.Id].status()
 	}
 
 	nodes := make([]*status.NodeBuffer, len(sm.checkpointTracker.networkConfig.Nodes))

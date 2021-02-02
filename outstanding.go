@@ -40,9 +40,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 				}
 			}
 
-			ctClient, _ := clientTracker.client(client.Id)
-
-			logger.Log(LevelDebug, "initializing outstanding reqs for client", "client_id", client.Id, "bucket_id", i, "low_watermark", client.LowWatermark)
+			ctClient := clientTracker.committingClients[client.Id]
 
 			cors := &clientOutstandingReqs{
 				nextReqNo:  firstUncommitted,
@@ -50,6 +48,8 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 				client:     ctClient,
 			}
 			cors.advance()
+
+			logger.Log(LevelDebug, "initializing outstanding reqs for client", "client_id", client.Id, "bucket_id", i, "low_watermark", client.LowWatermark, "next_req_no", cors.nextReqNo)
 			bo.clients[client.Id] = cors
 		}
 	}
@@ -73,13 +73,12 @@ type bucketOutstandingReqs struct {
 type clientOutstandingReqs struct {
 	nextReqNo  uint64
 	numBuckets uint64
-	client     *client
+	client     *committingClient
 }
 
 func (cors *clientOutstandingReqs) advance() {
-	for cors.nextReqNo <= cors.client.highWatermark {
-		crn := cors.client.reqNo(cors.nextReqNo)
-		if crn.committed != nil {
+	for {
+		if cors.client.isCommitted(cors.nextReqNo) {
 			cors.nextReqNo += cors.numBuckets
 			continue
 		}

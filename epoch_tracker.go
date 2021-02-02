@@ -15,18 +15,19 @@ import (
 )
 
 type epochTracker struct {
-	currentEpoch       *epochTarget
-	persisted          *persisted
-	nodeBuffers        *nodeBuffers
-	commitState        *commitState
-	networkConfig      *pb.NetworkState_Config
-	logger             Logger
-	myConfig           *pb.StateEvent_InitialParameters
-	batchTracker       *batchTracker
-	clientTracker      *clientTracker
-	futureMsgs         map[nodeID]*msgBuffer
-	targets            map[uint64]*epochTarget
-	needsStateTransfer bool
+	currentEpoch           *epochTarget
+	persisted              *persisted
+	nodeBuffers            *nodeBuffers
+	commitState            *commitState
+	networkConfig          *pb.NetworkState_Config
+	logger                 Logger
+	myConfig               *pb.StateEvent_InitialParameters
+	batchTracker           *batchTracker
+	clientTracker          *clientTracker
+	clientHashDisseminator *clientHashDisseminator
+	futureMsgs             map[nodeID]*msgBuffer
+	targets                map[uint64]*epochTarget
+	needsStateTransfer     bool
 
 	maxEpochs              map[nodeID]uint64
 	maxCorrectEpoch        uint64
@@ -42,17 +43,19 @@ func newEpochTracker(
 	myConfig *pb.StateEvent_InitialParameters,
 	batchTracker *batchTracker,
 	clientTracker *clientTracker,
+	clientHashDisseminator *clientHashDisseminator,
 ) *epochTracker {
 	return &epochTracker{
-		persisted:     persisted,
-		nodeBuffers:   nodeBuffers,
-		commitState:   commitState,
-		myConfig:      myConfig,
-		logger:        logger,
-		batchTracker:  batchTracker,
-		clientTracker: clientTracker,
-		targets:       map[uint64]*epochTarget{},
-		maxEpochs:     map[nodeID]uint64{},
+		persisted:              persisted,
+		nodeBuffers:            nodeBuffers,
+		commitState:            commitState,
+		myConfig:               myConfig,
+		logger:                 logger,
+		batchTracker:           batchTracker,
+		clientTracker:          clientTracker,
+		clientHashDisseminator: clientHashDisseminator,
+		targets:                map[uint64]*epochTarget{},
+		maxEpochs:              map[nodeID]uint64{},
 	}
 }
 
@@ -132,6 +135,7 @@ func (et *epochTracker) reinitialize() *Actions {
 			et.nodeBuffers,
 			et.commitState,
 			et.clientTracker,
+			et.clientHashDisseminator,
 			et.batchTracker,
 			et.networkConfig,
 			et.myConfig,
@@ -188,6 +192,7 @@ func (et *epochTracker) reinitialize() *Actions {
 			et.nodeBuffers,
 			et.commitState,
 			et.clientTracker,
+			et.clientHashDisseminator,
 			et.batchTracker,
 			et.networkConfig,
 			et.myConfig,
@@ -240,6 +245,7 @@ func (et *epochTracker) advanceState() *Actions {
 		et.nodeBuffers,
 		et.commitState,
 		et.clientTracker,
+		et.clientHashDisseminator,
 		et.batchTracker,
 		et.networkConfig,
 		et.myConfig,
