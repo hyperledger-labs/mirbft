@@ -343,6 +343,8 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 		eventTypeText = "Initialize"
 	case *pb.StateEvent_LoadEntry:
 		eventTypeText = "LoadEntry"
+	case *pb.StateEvent_LoadRequest:
+		eventTypeText = "LoadRequest"
 	case *pb.StateEvent_CompleteInitialization:
 		eventTypeText = "CompleteInitialization"
 	case *pb.StateEvent_Tick:
@@ -368,6 +370,7 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 	switch et := event.StateEvent.Type.(type) {
 	case *pb.StateEvent_Initialize:
 	case *pb.StateEvent_LoadEntry:
+	case *pb.StateEvent_LoadRequest:
 	case *pb.StateEvent_CompleteInitialization:
 	case *pb.StateEvent_Tick:
 	case *pb.StateEvent_Propose:
