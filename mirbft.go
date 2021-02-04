@@ -121,8 +121,7 @@ func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.Request) 
 	}
 }
 
-// TODO, maybe get rid of the varargs and go with a simple count?
-func StandardInitialNetworkState(nodeCount int, clientIDs ...uint64) *pb.NetworkState {
+func StandardInitialNetworkState(nodeCount int, clientCount int) *pb.NetworkState {
 	nodes := []uint64{}
 	for i := 0; i < nodeCount; i++ {
 		nodes = append(nodes, uint64(i))
@@ -132,10 +131,10 @@ func StandardInitialNetworkState(nodeCount int, clientIDs ...uint64) *pb.Network
 	checkpointInterval := numberOfBuckets * 5
 	maxEpochLength := checkpointInterval * 10
 
-	clients := make([]*pb.NetworkState_Client, len(clientIDs))
-	for i, clientID := range clientIDs {
+	clients := make([]*pb.NetworkState_Client, clientCount)
+	for i := 0; i < clientCount; i++ {
 		clients[i] = &pb.NetworkState_Client{
-			Id:           clientID,
+			Id:           uint64(i),
 			Width:        100,
 			LowWatermark: 0,
 		}

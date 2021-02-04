@@ -657,22 +657,16 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 		})
 	}
 
-	clientIDs := make([]uint64, clientCount)
-	for i := 0; i < clientCount; i++ {
-		clientIDs[i] = uint64(i)
-	}
-
-	networkState := mirbft.StandardInitialNetworkState(nodeCount, clientIDs...)
+	networkState := mirbft.StandardInitialNetworkState(nodeCount, clientCount)
 
 	clientConfigs := make([]*ClientConfig, clientCount)
-	for i := 0; i < clientCount; i++ {
+	for i, cl := range networkState.Clients {
 		clientConfigs[i] = &ClientConfig{
-			ID:          clientIDs[i],
+			ID:          cl.Id,
 			MaxInFlight: int(networkState.Config.CheckpointInterval / 2),
 			Total:       reqsPerClient,
 			TxLatency:   10,
 		}
-		clientIDs[i] = clientConfigs[i].ID
 	}
 
 	return &Recorder{
