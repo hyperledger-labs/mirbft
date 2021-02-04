@@ -29,7 +29,12 @@ func (l consoleLogger) Log(level LogLevel, text string, args ...interface{}) {
 	fmt.Print(text)
 	for i := 0; i < len(args); i++ {
 		if i+1 < len(args) {
-			fmt.Printf(" %s=%v", args[i], args[i+1])
+			switch args[i+1].(type) {
+			case []byte:
+				fmt.Printf(" %s=%x", args[i], args[i+1])
+			default:
+				fmt.Printf(" %s=%v", args[i], args[i+1])
+			}
 			i++
 		} else {
 			fmt.Printf(" %s=%%MISSING%%", args[i])
