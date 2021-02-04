@@ -76,13 +76,7 @@ type clientOutstandingReqs struct {
 
 func (cors *clientOutstandingReqs) skipPreviouslyCommitted() {
 	for {
-		if cors.nextReqNo > cors.client.LowWatermark+uint64(cors.client.Width) {
-			break
-		}
-
-		offset := int(cors.nextReqNo - cors.client.LowWatermark)
-		mask := bitmask(cors.client.CommittedMask)
-		if !mask.isBitSet(offset) {
+		if !isCommitted(cors.nextReqNo, cors.client) {
 			break
 		}
 
@@ -93,16 +87,16 @@ func (cors *clientOutstandingReqs) skipPreviouslyCommitted() {
 func (ao *allOutstandingReqs) advanceRequests() *Actions {
 	actions := &Actions{}
 	for ao.availableIterator.hasNext() {
-		clientRequest := ao.availableIterator.next()
-		key := string(clientRequest.ack.Digest)
+		ack := ao.availableIterator.next()
+		key := string(ack.Digest)
 
 		if seq, ok := ao.outstandingRequests[key]; ok {
 			delete(ao.outstandingRequests, key)
-			actions.concat(seq.satisfyOutstanding(clientRequest.ack))
+			actions.concat(seq.satisfyOutstanding(ack))
 			continue
 		}
 
-		ao.correctRequests[key] = clientRequest.ack
+		ao.correctRequests[key] = ack
 	}
 
 	return actions

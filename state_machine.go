@@ -239,7 +239,6 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 
 		sm.persisted.truncate(newLow)
 
-		sm.clientTracker.garbageCollect(newLow)
 		sm.clientHashDisseminator.garbageCollect(newLow)
 		if newLow > uint64(sm.checkpointTracker.networkConfig.CheckpointInterval) {
 			// Note, we leave an extra checkpoint worth of batches around, to help
@@ -383,6 +382,15 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 	actions := &Actions{}
 
 	for _, checkpointResult := range results.Checkpoints {
+		if checkpointResult.SeqNo < sm.commitState.lowWatermark {
+			// Sometimes the application might send a stale checkpoint after
+			// state transfer, so we ignore.
+			continue
+		}
+
+		expectedSeqNo := sm.commitState.lowWatermark + uint64(sm.commitState.activeState.Config.CheckpointInterval)
+		assertEqual(expectedSeqNo, checkpointResult.SeqNo, "new checkpoint results muts be exactly one checkpoint interval after the last")
+
 		var epochConfig *pb.EpochConfig
 		if sm.epochTracker.currentEpoch.activeEpoch != nil {
 			// Of course this means epochConfig may be nil, and that's okay
@@ -392,6 +400,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 		}
 
 		actions.concat(sm.commitState.applyCheckpointResult(epochConfig, checkpointResult))
+		sm.clientTracker.allocate(checkpointResult.SeqNo, checkpointResult.NetworkState)
 		actions.concat(sm.clientHashDisseminator.drain())
 	}
 

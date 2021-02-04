@@ -401,7 +401,7 @@ func (ct *clientHashDisseminator) ack(source nodeID, ack *pb.RequestAck) *client
 	clientRequest, clientReqNo, newlyCorrectReq := cw.ack(source, ack)
 
 	if newlyCorrectReq {
-		ct.clientTracker.addAvailable(clientRequest)
+		ct.clientTracker.addAvailable(ack)
 	}
 
 	ct.checkReady(cw, clientReqNo)
@@ -916,14 +916,7 @@ func (cw *client) allocate(startingAtSeqNo uint64, state *pb.NetworkState_Client
 
 	for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
 		crn := el.Value.(*clientReqNo)
-		if crn.reqNo < state.LowWatermark {
-			crn.committed = &startingAtSeqNo
-			continue
-		}
-
-		offset := int(crn.reqNo - state.LowWatermark)
-		mask := bitmask(state.CommittedMask)
-		if !mask.isBitSet(offset) {
+		if !isCommitted(crn.reqNo, state) {
 			continue
 		}
 

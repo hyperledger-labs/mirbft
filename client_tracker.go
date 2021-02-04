@@ -62,12 +62,16 @@ func (ct *clientTracker) addReady(crn *clientReqNo) {
 	ct.readyList.pushBack(crn)
 }
 
-func (ct *clientTracker) addAvailable(req *clientRequest) {
+func (ct *clientTracker) addAvailable(req *pb.RequestAck) {
 	ct.availableList.pushBack(req)
 }
 
-func (ct *clientTracker) garbageCollect(seqNo uint64) {
-	ct.availableList.garbageCollect(seqNo)
+func (ct *clientTracker) allocate(seqNo uint64, state *pb.NetworkState) {
+	stateMap := map[uint64]*pb.NetworkState_Client{}
+	for _, client := range state.Clients {
+		stateMap[client.Id] = client
+	}
+	ct.availableList.garbageCollect(stateMap)
 	ct.readyList.garbageCollect(seqNo)
 }
 
@@ -298,7 +302,7 @@ func newAvailableList() *availableList {
 	}
 }
 
-func (al *availableList) pushBack(ack *clientRequest) {
+func (al *availableList) pushBack(ack *pb.RequestAck) {
 	al.appendList.pushBack(ack)
 }
 
@@ -310,13 +314,15 @@ func (al *availableList) hasNext() bool {
 	return al.appendList.hasNext()
 }
 
-func (al *availableList) next() *clientRequest {
-	return al.appendList.next().(*clientRequest)
+func (al *availableList) next() *pb.RequestAck {
+	return al.appendList.next().(*pb.RequestAck)
 }
 
-func (al *availableList) garbageCollect(seqNo uint64) {
+func (al *availableList) garbageCollect(states map[uint64]*pb.NetworkState_Client) {
 	al.appendList.garbageCollect(func(value interface{}) bool {
-		cr := value.(*clientRequest)
-		return cr.garbage
+		ack := value.(*pb.RequestAck)
+		state, ok := states[ack.ClientId]
+		assertTrue(ok, "any available client req must have client in config")
+		return isCommitted(ack.ReqNo, state)
 	})
 }

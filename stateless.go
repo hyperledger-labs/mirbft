@@ -15,6 +15,20 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
+func isCommitted(reqNo uint64, clientState *pb.NetworkState_Client) bool {
+	if reqNo < clientState.LowWatermark {
+		return true
+	}
+
+	if reqNo > clientState.LowWatermark+uint64(clientState.Width) {
+		return false
+	}
+
+	mask := bitmask(clientState.CommittedMask)
+	offset := int(reqNo - clientState.LowWatermark)
+	return mask.isBitSet(offset)
+}
+
 type bitmask []byte
 
 func (bm bitmask) bits() int {
