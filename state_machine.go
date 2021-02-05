@@ -399,8 +399,11 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 			epochConfig = sm.epochTracker.currentEpoch.activeEpoch.epochConfig
 		}
 
+		prevStopAtSeqNo := sm.commitState.stopAtSeqNo
 		actions.concat(sm.commitState.applyCheckpointResult(epochConfig, checkpointResult))
-		sm.clientTracker.allocate(checkpointResult.SeqNo, checkpointResult.NetworkState)
+		if prevStopAtSeqNo < sm.commitState.stopAtSeqNo {
+			sm.clientTracker.allocate(checkpointResult.SeqNo, checkpointResult.NetworkState)
+		}
 		actions.concat(sm.clientHashDisseminator.drain())
 	}
 

@@ -308,7 +308,6 @@ func (ct *clientHashDisseminator) drain() *Actions {
 
 	ct.allocatedThrough = ct.commitState.lowWatermark
 
-	ct.logger.Log(LevelError, "JKY: calling allocate", "lowWatermark", ct.commitState.lowWatermark)
 	for _, client := range ct.commitState.activeState.Clients {
 		ct.clients[client.Id].allocate(ct.commitState.lowWatermark, client)
 	}
@@ -841,8 +840,6 @@ func (c *client) reinitialize(networkConfig *pb.NetworkState_Config, lowSeqNo, h
 			}
 		}
 
-		c.logger.Log(LevelError, "JKY initializing client", "client_id", highClientState.Id, "req_no", reqNo, "committed", committed)
-
 		oldReqNo.reinitialize(networkConfig)
 
 		el := c.reqNoList.PushBack(oldReqNo)
@@ -854,8 +851,6 @@ func (c *client) reinitialize(networkConfig *pb.NetworkState_Config, lowSeqNo, h
 
 func (cw *client) allocate(startingAtSeqNo uint64, state *pb.NetworkState_Client) {
 	newHighWatermark := state.LowWatermark + uint64(state.Width)
-
-	cw.logger.Log(LevelError, "  JKY: called allocate", "clientID", state.Id, "newHighWatermark", newHighWatermark, "width", state.Width, "widthLastCheckpoint", state.WidthConsumedLastCheckpoint, "newLowWatermark", state.LowWatermark, "mask", state.CommittedMask)
 
 	intermediateHighWatermark := newHighWatermark - uint64(state.WidthConsumedLastCheckpoint)
 	assertEqualf(intermediateHighWatermark, cw.highWatermark, "the high watermark of our last active checkpoint must match the new intermediate watermark from the new checkpoint interval for client %d", state.Id)
@@ -870,8 +865,6 @@ func (cw *client) allocate(startingAtSeqNo uint64, state *pb.NetworkState_Client
 		if !isCommitted(crn.reqNo, state) {
 			continue
 		}
-
-		cw.logger.Log(LevelError, "  JKY: handling irregular commit", "clientID", state.Id, "reqNo", crn.reqNo, "seqNo", startingAtSeqNo)
 
 		crn.committed = &startingAtSeqNo
 
