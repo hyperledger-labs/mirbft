@@ -171,7 +171,7 @@ func (ct *clientHashDisseminator) reinitialize() {
 	for _, clientState := range ct.clientStates {
 		client, ok := oldClients[clientState.Id]
 		if !ok {
-			client = newClient(ct.logger)
+			client = newClient(ct.logger, ct.clientTracker)
 		}
 
 		ct.clients[clientState.Id] = client
@@ -184,7 +184,7 @@ func (ct *clientHashDisseminator) reinitialize() {
 			latestClientStates[clientState.Id],
 		)
 
-		ct.advanceReady(client)
+		client.advanceReady()
 	}
 
 	oldMsgBuffers := ct.msgBuffers
@@ -398,58 +398,7 @@ func (ct *clientHashDisseminator) ack(source nodeID, ack *pb.RequestAck) *client
 	cw, ok := ct.clients[ack.ClientId]
 	assertEqual(ok, true, "the step filtering should delay reqs for non-existent clients")
 
-	clientRequest, clientReqNo, newlyCorrectReq := cw.ack(source, ack)
-
-	if newlyCorrectReq {
-		ct.clientTracker.addAvailable(ack)
-	}
-
-	ct.checkReady(cw, clientReqNo)
-
-	return clientRequest
-}
-
-func (ct *clientHashDisseminator) checkReady(client *client, ocrn *clientReqNo) {
-	if ocrn.reqNo != client.nextReadyMark {
-		return
-	}
-
-	if len(ocrn.strongRequests) == 0 {
-		return
-	}
-
-	for digest := range ocrn.strongRequests {
-		if _, ok := ocrn.myRequests[digest]; ok {
-			ct.advanceReady(client)
-			return
-		}
-	}
-
-}
-
-func (ct *clientHashDisseminator) advanceReady(client *client) {
-	for i := client.nextReadyMark; i <= client.highWatermark; i++ {
-		if i != client.nextReadyMark {
-			// last time through the loop, we must not have updated the ready mark
-			return
-		}
-
-		crne, ok := client.reqNoMap[i]
-		assertEqualf(ok, true, "client_id=%d mapping should exist from req_no=%d but does not", client.clientState.Id, i)
-
-		crn := crne.Value.(*clientReqNo)
-
-		for digest := range crn.strongRequests {
-			if _, ok := crn.myRequests[digest]; !ok {
-				continue
-			}
-
-			ct.clientTracker.addReady(crn)
-			client.nextReadyMark = i + 1
-
-			break
-		}
-	}
+	return cw.ack(source, ack)
 }
 
 func (ct *clientHashDisseminator) garbageCollect(seqNo uint64) {
@@ -819,6 +768,7 @@ type client struct {
 	reqNoMap      map[uint64]*list.Element
 	clientWaiter  *clientWaiter // Used to throttle clients
 	logger        Logger
+	clientTracker *clientTracker
 	networkConfig *pb.NetworkState_Config
 }
 
@@ -828,9 +778,10 @@ type clientWaiter struct {
 	expired       chan struct{}
 }
 
-func newClient(logger Logger) *client {
+func newClient(logger Logger, tracker *clientTracker) *client {
 	return &client{
-		logger: logger,
+		logger:        logger,
+		clientTracker: tracker,
 	}
 }
 
@@ -971,7 +922,7 @@ func (cw *client) moveLowWatermark(maxSeqNo uint64) {
 	cw.lowWatermark = cw.reqNoList.Front().Value.(*clientReqNo).reqNo
 }
 
-func (cw *client) ack(source nodeID, ack *pb.RequestAck) (*clientRequest, *clientReqNo, bool) {
+func (cw *client) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 	crne, ok := cw.reqNoMap[ack.ReqNo]
 	assertEqualf(ok, true, "client_id=%d got ack for req_no=%d, but lowWatermark=%d highWatermark=%d", cw.clientState.Id, ack.ReqNo, cw.lowWatermark, cw.highWatermark)
 
@@ -980,17 +931,21 @@ func (cw *client) ack(source nodeID, ack *pb.RequestAck) (*clientRequest, *clien
 	cr := crn.clientReq(ack)
 	cr.agreements[source] = struct{}{}
 
-	newlyCorrectReq := false
 	if len(cr.agreements) == someCorrectQuorum(cw.networkConfig) {
-		newlyCorrectReq = true
 		crn.weakRequests[string(ack.Digest)] = cr
+
+		// This request just became 'available', add it to the list
+		cw.clientTracker.addAvailable(ack)
 	}
 
 	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
 		crn.strongRequests[string(ack.Digest)] = cr
+
+		// Check to see if this request just becoming 'ready' can advance the ready mark
+		cw.advanceReady()
 	}
 
-	return cr, crn, newlyCorrectReq
+	return cr
 }
 
 func (cw *client) inWatermarks(reqNo uint64) bool {
@@ -1001,6 +956,28 @@ func (cw *client) reqNo(reqNo uint64) *clientReqNo {
 	el := cw.reqNoMap[reqNo]
 	assertNotEqualf(el, nil, "client_id=%d should have req_no=%d but does not", cw.clientState.Id, reqNo)
 	return el.Value.(*clientReqNo)
+}
+
+func (cw *client) advanceReady() {
+	for i := cw.nextReadyMark; i <= cw.highWatermark; i++ {
+		if i != cw.nextReadyMark {
+			// last time through the loop, we must not have updated the ready mark
+			return
+		}
+
+		crn := cw.reqNo(i)
+
+		for digest := range crn.strongRequests {
+			if _, ok := crn.myRequests[digest]; !ok {
+				continue
+			}
+
+			cw.clientTracker.addReady(crn)
+			cw.nextReadyMark = i + 1
+
+			break
+		}
+	}
 }
 
 func (cw *client) tick() *Actions {

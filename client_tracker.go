@@ -113,17 +113,6 @@ func newCommittingClient(seqNo uint64, clientState *pb.NetworkState_Client) *com
 
 }
 
-func (cc *committingClient) isCommitted(reqNo uint64) bool {
-	if reqNo < cc.lastState.LowWatermark {
-		return true
-	}
-	offset := int(reqNo - cc.lastState.LowWatermark)
-	if offset >= len(cc.committedSinceLastCheckpoint) {
-		return false
-	}
-	return cc.committedSinceLastCheckpoint[offset] != nil
-}
-
 func (cc *committingClient) markCommitted(seqNo, reqNo uint64) {
 	offset := reqNo - cc.lastState.LowWatermark
 	cc.committedSinceLastCheckpoint[offset] = &seqNo
