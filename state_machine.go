@@ -135,7 +135,7 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 	sm.nodeBuffers = newNodeBuffers(sm.myConfig, sm.Logger)
 	sm.checkpointTracker = newCheckpointTracker(0, dummyInitialState, sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger)
 	sm.clientTracker = newClientTracker(sm.persisted, sm.myConfig, sm.Logger)
-	sm.commitState = newCommitState(sm.persisted, sm.clientTracker, sm.Logger)
+	sm.commitState = newCommitState(sm.persisted, sm.Logger)
 	sm.clientHashDisseminator = newClientHashDisseminator(sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger, sm.clientTracker, sm.commitState)
 	sm.batchTracker = newBatchTracker(sm.persisted)
 	sm.epochTracker = newEpochTracker(

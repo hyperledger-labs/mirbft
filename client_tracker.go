@@ -18,11 +18,10 @@ type clientTracker struct {
 	myConfig  *pb.StateEvent_InitialParameters
 	persisted *persisted
 
-	networkConfig     *pb.NetworkState_Config
-	readyList         *readyList
-	availableList     *availableList // A list of requests which have f+1 ACKs and the requestData
-	committingClients map[uint64]*committingClient
-	clientStates      []*pb.NetworkState_Client
+	networkConfig *pb.NetworkState_Config
+	readyList     *readyList
+	availableList *availableList // A list of requests which have f+1 ACKs and the requestData
+	clientStates  []*pb.NetworkState_Client
 }
 
 func newClientTracker(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
@@ -51,10 +50,6 @@ func (ct *clientTracker) reinitialize() {
 	ct.availableList = newAvailableList()
 	ct.readyList = newReadyList()
 	ct.clientStates = highCEntry.NetworkState.Clients
-	ct.committingClients = map[uint64]*committingClient{}
-	for _, clientState := range highCEntry.NetworkState.Clients {
-		ct.committingClients[clientState.Id] = newCommittingClient(highCEntry.SeqNo, clientState)
-	}
 
 }
 
@@ -73,114 +68,6 @@ func (ct *clientTracker) allocate(seqNo uint64, state *pb.NetworkState) {
 	}
 	ct.availableList.garbageCollect(stateMap)
 	ct.readyList.garbageCollect(seqNo)
-}
-
-func (ct *clientTracker) markCommitted(batch *pb.QEntry) {
-	for _, req := range batch.Requests {
-		ct.committingClients[req.ClientId].markCommitted(batch.SeqNo, req.ReqNo)
-	}
-}
-
-func (ct *clientTracker) computeNewClientStates(cpSeqNo uint64) []*pb.NetworkState_Client {
-	newClientStates := make([]*pb.NetworkState_Client, len(ct.clientStates))
-	for i, oldClientState := range ct.clientStates {
-		cc, ok := ct.committingClients[oldClientState.Id]
-		assertTrue(ok, "must have a committing client instance all client states")
-		newClientStates[i] = cc.createCheckpointState(cpSeqNo)
-	}
-	return newClientStates
-}
-
-type committingClient struct {
-	lastState                    *pb.NetworkState_Client
-	committedSinceLastCheckpoint []*uint64
-}
-
-func newCommittingClient(seqNo uint64, clientState *pb.NetworkState_Client) *committingClient {
-	committedSinceLastCheckpoint := make([]*uint64, clientState.Width)
-	mask := bitmask(clientState.CommittedMask)
-	for i := 0; i < mask.bits(); i++ {
-		if !mask.isBitSet(i) {
-			continue
-		}
-		committedSinceLastCheckpoint[i] = &seqNo
-	}
-
-	return &committingClient{
-		lastState:                    clientState,
-		committedSinceLastCheckpoint: committedSinceLastCheckpoint,
-	}
-
-}
-
-func (cc *committingClient) markCommitted(seqNo, reqNo uint64) {
-	offset := reqNo - cc.lastState.LowWatermark
-	cc.committedSinceLastCheckpoint[offset] = &seqNo
-}
-
-func (cc *committingClient) createCheckpointState(cpSeqNo uint64) (newState *pb.NetworkState_Client) {
-	defer func() {
-		cc.lastState = newState
-	}()
-
-	var firstUncommitted, lastCommitted *uint64
-
-	for i, seqNoPtr := range cc.committedSinceLastCheckpoint {
-		reqNo := cc.lastState.LowWatermark + uint64(i)
-		if seqNoPtr != nil {
-			assertGreaterThanOrEqual(cpSeqNo, *seqNoPtr, "requested has commit sequence after current checkpoint")
-			lastCommitted = &reqNo
-			continue
-		}
-		if firstUncommitted == nil {
-			firstUncommitted = &reqNo
-		}
-	}
-
-	if lastCommitted == nil {
-		return &pb.NetworkState_Client{
-			Id:                          cc.lastState.Id,
-			Width:                       cc.lastState.Width,
-			WidthConsumedLastCheckpoint: 0,
-			LowWatermark:                cc.lastState.LowWatermark,
-		}
-	}
-
-	if firstUncommitted == nil {
-		highWatermark := cc.lastState.LowWatermark + uint64(cc.lastState.Width) - uint64(cc.lastState.WidthConsumedLastCheckpoint) - 1
-		assertEqual(*lastCommitted, highWatermark, "if no client reqs are uncommitted, then all though the high watermark should be committed")
-
-		cc.committedSinceLastCheckpoint = []*uint64{}
-		return &pb.NetworkState_Client{
-			Id:                          cc.lastState.Id,
-			Width:                       cc.lastState.Width,
-			WidthConsumedLastCheckpoint: cc.lastState.Width,
-			LowWatermark:                *lastCommitted + 1,
-		}
-	}
-
-	widthConsumed := int(*firstUncommitted - cc.lastState.LowWatermark)
-	cc.committedSinceLastCheckpoint = cc.committedSinceLastCheckpoint[widthConsumed:]
-	cc.committedSinceLastCheckpoint = append(cc.committedSinceLastCheckpoint, make([]*uint64, int(cc.lastState.Width)-widthConsumed)...)
-
-	// TODO, if there is no committed, don't set a length 1 mask.
-	mask := bitmask(make([]byte, int(*lastCommitted-*firstUncommitted)/8+1))
-	for i := 0; i <= int(*lastCommitted-*firstUncommitted); i++ {
-		if cc.committedSinceLastCheckpoint[i] == nil {
-			continue
-		}
-
-		assertNotEqualf(i, 0, "the first uncommitted cannot be marked committed: firstUncommitted=%d, lastCommitted=%d slice=%+v", *firstUncommitted, *lastCommitted, cc.committedSinceLastCheckpoint)
-
-		mask.setBit(i)
-	}
-	return &pb.NetworkState_Client{
-		Id:                          cc.lastState.Id,
-		Width:                       cc.lastState.Width,
-		LowWatermark:                *firstUncommitted,
-		WidthConsumedLastCheckpoint: uint32(widthConsumed),
-		CommittedMask:               mask,
-	}
 }
 
 // appendList is a data structure uniquely suited to the operations of the state machine
