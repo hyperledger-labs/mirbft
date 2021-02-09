@@ -14,9 +14,8 @@ import (
 )
 
 type clientTracker struct {
-	logger    Logger
-	myConfig  *pb.StateEvent_InitialParameters
-	persisted *persisted
+	logger   Logger
+	myConfig *pb.StateEvent_InitialParameters
 
 	networkConfig *pb.NetworkState_Config
 	readyList     *readyList

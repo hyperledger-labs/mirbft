@@ -689,7 +689,6 @@ func (crn *clientReqNo) tick() *Actions {
 type clientRequest struct {
 	ack           *pb.RequestAck
 	agreements    map[nodeID]struct{}
-	garbage       bool // set when this, or another clientRequest for the same clientID/reqNo commits
 	stored        bool // set when the request is persisted locally
 	fetching      bool // set when we have sent a request for this request
 	ticksFetching uint // incremented by one each tick while fetching is true
