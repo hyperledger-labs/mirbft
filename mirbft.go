@@ -132,7 +132,7 @@ func StandardInitialNetworkState(nodeCount int, clientCount int) *pb.NetworkStat
 	maxEpochLength := checkpointInterval * 10
 
 	clients := make([]*pb.NetworkState_Client, clientCount)
-	for i := 0; i < clientCount; i++ {
+	for i := range clients {
 		clients[i] = &pb.NetworkState_Client{
 			Id:           uint64(i),
 			Width:        100,
