@@ -120,7 +120,6 @@ import (
 type clientHashDisseminator struct {
 	logger      Logger
 	myConfig    *pb.StateEvent_InitialParameters
-	persisted   *persisted
 	nodeBuffers *nodeBuffers
 
 	allocatedThrough uint64
@@ -129,45 +128,29 @@ type clientHashDisseminator struct {
 	msgBuffers       map[nodeID]*msgBuffer
 	clients          map[uint64]*client
 	clientTracker    *clientTracker
-	commitState      *commitState
 }
 
-func newClientHashDisseminator(persisted *persisted, nodeBuffers *nodeBuffers, myConfig *pb.StateEvent_InitialParameters, logger Logger, clientTracker *clientTracker, commitState *commitState) *clientHashDisseminator {
+func newClientHashDisseminator(nodeBuffers *nodeBuffers, myConfig *pb.StateEvent_InitialParameters, logger Logger, clientTracker *clientTracker) *clientHashDisseminator {
 	return &clientHashDisseminator{
 		logger:        logger,
 		myConfig:      myConfig,
-		persisted:     persisted,
 		nodeBuffers:   nodeBuffers,
 		clientTracker: clientTracker,
-		commitState:   commitState,
 	}
 }
 
-func (ct *clientHashDisseminator) reinitialize() {
-	var lowCEntry, highCEntry *pb.CEntry
-
-	ct.persisted.iterate(logIterator{
-		onCEntry: func(cEntry *pb.CEntry) {
-			if lowCEntry == nil {
-				lowCEntry = cEntry
-			}
-			highCEntry = cEntry
-		},
-	})
-
-	assertNotEqual(lowCEntry, nil, "log must have checkpoint")
-
+func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.NetworkState) {
 	latestClientStates := map[uint64]*pb.NetworkState_Client{}
-	for _, clientState := range highCEntry.NetworkState.Clients {
+	for _, clientState := range networkState.Clients {
 		latestClientStates[clientState.Id] = clientState
 	}
 
-	ct.allocatedThrough = ct.commitState.lowWatermark
+	ct.allocatedThrough = seqNo
+	ct.networkConfig = networkState.Config
 
-	ct.networkConfig = lowCEntry.NetworkState.Config
 	oldClients := ct.clients
 	ct.clients = map[uint64]*client{}
-	ct.clientStates = highCEntry.NetworkState.Clients
+	ct.clientStates = networkState.Clients
 	for _, clientState := range ct.clientStates {
 		client, ok := oldClients[clientState.Id]
 		if !ok {
@@ -176,20 +159,12 @@ func (ct *clientHashDisseminator) reinitialize() {
 
 		ct.clients[clientState.Id] = client
 		// TODO, this assumes no client deletion, need to handle that
-		client.reinitialize(
-			lowCEntry.NetworkState.Config,
-			lowCEntry.SeqNo,
-			highCEntry.SeqNo,
-			clientState,
-			latestClientStates[clientState.Id],
-		)
-
-		client.advanceReady()
+		client.reinitialize(networkState.Config, clientState)
 	}
 
 	oldMsgBuffers := ct.msgBuffers
 	ct.msgBuffers = map[nodeID]*msgBuffer{}
-	for _, id := range lowCEntry.NetworkState.Config.Nodes {
+	for _, id := range networkState.Config.Nodes {
 		if oldBuffer, ok := oldMsgBuffers[nodeID(id)]; ok {
 			ct.msgBuffers[nodeID(id)] = oldBuffer
 		} else {
@@ -218,7 +193,7 @@ func (ct *clientHashDisseminator) filter(_ nodeID, msg *pb.Msg) applyable {
 			return future
 		}
 		switch {
-		case client.lowWatermark > ack.ReqNo:
+		case client.clientState.LowWatermark > ack.ReqNo:
 			return past
 		case client.highWatermark < ack.ReqNo:
 			return future
@@ -237,7 +212,7 @@ func (ct *clientHashDisseminator) filter(_ nodeID, msg *pb.Msg) applyable {
 		// probably by having a separate forward request queue to iterate through, maybe
 		// even using a readyList type iterator if we're feeling fancy.
 		switch {
-		case client.lowWatermark > requestAck.ReqNo:
+		case client.clientState.LowWatermark > requestAck.ReqNo:
 			return past
 		case client.highWatermark < requestAck.ReqNo:
 			return future
@@ -300,16 +275,14 @@ func (ct *clientHashDisseminator) applyRequestDigest(ack *pb.RequestAck, data []
 	return client.reqNo(ack.ReqNo).applyRequestDigest(ack, data)
 }
 
-// drain should be invoked after the checkpoint is computed and advances the high watermark.
-func (ct *clientHashDisseminator) drain() *Actions {
-	if ct.allocatedThrough == ct.commitState.lowWatermark {
-		return &Actions{}
-	}
+// allocate should be invoked after the checkpoint is computed and advances the high watermark.
+func (ct *clientHashDisseminator) allocate(seqNo uint64, networkState *pb.NetworkState) *Actions {
+	assertEqual(seqNo, uint64(networkState.Config.CheckpointInterval)+ct.allocatedThrough, "unexpected skip in allocate, expected next allocation at next checkpoint")
 
-	ct.allocatedThrough = ct.commitState.lowWatermark
+	ct.allocatedThrough = seqNo
 
-	for _, client := range ct.commitState.activeState.Clients {
-		ct.clients[client.Id].allocate(ct.commitState.lowWatermark, client)
+	for _, client := range networkState.Clients {
+		ct.clients[client.Id].allocate(client)
 	}
 
 	actions := &Actions{}
@@ -400,12 +373,6 @@ func (ct *clientHashDisseminator) ack(source nodeID, ack *pb.RequestAck) *client
 	return cw.ack(source, ack)
 }
 
-func (ct *clientHashDisseminator) garbageCollect(seqNo uint64) {
-	for _, clientState := range ct.clientStates {
-		ct.clients[clientState.Id].moveLowWatermark(seqNo)
-	}
-}
-
 func (ct *clientHashDisseminator) client(clientID uint64) (*client, bool) {
 	// TODO, we could do lazy initialization here
 	cw, ok := ct.clients[clientID]
@@ -438,7 +405,7 @@ type clientReqNo struct {
 	weakRequests    map[string]*clientRequest // all correct requests we have observed
 	strongRequests  map[string]*clientRequest // strongly correct requests (at most 1 null, 1 non-null)
 	myRequests      map[string]*clientRequest // requests we have persisted
-	committed       *uint64
+	committed       bool
 	acksSent        uint
 	ticksSinceAck   uint
 }
@@ -594,7 +561,7 @@ func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck, force
 }
 
 func (crn *clientReqNo) tick() *Actions {
-	if crn.committed != nil {
+	if crn.committed {
 		return &Actions{}
 	}
 
@@ -759,16 +726,17 @@ func (cr *clientRequest) fetch() *Actions {
 }
 
 type client struct {
-	clientState   *pb.NetworkState_Client
-	nextReadyMark uint64
-	lowWatermark  uint64
-	highWatermark uint64
-	reqNoList     *list.List
-	reqNoMap      map[uint64]*list.Element
-	clientWaiter  *clientWaiter // Used to throttle clients
 	logger        Logger
-	clientTracker *clientTracker
 	networkConfig *pb.NetworkState_Config
+	clientState   *pb.NetworkState_Client
+	clientTracker *clientTracker
+	highWatermark uint64 // TODO, remove, it's just convenient for the moment
+	nextReadyMark uint64
+
+	reqNoList *list.List
+	reqNoMap  map[uint64]*list.Element
+
+	clientWaiter *clientWaiter // Used to throttle clients TODO remove
 }
 
 type clientWaiter struct {
@@ -784,140 +752,122 @@ func newClient(logger Logger, tracker *clientTracker) *client {
 	}
 }
 
-func (c *client) reinitialize(networkConfig *pb.NetworkState_Config, lowSeqNo, highSeqNo uint64, lowClientState, highClientState *pb.NetworkState_Client) {
-	lowWatermark := lowClientState.LowWatermark
-	highWatermark := lowClientState.LowWatermark + uint64(lowClientState.Width)
-
+func (c *client) reinitialize(networkConfig *pb.NetworkState_Config, clientState *pb.NetworkState_Client) {
 	oldReqNoMap := c.reqNoMap
 
-	c.clientState = highClientState
 	c.networkConfig = networkConfig
-	c.lowWatermark = lowWatermark
-	c.highWatermark = highWatermark
-	c.nextReadyMark = lowWatermark
+	c.clientState = clientState
+	c.highWatermark = clientState.LowWatermark + uint64(clientState.Width) - uint64(clientState.WidthConsumedLastCheckpoint)
+	c.nextReadyMark = clientState.LowWatermark
 	c.reqNoList = list.New()
 	c.reqNoMap = map[uint64]*list.Element{}
 	if c.clientWaiter != nil {
 		close(c.clientWaiter.expired)
 	}
+
 	c.clientWaiter = &clientWaiter{
-		lowWatermark:  lowWatermark,
-		highWatermark: highWatermark,
+		lowWatermark:  clientState.LowWatermark,
+		highWatermark: c.highWatermark,
 		expired:       make(chan struct{}),
 	}
 
-	totalCommitted := 0
-	bm := bitmask(highClientState.CommittedMask)
-	for i := 0; i <= int(lowClientState.Width); i++ {
-		highOffset := int(highClientState.LowWatermark - lowClientState.LowWatermark)
+	for reqNo := clientState.LowWatermark; reqNo <= c.highWatermark; reqNo++ {
+		var crn *clientReqNo
 
-		var committed *uint64
-		if highClientState.LowWatermark > lowWatermark+uint64(i) || bm.isBitSet(i+highOffset) {
-			committed = &highSeqNo // we might not garbage collect this optimally, but that's okay
-			totalCommitted++
-		}
+		committed := isCommitted(reqNo, clientState)
 
-		var validAfterSeqNo uint64
-		if i <= int(lowClientState.Width-lowClientState.WidthConsumedLastCheckpoint) {
-			validAfterSeqNo = lowSeqNo
+		if oldReqNoEl, ok := oldReqNoMap[reqNo]; ok {
+			crn = oldReqNoEl.Value.(*clientReqNo)
 		} else {
-			validAfterSeqNo = lowSeqNo + uint64(networkConfig.CheckpointInterval)
+			crn = &clientReqNo{
+				clientID:       clientState.Id,
+				reqNo:          reqNo,
+				networkConfig:  c.networkConfig,
+				requests:       map[string]*clientRequest{},
+				weakRequests:   map[string]*clientRequest{},
+				strongRequests: map[string]*clientRequest{},
+				myRequests:     map[string]*clientRequest{},
+				nonNullVoters:  map[nodeID]struct{}{},
+			} // TODO, make a constructor
 		}
 
-		reqNo := uint64(i) + lowClientState.LowWatermark
+		crn.committed = committed
 
-		var oldReqNo *clientReqNo
-		oldReqNoEl, ok := oldReqNoMap[reqNo]
-		if ok {
-			oldReqNo = oldReqNoEl.Value.(*clientReqNo)
-			oldReqNo.committed = committed
-		} else {
-			oldReqNo = &clientReqNo{
-				clientID:        lowClientState.Id,
-				validAfterSeqNo: validAfterSeqNo,
-				reqNo:           reqNo,
-				committed:       committed,
-			}
-		}
+		crn.reinitialize(networkConfig)
 
-		oldReqNo.reinitialize(networkConfig)
-
-		el := c.reqNoList.PushBack(oldReqNo)
+		el := c.reqNoList.PushBack(crn)
 		c.reqNoMap[reqNo] = el
 	}
 
-	c.logger.Log(LevelDebug, "reinitialized client", "client_id", c.clientState.Id, "low_watermark", c.lowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark, "committed_beyond_low_watermark", totalCommitted)
+	c.advanceReady()
+
+	c.logger.Log(LevelDebug, "reinitialized client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark)
 }
 
-func (cw *client) allocate(startingAtSeqNo uint64, state *pb.NetworkState_Client) {
-	newHighWatermark := state.LowWatermark + uint64(state.Width)
-
-	intermediateHighWatermark := newHighWatermark - uint64(state.WidthConsumedLastCheckpoint)
-	assertEqualf(intermediateHighWatermark, cw.highWatermark, "the high watermark of our last active checkpoint must match the new intermediate watermark from the new checkpoint interval for client %d", state.Id)
-	if state.LowWatermark > cw.nextReadyMark {
+func (c *client) allocate(state *pb.NetworkState_Client) {
+	newHighWatermark := state.LowWatermark + uint64(state.Width) - uint64(state.WidthConsumedLastCheckpoint)
+	expectedHighWatermark := c.clientState.LowWatermark + uint64(c.clientState.Width)
+	assertEqualf(newHighWatermark, expectedHighWatermark, "the high watermark for client %d advanced unexpectedly", state.Id)
+	if state.LowWatermark > c.nextReadyMark {
 		// It's possible that a request we never saw as ready commits
 		// because it was correct, so advance the ready mark
-		cw.nextReadyMark = state.LowWatermark
+		c.nextReadyMark = state.LowWatermark
 	}
 
-	for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
+	for el := c.reqNoList.Front(); el != nil; {
 		crn := el.Value.(*clientReqNo)
-		if !isCommitted(crn.reqNo, state) {
-			continue
-		}
-
-		crn.committed = &startingAtSeqNo
-
-		for _, cr := range crn.requests {
-			cr.garbage = true
-		}
-	}
-
-	for reqNo := intermediateHighWatermark + 1; reqNo <= newHighWatermark; reqNo++ {
-		el := cw.reqNoList.PushBack(&clientReqNo{
-			validAfterSeqNo: startingAtSeqNo + uint64(cw.networkConfig.CheckpointInterval),
-			clientID:        state.Id,
-			networkConfig:   cw.networkConfig,
-			reqNo:           reqNo,
-			requests:        map[string]*clientRequest{},
-			weakRequests:    map[string]*clientRequest{},
-			strongRequests:  map[string]*clientRequest{},
-			myRequests:      map[string]*clientRequest{},
-			nonNullVoters:   map[nodeID]struct{}{},
-		})
-		cw.reqNoMap[reqNo] = el
-	}
-
-	cw.highWatermark = newHighWatermark
-
-	close(cw.clientWaiter.expired)
-	cw.clientWaiter = &clientWaiter{
-		lowWatermark:  cw.lowWatermark,
-		highWatermark: cw.highWatermark,
-		expired:       make(chan struct{}),
-	}
-}
-
-func (cw *client) moveLowWatermark(maxSeqNo uint64) {
-	for el := cw.reqNoList.Front(); el != nil; {
-		crn := el.Value.(*clientReqNo)
-		if crn.committed == nil || *crn.committed > maxSeqNo {
+		if crn.reqNo == state.LowWatermark {
 			break
 		}
 
 		oel := el
 		el = el.Next()
 
-		cw.reqNoList.Remove(oel)
-		delete(cw.reqNoMap, crn.reqNo)
+		c.reqNoList.Remove(oel)
+		delete(c.reqNoMap, crn.reqNo)
 	}
 
-	cw.lowWatermark = cw.reqNoList.Front().Value.(*clientReqNo).reqNo
+	for reqNo := state.LowWatermark; reqNo <= c.highWatermark; reqNo++ {
+		if isCommitted(reqNo, state) {
+			crn := c.reqNoMap[reqNo].Value.(*clientReqNo)
+			crn.committed = true
+		}
+	}
+
+	c.clientState = state
+
+	for reqNo := c.highWatermark + 1; reqNo <= newHighWatermark; reqNo++ {
+		el := c.reqNoList.PushBack(&clientReqNo{
+			clientID:       state.Id,
+			networkConfig:  c.networkConfig,
+			reqNo:          reqNo,
+			requests:       map[string]*clientRequest{},
+			weakRequests:   map[string]*clientRequest{},
+			strongRequests: map[string]*clientRequest{},
+			myRequests:     map[string]*clientRequest{},
+			nonNullVoters:  map[nodeID]struct{}{},
+		})
+		c.reqNoMap[reqNo] = el
+	}
+
+	c.highWatermark = newHighWatermark
+
+	close(c.clientWaiter.expired)
+	c.clientWaiter = &clientWaiter{
+		lowWatermark:  state.LowWatermark,
+		highWatermark: c.highWatermark,
+		expired:       make(chan struct{}),
+	}
+
+	c.advanceReady()
+
+	c.logger.Log(LevelDebug, "allocated new reqs for client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark)
+
 }
 
 func (cw *client) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 	crne, ok := cw.reqNoMap[ack.ReqNo]
-	assertEqualf(ok, true, "client_id=%d got ack for req_no=%d, but lowWatermark=%d highWatermark=%d", cw.clientState.Id, ack.ReqNo, cw.lowWatermark, cw.highWatermark)
+	assertEqualf(ok, true, "client_id=%d got ack for req_no=%d, but lowWatermark=%d highWatermark=%d", cw.clientState.Id, ack.ReqNo, cw.clientState.LowWatermark, cw.highWatermark)
 
 	crn := crne.Value.(*clientReqNo)
 
@@ -942,7 +892,7 @@ func (cw *client) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 }
 
 func (cw *client) inWatermarks(reqNo uint64) bool {
-	return reqNo <= cw.highWatermark && reqNo >= cw.lowWatermark
+	return reqNo <= cw.highWatermark && reqNo >= cw.clientState.LowWatermark
 }
 
 func (cw *client) reqNo(reqNo uint64) *clientReqNo {
@@ -959,6 +909,10 @@ func (cw *client) advanceReady() {
 		}
 
 		crn := cw.reqNo(i)
+		if crn.committed {
+			cw.nextReadyMark = i + 1
+			continue
+		}
 
 		for digest := range crn.strongRequests {
 			if _, ok := crn.myRequests[digest]; !ok {
@@ -988,7 +942,7 @@ func (cw *client) status() *status.ClientTracker {
 	lastNonZero := 0
 	for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
 		crn := el.Value.(*clientReqNo)
-		if crn.committed != nil {
+		if crn.committed {
 			allocated[i] = 2 // TODO, actually report the seqno it committed to
 			lastNonZero = i
 		} else if len(crn.requests) > 0 {
@@ -1000,8 +954,8 @@ func (cw *client) status() *status.ClientTracker {
 
 	return &status.ClientTracker{
 		ClientID:      cw.clientState.Id,
-		LowWatermark:  cw.lowWatermark,
+		LowWatermark:  cw.clientState.LowWatermark,
 		HighWatermark: cw.highWatermark,
-		Allocated:     allocated[:lastNonZero+1],
+		Allocated:     allocated[:lastNonZero],
 	}
 }

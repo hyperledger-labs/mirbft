@@ -39,10 +39,12 @@ func (ct *clientTracker) reinitialize(networkState *pb.NetworkState) {
 }
 
 func (ct *clientTracker) addReady(crn *clientReqNo) {
+	ct.logger.Log(LevelDebug, "JKY pushing to ready", "client_id", crn.clientID, "req_no", crn.reqNo)
 	ct.readyList.pushBack(crn)
 }
 
 func (ct *clientTracker) addAvailable(req *pb.RequestAck) {
+	ct.logger.Log(LevelDebug, "JKY pushing to available", "client_id", req.ClientId, "req_no", req.ReqNo)
 	ct.availableList.pushBack(req)
 }
 

@@ -77,7 +77,7 @@ func newProposer(baseCheckpoint uint64, checkpointInterval uint64, myConfig *pb.
 func (p *proposer) advance(toSeqNo uint64) {
 	for p.readyIterator.hasNext() {
 		crn := p.readyIterator.next()
-		if crn.committed != nil {
+		if crn.committed {
 			// This seems like an odd check, but it's possible that
 			// this request already committed in a previous view but that
 			// we have not been able to garbage collect it yet.

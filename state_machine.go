@@ -136,7 +136,7 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 	sm.checkpointTracker = newCheckpointTracker(0, dummyInitialState, sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger)
 	sm.clientTracker = newClientTracker(sm.myConfig, sm.Logger)
 	sm.commitState = newCommitState(sm.persisted, sm.Logger)
-	sm.clientHashDisseminator = newClientHashDisseminator(sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger, sm.clientTracker, sm.commitState)
+	sm.clientHashDisseminator = newClientHashDisseminator(sm.nodeBuffers, sm.myConfig, sm.Logger, sm.clientTracker)
 	sm.batchTracker = newBatchTracker(sm.persisted)
 	sm.epochTracker = newEpochTracker(
 		sm.persisted,
@@ -239,7 +239,6 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 
 		sm.persisted.truncate(newLow)
 
-		sm.clientHashDisseminator.garbageCollect(newLow)
 		if newLow > uint64(sm.checkpointTracker.networkConfig.CheckpointInterval) {
 			// Note, we leave an extra checkpoint worth of batches around, to help
 			// during epoch change.
@@ -279,7 +278,7 @@ func (sm *StateMachine) reinitialize() *Actions {
 	actions := sm.recoverLog()
 	actions.concat(sm.commitState.reinitialize())
 	sm.clientTracker.reinitialize(sm.commitState.activeState)
-	sm.clientHashDisseminator.reinitialize()
+	sm.clientHashDisseminator.reinitialize(sm.commitState.lowWatermark, sm.commitState.activeState)
 
 	for el := sm.superHackyReqs.Front(); el != nil; el = sm.superHackyReqs.Front() {
 		sm.clientHashDisseminator.applyRequestDigest(
@@ -403,8 +402,8 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 		actions.concat(sm.commitState.applyCheckpointResult(epochConfig, checkpointResult))
 		if prevStopAtSeqNo < sm.commitState.stopAtSeqNo {
 			sm.clientTracker.allocate(checkpointResult.SeqNo, checkpointResult.NetworkState)
+			actions.concat(sm.clientHashDisseminator.allocate(checkpointResult.SeqNo, checkpointResult.NetworkState))
 		}
-		actions.concat(sm.clientHashDisseminator.drain())
 	}
 
 	for _, hashResult := range results.Digests {
