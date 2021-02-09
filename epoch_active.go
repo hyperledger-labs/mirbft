@@ -392,15 +392,16 @@ func (e *activeEpoch) advance() *Actions {
 
 	e.proposer.advance(e.lowestUncommitted)
 
-	for bucketID, ownerID := range e.buckets {
+	for bid := bucketID(0); bid < bucketID(e.networkConfig.NumberOfBuckets); bid++ {
+		ownerID := e.buckets[bid]
 		if ownerID != nodeID(e.myConfig.Id) {
 			continue
 		}
 
-		prb := e.proposer.proposalBucket(bucketID)
+		prb := e.proposer.proposalBucket(bid)
 
 		for {
-			seqNo := e.lowestUnallocated[int(bucketID)]
+			seqNo := e.lowestUnallocated[int(bid)]
 			if seqNo > e.highWatermark() {
 				break
 			}
@@ -413,7 +414,7 @@ func (e *activeEpoch) advance() *Actions {
 
 			actions.concat(seq.allocateAsOwner(prb.next()))
 
-			e.lowestUnallocated[int(bucketID)] += uint64(len(e.buckets))
+			e.lowestUnallocated[int(bid)] += uint64(len(e.buckets))
 		}
 	}
 
