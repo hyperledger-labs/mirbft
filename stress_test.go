@@ -461,7 +461,7 @@ type NodeStatus struct {
 func CreateNetwork(testConfig *TestConfig, doneC <-chan struct{}) *Network {
 	transport := NewFakeTransport(testConfig.NodeCount)
 
-	networkState := mirbft.StandardInitialNetworkState(testConfig.NodeCount, 0)
+	networkState := mirbft.StandardInitialNetworkState(testConfig.NodeCount, 1)
 
 	if testConfig.BucketCount != 0 {
 		networkState.Config.NumberOfBuckets = int32(testConfig.BucketCount)
