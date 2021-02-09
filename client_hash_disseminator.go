@@ -201,7 +201,7 @@ func (ct *clientHashDisseminator) filter(_ nodeID, msg *pb.Msg) applyable {
 			return current
 		}
 	case *pb.Msg_FetchRequest:
-		return current // TODO decide if this is actually current
+		return current // TODO push outside state machine
 	case *pb.Msg_ForwardRequest:
 		requestAck := innerMsg.ForwardRequest.RequestAck
 		client, ok := ct.client(requestAck.ClientId)
@@ -295,16 +295,16 @@ func (ct *clientHashDisseminator) allocate(seqNo uint64, networkState *pb.Networ
 }
 
 func (ct *clientHashDisseminator) replyFetchRequest(source nodeID, clientID, reqNo uint64, digest []byte) *Actions {
-	cw, ok := ct.client(clientID)
+	c, ok := ct.client(clientID)
 	if !ok {
 		return &Actions{}
 	}
 
-	if !cw.inWatermarks(reqNo) {
+	if !c.inWatermarks(reqNo) {
 		return &Actions{}
 	}
 
-	creq := cw.reqNo(reqNo)
+	creq := c.reqNo(reqNo)
 	data, ok := creq.requests[string(digest)]
 	if !ok {
 		return &Actions{}
@@ -325,14 +325,14 @@ func (ct *clientHashDisseminator) replyFetchRequest(source nodeID, clientID, req
 }
 
 func (ct *clientHashDisseminator) applyForwardRequest(source nodeID, msg *pb.ForwardRequest) *Actions {
-	cw, ok := ct.client(msg.RequestAck.ClientId)
+	c, ok := ct.client(msg.RequestAck.ClientId)
 	if !ok {
 		// TODO log oddity
 		return &Actions{}
 	}
 
 	// TODO, make sure that we only allow one vote per replica for a reqno, or bounded
-	cr := cw.reqNo(msg.RequestAck.ReqNo)
+	cr := c.reqNo(msg.RequestAck.ReqNo)
 	req, ok := cr.requests[string(msg.RequestAck.Digest)]
 	if !ok {
 		return &Actions{}
@@ -367,16 +367,16 @@ func (ct *clientHashDisseminator) applyForwardRequest(source nodeID, msg *pb.For
 }
 
 func (ct *clientHashDisseminator) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
-	cw, ok := ct.clients[ack.ClientId]
+	c, ok := ct.clients[ack.ClientId]
 	assertEqual(ok, true, "the step filtering should delay reqs for non-existent clients")
 
-	return cw.ack(source, ack)
+	return c.ack(source, ack)
 }
 
 func (ct *clientHashDisseminator) client(clientID uint64) (*client, bool) {
 	// TODO, we could do lazy initialization here
-	cw, ok := ct.clients[clientID]
-	return cw, ok
+	c, ok := ct.clients[clientID]
+	return c, ok
 }
 
 // clientReqNo accumulates acks for this request number
@@ -865,52 +865,52 @@ func (c *client) allocate(state *pb.NetworkState_Client) {
 
 }
 
-func (cw *client) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
-	crne, ok := cw.reqNoMap[ack.ReqNo]
-	assertEqualf(ok, true, "client_id=%d got ack for req_no=%d, but lowWatermark=%d highWatermark=%d", cw.clientState.Id, ack.ReqNo, cw.clientState.LowWatermark, cw.highWatermark)
+func (c *client) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
+	crne, ok := c.reqNoMap[ack.ReqNo]
+	assertEqualf(ok, true, "client_id=%d got ack for req_no=%d, but lowWatermark=%d highWatermark=%d", c.clientState.Id, ack.ReqNo, c.clientState.LowWatermark, c.highWatermark)
 
 	crn := crne.Value.(*clientReqNo)
 
 	cr := crn.clientReq(ack)
 	cr.agreements[source] = struct{}{}
 
-	if len(cr.agreements) == someCorrectQuorum(cw.networkConfig) {
+	if len(cr.agreements) == someCorrectQuorum(c.networkConfig) {
 		crn.weakRequests[string(ack.Digest)] = cr
 
 		// This request just became 'available', add it to the list
-		cw.clientTracker.addAvailable(ack)
+		c.clientTracker.addAvailable(ack)
 	}
 
-	if len(cr.agreements) == intersectionQuorum(cw.networkConfig) {
+	if len(cr.agreements) == intersectionQuorum(c.networkConfig) {
 		crn.strongRequests[string(ack.Digest)] = cr
 
 		// Check to see if this request just becoming 'ready' can advance the ready mark
-		cw.advanceReady()
+		c.advanceReady()
 	}
 
 	return cr
 }
 
-func (cw *client) inWatermarks(reqNo uint64) bool {
-	return reqNo <= cw.highWatermark && reqNo >= cw.clientState.LowWatermark
+func (c *client) inWatermarks(reqNo uint64) bool {
+	return reqNo <= c.highWatermark && reqNo >= c.clientState.LowWatermark
 }
 
-func (cw *client) reqNo(reqNo uint64) *clientReqNo {
-	el := cw.reqNoMap[reqNo]
-	assertNotEqualf(el, nil, "client_id=%d should have req_no=%d but does not", cw.clientState.Id, reqNo)
+func (c *client) reqNo(reqNo uint64) *clientReqNo {
+	el := c.reqNoMap[reqNo]
+	assertNotEqualf(el, nil, "client_id=%d should have req_no=%d but does not", c.clientState.Id, reqNo)
 	return el.Value.(*clientReqNo)
 }
 
-func (cw *client) advanceReady() {
-	for i := cw.nextReadyMark; i <= cw.highWatermark; i++ {
-		if i != cw.nextReadyMark {
+func (c *client) advanceReady() {
+	for i := c.nextReadyMark; i <= c.highWatermark; i++ {
+		if i != c.nextReadyMark {
 			// last time through the loop, we must not have updated the ready mark
 			return
 		}
 
-		crn := cw.reqNo(i)
+		crn := c.reqNo(i)
 		if crn.committed {
-			cw.nextReadyMark = i + 1
+			c.nextReadyMark = i + 1
 			continue
 		}
 
@@ -919,28 +919,28 @@ func (cw *client) advanceReady() {
 				continue
 			}
 
-			cw.clientTracker.addReady(crn)
-			cw.nextReadyMark = i + 1
+			c.clientTracker.addReady(crn)
+			c.nextReadyMark = i + 1
 
 			break
 		}
 	}
 }
 
-func (cw *client) tick() *Actions {
+func (c *client) tick() *Actions {
 	actions := &Actions{}
-	for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
+	for el := c.reqNoList.Front(); el != nil; el = el.Next() {
 		crn := el.Value.(*clientReqNo)
 		actions.concat(crn.tick())
 	}
 	return actions
 }
 
-func (cw *client) status() *status.ClientTracker {
-	allocated := make([]uint64, cw.reqNoList.Len())
+func (c *client) status() *status.ClientTracker {
+	allocated := make([]uint64, c.reqNoList.Len())
 	i := 0
 	lastNonZero := 0
-	for el := cw.reqNoList.Front(); el != nil; el = el.Next() {
+	for el := c.reqNoList.Front(); el != nil; el = el.Next() {
 		crn := el.Value.(*clientReqNo)
 		if crn.committed {
 			allocated[i] = 2 // TODO, actually report the seqno it committed to
@@ -953,9 +953,9 @@ func (cw *client) status() *status.ClientTracker {
 	}
 
 	return &status.ClientTracker{
-		ClientID:      cw.clientState.Id,
-		LowWatermark:  cw.clientState.LowWatermark,
-		HighWatermark: cw.highWatermark,
+		ClientID:      c.clientState.Id,
+		LowWatermark:  c.clientState.LowWatermark,
+		HighWatermark: c.highWatermark,
 		Allocated:     allocated[:lastNonZero],
 	}
 }
