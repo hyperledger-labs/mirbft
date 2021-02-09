@@ -24,33 +24,18 @@ type clientTracker struct {
 	clientStates  []*pb.NetworkState_Client
 }
 
-func newClientTracker(persisted *persisted, myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
+func newClientTracker(myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
 	return &clientTracker{
-		logger:    logger,
-		myConfig:  myConfig,
-		persisted: persisted,
+		logger:   logger,
+		myConfig: myConfig,
 	}
 }
 
-func (ct *clientTracker) reinitialize() {
-	var lowCEntry, highCEntry *pb.CEntry
-
-	ct.persisted.iterate(logIterator{
-		onCEntry: func(cEntry *pb.CEntry) {
-			if lowCEntry == nil {
-				lowCEntry = cEntry
-			}
-			highCEntry = cEntry
-		},
-	})
-
-	assertNotEqual(lowCEntry, nil, "log must have checkpoint")
-
-	ct.networkConfig = lowCEntry.NetworkState.Config
+func (ct *clientTracker) reinitialize(networkState *pb.NetworkState) {
+	ct.networkConfig = networkState.Config
+	ct.clientStates = networkState.Clients
 	ct.availableList = newAvailableList()
 	ct.readyList = newReadyList()
-	ct.clientStates = highCEntry.NetworkState.Clients
-
 }
 
 func (ct *clientTracker) addReady(crn *clientReqNo) {
@@ -67,7 +52,7 @@ func (ct *clientTracker) allocate(seqNo uint64, state *pb.NetworkState) {
 		stateMap[client.Id] = client
 	}
 	ct.availableList.garbageCollect(stateMap)
-	ct.readyList.garbageCollect(seqNo)
+	ct.readyList.garbageCollect(stateMap)
 }
 
 // appendList is a data structure uniquely suited to the operations of the state machine
@@ -160,11 +145,12 @@ func (rl *readyList) pushBack(crn *clientReqNo) {
 	rl.appendList.pushBack(crn)
 }
 
-func (rl *readyList) garbageCollect(seqNo uint64) {
+func (rl *readyList) garbageCollect(clientStates map[uint64]*pb.NetworkState_Client) {
 	rl.appendList.garbageCollect(func(value interface{}) bool {
 		crn := value.(*clientReqNo)
-		c := crn.committed
-		return c != nil && *c <= seqNo
+		state, ok := clientStates[crn.clientID]
+		assertTrue(ok, "client removal not yet supported") // XXX Fix
+		return isCommitted(crn.reqNo, state)
 	})
 }
 

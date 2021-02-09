@@ -134,7 +134,7 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 
 	sm.nodeBuffers = newNodeBuffers(sm.myConfig, sm.Logger)
 	sm.checkpointTracker = newCheckpointTracker(0, dummyInitialState, sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger)
-	sm.clientTracker = newClientTracker(sm.persisted, sm.myConfig, sm.Logger)
+	sm.clientTracker = newClientTracker(sm.myConfig, sm.Logger)
 	sm.commitState = newCommitState(sm.persisted, sm.Logger)
 	sm.clientHashDisseminator = newClientHashDisseminator(sm.persisted, sm.nodeBuffers, sm.myConfig, sm.Logger, sm.clientTracker, sm.commitState)
 	sm.batchTracker = newBatchTracker(sm.persisted)
@@ -277,8 +277,8 @@ func (sm *StateMachine) reinitialize() *Actions {
 	defer sm.Logger.Log(LevelInfo, "state machine reinitialized (either due to start, state transfer, or reconfiguration)")
 
 	actions := sm.recoverLog()
-	sm.clientTracker.reinitialize()
 	actions.concat(sm.commitState.reinitialize())
+	sm.clientTracker.reinitialize(sm.commitState.activeState)
 	sm.clientHashDisseminator.reinitialize()
 
 	for el := sm.superHackyReqs.Front(); el != nil; el = sm.superHackyReqs.Front() {
