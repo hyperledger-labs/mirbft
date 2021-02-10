@@ -73,12 +73,6 @@ func StandardInitialNetworkState(nodeCount int, clientCount int) *pb.NetworkStat
 	}
 }
 
-type dummyReqStore struct{}
-
-func (dummyReqStore) Uncommitted(forEach func(*pb.RequestAck)) error {
-	return nil
-}
-
 type dummyWAL struct {
 	initialNetworkState    *pb.NetworkState
 	initialCheckpointValue []byte
