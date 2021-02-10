@@ -278,7 +278,7 @@ func (sm *StateMachine) reinitialize() *Actions {
 	actions := sm.recoverLog()
 	actions.concat(sm.commitState.reinitialize())
 	sm.clientTracker.reinitialize(sm.commitState.activeState)
-	sm.clientHashDisseminator.reinitialize(sm.commitState.lowWatermark, sm.commitState.activeState)
+	actions.concat(sm.clientHashDisseminator.reinitialize(sm.commitState.lowWatermark, sm.commitState.activeState))
 
 	for el := sm.superHackyReqs.Front(); el != nil; el = sm.superHackyReqs.Front() {
 		sm.clientHashDisseminator.applyRequestDigest(

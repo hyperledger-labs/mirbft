@@ -139,7 +139,8 @@ func newClientHashDisseminator(nodeBuffers *nodeBuffers, myConfig *pb.StateEvent
 	}
 }
 
-func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.NetworkState) {
+func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.NetworkState) *Actions {
+	actions := &Actions{}
 	reconfiguring := len(networkState.PendingReconfigurations) > 0
 
 	latestClientStates := map[uint64]*pb.NetworkState_Client{}
@@ -161,7 +162,7 @@ func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.Ne
 
 		ct.clients[clientState.Id] = client
 		// TODO, this assumes no client deletion, need to handle that
-		client.reinitialize(seqNo, networkState.Config, clientState, reconfiguring)
+		actions.concat(client.reinitialize(seqNo, networkState.Config, clientState, reconfiguring))
 	}
 
 	oldMsgBuffers := ct.msgBuffers
@@ -174,6 +175,7 @@ func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.Ne
 		}
 	}
 
+	return actions
 }
 
 func (ct *clientHashDisseminator) tick() *Actions {
@@ -281,14 +283,15 @@ func (ct *clientHashDisseminator) applyRequestDigest(ack *pb.RequestAck, data []
 func (ct *clientHashDisseminator) allocate(seqNo uint64, networkState *pb.NetworkState) *Actions {
 	assertEqual(seqNo, uint64(networkState.Config.CheckpointInterval)+ct.allocatedThrough, "unexpected skip in allocate, expected next allocation at next checkpoint")
 
+	actions := &Actions{}
+
 	ct.allocatedThrough = seqNo
 	reconfiguring := len(networkState.PendingReconfigurations) > 0
 
 	for _, client := range networkState.Clients {
-		ct.clients[client.Id].allocate(seqNo, client, reconfiguring)
+		actions.concat(ct.clients[client.Id].allocate(seqNo, client, reconfiguring))
 	}
 
-	actions := &Actions{}
 	for _, id := range ct.networkConfig.Nodes {
 		ct.msgBuffers[nodeID(id)].iterate(ct.filter, func(source nodeID, msg *pb.Msg) {
 			actions.concat(ct.applyMsg(source, msg))
@@ -768,7 +771,8 @@ func newClient(logger Logger, tracker *clientTracker) *client {
 	}
 }
 
-func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Config, clientState *pb.NetworkState_Client, reconfiguring bool) {
+func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Config, clientState *pb.NetworkState_Client, reconfiguring bool) *Actions {
+	actions := &Actions{}
 	oldReqNoMap := c.reqNoMap
 
 	intermediateHighWatermark := clientState.LowWatermark + uint64(clientState.Width) - uint64(clientState.WidthConsumedLastCheckpoint)
@@ -808,6 +812,7 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Confi
 				validAfterSeqNo = seqNo
 			}
 			crn = newClientReqNo(clientState.Id, reqNo, c.networkConfig, validAfterSeqNo)
+			actions.allocateRequest(clientState.Id, reqNo)
 		}
 
 		crn.committed = committed
@@ -821,9 +826,13 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Confi
 	c.advanceReady()
 
 	c.logger.Log(LevelDebug, "reinitialized client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark)
+
+	return actions
 }
 
-func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfiguring bool) {
+func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfiguring bool) *Actions {
+	actions := &Actions{}
+
 	intermediateHighWatermark := state.LowWatermark + uint64(state.Width) - uint64(state.WidthConsumedLastCheckpoint)
 	assertEqualf(intermediateHighWatermark, c.highWatermark, "new intermediate high watermark should always be the old high watemark, in the allocation path", state.Id)
 	var newHighWatermark uint64
@@ -865,6 +874,7 @@ func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfigu
 	// old high watermark, so allocate starting after that one.
 	validAfterSeqNo := seqNo + uint64(c.networkConfig.CheckpointInterval)
 	for reqNo := intermediateHighWatermark + 1; reqNo <= newHighWatermark; reqNo++ {
+		actions.allocateRequest(state.Id, reqNo)
 		el := c.reqNoList.PushBack(newClientReqNo(state.Id, reqNo, c.networkConfig, validAfterSeqNo))
 		c.reqNoMap[reqNo] = el
 	}
@@ -882,6 +892,7 @@ func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfigu
 
 	c.logger.Log(LevelDebug, "allocated new reqs for client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark)
 
+	return actions
 }
 
 func (c *client) ack(source nodeID, ack *pb.RequestAck) *clientRequest {

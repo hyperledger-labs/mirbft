@@ -214,6 +214,7 @@ func actionsConcat(a, o *mirbft.Actions) (*mirbft.Actions, error) {
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
 	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
+	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
 	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
 	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
 	if o.StateTransfer != nil {

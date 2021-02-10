@@ -156,7 +156,7 @@ type RecorderClient struct {
 }
 
 func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.Request {
-	if reqNo > rc.Config.Total {
+	if reqNo >= rc.Config.Total {
 		// We've sent all we should
 		return nil
 	}
@@ -374,25 +374,6 @@ func (r *Recording) Step() error {
 	case *pb.StateEvent_Tick:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	case *pb.StateEvent_AddResults:
-		for _, rw := range nodeState.LastCheckpoint().NetworkState.Clients {
-			for _, client := range r.Clients {
-				if client.Config.ID != rw.Id {
-					continue
-				}
-
-				highWatermark := rw.LowWatermark + uint64(rw.Width) - uint64(rw.WidthConsumedLastCheckpoint)
-
-				for i := client.NextNodeReqNoSend[lastEvent.NodeId]; i < highWatermark && i < client.Config.Total; i++ {
-					req := client.RequestByReqNo(i)
-					if req == nil {
-						continue
-					}
-					r.EventLog.InsertProposeEvent(lastEvent.NodeId, req, int64(client.Config.TxLatency))
-					client.NextNodeReqNoSend[lastEvent.NodeId] = i + 1
-
-				}
-			}
-		}
 	case *pb.StateEvent_Step:
 	case *pb.StateEvent_Propose:
 	case *pb.StateEvent_ActionsReceived:
@@ -401,6 +382,19 @@ func (r *Recording) Step() error {
 		}
 		node.AwaitingProcessEvent = false
 		processing := playbackNode.Processing
+
+		for _, reqSlot := range processing.AllocatedRequests {
+			client := r.Clients[int(reqSlot.ClientID)]
+			if client.Config.ID != reqSlot.ClientID {
+				panic("sanity check")
+			}
+
+			req := client.RequestByReqNo(reqSlot.ReqNo)
+			if req == nil {
+				continue
+			}
+			r.EventLog.InsertProposeEvent(lastEvent.NodeId, req, int64(client.Config.TxLatency))
+		}
 
 		for _, req := range processing.StoreRequests {
 			node.ReqStore.Store(req.RequestAck, req.RequestData)
@@ -582,6 +576,7 @@ func isEmpty(actions *mirbft.Actions) bool {
 	return len(actions.Send) == 0 &&
 		len(actions.WriteAhead) == 0 &&
 		len(actions.Hash) == 0 &&
+		len(actions.AllocatedRequests) == 0 &&
 		len(actions.StoreRequests) == 0 &&
 		len(actions.ForwardRequests) == 0 &&
 		len(actions.Commits) == 0 &&

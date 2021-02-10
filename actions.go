@@ -37,6 +37,13 @@ type Actions struct {
 	// this commit.  Checkpoints must be persisted before further commits are reported as applied.
 	Commits []*Commit
 
+	// AllocatedRequests is a set of client request numbers which are eligible for
+	// clients to begin filling.  It is the responsibility of the consumer to ensure
+	// that a client request has been allocated for a particular client's request number,
+	// then it must validate the request, and finally pass the allocation information
+	// along with a hash of the request back into the state machine via the Propose API.
+	AllocatedRequests []RequestSlot
+
 	// StoreRequests is a list of requests and their identifying digests which must be
 	// stored prior to performing the network sends.  This may be performed in parallel
 	// with the persisted log entries.
@@ -67,6 +74,11 @@ func (a *Actions) storeRequest(request *pb.ForwardRequest) *Actions {
 	return a
 }
 
+func (a *Actions) allocateRequest(clientID, reqNo uint64) *Actions {
+	a.AllocatedRequests = append(a.AllocatedRequests, RequestSlot{ClientID: clientID, ReqNo: reqNo})
+	return a
+}
+
 func (a *Actions) forwardRequest(targets []uint64, requestAck *pb.RequestAck) *Actions {
 	a.ForwardRequests = append(a.ForwardRequests, Forward{
 		Targets:    targets,
@@ -92,6 +104,7 @@ func (a *Actions) clear() {
 	a.Hash = nil
 	a.WriteAhead = nil
 	a.Commits = nil
+	a.AllocatedRequests = nil
 	a.StoreRequests = nil
 	a.ForwardRequests = nil
 	a.StateTransfer = nil
@@ -101,6 +114,7 @@ func (a *Actions) isEmpty() bool {
 	return len(a.Send) == 0 &&
 		len(a.Hash) == 0 &&
 		len(a.WriteAhead) == 0 &&
+		len(a.AllocatedRequests) == 0 &&
 		len(a.StoreRequests) == 0 &&
 		len(a.ForwardRequests) == 0 &&
 		len(a.Commits) == 0 &&
@@ -114,6 +128,7 @@ func (a *Actions) concat(o *Actions) *Actions {
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
 	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
+	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
 	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
 	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
 	if o.StateTransfer != nil {
@@ -140,6 +155,11 @@ type WALEntry struct {
 type Send struct {
 	Targets []uint64
 	Msg     *pb.Msg
+}
+
+type RequestSlot struct {
+	ClientID uint64
+	ReqNo    uint64
 }
 
 // Forward is an action much like send, but requires the consumer to first
