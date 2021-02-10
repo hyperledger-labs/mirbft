@@ -17,8 +17,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-func key(ack *pb.RequestAck) []byte {
-	return []byte(fmt.Sprintf("%d.%d.%x", ack.ClientId, ack.ReqNo, ack.Digest))
+func reqKey(ack *pb.RequestAck) []byte {
+	return []byte(fmt.Sprintf("req-%d.%d.%x", ack.ClientId, ack.ReqNo, ack.Digest))
+}
+
+func allocKey(clientID, reqNo uint64) []byte {
+	return []byte(fmt.Sprintf("alloc-%d.%d", clientID, reqNo))
 }
 
 type Store struct {
@@ -43,15 +47,16 @@ func Open(dirPath string) (*Store, error) {
 	}, nil
 }
 
-func (s *Store) Store(requestAck *pb.RequestAck, data []byte) error {
+func (s *Store) PutAllocation(clientID, reqNo uint64, digest []byte) error {
 	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Set(key(requestAck), data)
+		return txn.Set(allocKey(clientID, reqNo), digest)
 	})
 }
-func (s *Store) Get(requestAck *pb.RequestAck) ([]byte, error) {
+
+func (s *Store) GetAllocation(clientID, reqNo uint64) ([]byte, error) {
 	var valCopy []byte
 	err := s.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(key(requestAck))
+		item, err := txn.Get(allocKey(clientID, reqNo))
 		if err != nil {
 			return err
 		}
@@ -60,34 +65,41 @@ func (s *Store) Get(requestAck *pb.RequestAck) ([]byte, error) {
 		return err
 	})
 
+	if err == badger.ErrKeyNotFound {
+		return nil, nil
+	}
+
+	return valCopy, err
+}
+
+func (s *Store) PutRequest(requestAck *pb.RequestAck, data []byte) error {
+	return s.db.Update(func(txn *badger.Txn) error {
+		return txn.Set(reqKey(requestAck), data)
+	})
+}
+
+func (s *Store) GetRequest(requestAck *pb.RequestAck) ([]byte, error) {
+	var valCopy []byte
+	err := s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(reqKey(requestAck))
+		if err != nil {
+			return err
+		}
+
+		valCopy, err = item.ValueCopy(nil)
+		return err
+	})
+
+	if err == badger.ErrKeyNotFound {
+		return nil, nil
+	}
+
 	return valCopy, err
 }
 
 func (s *Store) Commit(ack *pb.RequestAck) error {
 	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Delete(key(ack))
-	})
-}
-
-func (s *Store) Uncommitted(forEach func(ack *pb.RequestAck)) error {
-	return s.db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.IteratorOptions{})
-		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
-			keyName := it.Item().Key()
-			ack := &pb.RequestAck{
-				Digest: make([]byte, 0, 32),
-			}
-			n, err := fmt.Sscanf(string(keyName), "%d.%d.%x", &ack.ClientId, &ack.ReqNo, &ack.Digest)
-			if err != nil {
-				return err
-			}
-			if n != 3 {
-				return errors.Errorf("could not scan request ack from key, unexpected!")
-			}
-			forEach(ack)
-		}
-		return nil
+		return txn.Delete(reqKey(ack))
 	})
 }
 

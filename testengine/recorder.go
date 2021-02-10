@@ -7,7 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package testengine
 
 import (
-	"bytes"
 	"compress/gzip"
 	"container/list"
 	"crypto/sha256"
@@ -151,25 +150,25 @@ type RecorderNode struct {
 }
 
 type RecorderClient struct {
-	Config            *ClientConfig
-	NextNodeReqNoSend []uint64
+	Config *ClientConfig
+	Hasher Hasher
 }
 
-func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.Request {
+func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.RequestAck {
 	if reqNo >= rc.Config.Total {
 		// We've sent all we should
 		return nil
 	}
 
-	var buffer bytes.Buffer
-	buffer.Write(uint64ToBytes(rc.Config.ID))
-	buffer.Write([]byte("-"))
-	buffer.Write(uint64ToBytes(reqNo))
+	h := rc.Hasher()
+	h.Write(uint64ToBytes(rc.Config.ID))
+	h.Write([]byte("-"))
+	h.Write(uint64ToBytes(reqNo))
 
-	return &pb.Request{
+	return &pb.RequestAck{
 		ClientId: rc.Config.ID,
 		ReqNo:    reqNo,
-		Data:     buffer.Bytes(),
+		Digest:   h.Sum(nil),
 	}
 }
 
@@ -329,8 +328,8 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	clients := make([]*RecorderClient, len(r.ClientConfigs))
 	for i, clientConfig := range r.ClientConfigs {
 		client := &RecorderClient{
-			Config:            clientConfig,
-			NextNodeReqNoSend: make([]uint64, len(nodes)),
+			Config: clientConfig,
+			Hasher: r.Hasher,
 		}
 
 		clients[i] = client
@@ -528,21 +527,6 @@ func (r *Recording) Step() error {
 
 		nodeState.Set(maxCEntry.SeqNo, maxCEntry.CheckpointValue, maxCEntry.NetworkState)
 
-		node.ReqStore.Uncommitted(func(ack *pb.RequestAck) {
-			delay += int64(runtimeParms.ReqReadDelay)
-			r.EventLog.InsertStateEvent(
-				lastEvent.NodeId,
-				&pb.StateEvent{
-					Type: &pb.StateEvent_LoadRequest{
-						LoadRequest: &pb.StateEvent_OutstandingRequest{
-							RequestAck: ack,
-						},
-					},
-				},
-				delay,
-			)
-		})
-
 		r.EventLog.InsertStateEvent(
 			lastEvent.NodeId,
 			&pb.StateEvent{
@@ -553,7 +537,6 @@ func (r *Recording) Step() error {
 			delay,
 		)
 	case *pb.StateEvent_LoadEntry:
-	case *pb.StateEvent_LoadRequest:
 	case *pb.StateEvent_Transfer:
 		node.State.Set(stateEvent.Transfer.SeqNo, stateEvent.Transfer.CheckpointValue, stateEvent.Transfer.NetworkState)
 	case *pb.StateEvent_CompleteInitialization:

@@ -37,8 +37,10 @@ type WAL interface {
 }
 
 type RequestStore interface {
-	Store(requestAck *pb.RequestAck, data []byte) error
-	Get(requestAck *pb.RequestAck) ([]byte, error)
+	GetAllocation(clientID, reqNo uint64) ([]byte, error)
+	PutAllocation(clientID, reqNo uint64, digest []byte) error
+	GetRequest(requestAck *pb.RequestAck) ([]byte, error)
+	PutRequest(requestAck *pb.RequestAck, data []byte) error
 	Commit(requestAck *pb.RequestAck) error
 	Sync() error
 }
@@ -64,11 +66,25 @@ type Processor struct {
 
 func (p *Processor) Process(actions *Actions) *ActionResults {
 	// Persist
-	for _, r := range actions.StoreRequests {
-		p.RequestStore.Store(
-			r.RequestAck,
-			r.RequestData,
-		)
+	for _, r := range actions.AllocatedRequests {
+		digest, err := p.RequestStore.GetAllocation(r.ClientID, r.ReqNo)
+		if err != nil {
+			panic(fmt.Sprintf("could not get key for %d.%d: %s", r.ClientID, r.ReqNo, err))
+		}
+
+		if digest != nil {
+			if err := p.Node.Propose(context.Background(), r, digest); err != nil {
+				panic(err)
+			}
+			continue
+		}
+
+		// TODO, do something like
+		//   p.RequestStore.PutLocalRequest(r.ClientID, r.ReqNo, nil)
+		// with a client lock held, that way when the client goes to propose this
+		// sequence it will find that it's been allocated, then continue
+		// for now to sort of not break the tests, we're automatically generating
+		// client requests.
 	}
 
 	if err := p.RequestStore.Sync(); err != nil {
@@ -102,28 +118,31 @@ func (p *Processor) Process(actions *Actions) *ActionResults {
 		}
 	}
 
-	for _, r := range actions.ForwardRequests {
-		requestData, err := p.RequestStore.Get(r.RequestAck)
-		if err != nil {
-			panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
-		}
+	// XXX address
+	/*
+		for _, r := range actions.ForwardRequests {
+			requestData, err := p.RequestStore.Get(r.RequestAck)
+			if err != nil {
+				panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
+			}
 
-		fr := &pb.Msg{
-			Type: &pb.Msg_ForwardRequest{
-				&pb.ForwardRequest{
-					RequestAck:  r.RequestAck,
-					RequestData: requestData,
+			fr := &pb.Msg{
+				Type: &pb.Msg_ForwardRequest{
+					&pb.ForwardRequest{
+						RequestAck:  r.RequestAck,
+						RequestData: requestData,
+					},
 				},
-			},
-		}
-		for _, replica := range r.Targets {
-			if replica == p.Node.Config.ID {
-				p.Node.Step(context.Background(), replica, fr)
-			} else {
-				p.Link.Send(replica, fr)
+			}
+			for _, replica := range r.Targets {
+				if replica == p.Node.Config.ID {
+					p.Node.Step(context.Background(), replica, fr)
+				} else {
+					p.Link.Send(replica, fr)
+				}
 			}
 		}
-	}
+	*/
 
 	// Apply
 	actionResults := &ActionResults{
@@ -220,42 +239,45 @@ func (wp *ProcessorWorkPool) serviceSendPool() {
 
 func (wp *ProcessorWorkPool) persistThenSendInParallel(
 	writeAhead []*Write,
-	store []*pb.ForwardRequest,
+	allocated []RequestSlot,
 	sends []Send,
 	forwards []Forward,
 	sendDoneC chan<- struct{},
 ) {
 	// First begin forwarding requests over the network, this may be done concurrently
 	// with persistence
-	go func() {
-		for _, r := range forwards {
-			requestData, err := wp.processor.RequestStore.Get(r.RequestAck)
-			if err != nil {
-				panic("io error? this should always return successfully")
-			}
-			fr := &pb.Msg{
-				Type: &pb.Msg_ForwardRequest{
-					&pb.ForwardRequest{
-						RequestAck: &pb.RequestAck{
-							ReqNo:    r.RequestAck.ReqNo,
-							ClientId: r.RequestAck.ClientId,
-							Digest:   r.RequestAck.Digest,
+	// XXX address
+	/*
+		go func() {
+			for _, r := range forwards {
+				requestData, err := wp.processor.RequestStore.Get(r.RequestAck)
+				if err != nil {
+					panic("io error? this should always return successfully")
+				}
+				fr := &pb.Msg{
+					Type: &pb.Msg_ForwardRequest{
+						&pb.ForwardRequest{
+							RequestAck: &pb.RequestAck{
+								ReqNo:    r.RequestAck.ReqNo,
+								ClientId: r.RequestAck.ClientId,
+								Digest:   r.RequestAck.Digest,
+							},
+							RequestData: requestData,
 						},
-						RequestData: requestData,
 					},
-				},
-			}
+				}
 
-			select {
-			case wp.transmitC <- Send{
-				Targets: r.Targets,
-				Msg:     fr,
-			}:
-			case <-wp.doneC:
-				return
+				select {
+				case wp.transmitC <- Send{
+					Targets: r.Targets,
+					Msg:     fr,
+				}:
+				case <-wp.doneC:
+					return
+				}
 			}
-		}
-	}()
+		}()
+	*/
 
 	// Next, begin persisting the WAL, plus any pending requests, once done,
 	// send the other protocol messages
@@ -276,11 +298,25 @@ func (wp *ProcessorWorkPool) persistThenSendInParallel(
 		}
 
 		// TODO, this could probably be parallelized with the WAL write
-		for _, r := range store {
-			wp.processor.RequestStore.Store(
-				r.RequestAck,
-				r.RequestData,
-			)
+		for _, r := range allocated {
+			digest, err := wp.processor.RequestStore.GetAllocation(r.ClientID, r.ReqNo)
+			if err != nil {
+				panic(fmt.Sprintf("could not get key for %d.%d: %s", r.ClientID, r.ReqNo, err))
+			}
+
+			if digest != nil {
+				if err := wp.processor.Node.Propose(context.Background(), r, digest); err != nil {
+					panic(err)
+				}
+				continue
+			}
+
+			// TODO, do something like
+			//   p.RequestStore.PutLocalRequest(r.ClientID, r.ReqNo, nil)
+			// with a client lock held, that way when the client goes to propose this
+			// sequence it will find that it's been allocated, then continue
+			// for now to sort of not break the tests, we're automatically generating
+			// client requests.
 		}
 
 		wp.processor.RequestStore.Sync()
@@ -296,7 +332,7 @@ func (wp *ProcessorWorkPool) persistThenSendInParallel(
 
 	go func() {
 		sent := 0
-		for sent < len(sends)+len(forwards) {
+		for sent < len(sends) { // +len(forwards) { // TODO, handle forwards again
 			select {
 			case <-wp.transmitDoneC:
 				sent++
@@ -453,7 +489,7 @@ func (wp *ProcessorWorkPool) Process(actions *Actions) *ActionResults {
 
 	wp.persistThenSendInParallel(
 		actions.WriteAhead,
-		actions.StoreRequests,
+		actions.AllocatedRequests,
 		actions.Send,
 		actions.ForwardRequests,
 		sendBatchDoneC,

@@ -7,8 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	"bytes"
-	"container/list"
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
@@ -104,7 +102,6 @@ type StateMachine struct {
 	commitState            *commitState
 	clientTracker          *clientTracker
 	clientHashDisseminator *clientHashDisseminator
-	superHackyReqs         *list.List
 
 	nodeBuffers       *nodeBuffers
 	batchTracker      *batchTracker
@@ -119,7 +116,6 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 	sm.myConfig = parameters
 	sm.state = smLoadingPersisted
 	sm.persisted = newPersisted(sm.Logger)
-	sm.superHackyReqs = list.New()
 
 	// we use a dummy initial state for components to allow us to use
 	// a common 'reconfiguration'/'state transfer' path for initialization.
@@ -157,10 +153,6 @@ func (sm *StateMachine) applyPersisted(entry *WALEntry) {
 	sm.persisted.appendInitialLoad(entry)
 }
 
-func (sm *StateMachine) applyOutstandingRequest(outstandingReq *pb.StateEvent_OutstandingRequest) {
-	sm.superHackyReqs.PushBack(outstandingReq.RequestAck)
-}
-
 func (sm *StateMachine) completeInitialization() *Actions {
 	assertEqualf(sm.state, smLoadingPersisted, "state machine has already finished loading persisted data")
 
@@ -186,9 +178,6 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 			Data:  event.LoadEntry.Data,
 		})
 		return &Actions{}
-	case *pb.StateEvent_LoadRequest:
-		sm.applyOutstandingRequest(event.LoadRequest)
-		return &Actions{}
 	case *pb.StateEvent_CompleteInitialization:
 		return sm.completeInitialization()
 	case *pb.StateEvent_Tick:
@@ -203,7 +192,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		))
 	case *pb.StateEvent_Propose:
 		assertInitialized()
-		actions.concat(sm.propose(
+		actions.concat(sm.clientHashDisseminator.applyNewRequest(
 			event.Propose.Request,
 		))
 	case *pb.StateEvent_AddResults:
@@ -280,13 +269,6 @@ func (sm *StateMachine) reinitialize() *Actions {
 	sm.clientTracker.reinitialize(sm.commitState.activeState)
 	actions.concat(sm.clientHashDisseminator.reinitialize(sm.commitState.lowWatermark, sm.commitState.activeState))
 
-	for el := sm.superHackyReqs.Front(); el != nil; el = sm.superHackyReqs.Front() {
-		sm.clientHashDisseminator.applyRequestDigest(
-			sm.superHackyReqs.Remove(el).(*pb.RequestAck),
-			nil, // XXX silly, but necessary for the moment
-		)
-	}
-
 	sm.checkpointTracker.reinitialize()
 	sm.batchTracker.reinitialize()
 	return actions.concat(sm.epochTracker.reinitialize())
@@ -310,30 +292,6 @@ func (sm *StateMachine) recoverLog() *Actions {
 	assertNotEqualf(lastCEntry, nil, "found no checkpoints in the log")
 
 	return actions
-}
-
-func (sm *StateMachine) propose(requestData *pb.Request) *Actions {
-	data := [][]byte{
-		uint64ToBytes(requestData.ClientId),
-		uint64ToBytes(requestData.ReqNo),
-		requestData.Data,
-	}
-
-	return &Actions{
-		Hash: []*HashRequest{
-			{
-				Data: data,
-				Origin: &pb.HashResult{
-					Type: &pb.HashResult_Request_{
-						Request: &pb.HashResult_Request{
-							Source:  sm.myConfig.Id,
-							Request: requestData,
-						},
-					},
-				},
-			},
-		},
-	}
 }
 
 func (sm *StateMachine) step(source nodeID, msg *pb.Msg) *Actions {
@@ -412,26 +370,6 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 			batch := hashType.Batch
 			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
 			actions.concat(sm.epochTracker.applyBatchHashResult(batch.Epoch, batch.SeqNo, hashResult.Digest))
-		case *pb.HashResult_Request_:
-			req := hashType.Request.Request
-			actions.concat(sm.clientHashDisseminator.applyRequestDigest(
-				&pb.RequestAck{
-					ClientId: req.ClientId,
-					ReqNo:    req.ReqNo,
-					Digest:   hashResult.Digest,
-				},
-				req.Data,
-			))
-		case *pb.HashResult_VerifyRequest_:
-			request := hashType.VerifyRequest
-			if !bytes.Equal(request.RequestAck.Digest, hashResult.Digest) {
-				panic("byzantine")
-				// XXX this should not panic, but put to make dev easier
-			}
-			actions.concat(sm.clientHashDisseminator.applyRequestDigest(
-				request.RequestAck,
-				request.RequestData,
-			))
 		case *pb.HashResult_EpochChange_:
 			epochChange := hashType.EpochChange
 			actions.concat(sm.epochTracker.applyEpochChangeDigest(epochChange, hashResult.Digest))

@@ -180,17 +180,10 @@ func (i *Recorder) run(dest io.Writer) (exitErr error) {
 	defer gzWriter.Close()
 
 	write := func(eventTime eventTime) error {
-		var stateEvent *pb.StateEvent
-		if i.retainRequestData {
-			stateEvent = eventTime.event
-		} else {
-			stateEvent = redactEvent(eventTime.event)
-		}
-
 		return WriteRecordedEvent(gzWriter, &rpb.RecordedEvent{
 			NodeId:     i.nodeID,
 			Time:       eventTime.time,
-			StateEvent: stateEvent,
+			StateEvent: eventTime.event,
 		})
 	}
 
@@ -214,88 +207,6 @@ func (i *Recorder) run(dest io.Writer) (exitErr error) {
 			}
 		}
 	}
-}
-
-func redactEvent(event *pb.StateEvent) *pb.StateEvent {
-	switch d := event.Type.(type) {
-	case *pb.StateEvent_Propose:
-		return &pb.StateEvent{
-			Type: &pb.StateEvent_Propose{
-				Propose: &pb.StateEvent_Proposal{
-					Request: &pb.Request{
-						ClientId: d.Propose.Request.ClientId,
-						ReqNo:    d.Propose.Request.ReqNo,
-					},
-				},
-			},
-		}
-	case *pb.StateEvent_Step:
-		switch e := d.Step.Msg.Type.(type) {
-		case *pb.Msg_ForwardRequest:
-			return &pb.StateEvent{
-				Type: &pb.StateEvent_Step{
-					Step: &pb.StateEvent_InboundMsg{
-						Source: d.Step.Source,
-						Msg: &pb.Msg{
-							Type: &pb.Msg_ForwardRequest{
-								ForwardRequest: &pb.ForwardRequest{
-									RequestAck: e.ForwardRequest.RequestAck,
-								},
-							},
-						},
-					},
-				},
-			}
-		default:
-		}
-	case *pb.StateEvent_AddResults:
-		if len(d.AddResults.Digests) == 0 {
-			break
-		}
-
-		results := &pb.StateEvent_ActionResults{
-			Checkpoints: d.AddResults.Checkpoints,
-			Digests:     make([]*pb.HashResult, len(d.AddResults.Digests)),
-		}
-
-		for i, hashResult := range d.AddResults.Digests {
-			switch e := hashResult.Type.(type) {
-			case *pb.HashResult_Request_:
-				results.Digests[i] = &pb.HashResult{
-					Digest: hashResult.Digest,
-					Type: &pb.HashResult_Request_{
-						Request: &pb.HashResult_Request{
-							Source: e.Request.Source,
-							Request: &pb.Request{
-								ClientId: e.Request.Request.ClientId,
-								ReqNo:    e.Request.Request.ReqNo,
-							},
-						},
-					},
-				}
-			case *pb.HashResult_VerifyRequest_:
-				results.Digests[i] = &pb.HashResult{
-					Digest: hashResult.Digest,
-					Type: &pb.HashResult_VerifyRequest_{
-						VerifyRequest: &pb.HashResult_VerifyRequest{
-							Source:     e.VerifyRequest.Source,
-							RequestAck: e.VerifyRequest.RequestAck,
-						},
-					},
-				}
-			default:
-				results.Digests[i] = hashResult
-			}
-		}
-
-		return &pb.StateEvent{
-			Type: &pb.StateEvent_AddResults{
-				AddResults: results,
-			},
-		}
-	}
-
-	return event
 }
 
 func WriteRecordedEvent(writer io.Writer, event *rpb.RecordedEvent) error {

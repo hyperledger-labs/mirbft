@@ -36,14 +36,13 @@ type serializer struct {
 
 	myConfig   *Config
 	walStorage WALStorage
-	reqStorage RequestStorage
 
 	exitMutex  sync.Mutex
 	exitErr    error
 	exitStatus *status.StateMachine
 }
 
-func newSerializer(myConfig *Config, walStorage WALStorage, reqStorage RequestStorage) (*serializer, error) {
+func newSerializer(myConfig *Config, walStorage WALStorage) (*serializer, error) {
 
 	s := &serializer{
 		actionsC:   make(chan Actions),
@@ -58,7 +57,6 @@ func newSerializer(myConfig *Config, walStorage WALStorage, reqStorage RequestSt
 		errC:       make(chan struct{}),
 		myConfig:   myConfig,
 		walStorage: walStorage,
-		reqStorage: reqStorage,
 	}
 	go s.run()
 	return s, nil
@@ -105,18 +103,6 @@ func (s *serializer) run() (exitErr error) {
 	}()
 
 	actions := &Actions{}
-
-	applyEventDiscardingActions := func(stateEvent *pb.StateEvent) error {
-		if s.myConfig.EventInterceptor != nil {
-			err := s.myConfig.EventInterceptor.Intercept(stateEvent)
-			if err != nil {
-				return errors.WithMessage(err, "event interceptor error")
-			}
-		}
-
-		sm.ApplyEvent(stateEvent)
-		return nil
-	}
 
 	applyEvent := func(stateEvent *pb.StateEvent) error {
 		if s.myConfig.EventInterceptor != nil {
@@ -167,27 +153,6 @@ func (s *serializer) run() (exitErr error) {
 		return errors.WithMessage(err, "failed to load persisted from WALStorage")
 	}
 
-	err = s.reqStorage.Uncommitted(func(ack *pb.RequestAck) {
-		// Because we do not require that requests be iterate over
-		// in the order in which they were originally persisted, we could
-		// accidentally reply with an ack for a different request than we
-		// originally did.  If there are multiple persisted requests for
-		// a reqno, we only ack the null one.  If there is only one persited
-		// we will end up acking this.  But, the ack will be done on the
-		// retransmit interval.  This also prevents us from requesting
-		// that the WAL re-persist these requests.
-		applyEventDiscardingActions(&pb.StateEvent{
-			Type: &pb.StateEvent_LoadRequest{
-				LoadRequest: &pb.StateEvent_OutstandingRequest{
-					RequestAck: ack,
-				},
-			},
-		})
-	})
-
-	if err != nil {
-		return errors.WithMessage(err, "encounterer error reading uncommitted requests")
-	}
 	err = applyEvent(&pb.StateEvent{
 		Type: &pb.StateEvent_CompleteInitialization{
 			CompleteInitialization: &pb.StateEvent_LoadCompleted{},

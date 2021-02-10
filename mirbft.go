@@ -33,14 +33,6 @@ type WALStorage interface {
 	LoadAll(forEach func(index uint64, p *pb.Persistent)) error
 }
 
-type RequestStorage interface {
-	// Uncommitted must invoke forEach on each uncommitted entry in the
-	// request store.  These requests must have been safely committed
-	// to the request store before the actions which contained them
-	// send the corresponding RequestAck.
-	Uncommitted(forEach func(*pb.RequestAck)) error
-}
-
 // Node is the local instance of the MirBFT state machine through which the calling application
 // proposes new messages, receives delegated actions, and returns action results.
 // The methods exposed on Node are all thread safe, though typically, a single loop handles
@@ -48,77 +40,6 @@ type RequestStorage interface {
 type Node struct {
 	Config *Config
 	s      *serializer
-}
-
-type ClientProposer struct {
-	blocking     bool
-	clientID     uint64
-	clientWaiter *clientWaiter
-	s            *serializer
-}
-
-// TODO, change requestData to bytes
-func (cp *ClientProposer) Propose(ctx context.Context, requestData *pb.Request) error {
-	for {
-		if requestData.ReqNo < cp.clientWaiter.lowWatermark {
-			return errors.Errorf("request %d below watermarks, lowWatermark=%d", requestData.ReqNo, cp.clientWaiter.lowWatermark)
-		}
-
-		if requestData.ReqNo <= cp.clientWaiter.highWatermark {
-			break
-		}
-
-		if cp.blocking {
-			select {
-			case <-cp.clientWaiter.expired:
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-cp.s.errC:
-				return cp.s.getExitErr()
-			}
-		} else {
-			select {
-			case <-cp.clientWaiter.expired:
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-cp.s.errC:
-				return cp.s.getExitErr()
-			default:
-				return errors.Errorf("request above watermarks, and not blocking for movement")
-			}
-		}
-
-		replyC := make(chan *clientWaiter, 1)
-		select {
-		case cp.s.clientC <- &clientReq{
-			clientID: requestData.ClientId,
-			replyC:   replyC,
-		}:
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-cp.s.errC:
-			return cp.s.getExitErr()
-		}
-
-		select {
-		case cp.clientWaiter = <-replyC:
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-cp.s.errC:
-			return cp.s.getExitErr()
-		}
-	}
-
-	select {
-	case cp.s.propC <- &pb.StateEvent_Proposal{
-		Request: requestData,
-	}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-cp.s.errC:
-		return cp.s.getExitErr()
-	}
 }
 
 func StandardInitialNetworkState(nodeCount int, clientCount int) *pb.NetworkState {
@@ -203,7 +124,6 @@ func StartNewNode(
 			initialNetworkState:    initialNetworkState,
 			initialCheckpointValue: initialCheckpointValue,
 		},
-		dummyReqStore{},
 	)
 }
 
@@ -213,9 +133,8 @@ func StartNewNode(
 func RestartNode(
 	config *Config,
 	walStorage WALStorage,
-	reqStorage RequestStorage,
 ) (*Node, error) {
-	serializer, err := newSerializer(config, walStorage, reqStorage)
+	serializer, err := newSerializer(config, walStorage)
 	if err != nil {
 		return nil, errors.Errorf("failed to start new node: %s", err)
 	}
@@ -226,71 +145,9 @@ func RestartNode(
 	}, nil
 }
 
-type ClientProposerOption interface{}
-
-type clientProposerBlocking struct {
-	shouldBlock bool
-}
-
-// WaitForRoom indicates whether the client proposer should block, waiting for
-// space to become available in the client window.  If set to false, the client
-// will immediately return with an error if the window exhausts.
-func WaitForRoom(shouldBlock bool) ClientProposerOption {
-	return clientProposerBlocking{
-		shouldBlock: shouldBlock,
-	}
-}
-
 // Stop terminates the resources associated with the node
 func (n *Node) Stop() {
 	n.s.stop()
-}
-
-// ClientProposer returns a new ClientProposer for a given clientID.  It is the caller's
-// responsibility to ensure that this method is never invoked twice with the same clientID.
-func (n *Node) ClientProposer(ctx context.Context, clientID uint64, options ...ClientProposerOption) (*ClientProposer, error) {
-	replyC := make(chan *clientWaiter, 1)
-	select {
-	case n.s.clientC <- &clientReq{
-		clientID: clientID,
-		replyC:   replyC,
-	}:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-n.s.errC:
-		return nil, n.s.getExitErr()
-	}
-
-	var cw *clientWaiter
-
-	select {
-	case cw = <-replyC:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-n.s.errC:
-		return nil, n.s.getExitErr()
-	}
-
-	if cw == nil {
-		return nil, errors.Errorf("client ID not found to be registered")
-	}
-
-	blocking := true
-	for _, option := range options {
-		switch o := option.(type) {
-		case clientProposerBlocking:
-			blocking = o.shouldBlock
-		default:
-			panic("unknown option")
-		}
-	}
-
-	return &ClientProposer{
-		blocking:     blocking,
-		clientID:     clientID,
-		clientWaiter: cw,
-		s:            n.s,
-	}, nil
 }
 
 // Step takes authenticated messages from the other nodes in the network.  It
@@ -313,6 +170,25 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 
 	select {
 	case n.s.stepC <- stepEvent:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-n.s.errC:
+		return n.s.getExitErr()
+	}
+}
+
+func (n *Node) Propose(ctx context.Context, reqSlot RequestSlot, digest []byte) error {
+	proposal := &pb.StateEvent_Proposal{
+		Request: &pb.RequestAck{
+			ClientId: reqSlot.ClientID,
+			ReqNo:    reqSlot.ReqNo,
+			Digest:   digest,
+		},
+	}
+
+	select {
+	case n.s.propC <- proposal:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

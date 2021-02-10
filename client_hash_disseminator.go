@@ -252,19 +252,14 @@ func (ct *clientHashDisseminator) applyMsg(source nodeID, msg *pb.Msg) *Actions 
 		msg := innerMsg.FetchRequest
 		return ct.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest)
 	case *pb.Msg_ForwardRequest:
-		if source == nodeID(ct.myConfig.Id) {
-			// We've already pre-processed this
-			// TODO, once we implement unicasting to only those
-			// who don't know this should go away.
-			return &Actions{}
-		}
-		return ct.applyForwardRequest(source, innerMsg.ForwardRequest)
+		// XXX this message is going away, temporarily disabling handling
+		return &Actions{}
 	default:
 		panic(fmt.Sprintf("unexpected bad client window message type %T, this indicates a bug", msg.Type))
 	}
 }
 
-func (ct *clientHashDisseminator) applyRequestDigest(ack *pb.RequestAck, data []byte) *Actions {
+func (ct *clientHashDisseminator) applyNewRequest(ack *pb.RequestAck) *Actions {
 	client, ok := ct.clients[ack.ClientId]
 	if !ok {
 		// Unusual, client must have been removed since we processed the request
@@ -276,7 +271,7 @@ func (ct *clientHashDisseminator) applyRequestDigest(ack *pb.RequestAck, data []
 		return &Actions{}
 	}
 
-	return client.reqNo(ack.ReqNo).applyRequestDigest(ack, data)
+	return client.reqNo(ack.ReqNo).applyNewRequest(ack)
 }
 
 // allocate should be invoked after the checkpoint is computed and advances the high watermark.
@@ -328,48 +323,6 @@ func (ct *clientHashDisseminator) replyFetchRequest(source nodeID, clientID, req
 			Digest:   digest,
 		},
 	)
-}
-
-func (ct *clientHashDisseminator) applyForwardRequest(source nodeID, msg *pb.ForwardRequest) *Actions {
-	c, ok := ct.client(msg.RequestAck.ClientId)
-	if !ok {
-		// TODO log oddity
-		return &Actions{}
-	}
-
-	// TODO, make sure that we only allow one vote per replica for a reqno, or bounded
-	cr := c.reqNo(msg.RequestAck.ReqNo)
-	req, ok := cr.requests[string(msg.RequestAck.Digest)]
-	if !ok {
-		return &Actions{}
-	}
-
-	if _, ok := req.agreements[nodeID(ct.myConfig.Id)]; !ok {
-		return &Actions{}
-	}
-
-	req.agreements[source] = struct{}{}
-
-	return &Actions{
-		Hash: []*HashRequest{
-			{
-				Data: [][]byte{
-					uint64ToBytes(msg.RequestAck.ClientId),
-					uint64ToBytes(msg.RequestAck.ReqNo),
-					msg.RequestData,
-				},
-				Origin: &pb.HashResult{
-					Type: &pb.HashResult_VerifyRequest_{
-						VerifyRequest: &pb.HashResult_VerifyRequest{
-							Source:      uint64(source),
-							RequestAck:  msg.RequestAck,
-							RequestData: msg.RequestData,
-						},
-					},
-				},
-			},
-		},
-	}
 }
 
 func (ct *clientHashDisseminator) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
@@ -489,7 +442,7 @@ func (crn *clientReqNo) clientReq(ack *pb.RequestAck) *clientRequest {
 	return clientReq
 }
 
-func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Actions {
+func (crn *clientReqNo) applyNewRequest(ack *pb.RequestAck) *Actions {
 	_, ok := crn.myRequests[string(ack.Digest)]
 	if ok {
 		// We have already persisted this request, likely
@@ -502,12 +455,7 @@ func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Act
 
 	crn.myRequests[string(ack.Digest)] = clientReq
 
-	actions := (&Actions{}).storeRequest(
-		&pb.ForwardRequest{
-			RequestAck:  ack,
-			RequestData: data,
-		},
-	)
+	actions := &Actions{}
 
 	if len(crn.myRequests) == 1 {
 		crn.acksSent = 1
@@ -546,10 +494,6 @@ func (crn *clientReqNo) applyRequestDigest(ack *pb.RequestAck, data []byte) *Act
 			Type: &pb.Msg_RequestAck{
 				RequestAck: nullAck,
 			},
-		},
-	).storeRequest(
-		&pb.ForwardRequest{
-			RequestAck: nullAck,
 		},
 	)
 }

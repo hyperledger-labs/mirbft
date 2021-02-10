@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -391,6 +392,32 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		WAL:          wal,
 	}
 
+	expectedProposalCount := tr.FakeClient.MsgCount
+	Expect(expectedProposalCount).NotTo(Equal(0))
+
+	for i := uint64(0); i < expectedProposalCount; i++ {
+		var buffer bytes.Buffer
+		buffer.Write(Uint64ToBytes(0))
+		buffer.Write([]byte("-"))
+		buffer.Write(Uint64ToBytes(i))
+
+		h := sha256.New()
+		digest := h.Sum(buffer.Bytes())
+
+		err = reqStore.PutAllocation(0, i, digest)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = reqStore.PutRequest(
+			&pb.RequestAck{
+				ClientId: 0,
+				ReqNo:    i,
+				Digest:   digest,
+			},
+			buffer.Bytes(),
+		)
+		Expect(err).NotTo(HaveOccurred())
+	}
+
 	var process func(*mirbft.Actions) *mirbft.ActionResults
 
 	if tr.ParallelProcess {
@@ -400,34 +427,6 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	} else {
 		process = processor.Process
 	}
-
-	proposer, err := node.ClientProposer(context.Background(), 0)
-	if err != nil {
-		fmt.Printf("%+v\n", err)
-	}
-	Expect(err).NotTo(HaveOccurred())
-
-	expectedProposalCount := tr.FakeClient.MsgCount
-	Expect(expectedProposalCount).NotTo(Equal(0))
-
-	go func() {
-		defer GinkgoRecover()
-		for i := uint64(0); i < expectedProposalCount; i++ {
-			proposal := &pb.Request{
-				ClientId: 0,
-				ReqNo:    i,
-				Data:     Uint64ToBytes(i),
-			}
-
-			err := proposer.Propose(context.Background(), proposal)
-			if err == mirbft.ErrStopped {
-				// It could so happen that everything commits before
-				// the proposals all finish everywhere
-				return
-			}
-			Expect(err).NotTo(HaveOccurred())
-		}
-	}()
 
 	for {
 		select {

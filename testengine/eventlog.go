@@ -111,7 +111,7 @@ func (l *EventLog) InsertTickEvent(target uint64, fromNow int64) {
 	)
 }
 
-func (l *EventLog) InsertProposeEvent(target uint64, req *pb.Request, fromNow int64) {
+func (l *EventLog) InsertProposeEvent(target uint64, req *pb.RequestAck, fromNow int64) {
 	l.InsertStateEvent(
 		target,
 		&pb.StateEvent{
