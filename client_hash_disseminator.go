@@ -698,14 +698,6 @@ type client struct {
 
 	reqNoList *list.List
 	reqNoMap  map[uint64]*list.Element
-
-	clientWaiter *clientWaiter // Used to throttle clients TODO remove
-}
-
-type clientWaiter struct {
-	lowWatermark  uint64
-	highWatermark uint64
-	expired       chan struct{}
 }
 
 func newClient(logger Logger, tracker *clientTracker) *client {
@@ -731,15 +723,6 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Confi
 	c.nextReadyMark = clientState.LowWatermark
 	c.reqNoList = list.New()
 	c.reqNoMap = map[uint64]*list.Element{}
-	if c.clientWaiter != nil {
-		close(c.clientWaiter.expired)
-	}
-
-	c.clientWaiter = &clientWaiter{
-		lowWatermark:  clientState.LowWatermark,
-		highWatermark: c.highWatermark,
-		expired:       make(chan struct{}),
-	}
 
 	for reqNo := clientState.LowWatermark; reqNo <= c.highWatermark; reqNo++ {
 		var crn *clientReqNo
@@ -824,14 +807,6 @@ func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfigu
 	}
 
 	c.highWatermark = newHighWatermark
-
-	close(c.clientWaiter.expired)
-	c.clientWaiter = &clientWaiter{
-		lowWatermark:  state.LowWatermark,
-		highWatermark: c.highWatermark,
-		expired:       make(chan struct{}),
-	}
-
 	c.advanceReady()
 
 	c.logger.Log(LevelDebug, "allocated new reqs for client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark)

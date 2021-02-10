@@ -15,17 +15,11 @@ import (
 	"github.com/pkg/errors"
 )
 
-type clientReq struct {
-	clientID uint64
-	replyC   chan *clientWaiter
-}
-
 // serializer provides a single threaded way to access the Mir state machine
 // and passes work to/from the state machine.
 type serializer struct {
 	actionsC  chan Actions
 	doneC     chan struct{}
-	clientC   chan *clientReq
 	propC     chan *pb.StateEvent_Proposal
 	resultsC  chan *pb.StateEvent_ActionResults
 	transferC chan *pb.StateEvent_Transfer
@@ -48,7 +42,6 @@ func newSerializer(myConfig *Config, walStorage WALStorage) (*serializer, error)
 		actionsC:   make(chan Actions),
 		doneC:      make(chan struct{}),
 		propC:      make(chan *pb.StateEvent_Proposal),
-		clientC:    make(chan *clientReq),
 		resultsC:   make(chan *pb.StateEvent_ActionResults),
 		transferC:  make(chan *pb.StateEvent_Transfer),
 		statusC:    make(chan chan<- *status.StateMachine),
@@ -172,8 +165,6 @@ func (s *serializer) run() (exitErr error) {
 					Propose: data,
 				},
 			})
-		case req := <-s.clientC:
-			req.replyC <- sm.clientWaiter(req.clientID)
 		case step := <-s.stepC:
 			err = applyEvent(&pb.StateEvent{
 				Type: step,

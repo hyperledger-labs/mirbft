@@ -387,15 +387,6 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Ac
 	return actions
 }
 
-func (sm *StateMachine) clientWaiter(clientID uint64) *clientWaiter {
-	client, ok := sm.clientHashDisseminator.client(clientID)
-	if !ok {
-		return nil
-	}
-
-	return client.clientWaiter
-}
-
 func (sm *StateMachine) Status() *status.StateMachine {
 	if sm.state != smInitialized {
 		return &status.StateMachine{}
