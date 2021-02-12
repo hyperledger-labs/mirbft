@@ -10,7 +10,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	. "github.com/IBM/mirbft/testengine"
+	. "github.com/IBM/mirbft/pkg/testengine"
 )
 
 var _ = Describe("Mirbft", func() {

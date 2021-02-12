@@ -12,7 +12,7 @@ import (
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
-	"github.com/IBM/mirbft/testengine"
+	"github.com/IBM/mirbft/pkg/testengine"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
