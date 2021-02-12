@@ -10,7 +10,7 @@ import (
 	"fmt"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/IBM/mirbft/status"
+	"github.com/IBM/mirbft/pkg/status"
 )
 
 // bucketID is the identifier for a bucket.  It is a simple alias to a uint64, but

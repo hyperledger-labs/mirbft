@@ -13,7 +13,7 @@ import (
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
-	"github.com/IBM/mirbft/status"
+	"github.com/IBM/mirbft/pkg/status"
 	"github.com/pkg/errors"
 )
 

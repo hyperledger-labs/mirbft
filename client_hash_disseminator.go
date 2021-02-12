@@ -13,7 +13,7 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/IBM/mirbft/status"
+	"github.com/IBM/mirbft/pkg/status"
 )
 
 // TODO this comment section is woefully out of date, but contains so much information

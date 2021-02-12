@@ -13,7 +13,7 @@ import (
 	"sort"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/IBM/mirbft/status"
+	"github.com/IBM/mirbft/pkg/status"
 )
 
 type checkpointState int

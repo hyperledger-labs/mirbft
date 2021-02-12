@@ -27,7 +27,7 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/pkg/eventlog"
 	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
-	"github.com/IBM/mirbft/status"
+	"github.com/IBM/mirbft/pkg/status"
 )
 
 // command line flags

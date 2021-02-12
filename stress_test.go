@@ -28,7 +28,7 @@ import (
 	"github.com/IBM/mirbft/pkg/eventlog"
 	"github.com/IBM/mirbft/pkg/reqstore"
 	"github.com/IBM/mirbft/pkg/simplewal"
-	"github.com/IBM/mirbft/status"
+	"github.com/IBM/mirbft/pkg/status"
 )
 
 var (
