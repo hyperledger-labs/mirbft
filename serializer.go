@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 
 	"github.com/pkg/errors"
@@ -72,11 +73,19 @@ func (s *serializer) getExitErr() error {
 	return s.exitErr
 }
 
+type logAdapter struct {
+	Logger
+}
+
+func (la logAdapter) Log(level statemachine.LogLevel, msg string, args ...interface{}) {
+	la.Logger.Log(LogLevel(level), msg, args...)
+}
+
 // run must be single threaded and is therefore hidden to prevent accidental capture
 // of other go routines.
 func (s *serializer) run() (exitErr error) {
-	sm := &StateMachine{
-		Logger: s.myConfig.Logger,
+	sm := &statemachine.StateMachine{
+		Logger: logAdapter{Logger: s.myConfig.Logger},
 	}
 
 	defer func() {
@@ -105,7 +114,7 @@ func (s *serializer) run() (exitErr error) {
 			}
 		}
 
-		actions.concat(sm.ApplyEvent(stateEvent).toActions())
+		actions.concat((&actionSet{StateEventResult: *sm.ApplyEvent(stateEvent)}).toActions())
 		return nil
 	}
 

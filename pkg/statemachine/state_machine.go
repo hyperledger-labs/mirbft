@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package mirbft
+package statemachine
 
 import (
 	"fmt"
@@ -148,9 +148,9 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 
 }
 
-func (sm *StateMachine) applyPersisted(entry *WALEntry) {
+func (sm *StateMachine) applyPersisted(index uint64, data *pb.Persistent) {
 	assertEqualf(sm.state, smLoadingPersisted, "state machine has already finished loading persisted data")
-	sm.persisted.appendInitialLoad(entry)
+	sm.persisted.appendInitialLoad(index, data)
 }
 
 func (sm *StateMachine) completeInitialization() *actionSet {
@@ -161,7 +161,11 @@ func (sm *StateMachine) completeInitialization() *actionSet {
 	return sm.reinitialize()
 }
 
-func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *actionSet {
+func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *pb.StateEventResult {
+	return &(sm.applyEvent(stateEvent).StateEventResult)
+}
+
+func (sm *StateMachine) applyEvent(stateEvent *pb.StateEvent) *actionSet {
 	assertInitialized := func() {
 		assertEqualf(sm.state, smInitialized, "cannot apply events to an uninitialized state machine")
 	}
@@ -173,10 +177,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *actionSet {
 		sm.initialize(event.Initialize)
 		return &actionSet{}
 	case *pb.StateEvent_LoadEntry:
-		sm.applyPersisted(&WALEntry{
-			Index: event.LoadEntry.Index,
-			Data:  event.LoadEntry.Data,
-		})
+		sm.applyPersisted(event.LoadEntry.Index, event.LoadEntry.Data)
 		return &actionSet{}
 	case *pb.StateEvent_CompleteInitialization:
 		return sm.completeInitialization()

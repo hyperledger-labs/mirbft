@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 	"github.com/pkg/errors"
 )
@@ -23,7 +23,7 @@ type EventSource interface {
 
 type PlaybackNode struct {
 	ID           uint64
-	StateMachine *mirbft.StateMachine
+	StateMachine *statemachine.StateMachine
 	Processing   *pb.StateEventResult
 	Actions      *pb.StateEventResult
 	Status       *status.StateMachine
@@ -64,12 +64,12 @@ func (p *Player) Node(id uint64) *PlaybackNode {
 }
 
 type NamedLogger struct {
-	Level  mirbft.LogLevel
+	Level  statemachine.LogLevel
 	Name   string
 	Output io.Writer
 }
 
-func (nl NamedLogger) Log(level mirbft.LogLevel, msg string, args ...interface{}) {
+func (nl NamedLogger) Log(level statemachine.LogLevel, msg string, args ...interface{}) {
 	if level < nl.Level {
 		return
 	}
@@ -104,10 +104,10 @@ func (p *Player) Step() error {
 
 	switch event.StateEvent.Type.(type) {
 	case *pb.StateEvent_Initialize:
-		sm := &mirbft.StateMachine{
+		sm := &statemachine.StateMachine{
 			Logger: NamedLogger{
 				Output: p.LogOutput,
-				Level:  mirbft.LevelInfo,
+				Level:  statemachine.LevelInfo,
 				Name:   fmt.Sprintf("node%d", node.ID),
 			},
 		}

@@ -1,0 +1,91 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+package statemachine
+
+import (
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
+	pb "github.com/IBM/mirbft/mirbftpb"
+)
+
+var _ = Describe("StateMachineInitialization", func() {
+	var (
+		networkState *pb.NetworkState
+		sm           *StateMachine
+	)
+
+	BeforeEach(func() {
+		networkState = StandardInitialNetworkState(4, 1)
+
+		sm = &StateMachine{
+			Logger: ConsoleInfoLogger,
+		}
+
+		sm.ApplyEvent(&pb.StateEvent{
+			Type: &pb.StateEvent_Initialize{
+				Initialize: &pb.StateEvent_InitialParameters{
+					Id:                   1,
+					BatchSize:            1,
+					HeartbeatTicks:       1,
+					SuspectTicks:         2,
+					NewEpochTimeoutTicks: 4,
+					BufferSize:           4 * 1024 * 1024,
+				},
+			},
+		})
+	})
+
+	It("is not yet initialized", func() {
+		Expect(sm.state).NotTo(Equal(smInitialized))
+	})
+
+	When("fresh initialization state is applied", func() {
+		BeforeEach(func() {
+			for i, walEntry := range []*pb.Persistent{
+				{
+					Type: &pb.Persistent_CEntry{
+						CEntry: &pb.CEntry{
+							SeqNo:           0,
+							CheckpointValue: []byte("fake-initial-value"),
+							NetworkState:    networkState,
+						},
+					},
+				},
+				{
+					Type: &pb.Persistent_FEntry{
+						FEntry: &pb.FEntry{
+							EndsEpochConfig: &pb.EpochConfig{
+								Number:  0,
+								Leaders: networkState.Config.Nodes,
+							},
+						},
+					},
+				},
+			} {
+				sm.ApplyEvent(&pb.StateEvent{
+					Type: &pb.StateEvent_LoadEntry{
+						LoadEntry: &pb.StateEvent_PersistedEntry{
+							Index: uint64(i),
+							Data:  walEntry,
+						},
+					},
+				})
+			}
+
+			sm.ApplyEvent(&pb.StateEvent{
+				Type: &pb.StateEvent_CompleteInitialization{
+					CompleteInitialization: &pb.StateEvent_LoadCompleted{},
+				},
+			})
+		})
+
+		It("is initialized", func() {
+			Expect(sm.state).To(Equal(smInitialized))
+		})
+	})
+})

@@ -1,4 +1,10 @@
-package mirbft_test
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+package statemachine_test
 
 import (
 	"compress/gzip"

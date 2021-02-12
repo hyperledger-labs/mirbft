@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package mirbft
+package statemachine
 
 import (
 	. "github.com/onsi/ginkgo"
@@ -54,33 +54,35 @@ var _ = XDescribe("sequence", func() {
 				nil,
 			)
 
-			Expect(actions).To(Equal(&Actions{
-				Hash: []*HashRequest{
-					{
-						Origin: &pb.HashResult{
-							Type: &pb.HashResult_Batch_{
-								Batch: &pb.HashResult_Batch{
-									Source: 0,
-									SeqNo:  5,
-									Epoch:  4,
-									RequestAcks: []*pb.RequestAck{
-										{
-											ClientId: 9,
-											ReqNo:    7,
-											Digest:   []byte("msg1-digest"),
-										},
-										{
-											ClientId: 9,
-											ReqNo:    8,
-											Digest:   []byte("msg2-digest"),
+			Expect(actions).To(Equal(&actionSet{
+				StateEventResult: pb.StateEventResult{
+					Hash: []*pb.StateEventResult_HashRequest{
+						{
+							Origin: &pb.HashResult{
+								Type: &pb.HashResult_Batch_{
+									Batch: &pb.HashResult_Batch{
+										Source: 0,
+										SeqNo:  5,
+										Epoch:  4,
+										RequestAcks: []*pb.RequestAck{
+											{
+												ClientId: 9,
+												ReqNo:    7,
+												Digest:   []byte("msg1-digest"),
+											},
+											{
+												ClientId: 9,
+												ReqNo:    8,
+												Digest:   []byte("msg2-digest"),
+											},
 										},
 									},
 								},
 							},
-						},
-						Data: [][]byte{
-							[]byte("msg1-digest"),
-							[]byte("msg2-digest"),
+							Data: [][]byte{
+								[]byte("msg1-digest"),
+								[]byte("msg2-digest"),
+							},
 						},
 					},
 				},
@@ -155,24 +157,24 @@ var _ = XDescribe("sequence", func() {
 
 		It("transitions from Allocated to Preprepared", func() {
 			actions := s.applyBatchHashResult([]byte("digest"))
-			Expect(actions).To(Equal(&Actions{
-				Send: []Send{
-					{
-						Targets: []uint64{0, 1, 2, 3},
-						Msg: &pb.Msg{
-							Type: &pb.Msg_Prepare{
-								Prepare: &pb.Prepare{
-									SeqNo:  5,
-									Epoch:  4,
-									Digest: []byte("digest"),
+			Expect(actions).To(Equal(&actionSet{
+				StateEventResult: pb.StateEventResult{
+					Send: []*pb.StateEventResult_Send{
+						{
+							Targets: []uint64{0, 1, 2, 3},
+							Msg: &pb.Msg{
+								Type: &pb.Msg_Prepare{
+									Prepare: &pb.Prepare{
+										SeqNo:  5,
+										Epoch:  4,
+										Digest: []byte("digest"),
+									},
 								},
 							},
 						},
 					},
-				},
-				WriteAhead: []*Write{
-					{
-						Append: &WALEntry{
+					WriteAhead: []*pb.StateEventResult_Write{
+						{
 							Data: &pb.Persistent{
 								Type: &pb.Persistent_QEntry{
 									QEntry: &pb.QEntry{
@@ -247,24 +249,24 @@ var _ = XDescribe("sequence", func() {
 		It("transitions from Preprepared to Prepared", func() {
 			s.applyPrepareMsg(0, []byte("digest"))
 			actions := s.advanceState()
-			Expect(actions).To(Equal(&Actions{
-				Send: []Send{
-					{
-						Targets: []uint64{0, 1, 2, 3},
-						Msg: &pb.Msg{
-							Type: &pb.Msg_Commit{
-								Commit: &pb.Commit{
-									SeqNo:  5,
-									Epoch:  4,
-									Digest: []byte("digest"),
+			Expect(actions).To(Equal(&actionSet{
+				StateEventResult: pb.StateEventResult{
+					Send: []*pb.StateEventResult_Send{
+						{
+							Targets: []uint64{0, 1, 2, 3},
+							Msg: &pb.Msg{
+								Type: &pb.Msg_Commit{
+									Commit: &pb.Commit{
+										SeqNo:  5,
+										Epoch:  4,
+										Digest: []byte("digest"),
+									},
 								},
 							},
 						},
 					},
-				},
-				WriteAhead: []*Write{
-					{
-						Append: &WALEntry{
+					WriteAhead: []*pb.StateEventResult_Write{
+						{
 							Data: &pb.Persistent{
 								Type: &pb.Persistent_PEntry{
 									PEntry: &pb.PEntry{

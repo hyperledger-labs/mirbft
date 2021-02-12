@@ -23,10 +23,10 @@ import (
 	"github.com/pkg/errors"
 	"gopkg.in/alecthomas/kingpin.v2"
 
-	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/pkg/eventlog"
 	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 )
 
@@ -102,7 +102,7 @@ func excludedByNodeID(re *rpb.RecordedEvent, nodeIDs []uint64) bool {
 type arguments struct {
 	input         io.ReadCloser
 	interactive   bool
-	logLevel      mirbft.LogLevel
+	logLevel      statemachine.LogLevel
 	printActions  bool
 	nodeIDs       []uint64
 	eventTypes    []string
@@ -114,12 +114,12 @@ type arguments struct {
 }
 
 type namedLogger struct {
-	level  mirbft.LogLevel
+	level  statemachine.LogLevel
 	name   string
 	output io.Writer
 }
 
-func (nl namedLogger) Log(level mirbft.LogLevel, msg string, args ...interface{}) {
+func (nl namedLogger) Log(level statemachine.LogLevel, msg string, args ...interface{}) {
 	if level < nl.level {
 		return
 	}
@@ -144,18 +144,18 @@ func (nl namedLogger) Log(level mirbft.LogLevel, msg string, args ...interface{}
 }
 
 type stateMachines struct {
-	logLevel mirbft.LogLevel
+	logLevel statemachine.LogLevel
 	nodes    map[uint64]*stateMachine
 	output   io.Writer
 }
 
 type stateMachine struct {
-	machine        *mirbft.StateMachine
+	machine        *statemachine.StateMachine
 	pendingActions *pb.StateEventResult
 	executionTime  time.Duration
 }
 
-func newStateMachines(output io.Writer, logLevel mirbft.LogLevel) *stateMachines {
+func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMachines {
 	return &stateMachines{
 		output:   output,
 		logLevel: logLevel,
@@ -169,7 +169,7 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *pb.Sta
 	if _, ok := event.StateEvent.Type.(*pb.StateEvent_Initialize); ok {
 		delete(s.nodes, event.NodeId)
 		node = &stateMachine{
-			machine: &mirbft.StateMachine{
+			machine: &statemachine.StateMachine{
 				Logger: namedLogger{
 					name:   fmt.Sprintf("node%d", event.NodeId),
 					output: s.output,
@@ -196,7 +196,7 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *pb.Sta
 	start := time.Now()
 	actions := node.machine.ApplyEvent(event.StateEvent)
 	node.executionTime += time.Since(start)
-	node.pendingActions, err = actionsConcat(node.pendingActions, &actions.StateEventResult)
+	node.pendingActions, err = actionsConcat(node.pendingActions, actions)
 	if err != nil {
 		return nil, err
 	}
@@ -540,17 +540,17 @@ func parseArgs(args []string) (*arguments, error) {
 		return nil, errors.Errorf("cannot set logLevel for non-interactive playback")
 	}
 
-	mirLogLevel := mirbft.LevelInfo
+	mirLogLevel := statemachine.LevelInfo
 
 	switch *logLevel {
 	case "debug":
-		mirLogLevel = mirbft.LevelDebug
+		mirLogLevel = statemachine.LevelDebug
 	case "info":
-		mirLogLevel = mirbft.LevelInfo
+		mirLogLevel = statemachine.LevelInfo
 	case "warn":
-		mirLogLevel = mirbft.LevelWarn
+		mirLogLevel = statemachine.LevelWarn
 	case "error":
-		mirLogLevel = mirbft.LevelError
+		mirLogLevel = statemachine.LevelError
 	}
 
 	return &arguments{

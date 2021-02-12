@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package mirbft
+package statemachine
 
 // This stateless file contains stateless functions leveraged in assorted pieces of the code.
 

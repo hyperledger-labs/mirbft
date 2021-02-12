@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package mirbft
+package statemachine
 
 import (
 	"fmt"
@@ -45,25 +45,25 @@ func newPersisted(logger Logger) *persisted {
 	}
 }
 
-func (p *persisted) appendInitialLoad(entry *WALEntry) {
+func (p *persisted) appendInitialLoad(index uint64, data *pb.Persistent) {
 	if p.logHead == nil {
-		p.nextIndex = entry.Index
+		p.nextIndex = index
 		p.logHead = &logEntry{
-			index: entry.Index,
-			entry: entry.Data,
+			index: index,
+			entry: data,
 		}
 		p.logTail = p.logHead
 	} else {
 		p.logTail.next = &logEntry{
-			index: entry.Index,
-			entry: entry.Data,
+			index: index,
+			entry: data,
 		}
 		p.logTail = p.logTail.next
 	}
-	if p.nextIndex != entry.Index {
-		panic(fmt.Sprintf("WAL indexes out of order! Expected %d got %d, was your WAL corrupted?", p.nextIndex, entry.Index))
+	if p.nextIndex != index {
+		panic(fmt.Sprintf("WAL indexes out of order! Expected %d got %d, was your WAL corrupted?", p.nextIndex, index))
 	}
-	p.nextIndex = entry.Index + 1
+	p.nextIndex = index + 1
 }
 
 func (p *persisted) appendLogEntry(entry *pb.Persistent) *actionSet {
