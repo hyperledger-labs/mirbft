@@ -2136,6 +2136,101 @@ func (*StateEvent_Tick) isStateEvent_Type() {}
 
 func (*StateEvent_ActionsReceived) isStateEvent_Type() {}
 
+type StateEventResult struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Send              []*StateEventResult_Send        `protobuf:"bytes,1,rep,name=send,proto3" json:"send,omitempty"`
+	Hash              []*StateEventResult_HashRequest `protobuf:"bytes,2,rep,name=hash,proto3" json:"hash,omitempty"`
+	WriteAhead        []*StateEventResult_Write       `protobuf:"bytes,3,rep,name=write_ahead,json=writeAhead,proto3" json:"write_ahead,omitempty"`
+	Commits           []*StateEventResult_Commit      `protobuf:"bytes,4,rep,name=commits,proto3" json:"commits,omitempty"`
+	AllocatedRequests []*StateEventResult_RequestSlot `protobuf:"bytes,5,rep,name=allocated_requests,json=allocatedRequests,proto3" json:"allocated_requests,omitempty"`
+	ForwardRequests   []*StateEventResult_Forward     `protobuf:"bytes,6,rep,name=forward_requests,json=forwardRequests,proto3" json:"forward_requests,omitempty"`
+	StateTransfer     *StateEventResult_StateTarget   `protobuf:"bytes,7,opt,name=state_transfer,json=stateTransfer,proto3" json:"state_transfer,omitempty"`
+}
+
+func (x *StateEventResult) Reset() {
+	*x = StateEventResult{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_mirbft_proto_msgTypes[27]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StateEventResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateEventResult) ProtoMessage() {}
+
+func (x *StateEventResult) ProtoReflect() protoreflect.Message {
+	mi := &file_mirbft_proto_msgTypes[27]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateEventResult.ProtoReflect.Descriptor instead.
+func (*StateEventResult) Descriptor() ([]byte, []int) {
+	return file_mirbft_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *StateEventResult) GetSend() []*StateEventResult_Send {
+	if x != nil {
+		return x.Send
+	}
+	return nil
+}
+
+func (x *StateEventResult) GetHash() []*StateEventResult_HashRequest {
+	if x != nil {
+		return x.Hash
+	}
+	return nil
+}
+
+func (x *StateEventResult) GetWriteAhead() []*StateEventResult_Write {
+	if x != nil {
+		return x.WriteAhead
+	}
+	return nil
+}
+
+func (x *StateEventResult) GetCommits() []*StateEventResult_Commit {
+	if x != nil {
+		return x.Commits
+	}
+	return nil
+}
+
+func (x *StateEventResult) GetAllocatedRequests() []*StateEventResult_RequestSlot {
+	if x != nil {
+		return x.AllocatedRequests
+	}
+	return nil
+}
+
+func (x *StateEventResult) GetForwardRequests() []*StateEventResult_Forward {
+	if x != nil {
+		return x.ForwardRequests
+	}
+	return nil
+}
+
+func (x *StateEventResult) GetStateTransfer() *StateEventResult_StateTarget {
+	if x != nil {
+		return x.StateTransfer
+	}
+	return nil
+}
+
 type HashResult struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -2152,7 +2247,7 @@ type HashResult struct {
 func (x *HashResult) Reset() {
 	*x = HashResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[27]
+		mi := &file_mirbft_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2165,7 +2260,7 @@ func (x *HashResult) String() string {
 func (*HashResult) ProtoMessage() {}
 
 func (x *HashResult) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[27]
+	mi := &file_mirbft_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2178,7 +2273,7 @@ func (x *HashResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HashResult.ProtoReflect.Descriptor instead.
 func (*HashResult) Descriptor() ([]byte, []int) {
-	return file_mirbft_proto_rawDescGZIP(), []int{27}
+	return file_mirbft_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *HashResult) GetDigest() []byte {
@@ -2252,7 +2347,7 @@ type CheckpointResult struct {
 func (x *CheckpointResult) Reset() {
 	*x = CheckpointResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[28]
+		mi := &file_mirbft_proto_msgTypes[29]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2265,7 +2360,7 @@ func (x *CheckpointResult) String() string {
 func (*CheckpointResult) ProtoMessage() {}
 
 func (x *CheckpointResult) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[28]
+	mi := &file_mirbft_proto_msgTypes[29]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2278,7 +2373,7 @@ func (x *CheckpointResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckpointResult.ProtoReflect.Descriptor instead.
 func (*CheckpointResult) Descriptor() ([]byte, []int) {
-	return file_mirbft_proto_rawDescGZIP(), []int{28}
+	return file_mirbft_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *CheckpointResult) GetSeqNo() uint64 {
@@ -2368,7 +2463,7 @@ type NetworkState_Config struct {
 func (x *NetworkState_Config) Reset() {
 	*x = NetworkState_Config{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[29]
+		mi := &file_mirbft_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2381,7 +2476,7 @@ func (x *NetworkState_Config) String() string {
 func (*NetworkState_Config) ProtoMessage() {}
 
 func (x *NetworkState_Config) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[29]
+	mi := &file_mirbft_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2464,7 +2559,7 @@ type NetworkState_Client struct {
 func (x *NetworkState_Client) Reset() {
 	*x = NetworkState_Client{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[30]
+		mi := &file_mirbft_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2477,7 +2572,7 @@ func (x *NetworkState_Client) String() string {
 func (*NetworkState_Client) ProtoMessage() {}
 
 func (x *NetworkState_Client) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[30]
+	mi := &file_mirbft_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2540,7 +2635,7 @@ type Reconfiguration_NewClient struct {
 func (x *Reconfiguration_NewClient) Reset() {
 	*x = Reconfiguration_NewClient{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[31]
+		mi := &file_mirbft_proto_msgTypes[32]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2553,7 +2648,7 @@ func (x *Reconfiguration_NewClient) String() string {
 func (*Reconfiguration_NewClient) ProtoMessage() {}
 
 func (x *Reconfiguration_NewClient) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[31]
+	mi := &file_mirbft_proto_msgTypes[32]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2596,7 +2691,7 @@ type EpochChange_SetEntry struct {
 func (x *EpochChange_SetEntry) Reset() {
 	*x = EpochChange_SetEntry{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[32]
+		mi := &file_mirbft_proto_msgTypes[33]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2609,7 +2704,7 @@ func (x *EpochChange_SetEntry) String() string {
 func (*EpochChange_SetEntry) ProtoMessage() {}
 
 func (x *EpochChange_SetEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[32]
+	mi := &file_mirbft_proto_msgTypes[33]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2658,7 +2753,7 @@ type NewEpoch_RemoteEpochChange struct {
 func (x *NewEpoch_RemoteEpochChange) Reset() {
 	*x = NewEpoch_RemoteEpochChange{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[33]
+		mi := &file_mirbft_proto_msgTypes[34]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2671,7 +2766,7 @@ func (x *NewEpoch_RemoteEpochChange) String() string {
 func (*NewEpoch_RemoteEpochChange) ProtoMessage() {}
 
 func (x *NewEpoch_RemoteEpochChange) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[33]
+	mi := &file_mirbft_proto_msgTypes[34]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2717,7 +2812,7 @@ type StateEvent_InitialParameters struct {
 func (x *StateEvent_InitialParameters) Reset() {
 	*x = StateEvent_InitialParameters{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[34]
+		mi := &file_mirbft_proto_msgTypes[35]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2730,7 +2825,7 @@ func (x *StateEvent_InitialParameters) String() string {
 func (*StateEvent_InitialParameters) ProtoMessage() {}
 
 func (x *StateEvent_InitialParameters) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[34]
+	mi := &file_mirbft_proto_msgTypes[35]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2800,7 +2895,7 @@ type StateEvent_PersistedEntry struct {
 func (x *StateEvent_PersistedEntry) Reset() {
 	*x = StateEvent_PersistedEntry{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[35]
+		mi := &file_mirbft_proto_msgTypes[36]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2813,7 +2908,7 @@ func (x *StateEvent_PersistedEntry) String() string {
 func (*StateEvent_PersistedEntry) ProtoMessage() {}
 
 func (x *StateEvent_PersistedEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[35]
+	mi := &file_mirbft_proto_msgTypes[36]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2852,7 +2947,7 @@ type StateEvent_LoadCompleted struct {
 func (x *StateEvent_LoadCompleted) Reset() {
 	*x = StateEvent_LoadCompleted{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[36]
+		mi := &file_mirbft_proto_msgTypes[37]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2865,7 +2960,7 @@ func (x *StateEvent_LoadCompleted) String() string {
 func (*StateEvent_LoadCompleted) ProtoMessage() {}
 
 func (x *StateEvent_LoadCompleted) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[36]
+	mi := &file_mirbft_proto_msgTypes[37]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2893,7 +2988,7 @@ type StateEvent_ActionResults struct {
 func (x *StateEvent_ActionResults) Reset() {
 	*x = StateEvent_ActionResults{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[37]
+		mi := &file_mirbft_proto_msgTypes[38]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2906,7 +3001,7 @@ func (x *StateEvent_ActionResults) String() string {
 func (*StateEvent_ActionResults) ProtoMessage() {}
 
 func (x *StateEvent_ActionResults) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[37]
+	mi := &file_mirbft_proto_msgTypes[38]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2947,7 +3042,7 @@ type StateEvent_Proposal struct {
 func (x *StateEvent_Proposal) Reset() {
 	*x = StateEvent_Proposal{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[38]
+		mi := &file_mirbft_proto_msgTypes[39]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2960,7 +3055,7 @@ func (x *StateEvent_Proposal) String() string {
 func (*StateEvent_Proposal) ProtoMessage() {}
 
 func (x *StateEvent_Proposal) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[38]
+	mi := &file_mirbft_proto_msgTypes[39]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2995,7 +3090,7 @@ type StateEvent_InboundMsg struct {
 func (x *StateEvent_InboundMsg) Reset() {
 	*x = StateEvent_InboundMsg{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[39]
+		mi := &file_mirbft_proto_msgTypes[40]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3008,7 +3103,7 @@ func (x *StateEvent_InboundMsg) String() string {
 func (*StateEvent_InboundMsg) ProtoMessage() {}
 
 func (x *StateEvent_InboundMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[39]
+	mi := &file_mirbft_proto_msgTypes[40]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3047,7 +3142,7 @@ type StateEvent_TickElapsed struct {
 func (x *StateEvent_TickElapsed) Reset() {
 	*x = StateEvent_TickElapsed{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[40]
+		mi := &file_mirbft_proto_msgTypes[41]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3060,7 +3155,7 @@ func (x *StateEvent_TickElapsed) String() string {
 func (*StateEvent_TickElapsed) ProtoMessage() {}
 
 func (x *StateEvent_TickElapsed) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[40]
+	mi := &file_mirbft_proto_msgTypes[41]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3085,7 +3180,7 @@ type StateEvent_Ready struct {
 func (x *StateEvent_Ready) Reset() {
 	*x = StateEvent_Ready{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[41]
+		mi := &file_mirbft_proto_msgTypes[42]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3098,7 +3193,7 @@ func (x *StateEvent_Ready) String() string {
 func (*StateEvent_Ready) ProtoMessage() {}
 
 func (x *StateEvent_Ready) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[41]
+	mi := &file_mirbft_proto_msgTypes[42]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3112,6 +3207,418 @@ func (x *StateEvent_Ready) ProtoReflect() protoreflect.Message {
 // Deprecated: Use StateEvent_Ready.ProtoReflect.Descriptor instead.
 func (*StateEvent_Ready) Descriptor() ([]byte, []int) {
 	return file_mirbft_proto_rawDescGZIP(), []int{26, 7}
+}
+
+type StateEventResult_Send struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Targets []uint64 `protobuf:"varint,1,rep,packed,name=targets,proto3" json:"targets,omitempty"`
+	Msg     *Msg     `protobuf:"bytes,2,opt,name=msg,proto3" json:"msg,omitempty"`
+}
+
+func (x *StateEventResult_Send) Reset() {
+	*x = StateEventResult_Send{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_mirbft_proto_msgTypes[43]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StateEventResult_Send) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateEventResult_Send) ProtoMessage() {}
+
+func (x *StateEventResult_Send) ProtoReflect() protoreflect.Message {
+	mi := &file_mirbft_proto_msgTypes[43]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateEventResult_Send.ProtoReflect.Descriptor instead.
+func (*StateEventResult_Send) Descriptor() ([]byte, []int) {
+	return file_mirbft_proto_rawDescGZIP(), []int{27, 0}
+}
+
+func (x *StateEventResult_Send) GetTargets() []uint64 {
+	if x != nil {
+		return x.Targets
+	}
+	return nil
+}
+
+func (x *StateEventResult_Send) GetMsg() *Msg {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+// Write requires either but not both truncate to be zero,
+// data is non-nil iff append is non-zero
+type StateEventResult_Write struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Truncate uint64      `protobuf:"varint,1,opt,name=truncate,proto3" json:"truncate,omitempty"`
+	Append   uint64      `protobuf:"varint,2,opt,name=append,proto3" json:"append,omitempty"`
+	Data     *Persistent `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+}
+
+func (x *StateEventResult_Write) Reset() {
+	*x = StateEventResult_Write{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_mirbft_proto_msgTypes[44]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StateEventResult_Write) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateEventResult_Write) ProtoMessage() {}
+
+func (x *StateEventResult_Write) ProtoReflect() protoreflect.Message {
+	mi := &file_mirbft_proto_msgTypes[44]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateEventResult_Write.ProtoReflect.Descriptor instead.
+func (*StateEventResult_Write) Descriptor() ([]byte, []int) {
+	return file_mirbft_proto_rawDescGZIP(), []int{27, 1}
+}
+
+func (x *StateEventResult_Write) GetTruncate() uint64 {
+	if x != nil {
+		return x.Truncate
+	}
+	return 0
+}
+
+func (x *StateEventResult_Write) GetAppend() uint64 {
+	if x != nil {
+		return x.Append
+	}
+	return 0
+}
+
+func (x *StateEventResult_Write) GetData() *Persistent {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// Commit either has the batch set, or seq_no,  network_config, and client_state set.
+type StateEventResult_Commit struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Batch         *QEntry                `protobuf:"bytes,1,opt,name=batch,proto3" json:"batch,omitempty"`
+	SeqNo         uint64                 `protobuf:"varint,2,opt,name=seq_no,json=seqNo,proto3" json:"seq_no,omitempty"`
+	NetworkConfig *NetworkState_Config   `protobuf:"bytes,3,opt,name=network_config,json=networkConfig,proto3" json:"network_config,omitempty"`
+	ClientStates  []*NetworkState_Client `protobuf:"bytes,4,rep,name=client_states,json=clientStates,proto3" json:"client_states,omitempty"`
+}
+
+func (x *StateEventResult_Commit) Reset() {
+	*x = StateEventResult_Commit{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_mirbft_proto_msgTypes[45]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StateEventResult_Commit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateEventResult_Commit) ProtoMessage() {}
+
+func (x *StateEventResult_Commit) ProtoReflect() protoreflect.Message {
+	mi := &file_mirbft_proto_msgTypes[45]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateEventResult_Commit.ProtoReflect.Descriptor instead.
+func (*StateEventResult_Commit) Descriptor() ([]byte, []int) {
+	return file_mirbft_proto_rawDescGZIP(), []int{27, 2}
+}
+
+func (x *StateEventResult_Commit) GetBatch() *QEntry {
+	if x != nil {
+		return x.Batch
+	}
+	return nil
+}
+
+func (x *StateEventResult_Commit) GetSeqNo() uint64 {
+	if x != nil {
+		return x.SeqNo
+	}
+	return 0
+}
+
+func (x *StateEventResult_Commit) GetNetworkConfig() *NetworkState_Config {
+	if x != nil {
+		return x.NetworkConfig
+	}
+	return nil
+}
+
+func (x *StateEventResult_Commit) GetClientStates() []*NetworkState_Client {
+	if x != nil {
+		return x.ClientStates
+	}
+	return nil
+}
+
+type StateEventResult_RequestSlot struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	ClientId uint64 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	ReqNo    uint64 `protobuf:"varint,2,opt,name=req_no,json=reqNo,proto3" json:"req_no,omitempty"`
+}
+
+func (x *StateEventResult_RequestSlot) Reset() {
+	*x = StateEventResult_RequestSlot{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_mirbft_proto_msgTypes[46]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StateEventResult_RequestSlot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateEventResult_RequestSlot) ProtoMessage() {}
+
+func (x *StateEventResult_RequestSlot) ProtoReflect() protoreflect.Message {
+	mi := &file_mirbft_proto_msgTypes[46]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateEventResult_RequestSlot.ProtoReflect.Descriptor instead.
+func (*StateEventResult_RequestSlot) Descriptor() ([]byte, []int) {
+	return file_mirbft_proto_rawDescGZIP(), []int{27, 3}
+}
+
+func (x *StateEventResult_RequestSlot) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
+}
+
+func (x *StateEventResult_RequestSlot) GetReqNo() uint64 {
+	if x != nil {
+		return x.ReqNo
+	}
+	return 0
+}
+
+type StateEventResult_Forward struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Targets []uint64    `protobuf:"varint,1,rep,packed,name=targets,proto3" json:"targets,omitempty"`
+	Ack     *RequestAck `protobuf:"bytes,2,opt,name=ack,proto3" json:"ack,omitempty"`
+}
+
+func (x *StateEventResult_Forward) Reset() {
+	*x = StateEventResult_Forward{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_mirbft_proto_msgTypes[47]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StateEventResult_Forward) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateEventResult_Forward) ProtoMessage() {}
+
+func (x *StateEventResult_Forward) ProtoReflect() protoreflect.Message {
+	mi := &file_mirbft_proto_msgTypes[47]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateEventResult_Forward.ProtoReflect.Descriptor instead.
+func (*StateEventResult_Forward) Descriptor() ([]byte, []int) {
+	return file_mirbft_proto_rawDescGZIP(), []int{27, 4}
+}
+
+func (x *StateEventResult_Forward) GetTargets() []uint64 {
+	if x != nil {
+		return x.Targets
+	}
+	return nil
+}
+
+func (x *StateEventResult_Forward) GetAck() *RequestAck {
+	if x != nil {
+		return x.Ack
+	}
+	return nil
+}
+
+type StateEventResult_HashRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Data   [][]byte    `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
+	Origin *HashResult `protobuf:"bytes,2,opt,name=origin,proto3" json:"origin,omitempty"`
+}
+
+func (x *StateEventResult_HashRequest) Reset() {
+	*x = StateEventResult_HashRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_mirbft_proto_msgTypes[48]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StateEventResult_HashRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateEventResult_HashRequest) ProtoMessage() {}
+
+func (x *StateEventResult_HashRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mirbft_proto_msgTypes[48]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateEventResult_HashRequest.ProtoReflect.Descriptor instead.
+func (*StateEventResult_HashRequest) Descriptor() ([]byte, []int) {
+	return file_mirbft_proto_rawDescGZIP(), []int{27, 5}
+}
+
+func (x *StateEventResult_HashRequest) GetData() [][]byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *StateEventResult_HashRequest) GetOrigin() *HashResult {
+	if x != nil {
+		return x.Origin
+	}
+	return nil
+}
+
+type StateEventResult_StateTarget struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	SeqNo uint64 `protobuf:"varint,1,opt,name=seq_no,json=seqNo,proto3" json:"seq_no,omitempty"`
+	Value []byte `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+}
+
+func (x *StateEventResult_StateTarget) Reset() {
+	*x = StateEventResult_StateTarget{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_mirbft_proto_msgTypes[49]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StateEventResult_StateTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StateEventResult_StateTarget) ProtoMessage() {}
+
+func (x *StateEventResult_StateTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_mirbft_proto_msgTypes[49]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StateEventResult_StateTarget.ProtoReflect.Descriptor instead.
+func (*StateEventResult_StateTarget) Descriptor() ([]byte, []int) {
+	return file_mirbft_proto_rawDescGZIP(), []int{27, 6}
+}
+
+func (x *StateEventResult_StateTarget) GetSeqNo() uint64 {
+	if x != nil {
+		return x.SeqNo
+	}
+	return 0
+}
+
+func (x *StateEventResult_StateTarget) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
 }
 
 type HashResult_Batch struct {
@@ -3128,7 +3635,7 @@ type HashResult_Batch struct {
 func (x *HashResult_Batch) Reset() {
 	*x = HashResult_Batch{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[42]
+		mi := &file_mirbft_proto_msgTypes[50]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3141,7 +3648,7 @@ func (x *HashResult_Batch) String() string {
 func (*HashResult_Batch) ProtoMessage() {}
 
 func (x *HashResult_Batch) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[42]
+	mi := &file_mirbft_proto_msgTypes[50]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3154,7 +3661,7 @@ func (x *HashResult_Batch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HashResult_Batch.ProtoReflect.Descriptor instead.
 func (*HashResult_Batch) Descriptor() ([]byte, []int) {
-	return file_mirbft_proto_rawDescGZIP(), []int{27, 0}
+	return file_mirbft_proto_rawDescGZIP(), []int{28, 0}
 }
 
 func (x *HashResult_Batch) GetSource() uint64 {
@@ -3199,7 +3706,7 @@ type HashResult_VerifyBatch struct {
 func (x *HashResult_VerifyBatch) Reset() {
 	*x = HashResult_VerifyBatch{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[43]
+		mi := &file_mirbft_proto_msgTypes[51]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3212,7 +3719,7 @@ func (x *HashResult_VerifyBatch) String() string {
 func (*HashResult_VerifyBatch) ProtoMessage() {}
 
 func (x *HashResult_VerifyBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[43]
+	mi := &file_mirbft_proto_msgTypes[51]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3225,7 +3732,7 @@ func (x *HashResult_VerifyBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HashResult_VerifyBatch.ProtoReflect.Descriptor instead.
 func (*HashResult_VerifyBatch) Descriptor() ([]byte, []int) {
-	return file_mirbft_proto_rawDescGZIP(), []int{27, 1}
+	return file_mirbft_proto_rawDescGZIP(), []int{28, 1}
 }
 
 func (x *HashResult_VerifyBatch) GetSource() uint64 {
@@ -3269,7 +3776,7 @@ type HashResult_EpochChange struct {
 func (x *HashResult_EpochChange) Reset() {
 	*x = HashResult_EpochChange{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_mirbft_proto_msgTypes[44]
+		mi := &file_mirbft_proto_msgTypes[52]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3282,7 +3789,7 @@ func (x *HashResult_EpochChange) String() string {
 func (*HashResult_EpochChange) ProtoMessage() {}
 
 func (x *HashResult_EpochChange) ProtoReflect() protoreflect.Message {
-	mi := &file_mirbft_proto_msgTypes[44]
+	mi := &file_mirbft_proto_msgTypes[52]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3295,7 +3802,7 @@ func (x *HashResult_EpochChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HashResult_EpochChange.ProtoReflect.Descriptor instead.
 func (*HashResult_EpochChange) Descriptor() ([]byte, []int) {
-	return file_mirbft_proto_rawDescGZIP(), []int{27, 2}
+	return file_mirbft_proto_rawDescGZIP(), []int{28, 2}
 }
 
 func (x *HashResult_EpochChange) GetSource() uint64 {
@@ -3679,60 +4186,134 @@ var file_mirbft_proto_rawDesc = []byte{
 	0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x4d, 0x73, 0x67, 0x52, 0x03, 0x6d, 0x73, 0x67,
 	0x1a, 0x0d, 0x0a, 0x0b, 0x54, 0x69, 0x63, 0x6b, 0x45, 0x6c, 0x61, 0x70, 0x73, 0x65, 0x64, 0x1a,
 	0x07, 0x0a, 0x05, 0x52, 0x65, 0x61, 0x64, 0x79, 0x42, 0x06, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65,
-	0x22, 0x90, 0x05, 0x0a, 0x0a, 0x48, 0x61, 0x73, 0x68, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x12,
-	0x16, 0x0a, 0x06, 0x64, 0x69, 0x67, 0x65, 0x73, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52,
-	0x06, 0x64, 0x69, 0x67, 0x65, 0x73, 0x74, 0x12, 0x32, 0x0a, 0x05, 0x62, 0x61, 0x74, 0x63, 0x68,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70,
-	0x62, 0x2e, 0x48, 0x61, 0x73, 0x68, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x2e, 0x42, 0x61, 0x74,
-	0x63, 0x68, 0x48, 0x00, 0x52, 0x05, 0x62, 0x61, 0x74, 0x63, 0x68, 0x12, 0x45, 0x0a, 0x0c, 0x65,
-	0x70, 0x6f, 0x63, 0x68, 0x5f, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x20, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x48, 0x61, 0x73,
-	0x68, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x2e, 0x45, 0x70, 0x6f, 0x63, 0x68, 0x43, 0x68, 0x61,
-	0x6e, 0x67, 0x65, 0x48, 0x00, 0x52, 0x0b, 0x65, 0x70, 0x6f, 0x63, 0x68, 0x43, 0x68, 0x61, 0x6e,
-	0x67, 0x65, 0x12, 0x45, 0x0a, 0x0c, 0x76, 0x65, 0x72, 0x69, 0x66, 0x79, 0x5f, 0x62, 0x61, 0x74,
-	0x63, 0x68, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x20, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66,
-	0x74, 0x70, 0x62, 0x2e, 0x48, 0x61, 0x73, 0x68, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x2e, 0x56,
-	0x65, 0x72, 0x69, 0x66, 0x79, 0x42, 0x61, 0x74, 0x63, 0x68, 0x48, 0x00, 0x52, 0x0b, 0x76, 0x65,
-	0x72, 0x69, 0x66, 0x79, 0x42, 0x61, 0x74, 0x63, 0x68, 0x1a, 0x85, 0x01, 0x0a, 0x05, 0x42, 0x61,
-	0x74, 0x63, 0x68, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x18, 0x01, 0x20,
-	0x01, 0x28, 0x04, 0x52, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x12, 0x14, 0x0a, 0x05, 0x65,
-	0x70, 0x6f, 0x63, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05, 0x65, 0x70, 0x6f, 0x63,
-	0x68, 0x12, 0x15, 0x0a, 0x06, 0x73, 0x65, 0x71, 0x5f, 0x6e, 0x6f, 0x18, 0x03, 0x20, 0x01, 0x28,
-	0x04, 0x52, 0x05, 0x73, 0x65, 0x71, 0x4e, 0x6f, 0x12, 0x37, 0x0a, 0x0c, 0x72, 0x65, 0x71, 0x75,
-	0x65, 0x73, 0x74, 0x5f, 0x61, 0x63, 0x6b, 0x73, 0x18, 0x05, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x14,
-	0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
-	0x74, 0x41, 0x63, 0x6b, 0x52, 0x0b, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x63, 0x6b,
-	0x73, 0x1a, 0x9e, 0x01, 0x0a, 0x0b, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x42, 0x61, 0x74, 0x63,
-	0x68, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x04, 0x52, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x12, 0x15, 0x0a, 0x06, 0x73, 0x65, 0x71,
-	0x5f, 0x6e, 0x6f, 0x18, 0x02, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05, 0x73, 0x65, 0x71, 0x4e, 0x6f,
-	0x12, 0x37, 0x0a, 0x0c, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x5f, 0x61, 0x63, 0x6b, 0x73,
-	0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70,
-	0x62, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x63, 0x6b, 0x52, 0x0b, 0x72, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x63, 0x6b, 0x73, 0x12, 0x27, 0x0a, 0x0f, 0x65, 0x78, 0x70,
-	0x65, 0x63, 0x74, 0x65, 0x64, 0x5f, 0x64, 0x69, 0x67, 0x65, 0x73, 0x74, 0x18, 0x04, 0x20, 0x01,
-	0x28, 0x0c, 0x52, 0x0e, 0x65, 0x78, 0x70, 0x65, 0x63, 0x74, 0x65, 0x64, 0x44, 0x69, 0x67, 0x65,
-	0x73, 0x74, 0x1a, 0x77, 0x0a, 0x0b, 0x45, 0x70, 0x6f, 0x63, 0x68, 0x43, 0x68, 0x61, 0x6e, 0x67,
-	0x65, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x04, 0x52, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x6f, 0x72, 0x69,
-	0x67, 0x69, 0x6e, 0x18, 0x02, 0x20, 0x01, 0x28, 0x04, 0x52, 0x06, 0x6f, 0x72, 0x69, 0x67, 0x69,
-	0x6e, 0x12, 0x38, 0x0a, 0x0c, 0x65, 0x70, 0x6f, 0x63, 0x68, 0x5f, 0x63, 0x68, 0x61, 0x6e, 0x67,
-	0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74,
-	0x70, 0x62, 0x2e, 0x45, 0x70, 0x6f, 0x63, 0x68, 0x43, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x52, 0x0b,
-	0x65, 0x70, 0x6f, 0x63, 0x68, 0x43, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x42, 0x06, 0x0a, 0x04, 0x74,
-	0x79, 0x70, 0x65, 0x22, 0xa0, 0x01, 0x0a, 0x10, 0x43, 0x68, 0x65, 0x63, 0x6b, 0x70, 0x6f, 0x69,
-	0x6e, 0x74, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x12, 0x15, 0x0a, 0x06, 0x73, 0x65, 0x71, 0x5f,
-	0x6e, 0x6f, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05, 0x73, 0x65, 0x71, 0x4e, 0x6f, 0x12,
-	0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x05,
-	0x76, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x3b, 0x0a, 0x0d, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b,
-	0x5f, 0x73, 0x74, 0x61, 0x74, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x6d,
+	0x22, 0x93, 0x09, 0x0a, 0x10, 0x53, 0x74, 0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x52,
+	0x65, 0x73, 0x75, 0x6c, 0x74, 0x12, 0x33, 0x0a, 0x04, 0x73, 0x65, 0x6e, 0x64, 0x18, 0x01, 0x20,
+	0x03, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x53,
+	0x74, 0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x2e,
+	0x53, 0x65, 0x6e, 0x64, 0x52, 0x04, 0x73, 0x65, 0x6e, 0x64, 0x12, 0x3a, 0x0a, 0x04, 0x68, 0x61,
+	0x73, 0x68, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x26, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66,
+	0x74, 0x70, 0x62, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x52, 0x65,
+	0x73, 0x75, 0x6c, 0x74, 0x2e, 0x48, 0x61, 0x73, 0x68, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x52, 0x04, 0x68, 0x61, 0x73, 0x68, 0x12, 0x41, 0x0a, 0x0b, 0x77, 0x72, 0x69, 0x74, 0x65, 0x5f,
+	0x61, 0x68, 0x65, 0x61, 0x64, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x20, 0x2e, 0x6d, 0x69,
+	0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e,
+	0x74, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x2e, 0x57, 0x72, 0x69, 0x74, 0x65, 0x52, 0x0a, 0x77,
+	0x72, 0x69, 0x74, 0x65, 0x41, 0x68, 0x65, 0x61, 0x64, 0x12, 0x3b, 0x0a, 0x07, 0x63, 0x6f, 0x6d,
+	0x6d, 0x69, 0x74, 0x73, 0x18, 0x04, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x6d, 0x69, 0x72,
+	0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74,
+	0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x52, 0x07, 0x63,
+	0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x73, 0x12, 0x55, 0x0a, 0x12, 0x61, 0x6c, 0x6c, 0x6f, 0x63, 0x61,
+	0x74, 0x65, 0x64, 0x5f, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x18, 0x05, 0x20, 0x03,
+	0x28, 0x0b, 0x32, 0x26, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x53, 0x74,
+	0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x2e, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x53, 0x6c, 0x6f, 0x74, 0x52, 0x11, 0x61, 0x6c, 0x6c, 0x6f,
+	0x63, 0x61, 0x74, 0x65, 0x64, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x12, 0x4d, 0x0a,
+	0x10, 0x66, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x5f, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x73, 0x18, 0x06, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x22, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74,
+	0x70, 0x62, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x73,
+	0x75, 0x6c, 0x74, 0x2e, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x52, 0x0f, 0x66, 0x6f, 0x72,
+	0x77, 0x61, 0x72, 0x64, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x12, 0x4d, 0x0a, 0x0e,
+	0x73, 0x74, 0x61, 0x74, 0x65, 0x5f, 0x74, 0x72, 0x61, 0x6e, 0x73, 0x66, 0x65, 0x72, 0x18, 0x07,
+	0x20, 0x01, 0x28, 0x0b, 0x32, 0x26, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e,
+	0x53, 0x74, 0x61, 0x74, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74,
+	0x2e, 0x53, 0x74, 0x61, 0x74, 0x65, 0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x52, 0x0d, 0x73, 0x74,
+	0x61, 0x74, 0x65, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x66, 0x65, 0x72, 0x1a, 0x41, 0x0a, 0x04, 0x53,
+	0x65, 0x6e, 0x64, 0x12, 0x18, 0x0a, 0x07, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x73, 0x18, 0x01,
+	0x20, 0x03, 0x28, 0x04, 0x52, 0x07, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x73, 0x12, 0x1f, 0x0a,
+	0x03, 0x6d, 0x73, 0x67, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x0d, 0x2e, 0x6d, 0x69, 0x72,
+	0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x4d, 0x73, 0x67, 0x52, 0x03, 0x6d, 0x73, 0x67, 0x1a, 0x65,
+	0x0a, 0x05, 0x57, 0x72, 0x69, 0x74, 0x65, 0x12, 0x1a, 0x0a, 0x08, 0x74, 0x72, 0x75, 0x6e, 0x63,
+	0x61, 0x74, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x08, 0x74, 0x72, 0x75, 0x6e, 0x63,
+	0x61, 0x74, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x61, 0x70, 0x70, 0x65, 0x6e, 0x64, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x04, 0x52, 0x06, 0x61, 0x70, 0x70, 0x65, 0x6e, 0x64, 0x12, 0x28, 0x0a, 0x04, 0x64,
+	0x61, 0x74, 0x61, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x6d, 0x69, 0x72, 0x62,
+	0x66, 0x74, 0x70, 0x62, 0x2e, 0x50, 0x65, 0x72, 0x73, 0x69, 0x73, 0x74, 0x65, 0x6e, 0x74, 0x52,
+	0x04, 0x64, 0x61, 0x74, 0x61, 0x1a, 0xd1, 0x01, 0x0a, 0x06, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74,
+	0x12, 0x26, 0x0a, 0x05, 0x62, 0x61, 0x74, 0x63, 0x68, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
+	0x10, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x51, 0x45, 0x6e, 0x74, 0x72,
+	0x79, 0x52, 0x05, 0x62, 0x61, 0x74, 0x63, 0x68, 0x12, 0x15, 0x0a, 0x06, 0x73, 0x65, 0x71, 0x5f,
+	0x6e, 0x6f, 0x18, 0x02, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05, 0x73, 0x65, 0x71, 0x4e, 0x6f, 0x12,
+	0x44, 0x0a, 0x0e, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x5f, 0x63, 0x6f, 0x6e, 0x66, 0x69,
+	0x67, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1d, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74,
+	0x70, 0x62, 0x2e, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x74, 0x61, 0x74, 0x65, 0x2e,
+	0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x0d, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x43,
+	0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x42, 0x0a, 0x0d, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x5f,
+	0x73, 0x74, 0x61, 0x74, 0x65, 0x73, 0x18, 0x04, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1d, 0x2e, 0x6d,
 	0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53,
-	0x74, 0x61, 0x74, 0x65, 0x52, 0x0c, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x74, 0x61,
-	0x74, 0x65, 0x12, 0x22, 0x0a, 0x0c, 0x72, 0x65, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x75, 0x72,
-	0x65, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0c, 0x72, 0x65, 0x63, 0x6f, 0x6e, 0x66,
-	0x69, 0x67, 0x75, 0x72, 0x65, 0x64, 0x42, 0x20, 0x5a, 0x1e, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62,
-	0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x49, 0x42, 0x4d, 0x2f, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x2f,
-	0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x74, 0x61, 0x74, 0x65, 0x2e, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x52, 0x0c, 0x63, 0x6c, 0x69,
+	0x65, 0x6e, 0x74, 0x53, 0x74, 0x61, 0x74, 0x65, 0x73, 0x1a, 0x41, 0x0a, 0x0b, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x53, 0x6c, 0x6f, 0x74, 0x12, 0x1b, 0x0a, 0x09, 0x63, 0x6c, 0x69, 0x65,
+	0x6e, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x08, 0x63, 0x6c, 0x69,
+	0x65, 0x6e, 0x74, 0x49, 0x64, 0x12, 0x15, 0x0a, 0x06, 0x72, 0x65, 0x71, 0x5f, 0x6e, 0x6f, 0x18,
+	0x02, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05, 0x72, 0x65, 0x71, 0x4e, 0x6f, 0x1a, 0x4b, 0x0a, 0x07,
+	0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x12, 0x18, 0x0a, 0x07, 0x74, 0x61, 0x72, 0x67, 0x65,
+	0x74, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x04, 0x52, 0x07, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74,
+	0x73, 0x12, 0x26, 0x0a, 0x03, 0x61, 0x63, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x14,
+	0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x41, 0x63, 0x6b, 0x52, 0x03, 0x61, 0x63, 0x6b, 0x1a, 0x4f, 0x0a, 0x0b, 0x48, 0x61, 0x73,
+	0x68, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x64, 0x61, 0x74, 0x61,
+	0x18, 0x01, 0x20, 0x03, 0x28, 0x0c, 0x52, 0x04, 0x64, 0x61, 0x74, 0x61, 0x12, 0x2c, 0x0a, 0x06,
+	0x6f, 0x72, 0x69, 0x67, 0x69, 0x6e, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x6d,
+	0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x48, 0x61, 0x73, 0x68, 0x52, 0x65, 0x73, 0x75,
+	0x6c, 0x74, 0x52, 0x06, 0x6f, 0x72, 0x69, 0x67, 0x69, 0x6e, 0x1a, 0x3a, 0x0a, 0x0b, 0x53, 0x74,
+	0x61, 0x74, 0x65, 0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x12, 0x15, 0x0a, 0x06, 0x73, 0x65, 0x71,
+	0x5f, 0x6e, 0x6f, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05, 0x73, 0x65, 0x71, 0x4e, 0x6f,
+	0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52,
+	0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x22, 0x90, 0x05, 0x0a, 0x0a, 0x48, 0x61, 0x73, 0x68, 0x52,
+	0x65, 0x73, 0x75, 0x6c, 0x74, 0x12, 0x16, 0x0a, 0x06, 0x64, 0x69, 0x67, 0x65, 0x73, 0x74, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x06, 0x64, 0x69, 0x67, 0x65, 0x73, 0x74, 0x12, 0x32, 0x0a,
+	0x05, 0x62, 0x61, 0x74, 0x63, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x6d,
+	0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x48, 0x61, 0x73, 0x68, 0x52, 0x65, 0x73, 0x75,
+	0x6c, 0x74, 0x2e, 0x42, 0x61, 0x74, 0x63, 0x68, 0x48, 0x00, 0x52, 0x05, 0x62, 0x61, 0x74, 0x63,
+	0x68, 0x12, 0x45, 0x0a, 0x0c, 0x65, 0x70, 0x6f, 0x63, 0x68, 0x5f, 0x63, 0x68, 0x61, 0x6e, 0x67,
+	0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x20, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74,
+	0x70, 0x62, 0x2e, 0x48, 0x61, 0x73, 0x68, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x2e, 0x45, 0x70,
+	0x6f, 0x63, 0x68, 0x43, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x48, 0x00, 0x52, 0x0b, 0x65, 0x70, 0x6f,
+	0x63, 0x68, 0x43, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x12, 0x45, 0x0a, 0x0c, 0x76, 0x65, 0x72, 0x69,
+	0x66, 0x79, 0x5f, 0x62, 0x61, 0x74, 0x63, 0x68, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x20,
+	0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x48, 0x61, 0x73, 0x68, 0x52, 0x65,
+	0x73, 0x75, 0x6c, 0x74, 0x2e, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x42, 0x61, 0x74, 0x63, 0x68,
+	0x48, 0x00, 0x52, 0x0b, 0x76, 0x65, 0x72, 0x69, 0x66, 0x79, 0x42, 0x61, 0x74, 0x63, 0x68, 0x1a,
+	0x85, 0x01, 0x0a, 0x05, 0x42, 0x61, 0x74, 0x63, 0x68, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x6f, 0x75,
+	0x72, 0x63, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63,
+	0x65, 0x12, 0x14, 0x0a, 0x05, 0x65, 0x70, 0x6f, 0x63, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x04,
+	0x52, 0x05, 0x65, 0x70, 0x6f, 0x63, 0x68, 0x12, 0x15, 0x0a, 0x06, 0x73, 0x65, 0x71, 0x5f, 0x6e,
+	0x6f, 0x18, 0x03, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05, 0x73, 0x65, 0x71, 0x4e, 0x6f, 0x12, 0x37,
+	0x0a, 0x0c, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x5f, 0x61, 0x63, 0x6b, 0x73, 0x18, 0x05,
+	0x20, 0x03, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e,
+	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x63, 0x6b, 0x52, 0x0b, 0x72, 0x65, 0x71, 0x75,
+	0x65, 0x73, 0x74, 0x41, 0x63, 0x6b, 0x73, 0x1a, 0x9e, 0x01, 0x0a, 0x0b, 0x56, 0x65, 0x72, 0x69,
+	0x66, 0x79, 0x42, 0x61, 0x74, 0x63, 0x68, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63,
+	0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x12,
+	0x15, 0x0a, 0x06, 0x73, 0x65, 0x71, 0x5f, 0x6e, 0x6f, 0x18, 0x02, 0x20, 0x01, 0x28, 0x04, 0x52,
+	0x05, 0x73, 0x65, 0x71, 0x4e, 0x6f, 0x12, 0x37, 0x0a, 0x0c, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x5f, 0x61, 0x63, 0x6b, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x6d,
+	0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41,
+	0x63, 0x6b, 0x52, 0x0b, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x63, 0x6b, 0x73, 0x12,
+	0x27, 0x0a, 0x0f, 0x65, 0x78, 0x70, 0x65, 0x63, 0x74, 0x65, 0x64, 0x5f, 0x64, 0x69, 0x67, 0x65,
+	0x73, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0e, 0x65, 0x78, 0x70, 0x65, 0x63, 0x74,
+	0x65, 0x64, 0x44, 0x69, 0x67, 0x65, 0x73, 0x74, 0x1a, 0x77, 0x0a, 0x0b, 0x45, 0x70, 0x6f, 0x63,
+	0x68, 0x43, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63,
+	0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x06, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x12,
+	0x16, 0x0a, 0x06, 0x6f, 0x72, 0x69, 0x67, 0x69, 0x6e, 0x18, 0x02, 0x20, 0x01, 0x28, 0x04, 0x52,
+	0x06, 0x6f, 0x72, 0x69, 0x67, 0x69, 0x6e, 0x12, 0x38, 0x0a, 0x0c, 0x65, 0x70, 0x6f, 0x63, 0x68,
+	0x5f, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x15, 0x2e,
+	0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x45, 0x70, 0x6f, 0x63, 0x68, 0x43, 0x68,
+	0x61, 0x6e, 0x67, 0x65, 0x52, 0x0b, 0x65, 0x70, 0x6f, 0x63, 0x68, 0x43, 0x68, 0x61, 0x6e, 0x67,
+	0x65, 0x42, 0x06, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x22, 0xa0, 0x01, 0x0a, 0x10, 0x43, 0x68,
+	0x65, 0x63, 0x6b, 0x70, 0x6f, 0x69, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x12, 0x15,
+	0x0a, 0x06, 0x73, 0x65, 0x71, 0x5f, 0x6e, 0x6f, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05,
+	0x73, 0x65, 0x71, 0x4e, 0x6f, 0x12, 0x14, 0x0a, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02,
+	0x20, 0x01, 0x28, 0x0c, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x12, 0x3b, 0x0a, 0x0d, 0x6e,
+	0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x5f, 0x73, 0x74, 0x61, 0x74, 0x65, 0x18, 0x03, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x16, 0x2e, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x4e, 0x65,
+	0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x74, 0x61, 0x74, 0x65, 0x52, 0x0c, 0x6e, 0x65, 0x74, 0x77,
+	0x6f, 0x72, 0x6b, 0x53, 0x74, 0x61, 0x74, 0x65, 0x12, 0x22, 0x0a, 0x0c, 0x72, 0x65, 0x63, 0x6f,
+	0x6e, 0x66, 0x69, 0x67, 0x75, 0x72, 0x65, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0c,
+	0x72, 0x65, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x75, 0x72, 0x65, 0x64, 0x42, 0x20, 0x5a, 0x1e,
+	0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x49, 0x42, 0x4d, 0x2f, 0x6d,
+	0x69, 0x72, 0x62, 0x66, 0x74, 0x2f, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x70, 0x62, 0x62, 0x06,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -3747,7 +4328,7 @@ func file_mirbft_proto_rawDescGZIP() []byte {
 	return file_mirbft_proto_rawDescData
 }
 
-var file_mirbft_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_mirbft_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_mirbft_proto_goTypes = []interface{}{
 	(*NetworkState)(nil),                 // 0: mirbftpb.NetworkState
 	(*Reconfiguration)(nil),              // 1: mirbftpb.Reconfiguration
@@ -3776,31 +4357,39 @@ var file_mirbft_proto_goTypes = []interface{}{
 	(*NewEpochConfig)(nil),               // 24: mirbftpb.NewEpochConfig
 	(*NewEpoch)(nil),                     // 25: mirbftpb.NewEpoch
 	(*StateEvent)(nil),                   // 26: mirbftpb.StateEvent
-	(*HashResult)(nil),                   // 27: mirbftpb.HashResult
-	(*CheckpointResult)(nil),             // 28: mirbftpb.CheckpointResult
-	(*NetworkState_Config)(nil),          // 29: mirbftpb.NetworkState.Config
-	(*NetworkState_Client)(nil),          // 30: mirbftpb.NetworkState.Client
-	(*Reconfiguration_NewClient)(nil),    // 31: mirbftpb.Reconfiguration.NewClient
-	(*EpochChange_SetEntry)(nil),         // 32: mirbftpb.EpochChange.SetEntry
-	(*NewEpoch_RemoteEpochChange)(nil),   // 33: mirbftpb.NewEpoch.RemoteEpochChange
-	(*StateEvent_InitialParameters)(nil), // 34: mirbftpb.StateEvent.InitialParameters
-	(*StateEvent_PersistedEntry)(nil),    // 35: mirbftpb.StateEvent.PersistedEntry
-	(*StateEvent_LoadCompleted)(nil),     // 36: mirbftpb.StateEvent.LoadCompleted
-	(*StateEvent_ActionResults)(nil),     // 37: mirbftpb.StateEvent.ActionResults
-	(*StateEvent_Proposal)(nil),          // 38: mirbftpb.StateEvent.Proposal
-	(*StateEvent_InboundMsg)(nil),        // 39: mirbftpb.StateEvent.InboundMsg
-	(*StateEvent_TickElapsed)(nil),       // 40: mirbftpb.StateEvent.TickElapsed
-	(*StateEvent_Ready)(nil),             // 41: mirbftpb.StateEvent.Ready
-	(*HashResult_Batch)(nil),             // 42: mirbftpb.HashResult.Batch
-	(*HashResult_VerifyBatch)(nil),       // 43: mirbftpb.HashResult.VerifyBatch
-	(*HashResult_EpochChange)(nil),       // 44: mirbftpb.HashResult.EpochChange
+	(*StateEventResult)(nil),             // 27: mirbftpb.StateEventResult
+	(*HashResult)(nil),                   // 28: mirbftpb.HashResult
+	(*CheckpointResult)(nil),             // 29: mirbftpb.CheckpointResult
+	(*NetworkState_Config)(nil),          // 30: mirbftpb.NetworkState.Config
+	(*NetworkState_Client)(nil),          // 31: mirbftpb.NetworkState.Client
+	(*Reconfiguration_NewClient)(nil),    // 32: mirbftpb.Reconfiguration.NewClient
+	(*EpochChange_SetEntry)(nil),         // 33: mirbftpb.EpochChange.SetEntry
+	(*NewEpoch_RemoteEpochChange)(nil),   // 34: mirbftpb.NewEpoch.RemoteEpochChange
+	(*StateEvent_InitialParameters)(nil), // 35: mirbftpb.StateEvent.InitialParameters
+	(*StateEvent_PersistedEntry)(nil),    // 36: mirbftpb.StateEvent.PersistedEntry
+	(*StateEvent_LoadCompleted)(nil),     // 37: mirbftpb.StateEvent.LoadCompleted
+	(*StateEvent_ActionResults)(nil),     // 38: mirbftpb.StateEvent.ActionResults
+	(*StateEvent_Proposal)(nil),          // 39: mirbftpb.StateEvent.Proposal
+	(*StateEvent_InboundMsg)(nil),        // 40: mirbftpb.StateEvent.InboundMsg
+	(*StateEvent_TickElapsed)(nil),       // 41: mirbftpb.StateEvent.TickElapsed
+	(*StateEvent_Ready)(nil),             // 42: mirbftpb.StateEvent.Ready
+	(*StateEventResult_Send)(nil),        // 43: mirbftpb.StateEventResult.Send
+	(*StateEventResult_Write)(nil),       // 44: mirbftpb.StateEventResult.Write
+	(*StateEventResult_Commit)(nil),      // 45: mirbftpb.StateEventResult.Commit
+	(*StateEventResult_RequestSlot)(nil), // 46: mirbftpb.StateEventResult.RequestSlot
+	(*StateEventResult_Forward)(nil),     // 47: mirbftpb.StateEventResult.Forward
+	(*StateEventResult_HashRequest)(nil), // 48: mirbftpb.StateEventResult.HashRequest
+	(*StateEventResult_StateTarget)(nil), // 49: mirbftpb.StateEventResult.StateTarget
+	(*HashResult_Batch)(nil),             // 50: mirbftpb.HashResult.Batch
+	(*HashResult_VerifyBatch)(nil),       // 51: mirbftpb.HashResult.VerifyBatch
+	(*HashResult_EpochChange)(nil),       // 52: mirbftpb.HashResult.EpochChange
 }
 var file_mirbft_proto_depIdxs = []int32{
-	29, // 0: mirbftpb.NetworkState.config:type_name -> mirbftpb.NetworkState.Config
-	30, // 1: mirbftpb.NetworkState.clients:type_name -> mirbftpb.NetworkState.Client
+	30, // 0: mirbftpb.NetworkState.config:type_name -> mirbftpb.NetworkState.Config
+	31, // 1: mirbftpb.NetworkState.clients:type_name -> mirbftpb.NetworkState.Client
 	1,  // 2: mirbftpb.NetworkState.pending_reconfigurations:type_name -> mirbftpb.Reconfiguration
-	31, // 3: mirbftpb.Reconfiguration.new_client:type_name -> mirbftpb.Reconfiguration.NewClient
-	29, // 4: mirbftpb.Reconfiguration.new_config:type_name -> mirbftpb.NetworkState.Config
+	32, // 3: mirbftpb.Reconfiguration.new_client:type_name -> mirbftpb.Reconfiguration.NewClient
+	30, // 4: mirbftpb.Reconfiguration.new_config:type_name -> mirbftpb.NetworkState.Config
 	7,  // 5: mirbftpb.Persistent.q_entry:type_name -> mirbftpb.QEntry
 	8,  // 6: mirbftpb.Persistent.p_entry:type_name -> mirbftpb.PEntry
 	9,  // 7: mirbftpb.Persistent.c_entry:type_name -> mirbftpb.CEntry
@@ -3832,39 +4421,53 @@ var file_mirbft_proto_depIdxs = []int32{
 	15, // 33: mirbftpb.ForwardRequest.request_ack:type_name -> mirbftpb.RequestAck
 	15, // 34: mirbftpb.Preprepare.batch:type_name -> mirbftpb.RequestAck
 	19, // 35: mirbftpb.EpochChange.checkpoints:type_name -> mirbftpb.Checkpoint
-	32, // 36: mirbftpb.EpochChange.p_set:type_name -> mirbftpb.EpochChange.SetEntry
-	32, // 37: mirbftpb.EpochChange.q_set:type_name -> mirbftpb.EpochChange.SetEntry
+	33, // 36: mirbftpb.EpochChange.p_set:type_name -> mirbftpb.EpochChange.SetEntry
+	33, // 37: mirbftpb.EpochChange.q_set:type_name -> mirbftpb.EpochChange.SetEntry
 	21, // 38: mirbftpb.EpochChangeAck.epoch_change:type_name -> mirbftpb.EpochChange
 	23, // 39: mirbftpb.NewEpochConfig.config:type_name -> mirbftpb.EpochConfig
 	19, // 40: mirbftpb.NewEpochConfig.starting_checkpoint:type_name -> mirbftpb.Checkpoint
 	24, // 41: mirbftpb.NewEpoch.new_config:type_name -> mirbftpb.NewEpochConfig
-	33, // 42: mirbftpb.NewEpoch.epoch_changes:type_name -> mirbftpb.NewEpoch.RemoteEpochChange
-	34, // 43: mirbftpb.StateEvent.initialize:type_name -> mirbftpb.StateEvent.InitialParameters
-	35, // 44: mirbftpb.StateEvent.load_entry:type_name -> mirbftpb.StateEvent.PersistedEntry
-	36, // 45: mirbftpb.StateEvent.complete_initialization:type_name -> mirbftpb.StateEvent.LoadCompleted
-	37, // 46: mirbftpb.StateEvent.add_results:type_name -> mirbftpb.StateEvent.ActionResults
+	34, // 42: mirbftpb.NewEpoch.epoch_changes:type_name -> mirbftpb.NewEpoch.RemoteEpochChange
+	35, // 43: mirbftpb.StateEvent.initialize:type_name -> mirbftpb.StateEvent.InitialParameters
+	36, // 44: mirbftpb.StateEvent.load_entry:type_name -> mirbftpb.StateEvent.PersistedEntry
+	37, // 45: mirbftpb.StateEvent.complete_initialization:type_name -> mirbftpb.StateEvent.LoadCompleted
+	38, // 46: mirbftpb.StateEvent.add_results:type_name -> mirbftpb.StateEvent.ActionResults
 	9,  // 47: mirbftpb.StateEvent.Transfer:type_name -> mirbftpb.CEntry
-	38, // 48: mirbftpb.StateEvent.propose:type_name -> mirbftpb.StateEvent.Proposal
-	39, // 49: mirbftpb.StateEvent.step:type_name -> mirbftpb.StateEvent.InboundMsg
-	40, // 50: mirbftpb.StateEvent.tick:type_name -> mirbftpb.StateEvent.TickElapsed
-	41, // 51: mirbftpb.StateEvent.actions_received:type_name -> mirbftpb.StateEvent.Ready
-	42, // 52: mirbftpb.HashResult.batch:type_name -> mirbftpb.HashResult.Batch
-	44, // 53: mirbftpb.HashResult.epoch_change:type_name -> mirbftpb.HashResult.EpochChange
-	43, // 54: mirbftpb.HashResult.verify_batch:type_name -> mirbftpb.HashResult.VerifyBatch
-	0,  // 55: mirbftpb.CheckpointResult.network_state:type_name -> mirbftpb.NetworkState
-	2,  // 56: mirbftpb.StateEvent.PersistedEntry.data:type_name -> mirbftpb.Persistent
-	27, // 57: mirbftpb.StateEvent.ActionResults.digests:type_name -> mirbftpb.HashResult
-	28, // 58: mirbftpb.StateEvent.ActionResults.checkpoints:type_name -> mirbftpb.CheckpointResult
-	15, // 59: mirbftpb.StateEvent.Proposal.request:type_name -> mirbftpb.RequestAck
-	10, // 60: mirbftpb.StateEvent.InboundMsg.msg:type_name -> mirbftpb.Msg
-	15, // 61: mirbftpb.HashResult.Batch.request_acks:type_name -> mirbftpb.RequestAck
-	15, // 62: mirbftpb.HashResult.VerifyBatch.request_acks:type_name -> mirbftpb.RequestAck
-	21, // 63: mirbftpb.HashResult.EpochChange.epoch_change:type_name -> mirbftpb.EpochChange
-	64, // [64:64] is the sub-list for method output_type
-	64, // [64:64] is the sub-list for method input_type
-	64, // [64:64] is the sub-list for extension type_name
-	64, // [64:64] is the sub-list for extension extendee
-	0,  // [0:64] is the sub-list for field type_name
+	39, // 48: mirbftpb.StateEvent.propose:type_name -> mirbftpb.StateEvent.Proposal
+	40, // 49: mirbftpb.StateEvent.step:type_name -> mirbftpb.StateEvent.InboundMsg
+	41, // 50: mirbftpb.StateEvent.tick:type_name -> mirbftpb.StateEvent.TickElapsed
+	42, // 51: mirbftpb.StateEvent.actions_received:type_name -> mirbftpb.StateEvent.Ready
+	43, // 52: mirbftpb.StateEventResult.send:type_name -> mirbftpb.StateEventResult.Send
+	48, // 53: mirbftpb.StateEventResult.hash:type_name -> mirbftpb.StateEventResult.HashRequest
+	44, // 54: mirbftpb.StateEventResult.write_ahead:type_name -> mirbftpb.StateEventResult.Write
+	45, // 55: mirbftpb.StateEventResult.commits:type_name -> mirbftpb.StateEventResult.Commit
+	46, // 56: mirbftpb.StateEventResult.allocated_requests:type_name -> mirbftpb.StateEventResult.RequestSlot
+	47, // 57: mirbftpb.StateEventResult.forward_requests:type_name -> mirbftpb.StateEventResult.Forward
+	49, // 58: mirbftpb.StateEventResult.state_transfer:type_name -> mirbftpb.StateEventResult.StateTarget
+	50, // 59: mirbftpb.HashResult.batch:type_name -> mirbftpb.HashResult.Batch
+	52, // 60: mirbftpb.HashResult.epoch_change:type_name -> mirbftpb.HashResult.EpochChange
+	51, // 61: mirbftpb.HashResult.verify_batch:type_name -> mirbftpb.HashResult.VerifyBatch
+	0,  // 62: mirbftpb.CheckpointResult.network_state:type_name -> mirbftpb.NetworkState
+	2,  // 63: mirbftpb.StateEvent.PersistedEntry.data:type_name -> mirbftpb.Persistent
+	28, // 64: mirbftpb.StateEvent.ActionResults.digests:type_name -> mirbftpb.HashResult
+	29, // 65: mirbftpb.StateEvent.ActionResults.checkpoints:type_name -> mirbftpb.CheckpointResult
+	15, // 66: mirbftpb.StateEvent.Proposal.request:type_name -> mirbftpb.RequestAck
+	10, // 67: mirbftpb.StateEvent.InboundMsg.msg:type_name -> mirbftpb.Msg
+	10, // 68: mirbftpb.StateEventResult.Send.msg:type_name -> mirbftpb.Msg
+	2,  // 69: mirbftpb.StateEventResult.Write.data:type_name -> mirbftpb.Persistent
+	7,  // 70: mirbftpb.StateEventResult.Commit.batch:type_name -> mirbftpb.QEntry
+	30, // 71: mirbftpb.StateEventResult.Commit.network_config:type_name -> mirbftpb.NetworkState.Config
+	31, // 72: mirbftpb.StateEventResult.Commit.client_states:type_name -> mirbftpb.NetworkState.Client
+	15, // 73: mirbftpb.StateEventResult.Forward.ack:type_name -> mirbftpb.RequestAck
+	28, // 74: mirbftpb.StateEventResult.HashRequest.origin:type_name -> mirbftpb.HashResult
+	15, // 75: mirbftpb.HashResult.Batch.request_acks:type_name -> mirbftpb.RequestAck
+	15, // 76: mirbftpb.HashResult.VerifyBatch.request_acks:type_name -> mirbftpb.RequestAck
+	21, // 77: mirbftpb.HashResult.EpochChange.epoch_change:type_name -> mirbftpb.EpochChange
+	78, // [78:78] is the sub-list for method output_type
+	78, // [78:78] is the sub-list for method input_type
+	78, // [78:78] is the sub-list for extension type_name
+	78, // [78:78] is the sub-list for extension extendee
+	0,  // [0:78] is the sub-list for field type_name
 }
 
 func init() { file_mirbft_proto_init() }
@@ -4198,7 +4801,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*HashResult); i {
+			switch v := v.(*StateEventResult); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4210,7 +4813,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CheckpointResult); i {
+			switch v := v.(*HashResult); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4222,7 +4825,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NetworkState_Config); i {
+			switch v := v.(*CheckpointResult); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4234,7 +4837,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NetworkState_Client); i {
+			switch v := v.(*NetworkState_Config); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4246,7 +4849,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Reconfiguration_NewClient); i {
+			switch v := v.(*NetworkState_Client); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4258,7 +4861,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[32].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*EpochChange_SetEntry); i {
+			switch v := v.(*Reconfiguration_NewClient); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4270,7 +4873,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[33].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NewEpoch_RemoteEpochChange); i {
+			switch v := v.(*EpochChange_SetEntry); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4282,7 +4885,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StateEvent_InitialParameters); i {
+			switch v := v.(*NewEpoch_RemoteEpochChange); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4294,7 +4897,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StateEvent_PersistedEntry); i {
+			switch v := v.(*StateEvent_InitialParameters); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4306,7 +4909,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[36].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StateEvent_LoadCompleted); i {
+			switch v := v.(*StateEvent_PersistedEntry); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4318,7 +4921,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StateEvent_ActionResults); i {
+			switch v := v.(*StateEvent_LoadCompleted); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4330,7 +4933,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[38].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StateEvent_Proposal); i {
+			switch v := v.(*StateEvent_ActionResults); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4342,7 +4945,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StateEvent_InboundMsg); i {
+			switch v := v.(*StateEvent_Proposal); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4354,7 +4957,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StateEvent_TickElapsed); i {
+			switch v := v.(*StateEvent_InboundMsg); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4366,7 +4969,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StateEvent_Ready); i {
+			switch v := v.(*StateEvent_TickElapsed); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4378,7 +4981,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*HashResult_Batch); i {
+			switch v := v.(*StateEvent_Ready); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4390,7 +4993,7 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*HashResult_VerifyBatch); i {
+			switch v := v.(*StateEventResult_Send); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4402,6 +5005,102 @@ func file_mirbft_proto_init() {
 			}
 		}
 		file_mirbft_proto_msgTypes[44].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*StateEventResult_Write); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_mirbft_proto_msgTypes[45].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*StateEventResult_Commit); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_mirbft_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*StateEventResult_RequestSlot); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_mirbft_proto_msgTypes[47].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*StateEventResult_Forward); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_mirbft_proto_msgTypes[48].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*StateEventResult_HashRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_mirbft_proto_msgTypes[49].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*StateEventResult_StateTarget); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_mirbft_proto_msgTypes[50].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*HashResult_Batch); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_mirbft_proto_msgTypes[51].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*HashResult_VerifyBatch); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_mirbft_proto_msgTypes[52].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*HashResult_EpochChange); i {
 			case 0:
 				return &v.state
@@ -4457,7 +5156,7 @@ func file_mirbft_proto_init() {
 		(*StateEvent_Tick)(nil),
 		(*StateEvent_ActionsReceived)(nil),
 	}
-	file_mirbft_proto_msgTypes[27].OneofWrappers = []interface{}{
+	file_mirbft_proto_msgTypes[28].OneofWrappers = []interface{}{
 		(*HashResult_Batch_)(nil),
 		(*HashResult_EpochChange_)(nil),
 		(*HashResult_VerifyBatch_)(nil),
@@ -4468,7 +5167,7 @@ func file_mirbft_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_mirbft_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   45,
+			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

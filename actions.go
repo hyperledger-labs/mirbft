@@ -10,6 +10,132 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
+type actions struct {
+	pb.StateEventResult
+}
+
+func (a *actions) send(targets []uint64, msg *pb.Msg) *actions {
+	a.Send = append(a.Send, &pb.StateEventResult_Send{
+		Targets: targets,
+		Msg:     msg,
+	})
+
+	return a
+}
+
+func (a *actions) allocateRequest(clientID, reqNo uint64) *actions {
+	a.AllocatedRequests = append(a.AllocatedRequests, &pb.StateEventResult_RequestSlot{ClientId: clientID, ReqNo: reqNo})
+	return a
+}
+
+func (a *actions) forwardRequest(targets []uint64, requestAck *pb.RequestAck) *actions {
+	a.ForwardRequests = append(a.ForwardRequests, &pb.StateEventResult_Forward{
+		Targets: targets,
+		Ack:     requestAck,
+	})
+	return a
+}
+
+func (a *actions) persist(index uint64, p *pb.Persistent) *actions {
+	a.WriteAhead = append(a.WriteAhead,
+		&pb.StateEventResult_Write{
+			Append: index,
+			Data:   p,
+		})
+	return a
+}
+
+// clear nils out all of the fields.
+func (a *actions) clear() {
+	a.Send = nil
+	a.Hash = nil
+	a.WriteAhead = nil
+	a.Commits = nil
+	a.AllocatedRequests = nil
+	a.ForwardRequests = nil
+	a.StateTransfer = nil
+}
+
+func (a *actions) isEmpty() bool {
+	return len(a.Send) == 0 &&
+		len(a.Hash) == 0 &&
+		len(a.WriteAhead) == 0 &&
+		len(a.AllocatedRequests) == 0 &&
+		len(a.ForwardRequests) == 0 &&
+		len(a.Commits) == 0 &&
+		a.StateTransfer == nil
+}
+
+func (a *actions) toActions() *Actions {
+	result := &Actions{
+		Send:              make([]Send, len(a.Send)),
+		Hash:              make([]*HashRequest, len(a.Hash)),
+		WriteAhead:        make([]*Write, len(a.WriteAhead)),
+		AllocatedRequests: make([]RequestSlot, len(a.AllocatedRequests)),
+		ForwardRequests:   make([]Forward, len(a.ForwardRequests)),
+		Commits:           make([]*Commit, len(a.Commits)),
+	}
+
+	for i, send := range a.Send {
+		result.Send[i] = Send{
+			Targets: send.Targets,
+			Msg:     send.Msg,
+		}
+	}
+
+	for i, hash := range a.Hash {
+		result.Hash[i] = &HashRequest{
+			Data:   hash.Data,
+			Origin: hash.Origin,
+		}
+	}
+
+	for i, write := range a.WriteAhead {
+		if write.Truncate == 0 {
+			result.WriteAhead[i] = &Write{
+				Truncate: &write.Truncate,
+			}
+		} else {
+			result.WriteAhead[i] = &Write{
+				Append: &WALEntry{
+					Index: write.Append,
+					Data:  write.Data,
+				},
+			}
+		}
+	}
+
+	for i, ar := range a.AllocatedRequests {
+		result.AllocatedRequests[i] = RequestSlot{
+			ClientID: ar.ClientId,
+			ReqNo:    ar.ReqNo,
+		}
+	}
+
+	for i, f := range a.ForwardRequests {
+		result.ForwardRequests[i] = Forward{
+			Targets:    f.Targets,
+			RequestAck: f.Ack,
+		}
+	}
+
+	for i, c := range a.Commits {
+		if c.Batch != nil {
+			result.Commits[i] = &Commit{
+				Batch: c.Batch,
+			}
+		} else {
+			result.Commits[i].Checkpoint = &Checkpoint{
+				SeqNo:         c.SeqNo,
+				NetworkConfig: c.NetworkConfig,
+				ClientsState:  c.ClientStates,
+			}
+		}
+	}
+
+	return result
+}
+
 // Actions are the responsibility of the library user to fulfill.
 // The user receives a set of Actions from a read of *Node.Ready(),
 // and it is the user's responsibility to execute all actions, returning

@@ -400,6 +400,57 @@ message StateEvent {
     }
 }
 
+message StateEventResult {
+    message Send {
+        repeated uint64 targets = 1;
+        Msg msg = 2;
+    }
+
+    // Write requires either but not both truncate to be zero,
+    // data is non-nil iff append is non-zero
+    message Write {
+        uint64 truncate = 1;
+        uint64 append = 2;
+        Persistent data = 3;
+    }
+
+    // Commit either has the batch set, or seq_no,  network_config, and client_state set.
+    message Commit {
+        QEntry batch = 1;
+        uint64 seq_no = 2;
+        NetworkState.Config network_config = 3;
+        repeated NetworkState.Client client_states = 4;
+    }
+
+    message RequestSlot {
+        uint64 client_id = 1;
+        uint64 req_no = 2;
+    }
+
+    message Forward {
+        repeated uint64 targets = 1;
+        RequestAck ack = 2;
+    }
+
+    message HashRequest {
+        repeated bytes data = 1;
+        HashResult origin = 2;
+    }
+
+    message StateTarget {
+        uint64 seq_no = 1;
+        bytes value = 2;
+    }
+
+    repeated Send send = 1;
+    repeated HashRequest hash = 2;
+    repeated Write write_ahead = 3;
+    repeated Commit commits = 4;
+    repeated RequestSlot allocated_requests = 5;
+    repeated Forward forward_requests = 6;
+    StateTarget state_transfer = 7;
+}
+
 message HashResult {
     message Batch {
         uint64 source = 1;
