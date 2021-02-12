@@ -17,9 +17,9 @@ The high level structure of the MirBFT library steals heavily from the architect
 
 The required components not dictated by the implementation include:
 
-1. A write-ahead-log for persisting the state machine log entries. (or use [the provided one](https://github.com/IBM/mirbft/blob/master/simplewal/wal.go)).
+1. A write-ahead-log for persisting the state machine log entries. (or use [the provided one](https://github.com/IBM/mirbft/blob/master/pkg/simplewal/wal.go)).
 2. A hashing implementation (such as the builtin [sha256](https://golang.org/pkg/crypto/sha256/)).
-3. A request store for persisting application requests while they are consented upon (or use [the provided one](https://github.com/IBM/mirbft/blob/master/reqstore/reqstore.go)).
+3. A request store for persisting application requests while they are consented upon (or use [the provided one](https://github.com/IBM/mirbft/blob/master/pkg/reqstore/reqstore.go)).
 4. An application state which can apply committed requests and may be snapshotted.
 
 For basic applications, only (4) may need to be written, though for applications which wish to optimize for throughput (for instance avoiding committing request data to disk twice), a custom implementation of (3) which integrates with (4) may be desirable.

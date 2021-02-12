@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
-	"github.com/IBM/mirbft/reqstore"
+	"github.com/IBM/mirbft/pkg/reqstore"
 )
 
 var _ = Describe("Reqstore", func() {
