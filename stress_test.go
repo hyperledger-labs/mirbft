@@ -24,8 +24,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/IBM/mirbft"
-	"github.com/IBM/mirbft/eventlog"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/eventlog"
 	"github.com/IBM/mirbft/reqstore"
 	"github.com/IBM/mirbft/simplewal"
 	"github.com/IBM/mirbft/status"

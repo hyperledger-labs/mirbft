@@ -24,9 +24,9 @@ import (
 	"gopkg.in/alecthomas/kingpin.v2"
 
 	"github.com/IBM/mirbft"
-	"github.com/IBM/mirbft/eventlog"
-	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/eventlog"
+	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
 	"github.com/IBM/mirbft/status"
 )
 

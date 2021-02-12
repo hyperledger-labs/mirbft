@@ -19,8 +19,8 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 
-	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
 )
 
 type RecorderOpt interface{}

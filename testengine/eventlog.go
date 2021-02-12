@@ -14,9 +14,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/IBM/mirbft/eventlog"
-	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/eventlog"
+	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
 )
 
 type EventLog struct {

@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"reflect"
 
-	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
 
 	"google.golang.org/protobuf/proto"
 )

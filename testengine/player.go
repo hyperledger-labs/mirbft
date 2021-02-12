@@ -11,8 +11,8 @@ import (
 	"io"
 
 	"github.com/IBM/mirbft"
-	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
 	"github.com/IBM/mirbft/status"
 	"github.com/pkg/errors"
 )

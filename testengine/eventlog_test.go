@@ -10,8 +10,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
 	"github.com/IBM/mirbft/testengine"
 
 	"google.golang.org/protobuf/encoding/protojson"

@@ -15,9 +15,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/IBM/mirbft/eventlog"
-	rpb "github.com/IBM/mirbft/eventlog/recorderpb"
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/eventlog"
+	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
 )
 
 var tickEvent = &pb.StateEvent{
