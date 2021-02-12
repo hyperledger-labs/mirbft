@@ -26,8 +26,8 @@ import (
 	"github.com/IBM/mirbft"
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/pkg/eventlog"
+	"github.com/IBM/mirbft/pkg/simplewal"
 	"github.com/IBM/mirbft/reqstore"
-	"github.com/IBM/mirbft/simplewal"
 	"github.com/IBM/mirbft/status"
 )
 
