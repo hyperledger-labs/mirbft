@@ -45,7 +45,7 @@ func newCommitState(persisted *persisted, logger Logger) *commitState {
 	return cs
 }
 
-func (cs *commitState) reinitialize() *Actions {
+func (cs *commitState) reinitialize() *actionSet {
 	var lastCEntry, secondToLastCEntry *pb.CEntry
 	var lastTEntry *pb.TEntry
 
@@ -87,42 +87,46 @@ func (cs *commitState) reinitialize() *Actions {
 	if lastTEntry == nil || lastCEntry.SeqNo >= lastTEntry.SeqNo {
 		cs.logger.Log(LevelDebug, "reinitialized commit-state", "low_watermark", cs.lowWatermark, "stop_at_seq_no", cs.stopAtSeqNo, "len(pending_reconfigurations)", len(cs.activeState.PendingReconfigurations), "last_checkpoint_seq_no", lastCEntry.SeqNo)
 		cs.transferring = false
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	cs.logger.Log(LevelInfo, "reinitialized commit-state detected crash during state transfer", "target_seq_no", lastTEntry.SeqNo, "target_value", lastTEntry.Value)
 
 	// We crashed during a state transfer
 	cs.transferring = true
-	return &Actions{
-		StateTransfer: &StateTarget{
-			SeqNo: lastTEntry.SeqNo,
-			Value: lastTEntry.Value,
+	return &actionSet{
+		StateEventResult: pb.StateEventResult{
+			StateTransfer: &pb.StateEventResult_StateTarget{
+				SeqNo: lastTEntry.SeqNo,
+				Value: lastTEntry.Value,
+			},
 		},
 	}
 }
 
-func (cs *commitState) transferTo(seqNo uint64, value []byte) *Actions {
+func (cs *commitState) transferTo(seqNo uint64, value []byte) *actionSet {
 	cs.logger.Log(LevelDebug, "initiating state transfer", "target_seq_no", seqNo, "target_value", value)
 	assertEqual(cs.transferring, false, "multiple state transfers are not supported concurrently")
 	cs.transferring = true
 	return cs.persisted.addTEntry(&pb.TEntry{
 		SeqNo: seqNo,
 		Value: value,
-	}).concat(&Actions{
-		StateTransfer: &StateTarget{
-			SeqNo: seqNo,
-			Value: value,
+	}).concat(&actionSet{
+		StateEventResult: pb.StateEventResult{
+			StateTransfer: &pb.StateEventResult_StateTarget{
+				SeqNo: seqNo,
+				Value: value,
+			},
 		},
 	})
 }
 
-func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result *pb.CheckpointResult) *Actions {
+func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result *pb.CheckpointResult) *actionSet {
 	cs.logger.Log(LevelDebug, "applying checkpoint result", "seq_no", result.SeqNo, "value", result.Value)
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 
 	if cs.transferring {
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	if result.SeqNo != cs.lowWatermark+ci {
@@ -231,20 +235,18 @@ func nextNetworkConfig(startingState *pb.NetworkState, committingClients map[uin
 }
 
 // drain returns all available Commits (including checkpoint requests)
-func (cs *commitState) drain() []*Commit {
+func (cs *commitState) drain() []*pb.StateEventResult_Commit {
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 
-	var result []*Commit
+	var result []*pb.StateEventResult_Commit
 	for cs.lastAppliedCommit < cs.lowWatermark+2*ci {
 		if cs.lastAppliedCommit == cs.lowWatermark+ci && !cs.checkpointPending {
 			networkConfig, clientConfigs := nextNetworkConfig(cs.activeState, cs.committingClients)
 
-			result = append(result, &Commit{
-				Checkpoint: &Checkpoint{
-					SeqNo:         cs.lastAppliedCommit,
-					NetworkConfig: networkConfig,
-					ClientsState:  clientConfigs,
-				},
+			result = append(result, &pb.StateEventResult_Commit{
+				SeqNo:         cs.lastAppliedCommit,
+				NetworkConfig: networkConfig,
+				ClientStates:  clientConfigs,
 			})
 
 			cs.checkpointPending = true
@@ -268,7 +270,7 @@ func (cs *commitState) drain() []*Commit {
 
 		assertEqual(commit.SeqNo, nextCommit, "attempted out of order commit")
 
-		result = append(result, &Commit{
+		result = append(result, &pb.StateEventResult_Commit{
 			Batch: commit,
 		})
 

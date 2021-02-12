@@ -153,7 +153,7 @@ func (sm *StateMachine) applyPersisted(entry *WALEntry) {
 	sm.persisted.appendInitialLoad(entry)
 }
 
-func (sm *StateMachine) completeInitialization() *Actions {
+func (sm *StateMachine) completeInitialization() *actionSet {
 	assertEqualf(sm.state, smLoadingPersisted, "state machine has already finished loading persisted data")
 
 	sm.state = smInitialized
@@ -161,23 +161,23 @@ func (sm *StateMachine) completeInitialization() *Actions {
 	return sm.reinitialize()
 }
 
-func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
+func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *actionSet {
 	assertInitialized := func() {
 		assertEqualf(sm.state, smInitialized, "cannot apply events to an uninitialized state machine")
 	}
 
-	actions := &Actions{}
+	actions := &actionSet{}
 
 	switch event := stateEvent.Type.(type) {
 	case *pb.StateEvent_Initialize:
 		sm.initialize(event.Initialize)
-		return &Actions{}
+		return &actionSet{}
 	case *pb.StateEvent_LoadEntry:
 		sm.applyPersisted(&WALEntry{
 			Index: event.LoadEntry.Index,
 			Data:  event.LoadEntry.Data,
 		})
-		return &Actions{}
+		return &actionSet{}
 	case *pb.StateEvent_CompleteInitialization:
 		return sm.completeInitialization()
 	case *pb.StateEvent_Tick:
@@ -211,7 +211,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		// This is a bit odd, in that it's a no-op, but it's harmless
 		// and allows for much more insightful playback events (allowing
 		// us to tie action results to a particular set of actions)
-		return &Actions{}
+		return &actionSet{}
 	default:
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}
@@ -242,8 +242,10 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 		// may continue to iterate the state machine, and do so, so long as
 		// attempting to advance the state causes new actions.
 
-		actions.concat(&Actions{
-			Commits: sm.commitState.drain(),
+		actions.concat(&actionSet{
+			StateEventResult: pb.StateEventResult{
+				Commits: sm.commitState.drain(),
+			},
 		})
 
 		loopActions := sm.epochTracker.advanceState()
@@ -261,7 +263,7 @@ func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *Actions {
 // varying from component to component, useful state will be retained.  For instance,
 // the clientTracker retains in-window ACKs for still-extant clients.  The checkpointTracker
 // retains checkpoint messages sent by other replicas, etc.
-func (sm *StateMachine) reinitialize() *Actions {
+func (sm *StateMachine) reinitialize() *actionSet {
 	defer sm.Logger.Log(LevelInfo, "state machine reinitialized (either due to start, state transfer, or reconfiguration)")
 
 	actions := sm.recoverLog()
@@ -274,10 +276,10 @@ func (sm *StateMachine) reinitialize() *Actions {
 	return actions.concat(sm.epochTracker.reinitialize())
 }
 
-func (sm *StateMachine) recoverLog() *Actions {
+func (sm *StateMachine) recoverLog() *actionSet {
 	var lastCEntry *pb.CEntry
 
-	actions := &Actions{}
+	actions := &actionSet{}
 
 	sm.persisted.iterate(logIterator{
 		onCEntry: func(cEntry *pb.CEntry) {
@@ -294,8 +296,8 @@ func (sm *StateMachine) recoverLog() *Actions {
 	return actions
 }
 
-func (sm *StateMachine) step(source nodeID, msg *pb.Msg) *Actions {
-	actions := &Actions{}
+func (sm *StateMachine) step(source nodeID, msg *pb.Msg) *actionSet {
+	actions := &actionSet{}
 	switch msg.Type.(type) {
 	case *pb.Msg_RequestAck:
 		return actions.concat(sm.clientHashDisseminator.step(source, msg))
@@ -305,7 +307,7 @@ func (sm *StateMachine) step(source nodeID, msg *pb.Msg) *Actions {
 		return actions.concat(sm.clientHashDisseminator.step(source, msg))
 	case *pb.Msg_Checkpoint:
 		sm.checkpointTracker.step(source, msg)
-		return &Actions{}
+		return &actionSet{}
 	case *pb.Msg_FetchBatch:
 		// TODO decide if we want some buffering?
 		return sm.batchTracker.step(source, msg)
@@ -335,8 +337,8 @@ func (sm *StateMachine) step(source nodeID, msg *pb.Msg) *Actions {
 	}
 }
 
-func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *Actions {
-	actions := &Actions{}
+func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *actionSet {
+	actions := &actionSet{}
 
 	for _, checkpointResult := range results.Checkpoints {
 		if checkpointResult.SeqNo < sm.commitState.lowWatermark {

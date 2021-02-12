@@ -139,8 +139,8 @@ func newClientHashDisseminator(nodeBuffers *nodeBuffers, myConfig *pb.StateEvent
 	}
 }
 
-func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.NetworkState) *Actions {
-	actions := &Actions{}
+func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.NetworkState) *actionSet {
+	actions := &actionSet{}
 	reconfiguring := len(networkState.PendingReconfigurations) > 0
 
 	latestClientStates := map[uint64]*pb.NetworkState_Client{}
@@ -178,8 +178,8 @@ func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.Ne
 	return actions
 }
 
-func (ct *clientHashDisseminator) tick() *Actions {
-	actions := &Actions{}
+func (ct *clientHashDisseminator) tick() *actionSet {
+	actions := &actionSet{}
 	for _, clientState := range ct.clientStates {
 		client := ct.clients[clientState.Id]
 		actions.concat(client.tick())
@@ -228,57 +228,57 @@ func (ct *clientHashDisseminator) filter(_ nodeID, msg *pb.Msg) applyable {
 	}
 }
 
-func (ct *clientHashDisseminator) step(source nodeID, msg *pb.Msg) *Actions {
+func (ct *clientHashDisseminator) step(source nodeID, msg *pb.Msg) *actionSet {
 	switch ct.filter(source, msg) {
 	case past:
 		// discard
-		return &Actions{}
+		return &actionSet{}
 	case future:
 		ct.msgBuffers[source].store(msg)
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	// current
 	return ct.applyMsg(source, msg)
 }
 
-func (ct *clientHashDisseminator) applyMsg(source nodeID, msg *pb.Msg) *Actions {
+func (ct *clientHashDisseminator) applyMsg(source nodeID, msg *pb.Msg) *actionSet {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_RequestAck:
 		// TODO, make sure nodeMsgs ignores this if client is not defined
 		ct.ack(source, innerMsg.RequestAck)
-		return &Actions{}
+		return &actionSet{}
 	case *pb.Msg_FetchRequest:
 		msg := innerMsg.FetchRequest
 		return ct.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest)
 	case *pb.Msg_ForwardRequest:
 		// XXX this message is going away, temporarily disabling handling
-		return &Actions{}
+		return &actionSet{}
 	default:
 		panic(fmt.Sprintf("unexpected bad client window message type %T, this indicates a bug", msg.Type))
 	}
 }
 
-func (ct *clientHashDisseminator) applyNewRequest(ack *pb.RequestAck) *Actions {
+func (ct *clientHashDisseminator) applyNewRequest(ack *pb.RequestAck) *actionSet {
 	client, ok := ct.clients[ack.ClientId]
 	if !ok {
 		// Unusual, client must have been removed since we processed the request
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	if !client.inWatermarks(ack.ReqNo) {
 		// We've already committed this reqno
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	return client.reqNo(ack.ReqNo).applyNewRequest(ack)
 }
 
 // allocate should be invoked after the checkpoint is computed and advances the high watermark.
-func (ct *clientHashDisseminator) allocate(seqNo uint64, networkState *pb.NetworkState) *Actions {
+func (ct *clientHashDisseminator) allocate(seqNo uint64, networkState *pb.NetworkState) *actionSet {
 	assertEqual(seqNo, uint64(networkState.Config.CheckpointInterval)+ct.allocatedThrough, "unexpected skip in allocate, expected next allocation at next checkpoint")
 
-	actions := &Actions{}
+	actions := &actionSet{}
 
 	ct.allocatedThrough = seqNo
 	reconfiguring := len(networkState.PendingReconfigurations) > 0
@@ -295,27 +295,27 @@ func (ct *clientHashDisseminator) allocate(seqNo uint64, networkState *pb.Networ
 	return actions
 }
 
-func (ct *clientHashDisseminator) replyFetchRequest(source nodeID, clientID, reqNo uint64, digest []byte) *Actions {
+func (ct *clientHashDisseminator) replyFetchRequest(source nodeID, clientID, reqNo uint64, digest []byte) *actionSet {
 	c, ok := ct.client(clientID)
 	if !ok {
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	if !c.inWatermarks(reqNo) {
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	creq := c.reqNo(reqNo)
 	data, ok := creq.requests[string(digest)]
 	if !ok {
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	if _, ok := data.agreements[nodeID(ct.myConfig.Id)]; !ok {
-		return &Actions{}
+		return &actionSet{}
 	}
 
-	return (&Actions{}).forwardRequest(
+	return (&actionSet{}).forwardRequest(
 		[]uint64{uint64(source)},
 		&pb.RequestAck{
 			ClientId: clientID,
@@ -442,12 +442,12 @@ func (crn *clientReqNo) clientReq(ack *pb.RequestAck) *clientRequest {
 	return clientReq
 }
 
-func (crn *clientReqNo) applyNewRequest(ack *pb.RequestAck) *Actions {
+func (crn *clientReqNo) applyNewRequest(ack *pb.RequestAck) *actionSet {
 	_, ok := crn.myRequests[string(ack.Digest)]
 	if ok {
 		// We have already persisted this request, likely
 		// a race between a forward and a local proposal, do nothing
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	clientReq := crn.clientReq(ack)
@@ -455,7 +455,7 @@ func (crn *clientReqNo) applyNewRequest(ack *pb.RequestAck) *Actions {
 
 	crn.myRequests[string(ack.Digest)] = clientReq
 
-	actions := &Actions{}
+	actions := &actionSet{}
 
 	if len(crn.myRequests) == 1 {
 		crn.acksSent = 1
@@ -524,12 +524,12 @@ func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck, force
 	crn.strongRequests[string(ack.Digest)] = clientReq
 }
 
-func (crn *clientReqNo) tick() *Actions {
+func (crn *clientReqNo) tick() *actionSet {
 	if crn.committed {
-		return &Actions{}
+		return &actionSet{}
 	}
 
-	actions := &Actions{}
+	actions := &actionSet{}
 
 	// First, if we have accumulated conflicting correct requests and not committed,
 	// we switch to promoting the null request
@@ -659,9 +659,9 @@ type clientRequest struct {
 	ticksCorrect  uint // incremented by one each tick while not stored
 }
 
-func (cr *clientRequest) fetch() *Actions {
+func (cr *clientRequest) fetch() *actionSet {
 	if cr.fetching {
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	// TODO, with access to network config, we could pick f+1
@@ -678,7 +678,7 @@ func (cr *clientRequest) fetch() *Actions {
 	cr.fetching = true
 	cr.ticksFetching = 0
 
-	return (&Actions{}).send(
+	return (&actionSet{}).send(
 		nodes,
 		&pb.Msg{
 			Type: &pb.Msg_FetchRequest{
@@ -707,8 +707,8 @@ func newClient(logger Logger, tracker *clientTracker) *client {
 	}
 }
 
-func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Config, clientState *pb.NetworkState_Client, reconfiguring bool) *Actions {
-	actions := &Actions{}
+func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Config, clientState *pb.NetworkState_Client, reconfiguring bool) *actionSet {
+	actions := &actionSet{}
 	oldReqNoMap := c.reqNoMap
 
 	intermediateHighWatermark := clientState.LowWatermark + uint64(clientState.Width) - uint64(clientState.WidthConsumedLastCheckpoint)
@@ -757,8 +757,8 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Confi
 	return actions
 }
 
-func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfiguring bool) *Actions {
-	actions := &Actions{}
+func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfiguring bool) *actionSet {
+	actions := &actionSet{}
 
 	intermediateHighWatermark := state.LowWatermark + uint64(state.Width) - uint64(state.WidthConsumedLastCheckpoint)
 	assertEqualf(intermediateHighWatermark, c.highWatermark, "new intermediate high watermark should always be the old high watemark, in the allocation path", state.Id)
@@ -876,8 +876,8 @@ func (c *client) advanceReady() {
 	}
 }
 
-func (c *client) tick() *Actions {
-	actions := &Actions{}
+func (c *client) tick() *actionSet {
+	actions := &actionSet{}
 	for el := c.reqNoList.Front(); el != nil; el = el.Next() {
 		crn := el.Value.(*clientReqNo)
 		actions.concat(crn.tick())

@@ -211,8 +211,8 @@ func (ae *activeEpoch) filter(source nodeID, msg *pb.Msg) applyable {
 	}
 }
 
-func (ae *activeEpoch) apply(source nodeID, msg *pb.Msg) *Actions {
-	actions := &Actions{}
+func (ae *activeEpoch) apply(source nodeID, msg *pb.Msg) *actionSet {
+	actions := &actionSet{}
 
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_Preprepare:
@@ -238,7 +238,7 @@ func (ae *activeEpoch) apply(source nodeID, msg *pb.Msg) *Actions {
 	return actions
 }
 
-func (ae *activeEpoch) step(source nodeID, msg *pb.Msg) *Actions {
+func (ae *activeEpoch) step(source nodeID, msg *pb.Msg) *actionSet {
 	switch ae.filter(source, msg) {
 	case past:
 	case future:
@@ -254,14 +254,14 @@ func (ae *activeEpoch) step(source nodeID, msg *pb.Msg) *Actions {
 	default: // current
 		return ae.apply(source, msg)
 	}
-	return &Actions{}
+	return &actionSet{}
 }
 
 func (e *activeEpoch) inWatermarks(seqNo uint64) bool {
 	return seqNo >= e.lowWatermark() && seqNo <= e.highWatermark()
 }
 
-func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*pb.RequestAck) *Actions {
+func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*pb.RequestAck) *actionSet {
 	seq := e.sequence(seqNo)
 
 	if seq.owner == nodeID(e.myConfig.Id) {
@@ -286,21 +286,21 @@ func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*p
 	return actions
 }
 
-func (e *activeEpoch) applyPrepareMsg(source nodeID, seqNo uint64, digest []byte) *Actions {
+func (e *activeEpoch) applyPrepareMsg(source nodeID, seqNo uint64, digest []byte) *actionSet {
 	seq := e.sequence(seqNo)
 
 	return seq.applyPrepareMsg(source, digest)
 }
 
-func (e *activeEpoch) applyCommitMsg(source nodeID, seqNo uint64, digest []byte) *Actions {
+func (e *activeEpoch) applyCommitMsg(source nodeID, seqNo uint64, digest []byte) *actionSet {
 	seq := e.sequence(seqNo)
 
 	seq.applyCommitMsg(source, digest)
 	if seq.state != sequenceCommitted || seqNo != e.lowestUncommitted {
-		return &Actions{}
+		return &actionSet{}
 	}
 
-	actions := &Actions{}
+	actions := &actionSet{}
 
 	for e.lowestUncommitted <= e.highWatermark() {
 		seq := e.sequence(e.lowestUncommitted)
@@ -315,13 +315,13 @@ func (e *activeEpoch) applyCommitMsg(source nodeID, seqNo uint64, digest []byte)
 	return actions
 }
 
-func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*Actions, bool) {
+func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*actionSet, bool) {
 	if seqNo == e.epochConfig.PlannedExpiration {
-		return &Actions{}, true
+		return &actionSet{}, true
 	}
 
 	if seqNo == e.commitState.stopAtSeqNo {
-		return &Actions{}, true
+		return &actionSet{}, true
 	}
 
 	actions := e.advance()
@@ -335,8 +335,8 @@ func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*Actions, bool) {
 	return actions, false
 }
 
-func (e *activeEpoch) drainBuffers() *Actions {
-	actions := &Actions{}
+func (e *activeEpoch) drainBuffers() *actionSet {
+	actions := &actionSet{}
 
 	for i := 0; i < len(e.buckets); i++ {
 		preprepareBuffer := e.preprepareBuffers[bucketID(i)]
@@ -364,8 +364,8 @@ func (e *activeEpoch) drainBuffers() *Actions {
 	return actions
 }
 
-func (e *activeEpoch) advance() *Actions {
-	actions := &Actions{}
+func (e *activeEpoch) advance() *actionSet {
+	actions := &actionSet{}
 
 	assertGreaterThanOrEqual(e.epochConfig.PlannedExpiration, e.highWatermark(), "high watermark should never extend beyond the planned epoch expiration")
 	assertGreaterThanOrEqual(e.commitState.stopAtSeqNo, e.highWatermark(), "high watermark should never extend beyond the stop at sequence")
@@ -421,12 +421,12 @@ func (e *activeEpoch) advance() *Actions {
 	return actions
 }
 
-func (e *activeEpoch) applyBatchHashResult(seqNo uint64, digest []byte) *Actions {
+func (e *activeEpoch) applyBatchHashResult(seqNo uint64, digest []byte) *actionSet {
 	if !e.inWatermarks(seqNo) {
 		// this possibly could be logged, as it indicates consumer error possibly.
 		// on the other hand during or after state transfer this could be entirely
 		// benign.
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	seq := e.sequence(seqNo)
@@ -434,15 +434,15 @@ func (e *activeEpoch) applyBatchHashResult(seqNo uint64, digest []byte) *Actions
 	return seq.applyBatchHashResult(digest)
 }
 
-func (e *activeEpoch) tick() *Actions {
+func (e *activeEpoch) tick() *actionSet {
 	if e.lastCommittedAtTick < e.commitState.highestCommit {
 		e.lastCommittedAtTick = e.commitState.highestCommit
 		e.ticksSinceProgress = 0
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	e.ticksSinceProgress++
-	actions := &Actions{}
+	actions := &actionSet{}
 
 	if e.ticksSinceProgress > e.myConfig.SuspectTicks {
 		suspect := &pb.Suspect{

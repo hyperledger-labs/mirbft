@@ -447,8 +447,9 @@ message StateEventResult {
     repeated Write write_ahead = 3;
     repeated Commit commits = 4;
     repeated RequestSlot allocated_requests = 5;
-    repeated Forward forward_requests = 6;
-    StateTarget state_transfer = 7;
+    repeated ForwardRequest store_requests = 6;
+    repeated Forward forward_requests = 7;
+    StateTarget state_transfer = 8;
 }
 
 message HashResult {

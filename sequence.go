@@ -99,8 +99,8 @@ func (s *sequence) nodeChoice(source nodeID) *nodeSeqChoice {
 	return choice
 }
 
-func (s *sequence) advanceState() *Actions {
-	actions := &Actions{}
+func (s *sequence) advanceState() *actionSet {
+	actions := &actionSet{}
 	for {
 		oldState := s.state
 		switch s.state {
@@ -124,7 +124,7 @@ func (s *sequence) advanceState() *Actions {
 	}
 }
 
-func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *Actions {
+func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *actionSet {
 	s.clientRequests = clientRequests
 
 	requestAcks := make([]*pb.RequestAck, len(clientRequests))
@@ -138,7 +138,7 @@ func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *Actions {
 // allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the uninitialized state, it returns an error.  Otherwise,
 // It transitions to preprepared and returns a ValidationRequest message.
-func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[string]struct{}) *Actions {
+func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[string]struct{}) *actionSet {
 	assertEqualf(s.state, sequenceUninitialized, "seq_no=%d must be uninitialized to allocate", s.seqNo)
 
 	s.state = sequenceAllocated
@@ -156,18 +156,20 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[st
 		data[i] = ack.Digest
 	}
 
-	actions := &Actions{
-		Hash: []*HashRequest{
-			{
-				Data: data,
+	actions := &actionSet{
+		StateEventResult: pb.StateEventResult{
+			Hash: []*pb.StateEventResult_HashRequest{
+				{
+					Data: data,
 
-				Origin: &pb.HashResult{
-					Type: &pb.HashResult_Batch_{
-						Batch: &pb.HashResult_Batch{
-							Source:      uint64(s.owner),
-							SeqNo:       s.seqNo,
-							Epoch:       s.epoch,
-							RequestAcks: requestAcks,
+					Origin: &pb.HashResult{
+						Type: &pb.HashResult_Batch_{
+							Batch: &pb.HashResult_Batch{
+								Source:      uint64(s.owner),
+								SeqNo:       s.seqNo,
+								Epoch:       s.epoch,
+								RequestAcks: requestAcks,
+							},
 						},
 					},
 				},
@@ -180,7 +182,7 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[st
 	return actions.concat(s.advanceState())
 }
 
-func (s *sequence) satisfyOutstanding(fr *pb.RequestAck) *Actions {
+func (s *sequence) satisfyOutstanding(fr *pb.RequestAck) *actionSet {
 	_, ok := s.outstandingReqs[string(fr.Digest)]
 	assertTruef(ok, "told request %x was ready but we weren't waiting for it", fr.Digest)
 
@@ -197,13 +199,13 @@ func (s *sequence) checkRequests() {
 	s.state = sequenceReady
 }
 
-func (s *sequence) applyBatchHashResult(digest []byte) *Actions {
+func (s *sequence) applyBatchHashResult(digest []byte) *actionSet {
 	s.digest = digest
 
 	return s.applyPrepareMsg(s.owner, digest)
 }
 
-func (s *sequence) prepare() *Actions {
+func (s *sequence) prepare() *actionSet {
 	s.qEntry = &pb.QEntry{
 		SeqNo:    s.seqNo,
 		Digest:   s.digest,
@@ -212,7 +214,7 @@ func (s *sequence) prepare() *Actions {
 
 	s.state = sequencePreprepared
 
-	actions := &Actions{}
+	actions := &actionSet{}
 
 	if uint64(s.owner) == s.myConfig.Id {
 		for _, cr := range s.clientRequests {
@@ -257,7 +259,7 @@ func (s *sequence) prepare() *Actions {
 	return actions.concat(s.persisted.addQEntry(s.qEntry))
 }
 
-func (s *sequence) applyPrepareMsg(source nodeID, digest []byte) *Actions {
+func (s *sequence) applyPrepareMsg(source nodeID, digest []byte) *actionSet {
 	choice := s.nodeChoice(source)
 
 	// We only check for duplicate prepares for non-owners, as the
@@ -265,7 +267,7 @@ func (s *sequence) applyPrepareMsg(source nodeID, digest []byte) *Actions {
 	// and the choice has already been recorded for the preprepare.
 	if source != s.owner && choice.state > nodeSeqUninitialized {
 		// TODO log oddity
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	choice.state = nodeSeqPreprepared
@@ -276,19 +278,19 @@ func (s *sequence) applyPrepareMsg(source nodeID, digest []byte) *Actions {
 	return s.advanceState()
 }
 
-func (s *sequence) checkPrepareQuorum() *Actions {
+func (s *sequence) checkPrepareQuorum() *actionSet {
 	agreements := s.prepares[string(s.digest)]
 
 	// Do not prepare unless we have sent our prepare as well
 	// as this ensures we've persisted our qSet
 	myChoice := s.nodeChoice(nodeID(s.myConfig.Id))
 	if myChoice.state < nodeSeqPreprepared {
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	if !bytes.Equal(myChoice.digest, s.digest) {
 		// TODO, log oddity, we have different digest than what net says is correct
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	// We do require 2f+1 prepares (instead of 2f), as the preprepare
@@ -296,7 +298,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 	requiredPrepares := intersectionQuorum(s.networkConfig)
 
 	if agreements < requiredPrepares {
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	s.state = sequencePrepared
@@ -306,7 +308,7 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 		Digest: s.digest,
 	}
 
-	actions := (&Actions{}).send(
+	actions := (&actionSet{}).send(
 		s.networkConfig.Nodes,
 		&pb.Msg{
 			Type: &pb.Msg_Commit{
@@ -321,11 +323,11 @@ func (s *sequence) checkPrepareQuorum() *Actions {
 	return actions.concat(s.persisted.addPEntry(pEntry))
 }
 
-func (s *sequence) applyCommitMsg(source nodeID, digest []byte) *Actions {
+func (s *sequence) applyCommitMsg(source nodeID, digest []byte) *actionSet {
 	choice := s.nodeChoice(source)
 	if choice.state > nodeSeqPreprepared {
 		// TODO log oddity
-		return &Actions{}
+		return &actionSet{}
 	}
 
 	choice.state = nodeSeqPrepared

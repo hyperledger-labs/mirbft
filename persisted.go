@@ -66,18 +66,18 @@ func (p *persisted) appendInitialLoad(entry *WALEntry) {
 	p.nextIndex = entry.Index + 1
 }
 
-func (p *persisted) appendLogEntry(entry *pb.Persistent) *Actions {
+func (p *persisted) appendLogEntry(entry *pb.Persistent) *actionSet {
 	p.logTail.next = &logEntry{
 		index: p.nextIndex,
 		entry: entry,
 	}
 	p.logTail = p.logTail.next
-	result := (&Actions{}).persist(p.nextIndex, entry)
+	result := (&actionSet{}).persist(p.nextIndex, entry)
 	p.nextIndex++
 	return result
 }
 
-func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
+func (p *persisted) addPEntry(pEntry *pb.PEntry) *actionSet {
 	d := &pb.Persistent{
 		Type: &pb.Persistent_PEntry{
 			PEntry: pEntry,
@@ -87,7 +87,7 @@ func (p *persisted) addPEntry(pEntry *pb.PEntry) *Actions {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
+func (p *persisted) addQEntry(qEntry *pb.QEntry) *actionSet {
 	d := &pb.Persistent{
 		Type: &pb.Persistent_QEntry{
 			QEntry: qEntry,
@@ -97,7 +97,7 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) *Actions {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addNEntry(nEntry *pb.NEntry) *Actions {
+func (p *persisted) addNEntry(nEntry *pb.NEntry) *actionSet {
 	d := &pb.Persistent{
 		Type: &pb.Persistent_NEntry{
 			NEntry: nEntry,
@@ -107,7 +107,7 @@ func (p *persisted) addNEntry(nEntry *pb.NEntry) *Actions {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
+func (p *persisted) addCEntry(cEntry *pb.CEntry) *actionSet {
 	assertNotEqual(cEntry.NetworkState, nil, "network config must be set")
 
 	d := &pb.Persistent{
@@ -119,7 +119,7 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *Actions {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addSuspect(suspect *pb.Suspect) *Actions {
+func (p *persisted) addSuspect(suspect *pb.Suspect) *actionSet {
 	d := &pb.Persistent{
 		Type: &pb.Persistent_Suspect{
 			Suspect: suspect,
@@ -129,7 +129,7 @@ func (p *persisted) addSuspect(suspect *pb.Suspect) *Actions {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addECEntry(ecEntry *pb.ECEntry) *Actions {
+func (p *persisted) addECEntry(ecEntry *pb.ECEntry) *actionSet {
 	d := &pb.Persistent{
 		Type: &pb.Persistent_ECEntry{
 			ECEntry: ecEntry,
@@ -139,7 +139,7 @@ func (p *persisted) addECEntry(ecEntry *pb.ECEntry) *Actions {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addTEntry(tEntry *pb.TEntry) *Actions {
+func (p *persisted) addTEntry(tEntry *pb.TEntry) *actionSet {
 	d := &pb.Persistent{
 		Type: &pb.Persistent_TEntry{
 			TEntry: tEntry,
@@ -149,7 +149,7 @@ func (p *persisted) addTEntry(tEntry *pb.TEntry) *Actions {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) truncate(lowWatermark uint64) *Actions {
+func (p *persisted) truncate(lowWatermark uint64) *actionSet {
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
 		switch d := logEntry.entry.Type.(type) {
 		case *pb.Persistent_CEntry:
@@ -171,16 +171,18 @@ func (p *persisted) truncate(lowWatermark uint64) *Actions {
 		}
 
 		p.logHead = logEntry
-		return &Actions{
-			WriteAhead: []*Write{
-				{
-					Truncate: &logEntry.index,
+		return &actionSet{
+			StateEventResult: pb.StateEventResult{
+				WriteAhead: []*pb.StateEventResult_Write{
+					{
+						Truncate: logEntry.index,
+					},
 				},
 			},
 		}
 	}
 
-	return &Actions{}
+	return &actionSet{}
 }
 
 // staticcheck hack

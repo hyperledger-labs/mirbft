@@ -151,7 +151,7 @@ type stateMachines struct {
 
 type stateMachine struct {
 	machine        *mirbft.StateMachine
-	pendingActions *mirbft.Actions
+	pendingActions *pb.StateEventResult
 	executionTime  time.Duration
 }
 
@@ -163,7 +163,7 @@ func newStateMachines(output io.Writer, logLevel mirbft.LogLevel) *stateMachines
 	}
 }
 
-func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *mirbft.Actions, err error) {
+func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *pb.StateEventResult, err error) {
 	var node *stateMachine
 
 	if _, ok := event.StateEvent.Type.(*pb.StateEvent_Initialize); ok {
@@ -176,7 +176,7 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *mirbft
 					level:  s.logLevel,
 				},
 			},
-			pendingActions: &mirbft.Actions{},
+			pendingActions: &pb.StateEventResult{},
 		}
 		s.nodes[event.NodeId] = node
 	} else {
@@ -196,20 +196,20 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *mirbft
 	start := time.Now()
 	actions := node.machine.ApplyEvent(event.StateEvent)
 	node.executionTime += time.Since(start)
-	node.pendingActions, err = actionsConcat(node.pendingActions, actions)
+	node.pendingActions, err = actionsConcat(node.pendingActions, &actions.StateEventResult)
 	if err != nil {
 		return nil, err
 	}
 
 	if _, ok := event.StateEvent.Type.(*pb.StateEvent_ActionsReceived); ok {
-		receivedActions, node.pendingActions = node.pendingActions, &mirbft.Actions{}
+		receivedActions, node.pendingActions = node.pendingActions, &pb.StateEventResult{}
 	}
 
 	return receivedActions, nil
 }
 
 // actionsConcat appends the actions of o to the actions a
-func actionsConcat(a, o *mirbft.Actions) (*mirbft.Actions, error) {
+func actionsConcat(a, o *pb.StateEventResult) (*pb.StateEventResult, error) {
 	a.Send = append(a.Send, o.Send...)
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
@@ -226,7 +226,7 @@ func actionsConcat(a, o *mirbft.Actions) (*mirbft.Actions, error) {
 	return a, nil
 }
 
-func actionsString(a *mirbft.Actions, truncateBytes bool, padding int) (string, error) {
+func actionsString(a *pb.StateEventResult, truncateBytes bool, padding int) (string, error) {
 	var buffer bytes.Buffer
 	writeLine := func(s string, extraPadding int) {
 		for i := 0; i < padding+extraPadding; i++ {
@@ -258,8 +258,8 @@ func actionsString(a *mirbft.Actions, truncateBytes bool, padding int) (string, 
 				writeLine(fmt.Sprintf("{batch: %s}", batchText), 2)
 			} else {
 				networkStateText, err := textFormat(&pb.NetworkState{
-					Config:  commit.Checkpoint.NetworkConfig,
-					Clients: commit.Checkpoint.ClientsState,
+					Config:  commit.NetworkConfig,
+					Clients: commit.ClientStates,
 				}, truncateBytes)
 				if err != nil {
 					return "", err
@@ -267,7 +267,7 @@ func actionsString(a *mirbft.Actions, truncateBytes bool, padding int) (string, 
 				writeLine(
 					fmt.Sprintf(
 						"{checkpoint: [seq_no=%d network_state=%s}",
-						commit.Checkpoint.SeqNo,
+						commit.SeqNo,
 						networkStateText,
 					),
 					2,
@@ -290,14 +290,14 @@ func actionsString(a *mirbft.Actions, truncateBytes bool, padding int) (string, 
 	if len(a.WriteAhead) > 0 {
 		writeLine("write_ahead:", 0)
 		for _, write := range a.WriteAhead {
-			if write.Truncate != nil {
-				writeLine(fmt.Sprintf("{truncate: index=%d}", *write.Truncate), 2)
+			if write.Truncate != 0 {
+				writeLine(fmt.Sprintf("{truncate: index=%d}", write.Truncate), 2)
 			} else {
-				dataText, err := textFormat(write.Append.Data, truncateBytes)
+				dataText, err := textFormat(write.Data, truncateBytes)
 				if err != nil {
 					return "", err
 				}
-				writeLine(fmt.Sprintf("{append: index=%d data=%s}", write.Append.Index, dataText), 2)
+				writeLine(fmt.Sprintf("{append: index=%d data=%s}", write.Append, dataText), 2)
 			}
 		}
 	}
@@ -316,7 +316,7 @@ func actionsString(a *mirbft.Actions, truncateBytes bool, padding int) (string, 
 	if len(a.ForwardRequests) > 0 {
 		writeLine("forward_requests:", 0)
 		for _, forwardReq := range a.ForwardRequests {
-			reqText, err := textFormat(forwardReq.RequestAck, truncateBytes)
+			reqText, err := textFormat(forwardReq.Ack, truncateBytes)
 			if err != nil {
 				return "", err
 			}

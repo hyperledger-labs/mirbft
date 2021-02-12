@@ -24,8 +24,8 @@ type EventSource interface {
 type PlaybackNode struct {
 	ID           uint64
 	StateMachine *mirbft.StateMachine
-	Processing   *mirbft.Actions
-	Actions      *mirbft.Actions
+	Processing   *pb.StateEventResult
+	Actions      *pb.StateEventResult
 	Status       *status.StateMachine
 }
 
@@ -52,7 +52,7 @@ func (p *Player) Node(id uint64) *PlaybackNode {
 
 	node = &PlaybackNode{
 		ID:      id,
-		Actions: &mirbft.Actions{},
+		Actions: &pb.StateEventResult{},
 		Status: &status.StateMachine{
 			NodeID: id,
 		},
@@ -112,7 +112,7 @@ func (p *Player) Step() error {
 			},
 		}
 		node.StateMachine = sm
-		node.Actions = &mirbft.Actions{}
+		node.Actions = &pb.StateEventResult{}
 		node.Status = sm.Status()
 		node.Processing = nil
 	case *pb.StateEvent_Transfer:
@@ -128,17 +128,17 @@ func (p *Player) Step() error {
 		}
 
 		node.Processing = node.Actions
-		node.Actions = &mirbft.Actions{}
+		node.Actions = &pb.StateEventResult{}
 	}
 
 	newActions := node.StateMachine.ApplyEvent(event.StateEvent)
 	node.Actions.Send = append(node.Actions.Send, newActions.Send...)
 	node.Actions.Hash = append(node.Actions.Hash, newActions.Hash...)
 	node.Actions.Commits = append(node.Actions.Commits, newActions.Commits...)
+	node.Actions.StoreRequests = append(node.Actions.StoreRequests, newActions.StoreRequests...)
 	node.Actions.WriteAhead = append(node.Actions.WriteAhead, newActions.WriteAhead...)
 	node.Actions.AllocatedRequests = append(node.Actions.AllocatedRequests, newActions.AllocatedRequests...)
 	node.Actions.ForwardRequests = append(node.Actions.ForwardRequests, newActions.ForwardRequests...)
-	node.Actions.StoreRequests = append(node.Actions.StoreRequests, newActions.StoreRequests...)
 	if newActions.StateTransfer != nil {
 		if node.Actions.StateTransfer != nil {
 			return errors.Errorf("node %d has requested state transfer twice without resolution", event.NodeId)

@@ -10,11 +10,11 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-type actions struct {
+type actionSet struct {
 	pb.StateEventResult
 }
 
-func (a *actions) send(targets []uint64, msg *pb.Msg) *actions {
+func (a *actionSet) send(targets []uint64, msg *pb.Msg) *actionSet {
 	a.Send = append(a.Send, &pb.StateEventResult_Send{
 		Targets: targets,
 		Msg:     msg,
@@ -23,12 +23,12 @@ func (a *actions) send(targets []uint64, msg *pb.Msg) *actions {
 	return a
 }
 
-func (a *actions) allocateRequest(clientID, reqNo uint64) *actions {
+func (a *actionSet) allocateRequest(clientID, reqNo uint64) *actionSet {
 	a.AllocatedRequests = append(a.AllocatedRequests, &pb.StateEventResult_RequestSlot{ClientId: clientID, ReqNo: reqNo})
 	return a
 }
 
-func (a *actions) forwardRequest(targets []uint64, requestAck *pb.RequestAck) *actions {
+func (a *actionSet) forwardRequest(targets []uint64, requestAck *pb.RequestAck) *actionSet {
 	a.ForwardRequests = append(a.ForwardRequests, &pb.StateEventResult_Forward{
 		Targets: targets,
 		Ack:     requestAck,
@@ -36,7 +36,7 @@ func (a *actions) forwardRequest(targets []uint64, requestAck *pb.RequestAck) *a
 	return a
 }
 
-func (a *actions) persist(index uint64, p *pb.Persistent) *actions {
+func (a *actionSet) persist(index uint64, p *pb.Persistent) *actionSet {
 	a.WriteAhead = append(a.WriteAhead,
 		&pb.StateEventResult_Write{
 			Append: index,
@@ -45,33 +45,59 @@ func (a *actions) persist(index uint64, p *pb.Persistent) *actions {
 	return a
 }
 
+func (a *actionSet) storeRequest(request *pb.ForwardRequest) *actionSet {
+	a.StoreRequests = append(a.StoreRequests, request)
+	return a
+}
+
 // clear nils out all of the fields.
-func (a *actions) clear() {
+func (a *actionSet) clear() {
 	a.Send = nil
 	a.Hash = nil
 	a.WriteAhead = nil
 	a.Commits = nil
 	a.AllocatedRequests = nil
+	a.StoreRequests = nil
 	a.ForwardRequests = nil
 	a.StateTransfer = nil
 }
 
-func (a *actions) isEmpty() bool {
+func (a *actionSet) isEmpty() bool {
 	return len(a.Send) == 0 &&
 		len(a.Hash) == 0 &&
 		len(a.WriteAhead) == 0 &&
 		len(a.AllocatedRequests) == 0 &&
 		len(a.ForwardRequests) == 0 &&
+		len(a.StoreRequests) == 0 &&
 		len(a.Commits) == 0 &&
 		a.StateTransfer == nil
 }
 
-func (a *actions) toActions() *Actions {
+// concat takes a set of actions and for each field, appends it to
+// the corresponding field of itself.
+func (a *actionSet) concat(o *actionSet) *actionSet {
+	a.Send = append(a.Send, o.Send...)
+	a.Commits = append(a.Commits, o.Commits...)
+	a.Hash = append(a.Hash, o.Hash...)
+	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
+	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
+	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
+	if o.StateTransfer != nil {
+		if a.StateTransfer != nil {
+			panic("attempted to concatenate two concurrent state transfer requests")
+		}
+		a.StateTransfer = o.StateTransfer
+	}
+	return a
+}
+
+func (a *actionSet) toActions() *Actions {
 	result := &Actions{
 		Send:              make([]Send, len(a.Send)),
 		Hash:              make([]*HashRequest, len(a.Hash)),
 		WriteAhead:        make([]*Write, len(a.WriteAhead)),
 		AllocatedRequests: make([]RequestSlot, len(a.AllocatedRequests)),
+		StoreRequests:     a.StoreRequests,
 		ForwardRequests:   make([]Forward, len(a.ForwardRequests)),
 		Commits:           make([]*Commit, len(a.Commits)),
 	}
@@ -91,7 +117,7 @@ func (a *actions) toActions() *Actions {
 	}
 
 	for i, write := range a.WriteAhead {
-		if write.Truncate == 0 {
+		if write.Truncate != 0 {
 			result.WriteAhead[i] = &Write{
 				Truncate: &write.Truncate,
 			}
@@ -125,10 +151,12 @@ func (a *actions) toActions() *Actions {
 				Batch: c.Batch,
 			}
 		} else {
-			result.Commits[i].Checkpoint = &Checkpoint{
-				SeqNo:         c.SeqNo,
-				NetworkConfig: c.NetworkConfig,
-				ClientsState:  c.ClientStates,
+			result.Commits[i] = &Commit{
+				Checkpoint: &Checkpoint{
+					SeqNo:         c.SeqNo,
+					NetworkConfig: c.NetworkConfig,
+					ClientsState:  c.ClientStates,
+				},
 			}
 		}
 	}

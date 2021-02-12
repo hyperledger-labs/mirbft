@@ -105,7 +105,7 @@ func (s *serializer) run() (exitErr error) {
 			}
 		}
 
-		actions.concat(sm.ApplyEvent(stateEvent))
+		actions.concat(sm.ApplyEvent(stateEvent).toActions())
 		return nil
 	}
 

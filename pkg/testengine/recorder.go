@@ -209,7 +209,7 @@ func (ns *NodeState) LastCheckpoint() *pb.CheckpointResult {
 	return ns.Checkpoints.Back().Value.(*pb.CheckpointResult)
 }
 
-func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*pb.CheckpointResult {
+func (ns *NodeState) Commit(commits []*pb.StateEventResult_Commit, node uint64) []*pb.CheckpointResult {
 	var results []*pb.CheckpointResult
 	for _, commit := range commits {
 		if commit.Batch != nil {
@@ -234,16 +234,16 @@ func (ns *NodeState) Commit(commits []*mirbft.Commit, node uint64) []*pb.Checkpo
 
 		// We must have a checkpoint
 
-		if commit.Checkpoint.SeqNo != ns.LastSeqNo {
+		if commit.SeqNo != ns.LastSeqNo {
 			panic("asked to checkpoint for uncommitted sequence")
 		}
 
 		checkpoint := ns.Set(
-			commit.Checkpoint.SeqNo,
+			commit.SeqNo,
 			ns.ActiveHash.Sum(nil),
 			&pb.NetworkState{
-				Config:  commit.Checkpoint.NetworkConfig,
-				Clients: commit.Checkpoint.ClientsState,
+				Config:  commit.NetworkConfig,
+				Clients: commit.ClientStates,
 			},
 		)
 
@@ -383,8 +383,8 @@ func (r *Recording) Step() error {
 		processing := playbackNode.Processing
 
 		for _, reqSlot := range processing.AllocatedRequests {
-			client := r.Clients[int(reqSlot.ClientID)]
-			if client.Config.ID != reqSlot.ClientID {
+			client := r.Clients[int(reqSlot.ClientId)]
+			if client.Config.ID != reqSlot.ClientId {
 				panic("sanity check")
 			}
 
@@ -395,16 +395,17 @@ func (r *Recording) Step() error {
 			r.EventLog.InsertProposeEvent(lastEvent.NodeId, req, int64(client.Config.TxLatency))
 		}
 
-		for _, req := range processing.StoreRequests {
-			node.ReqStore.Store(req.RequestAck, req.RequestData)
-		}
+		// XXX shouldn't be needed
+		// for _, req := range processing.StoreRequests {
+		// node.ReqStore.Store(req.Ack, req.RequestData)
+		// }
 
 		for _, write := range processing.WriteAhead {
 			switch {
-			case write.Append != nil:
-				node.WAL.Append(write.Append.Index, write.Append.Data)
-			case write.Truncate != nil:
-				node.WAL.Truncate(*write.Truncate)
+			case write.Append != 0:
+				node.WAL.Append(write.Append, write.Data)
+			case write.Truncate != 0:
+				node.WAL.Truncate(write.Truncate)
 			default:
 				panic("Append or Truncate must be set")
 			}
@@ -555,13 +556,13 @@ func (r *Recording) Step() error {
 	return nil
 }
 
-func isEmpty(actions *mirbft.Actions) bool {
+func isEmpty(actions *pb.StateEventResult) bool {
 	return len(actions.Send) == 0 &&
 		len(actions.WriteAhead) == 0 &&
 		len(actions.Hash) == 0 &&
 		len(actions.AllocatedRequests) == 0 &&
-		len(actions.StoreRequests) == 0 &&
 		len(actions.ForwardRequests) == 0 &&
+		len(actions.StoreRequests) == 0 &&
 		len(actions.Commits) == 0 &&
 		actions.StateTransfer == nil
 }
