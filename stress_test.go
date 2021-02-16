@@ -384,16 +384,36 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	}()
 
 	processor := &mirbft.Processor{
+		Node:   node,
+		Link:   tr.FakeTransport.Link(node.Config.ID),
+		Hasher: sha256.New,
+		Log:    tr.Log,
+		WAL:    wal,
+	}
+
+	clientProcessor := &mirbft.ClientProcessor{
 		Node:         node,
-		Link:         tr.FakeTransport.Link(node.Config.ID),
-		Hasher:       sha256.New,
-		Log:          tr.Log,
 		RequestStore: reqStore,
-		WAL:          wal,
 	}
 
 	expectedProposalCount := tr.FakeClient.MsgCount
 	Expect(expectedProposalCount).NotTo(Equal(0))
+
+	// TODO, don't pre-allocate all of the requests, do it in the go routine
+	go func() {
+		for {
+			select {
+			case clientActions := <-node.ClientReady():
+				clientProcessor.Process(&clientActions)
+				// TODO, batch results together
+				// node.AddResults(*results)
+			case <-node.Err():
+				return
+			case <-tr.DoneC:
+				return
+			}
+		}
+	}()
 
 	for i := uint64(0); i < expectedProposalCount; i++ {
 		var buffer bytes.Buffer

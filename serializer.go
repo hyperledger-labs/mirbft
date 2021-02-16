@@ -19,15 +19,16 @@ import (
 // serializer provides a single threaded way to access the Mir state machine
 // and passes work to/from the state machine.
 type serializer struct {
-	actionsC  chan Actions
-	doneC     chan struct{}
-	propC     chan *pb.StateEvent_Proposal
-	resultsC  chan *pb.StateEvent_ActionResults
-	transferC chan *pb.StateEvent_Transfer
-	statusC   chan chan<- *status.StateMachine
-	stepC     chan *pb.StateEvent_Step
-	tickC     chan struct{}
-	errC      chan struct{}
+	actionsC       chan Actions
+	clientActionsC chan ClientActions
+	doneC          chan struct{}
+	propC          chan *pb.StateEvent_Proposal
+	resultsC       chan *pb.StateEvent_ActionResults
+	transferC      chan *pb.StateEvent_Transfer
+	statusC        chan chan<- *status.StateMachine
+	stepC          chan *pb.StateEvent_Step
+	tickC          chan struct{}
+	errC           chan struct{}
 
 	myConfig   *Config
 	walStorage WALStorage
@@ -40,17 +41,18 @@ type serializer struct {
 func newSerializer(myConfig *Config, walStorage WALStorage) (*serializer, error) {
 
 	s := &serializer{
-		actionsC:   make(chan Actions),
-		doneC:      make(chan struct{}),
-		propC:      make(chan *pb.StateEvent_Proposal),
-		resultsC:   make(chan *pb.StateEvent_ActionResults),
-		transferC:  make(chan *pb.StateEvent_Transfer),
-		statusC:    make(chan chan<- *status.StateMachine),
-		stepC:      make(chan *pb.StateEvent_Step),
-		tickC:      make(chan struct{}),
-		errC:       make(chan struct{}),
-		myConfig:   myConfig,
-		walStorage: walStorage,
+		actionsC:       make(chan Actions),
+		clientActionsC: make(chan ClientActions),
+		doneC:          make(chan struct{}),
+		propC:          make(chan *pb.StateEvent_Proposal),
+		resultsC:       make(chan *pb.StateEvent_ActionResults),
+		transferC:      make(chan *pb.StateEvent_Transfer),
+		statusC:        make(chan chan<- *status.StateMachine),
+		stepC:          make(chan *pb.StateEvent_Step),
+		tickC:          make(chan struct{}),
+		errC:           make(chan struct{}),
+		myConfig:       myConfig,
+		walStorage:     walStorage,
 	}
 	go s.run()
 	return s, nil
@@ -73,6 +75,7 @@ func (s *serializer) getExitErr() error {
 	return s.exitErr
 }
 
+// TODO, add assertion in tests that log levels match
 type logAdapter struct {
 	Logger
 }
@@ -105,6 +108,7 @@ func (s *serializer) run() (exitErr error) {
 	}()
 
 	actions := &Actions{}
+	clientActions := &ClientActions{}
 
 	applyEvent := func(stateEvent *pb.StateEvent) error {
 		if s.myConfig.EventInterceptor != nil {
@@ -114,7 +118,10 @@ func (s *serializer) run() (exitErr error) {
 			}
 		}
 
-		actions.concat((&actionSet{StateEventResult: *sm.ApplyEvent(stateEvent)}).toActions())
+		newActions, newClientActions := toActions(sm.ApplyEvent(stateEvent))
+
+		actions.concat(newActions)
+		clientActions.concat(newClientActions)
 		return nil
 	}
 
@@ -165,6 +172,7 @@ func (s *serializer) run() (exitErr error) {
 	}
 
 	var actionsC chan<- Actions
+	var clientActionsC chan<- ClientActions
 	for {
 		var err error
 		select {
@@ -184,6 +192,14 @@ func (s *serializer) run() (exitErr error) {
 			err = applyEvent(&pb.StateEvent{
 				Type: &pb.StateEvent_ActionsReceived{
 					ActionsReceived: &pb.StateEvent_Ready{},
+				},
+			})
+		case clientActionsC <- *clientActions:
+			clientActions.clear()
+			clientActionsC = nil
+			err = applyEvent(&pb.StateEvent{
+				Type: &pb.StateEvent_ClientActionsReceived{
+					ClientActionsReceived: &pb.StateEvent_Ready{},
 				},
 			})
 		case transfer := <-s.transferC:
@@ -213,6 +229,10 @@ func (s *serializer) run() (exitErr error) {
 
 		if !actions.isEmpty() {
 			actionsC = s.actionsC
+		}
+
+		if !clientActions.isEmpty() {
+			clientActionsC = s.clientActionsC
 		}
 
 		if err != nil {

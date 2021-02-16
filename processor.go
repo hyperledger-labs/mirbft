@@ -36,15 +36,6 @@ type WAL interface {
 	Sync() error
 }
 
-type RequestStore interface {
-	GetAllocation(clientID, reqNo uint64) ([]byte, error)
-	PutAllocation(clientID, reqNo uint64, digest []byte) error
-	GetRequest(requestAck *pb.RequestAck) ([]byte, error)
-	PutRequest(requestAck *pb.RequestAck, data []byte) error
-	Commit(requestAck *pb.RequestAck) error
-	Sync() error
-}
-
 // Processor provides an implementation of action processing for the
 // mirbft Actions returned from the Ready() channel.  It is an optional
 // component and provides an implementation only for common case usage,
@@ -56,41 +47,15 @@ type RequestStore interface {
 // blocking, this base implementation is most suitable for test or resource
 // constrained environments.
 type Processor struct {
-	Link         Link
-	Hasher       Hasher
-	Log          Log
-	WAL          WAL
-	RequestStore RequestStore
-	Node         *Node
+	Link   Link
+	Hasher Hasher
+	Log    Log
+	WAL    WAL
+	Node   *Node
 }
 
 func (p *Processor) Process(actions *Actions) *ActionResults {
 	// Persist
-	for _, r := range actions.AllocatedRequests {
-		digest, err := p.RequestStore.GetAllocation(r.ClientID, r.ReqNo)
-		if err != nil {
-			panic(fmt.Sprintf("could not get key for %d.%d: %s", r.ClientID, r.ReqNo, err))
-		}
-
-		if digest != nil {
-			if err := p.Node.Propose(context.Background(), r, digest); err != nil {
-				panic(err)
-			}
-			continue
-		}
-
-		// TODO, do something like
-		//   p.RequestStore.PutLocalRequest(r.ClientID, r.ReqNo, nil)
-		// with a client lock held, that way when the client goes to propose this
-		// sequence it will find that it's been allocated, then continue
-		// for now to sort of not break the tests, we're automatically generating
-		// client requests.
-	}
-
-	if err := p.RequestStore.Sync(); err != nil {
-		panic(fmt.Sprintf("could not sync request store, unsafe to continue: %s\n", err))
-	}
-
 	for _, write := range actions.WriteAhead {
 		if write.Truncate != nil {
 			if err := p.WAL.Truncate(*write.Truncate); err != nil {
@@ -118,32 +83,6 @@ func (p *Processor) Process(actions *Actions) *ActionResults {
 		}
 	}
 
-	// XXX address
-	/*
-		for _, r := range actions.ForwardRequests {
-			requestData, err := p.RequestStore.Get(r.RequestAck)
-			if err != nil {
-				panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
-			}
-
-			fr := &pb.Msg{
-				Type: &pb.Msg_ForwardRequest{
-					&pb.ForwardRequest{
-						RequestAck:  r.RequestAck,
-						RequestData: requestData,
-					},
-				},
-			}
-			for _, replica := range r.Targets {
-				if replica == p.Node.Config.ID {
-					p.Node.Step(context.Background(), replica, fr)
-				} else {
-					p.Link.Send(replica, fr)
-				}
-			}
-		}
-	*/
-
 	// Apply
 	actionResults := &ActionResults{
 		Digests: make([]*HashResult, len(actions.Hash)),
@@ -164,16 +103,6 @@ func (p *Processor) Process(actions *Actions) *ActionResults {
 	for _, commit := range actions.Commits {
 		if commit.Batch != nil {
 			p.Log.Apply(commit.Batch) // Apply the entry
-
-			// TODO, we need to make it clear that committing should not actually
-			// delete the data until the checkpoint.
-			for _, reqAck := range commit.Batch.Requests {
-				err := p.RequestStore.Commit(reqAck)
-				if err != nil {
-					panic("could not mark ack as committed, unsafe to continue")
-				}
-			}
-
 			continue
 		}
 
@@ -239,46 +168,9 @@ func (wp *ProcessorWorkPool) serviceSendPool() {
 
 func (wp *ProcessorWorkPool) persistThenSendInParallel(
 	writeAhead []*Write,
-	allocated []RequestSlot,
 	sends []Send,
-	forwards []Forward,
 	sendDoneC chan<- struct{},
 ) {
-	// First begin forwarding requests over the network, this may be done concurrently
-	// with persistence
-	// XXX address
-	/*
-		go func() {
-			for _, r := range forwards {
-				requestData, err := wp.processor.RequestStore.Get(r.RequestAck)
-				if err != nil {
-					panic("io error? this should always return successfully")
-				}
-				fr := &pb.Msg{
-					Type: &pb.Msg_ForwardRequest{
-						&pb.ForwardRequest{
-							RequestAck: &pb.RequestAck{
-								ReqNo:    r.RequestAck.ReqNo,
-								ClientId: r.RequestAck.ClientId,
-								Digest:   r.RequestAck.Digest,
-							},
-							RequestData: requestData,
-						},
-					},
-				}
-
-				select {
-				case wp.transmitC <- Send{
-					Targets: r.Targets,
-					Msg:     fr,
-				}:
-				case <-wp.doneC:
-					return
-				}
-			}
-		}()
-	*/
-
 	// Next, begin persisting the WAL, plus any pending requests, once done,
 	// send the other protocol messages
 	go func() {
@@ -296,30 +188,6 @@ func (wp *ProcessorWorkPool) persistThenSendInParallel(
 		if err := wp.processor.WAL.Sync(); err != nil {
 			panic(fmt.Sprintf("could not sync WAL: %s", err))
 		}
-
-		// TODO, this could probably be parallelized with the WAL write
-		for _, r := range allocated {
-			digest, err := wp.processor.RequestStore.GetAllocation(r.ClientID, r.ReqNo)
-			if err != nil {
-				panic(fmt.Sprintf("could not get key for %d.%d: %s", r.ClientID, r.ReqNo, err))
-			}
-
-			if digest != nil {
-				if err := wp.processor.Node.Propose(context.Background(), r, digest); err != nil {
-					panic(err)
-				}
-				continue
-			}
-
-			// TODO, do something like
-			//   p.RequestStore.PutLocalRequest(r.ClientID, r.ReqNo, nil)
-			// with a client lock held, that way when the client goes to propose this
-			// sequence it will find that it's been allocated, then continue
-			// for now to sort of not break the tests, we're automatically generating
-			// client requests.
-		}
-
-		wp.processor.RequestStore.Sync()
 
 		for _, send := range sends {
 			select {
@@ -403,16 +271,6 @@ func (wp *ProcessorWorkPool) commitInParallel(commits []*Commit, commitBatchDone
 		for _, commit := range commits {
 			if commit.Batch != nil {
 				wp.processor.Log.Apply(commit.Batch) // Apply the entry
-
-				// TODO, we need to make it clear that committing should not actually
-				// delete the data until the checkpoint.
-				for _, reqAck := range commit.Batch.Requests {
-					err := wp.processor.RequestStore.Commit(reqAck)
-					if err != nil {
-						panic("could not mark ack as committed, unsafe to continue")
-					}
-				}
-
 				continue
 			}
 
@@ -489,9 +347,7 @@ func (wp *ProcessorWorkPool) Process(actions *Actions) *ActionResults {
 
 	wp.persistThenSendInParallel(
 		actions.WriteAhead,
-		actions.AllocatedRequests,
 		actions.Send,
-		actions.ForwardRequests,
 		sendBatchDoneC,
 	)
 	wp.hashInParallel(actions.Hash, hashBatchDoneC)

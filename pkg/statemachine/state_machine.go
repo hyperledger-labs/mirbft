@@ -213,6 +213,9 @@ func (sm *StateMachine) applyEvent(stateEvent *pb.StateEvent) *actionSet {
 		// and allows for much more insightful playback events (allowing
 		// us to tie action results to a particular set of actions)
 		return &actionSet{}
+	case *pb.StateEvent_ClientActionsReceived:
+		// This is exactly like ActionsReceived, a no-op for audit.
+		return &actionSet{}
 	default:
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}

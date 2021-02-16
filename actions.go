@@ -10,30 +10,29 @@ import (
 	pb "github.com/IBM/mirbft/mirbftpb"
 )
 
-type actionSet struct {
-	pb.StateEventResult
-}
+func toActions(a *pb.StateEventResult) (*Actions, *ClientActions) {
+	aResult := &Actions{
+		Send:       make([]Send, len(a.Send)),
+		Hash:       make([]*HashRequest, len(a.Hash)),
+		WriteAhead: make([]*Write, len(a.WriteAhead)),
+		Commits:    make([]*Commit, len(a.Commits)),
+	}
 
-func (a *actionSet) toActions() *Actions {
-	result := &Actions{
-		Send:              make([]Send, len(a.Send)),
-		Hash:              make([]*HashRequest, len(a.Hash)),
-		WriteAhead:        make([]*Write, len(a.WriteAhead)),
+	caResult := &ClientActions{
 		AllocatedRequests: make([]RequestSlot, len(a.AllocatedRequests)),
 		StoreRequests:     a.StoreRequests,
 		ForwardRequests:   make([]Forward, len(a.ForwardRequests)),
-		Commits:           make([]*Commit, len(a.Commits)),
 	}
 
 	for i, send := range a.Send {
-		result.Send[i] = Send{
+		aResult.Send[i] = Send{
 			Targets: send.Targets,
 			Msg:     send.Msg,
 		}
 	}
 
 	for i, hash := range a.Hash {
-		result.Hash[i] = &HashRequest{
+		aResult.Hash[i] = &HashRequest{
 			Data:   hash.Data,
 			Origin: hash.Origin,
 		}
@@ -41,11 +40,11 @@ func (a *actionSet) toActions() *Actions {
 
 	for i, write := range a.WriteAhead {
 		if write.Truncate != 0 {
-			result.WriteAhead[i] = &Write{
+			aResult.WriteAhead[i] = &Write{
 				Truncate: &write.Truncate,
 			}
 		} else {
-			result.WriteAhead[i] = &Write{
+			aResult.WriteAhead[i] = &Write{
 				Append: &WALEntry{
 					Index: write.Append,
 					Data:  write.Data,
@@ -55,14 +54,14 @@ func (a *actionSet) toActions() *Actions {
 	}
 
 	for i, ar := range a.AllocatedRequests {
-		result.AllocatedRequests[i] = RequestSlot{
+		caResult.AllocatedRequests[i] = RequestSlot{
 			ClientID: ar.ClientId,
 			ReqNo:    ar.ReqNo,
 		}
 	}
 
 	for i, f := range a.ForwardRequests {
-		result.ForwardRequests[i] = Forward{
+		caResult.ForwardRequests[i] = Forward{
 			Targets:    f.Targets,
 			RequestAck: f.Ack,
 		}
@@ -70,11 +69,11 @@ func (a *actionSet) toActions() *Actions {
 
 	for i, c := range a.Commits {
 		if c.Batch != nil {
-			result.Commits[i] = &Commit{
+			aResult.Commits[i] = &Commit{
 				Batch: c.Batch,
 			}
 		} else {
-			result.Commits[i] = &Commit{
+			aResult.Commits[i] = &Commit{
 				Checkpoint: &Checkpoint{
 					SeqNo:         c.SeqNo,
 					NetworkConfig: c.NetworkConfig,
@@ -84,7 +83,14 @@ func (a *actionSet) toActions() *Actions {
 		}
 	}
 
-	return result
+	if a.StateTransfer != nil {
+		aResult.StateTransfer = &StateTarget{
+			SeqNo: a.StateTransfer.SeqNo,
+			Value: a.StateTransfer.Value,
+		}
+	}
+
+	return aResult, caResult
 }
 
 // Actions are the responsibility of the library user to fulfill.
@@ -114,22 +120,6 @@ type Actions struct {
 	// this commit.  Checkpoints must be persisted before further commits are reported as applied.
 	Commits []*Commit
 
-	// AllocatedRequests is a set of client request numbers which are eligible for
-	// clients to begin filling.  It is the responsibility of the consumer to ensure
-	// that a client request has been allocated for a particular client's request number,
-	// then it must validate the request, and finally pass the allocation information
-	// along with a hash of the request back into the state machine via the Propose API.
-	AllocatedRequests []RequestSlot
-
-	// StoreRequests is a list of requests and their identifying digests which must be
-	// stored prior to performing the network sends.  This may be performed in parallel
-	// with the persisted log entries.
-	StoreRequests []*pb.ForwardRequest
-
-	// ForwardRequest is a list of requests which must be sent to another replica in the
-	// network.  and their destinations.
-	ForwardRequests []Forward
-
 	// StateTransfer is set when the node has fallen sufficiently out of sync with the network
 	// such that it must receive the current application and network state from another
 	// replica in the network.  The consumer _must_ report success or failure but may
@@ -154,9 +144,6 @@ func (a *Actions) clear() {
 	a.Hash = nil
 	a.WriteAhead = nil
 	a.Commits = nil
-	a.AllocatedRequests = nil
-	a.StoreRequests = nil
-	a.ForwardRequests = nil
 	a.StateTransfer = nil
 }
 
@@ -164,9 +151,6 @@ func (a *Actions) isEmpty() bool {
 	return len(a.Send) == 0 &&
 		len(a.Hash) == 0 &&
 		len(a.WriteAhead) == 0 &&
-		len(a.AllocatedRequests) == 0 &&
-		len(a.StoreRequests) == 0 &&
-		len(a.ForwardRequests) == 0 &&
 		len(a.Commits) == 0 &&
 		a.StateTransfer == nil
 }
@@ -178,9 +162,6 @@ func (a *Actions) concat(o *Actions) *Actions {
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
 	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
-	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
-	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
-	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
 	if o.StateTransfer != nil {
 		if a.StateTransfer != nil {
 			panic("attempted to concatenate two concurrent state transfer requests")
@@ -188,6 +169,46 @@ func (a *Actions) concat(o *Actions) *Actions {
 		a.StateTransfer = o.StateTransfer
 	}
 	return a
+}
+
+type ClientActions struct {
+	// AllocatedRequests is a set of client request numbers which are eligible for
+	// clients to begin filling.  It is the responsibility of the consumer to ensure
+	// that a client request has been allocated for a particular client's request number,
+	// then it must validate the request, and finally pass the allocation information
+	// along with a hash of the request back into the state machine via the Propose API.
+	AllocatedRequests []RequestSlot
+
+	// StoreRequests is a list of requests and their identifying digests which must be
+	// stored prior to performing the network sends.  This may be performed in parallel
+	// with the persisted log entries.
+	StoreRequests []*pb.ForwardRequest
+
+	// ForwardRequest is a list of requests which must be sent to another replica in the
+	// network.  and their destinations.
+	ForwardRequests []Forward
+}
+
+// clear nils out all of the fields.
+func (ca *ClientActions) clear() {
+	ca.AllocatedRequests = nil
+	ca.StoreRequests = nil
+	ca.ForwardRequests = nil
+}
+
+func (ca *ClientActions) isEmpty() bool {
+	return len(ca.AllocatedRequests) == 0 &&
+		len(ca.StoreRequests) == 0 &&
+		len(ca.ForwardRequests) == 0
+}
+
+// concat takes a set of actions and for each field, appends it to
+// the corresponding field of itself.
+func (ca *ClientActions) concat(o *ClientActions) *ClientActions {
+	ca.AllocatedRequests = append(ca.AllocatedRequests, o.AllocatedRequests...)
+	ca.StoreRequests = append(ca.StoreRequests, o.StoreRequests...)
+	ca.ForwardRequests = append(ca.ForwardRequests, o.ForwardRequests...)
+	return ca
 }
 
 // Write either appends to the WAL or truncates it.  Exactly one operation will be non-nil.

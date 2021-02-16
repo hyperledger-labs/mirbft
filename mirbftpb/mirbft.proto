@@ -397,6 +397,7 @@ message StateEvent {
         InboundMsg step = 7;
 	TickElapsed tick = 8;
 	Ready actions_received = 9;
+	Ready client_actions_received = 10;
     }
 }
 
