@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"bytes"
 	"container/list"
 	"context"
 	"fmt"
@@ -31,6 +32,7 @@ type RequestStore interface {
 type ClientProcessor struct {
 	Node         *Node
 	RequestStore RequestStore
+	Hasher       Hasher
 	clients      map[uint64]*Client
 }
 
@@ -50,14 +52,16 @@ func (cp *ClientProcessor) client(clientID uint64) *Client {
 func (cp *ClientProcessor) Process(ca *ClientActions) {
 	for _, r := range ca.AllocatedRequests {
 		client := cp.client(r.ClientID)
-		ack, err := client.allocate(r.ReqNo)
+		digest, err := client.allocate(r.ReqNo)
 		if err != nil {
 			panic(err)
 		}
 
-		if ack != nil {
-			if err := cp.Node.Propose(context.Background(), r, ack.Digest); err != nil {
-				panic(err)
+		if digest != nil {
+			if err := cp.Node.Propose(context.Background(), r, digest); err != nil {
+				// The only way this errors, is if the state machine is shut down
+				// so we ignore it for now.  Eventually we'll return results.
+				return
 			}
 			continue
 		}
@@ -103,10 +107,13 @@ func (cp *ClientProcessor) Process(ca *ClientActions) {
 
 type Client struct {
 	mutex        sync.Mutex
+	hasher       Hasher
+	node         *Node
 	clientID     uint64
 	requestStore RequestStore
 	requests     *list.List
 	reqNoMap     map[uint64]*list.Element
+	nextReqNo    uint64
 }
 
 func newClient(clientID uint64, reqStore RequestStore) *Client {
@@ -119,20 +126,23 @@ func newClient(clientID uint64, reqStore RequestStore) *Client {
 }
 
 type clientRequest struct {
-	localAllocationAck *pb.RequestAck
-	remoteCorrectAcks  []*pb.RequestAck
+	reqNo                 uint64
+	localAllocationDigest []byte
+	remoteCorrectDigests  [][]byte
 }
 
-func (c *Client) allocate(reqNo uint64) (*pb.RequestAck, error) {
+func (c *Client) allocate(reqNo uint64) ([]byte, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	el, ok := c.reqNoMap[reqNo]
 	if ok {
 		clientReq := el.Value.(*clientRequest)
-		return clientReq.localAllocationAck, nil
+		return clientReq.localAllocationDigest, nil
 	}
 
-	cr := &clientRequest{}
+	cr := &clientRequest{
+		reqNo: reqNo,
+	}
 	el = c.requests.PushBack(cr)
 	c.reqNoMap[reqNo] = el
 
@@ -141,11 +151,91 @@ func (c *Client) allocate(reqNo uint64) (*pb.RequestAck, error) {
 		return nil, errors.WithMessagef(err, "could not get key for %d.%d", c.clientID, reqNo)
 	}
 
-	cr.localAllocationAck = &pb.RequestAck{
+	cr.localAllocationDigest = digest
+
+	return digest, nil
+}
+
+func (c *Client) NextReqNo() (uint64, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.requests.Len() == 0 {
+		return 0, errors.New("client does not yet exist")
+	}
+
+	return c.nextReqNo, nil
+}
+
+func (c *Client) Propose(reqNo uint64, data []byte) error {
+	h := c.hasher()
+	h.Write(data)
+	digest := h.Sum(nil)
+
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.requests.Len() == 0 {
+		return errors.New("client does not yet exist") // TODO consolidate not exist err
+	}
+
+	if reqNo < c.nextReqNo {
+		return nil
+	}
+
+	if reqNo > c.nextReqNo {
+		return errors.Errorf("client must submit req_no %d next", c.nextReqNo)
+	}
+
+	el, ok := c.reqNoMap[reqNo]
+	if !ok {
+		// TODO, limit the distance ahead a client can allocate?
+		el = c.requests.PushBack(&clientRequest{
+			reqNo: reqNo,
+		})
+		c.reqNoMap[reqNo] = el
+	}
+
+	cr := el.Value.(*clientRequest)
+
+	if cr.localAllocationDigest != nil {
+		if bytes.Equal(cr.localAllocationDigest, digest) {
+			return nil
+		}
+
+		return errors.Errorf("cannot store request with digest %x, already stored request with different digest %x", digest, cr.localAllocationDigest)
+	}
+
+	if len(cr.remoteCorrectDigests) > 0 {
+		found := false
+		for _, rd := range cr.remoteCorrectDigests {
+			if bytes.Equal(rd, digest) {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return errors.New("other known correct digest exist for reqno")
+		}
+	}
+
+	ack := &pb.RequestAck{
 		ClientId: c.clientID,
 		ReqNo:    reqNo,
 		Digest:   digest,
 	}
 
-	return cr.localAllocationAck, nil
+	err := c.requestStore.PutRequest(ack, data)
+	if err != nil {
+		return errors.WithMessage(err, "could not store requests")
+	}
+
+	if cr.localAllocationDigest == nil {
+		err := c.requestStore.PutAllocation(c.clientID, reqNo, digest)
+		if err != nil {
+			return err
+		}
+		cr.localAllocationDigest = digest
+	}
+
+	return nil
 }
