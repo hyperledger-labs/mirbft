@@ -12,7 +12,6 @@ SPDX-License-Identifier: Apache-2.0
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -41,6 +40,7 @@ var (
 		"Propose",
 		"AddResults",
 		"ActionsReceived",
+		"ClientActionsReceived",
 	}
 
 	allMsgTypes = []string{
@@ -103,7 +103,6 @@ type arguments struct {
 	input         io.ReadCloser
 	interactive   bool
 	logLevel      statemachine.LogLevel
-	printActions  bool
 	nodeIDs       []uint64
 	eventTypes    []string
 	notEventTypes []string
@@ -150,9 +149,10 @@ type stateMachines struct {
 }
 
 type stateMachine struct {
-	machine        *statemachine.StateMachine
-	pendingActions *pb.StateEventResult
-	executionTime  time.Duration
+	machine              *statemachine.StateMachine
+	pendingActions       *pb.StateEventResult
+	pendingClientActions *pb.StateEventResult
+	executionTime        time.Duration
 }
 
 func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMachines {
@@ -163,7 +163,7 @@ func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMa
 	}
 }
 
-func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *pb.StateEventResult, err error) {
+func (s *stateMachines) apply(event *rpb.RecordedEvent) (result *pb.StateEventResult, err error) {
 	var node *stateMachine
 
 	if _, ok := event.StateEvent.Type.(*pb.StateEvent_Initialize); ok {
@@ -176,7 +176,8 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *pb.Sta
 					level:  s.logLevel,
 				},
 			},
-			pendingActions: &pb.StateEventResult{},
+			pendingActions:       &pb.StateEventResult{},
+			pendingClientActions: &pb.StateEventResult{},
 		}
 		s.nodes[event.NodeId] = node
 	} else {
@@ -200,12 +201,20 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (receivedActions *pb.Sta
 	if err != nil {
 		return nil, err
 	}
+	node.pendingClientActions = clientActionsConcat(node.pendingClientActions, actions)
 
-	if _, ok := event.StateEvent.Type.(*pb.StateEvent_ActionsReceived); ok {
-		receivedActions, node.pendingActions = node.pendingActions, &pb.StateEventResult{}
+	switch event.StateEvent.Type.(type) {
+	case *pb.StateEvent_ActionsReceived:
+		result := node.pendingActions
+		node.pendingActions = &pb.StateEventResult{}
+		return result, nil
+	case *pb.StateEvent_ClientActionsReceived:
+		result := node.pendingClientActions
+		node.pendingClientActions = &pb.StateEventResult{}
+		return result, nil
+	default:
+		return nil, nil
 	}
-
-	return receivedActions, nil
 }
 
 // actionsConcat appends the actions of o to the actions a
@@ -214,9 +223,6 @@ func actionsConcat(a, o *pb.StateEventResult) (*pb.StateEventResult, error) {
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
 	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
-	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
-	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
-	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
 	if o.StateTransfer != nil {
 		if a.StateTransfer != nil {
 			return nil, fmt.Errorf("attempted to concatenate two concurrent state transfer requests")
@@ -226,110 +232,12 @@ func actionsConcat(a, o *pb.StateEventResult) (*pb.StateEventResult, error) {
 	return a, nil
 }
 
-func actionsString(a *pb.StateEventResult, truncateBytes bool, padding int) (string, error) {
-	var buffer bytes.Buffer
-	writeLine := func(s string, extraPadding int) {
-		for i := 0; i < padding+extraPadding; i++ {
-			buffer.WriteString(" ")
-		}
-		buffer.WriteString(s)
-		buffer.WriteString("\n")
-	}
-
-	if len(a.Send) > 0 {
-		writeLine("send:", 0)
-		for _, send := range a.Send {
-			msgText, err := textFormat(send.Msg, truncateBytes)
-			if err != nil {
-				return "", err
-			}
-			writeLine(fmt.Sprintf("{targets: %v, msg: %s}", send.Targets, msgText), 2)
-		}
-	}
-
-	if len(a.Commits) > 0 {
-		writeLine("commit:", 0)
-		for _, commit := range a.Commits {
-			if commit.Batch != nil {
-				batchText, err := textFormat(commit.Batch, truncateBytes)
-				if err != nil {
-					return "", err
-				}
-				writeLine(fmt.Sprintf("{batch: %s}", batchText), 2)
-			} else {
-				networkStateText, err := textFormat(&pb.NetworkState{
-					Config:  commit.NetworkConfig,
-					Clients: commit.ClientStates,
-				}, truncateBytes)
-				if err != nil {
-					return "", err
-				}
-				writeLine(
-					fmt.Sprintf(
-						"{checkpoint: [seq_no=%d network_state=%s}",
-						commit.SeqNo,
-						networkStateText,
-					),
-					2,
-				)
-			}
-		}
-	}
-
-	if len(a.Hash) > 0 {
-		writeLine("hash:", 0)
-		for _, hashReq := range a.Hash {
-			originText, err := textFormat(hashReq.Origin, truncateBytes)
-			if err != nil {
-				return "", err
-			}
-			writeLine(fmt.Sprintf("{origin: %s}", originText), 2)
-		}
-	}
-
-	if len(a.WriteAhead) > 0 {
-		writeLine("write_ahead:", 0)
-		for _, write := range a.WriteAhead {
-			if write.Truncate != 0 {
-				writeLine(fmt.Sprintf("{truncate: index=%d}", write.Truncate), 2)
-			} else {
-				dataText, err := textFormat(write.Data, truncateBytes)
-				if err != nil {
-					return "", err
-				}
-				writeLine(fmt.Sprintf("{append: index=%d data=%s}", write.Append, dataText), 2)
-			}
-		}
-	}
-
-	if len(a.StoreRequests) > 0 {
-		writeLine("store_requests:", 0)
-		for _, req := range a.StoreRequests {
-			reqText, err := textFormat(req, truncateBytes)
-			if err != nil {
-				return "", err
-			}
-			writeLine(fmt.Sprintf("{request: %s}", reqText), 2)
-		}
-	}
-
-	if len(a.ForwardRequests) > 0 {
-		writeLine("forward_requests:", 0)
-		for _, forwardReq := range a.ForwardRequests {
-			reqText, err := textFormat(forwardReq.Ack, truncateBytes)
-			if err != nil {
-				return "", err
-			}
-			writeLine(fmt.Sprintf("{targets: %v, request_ack: %s}", forwardReq.Targets, reqText), 2)
-		}
-	}
-
-	if a.StateTransfer != nil {
-		writeLine(fmt.Sprintf("state_transfer: seq_no=%d value=%d", a.StateTransfer.SeqNo, a.StateTransfer.Value), 0)
-
-	}
-
-	return buffer.String(), nil
+// clientActionsConcat appends the client actions of o to the actions a
+func clientActionsConcat(a, o *pb.StateEventResult) *pb.StateEventResult {
+	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
+	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
+	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
+	return a
 }
 
 func (s *stateMachines) status(event *rpb.RecordedEvent) *status.StateMachine {
@@ -352,8 +260,12 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 		eventTypeText = "Propose"
 	case *pb.StateEvent_AddResults:
 		eventTypeText = "AddResults"
+	case *pb.StateEvent_AddClientResults:
+		eventTypeText = "AddClientResults"
 	case *pb.StateEvent_ActionsReceived:
 		eventTypeText = "ActionsReceived"
+	case *pb.StateEvent_ClientActionsReceived:
+		eventTypeText = "ClientActionsReceived"
 	case *pb.StateEvent_Step:
 		eventTypeText = "Step"
 	case *pb.StateEvent_Transfer:
@@ -373,7 +285,9 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 	case *pb.StateEvent_Tick:
 	case *pb.StateEvent_Propose:
 	case *pb.StateEvent_AddResults:
+	case *pb.StateEvent_AddClientResults:
 	case *pb.StateEvent_ActionsReceived:
+	case *pb.StateEvent_ClientActionsReceived:
 	case *pb.StateEvent_Step:
 		var stepTypeText string
 		switch et.Step.Msg.Type.(type) {
@@ -473,12 +387,12 @@ func (a *arguments) execute(output io.Writer) error {
 				return err
 			}
 
-			if actions != nil && a.printActions {
-				text, err := actionsString(actions, !a.verboseText, 6)
+			if actions != nil {
+				text, err := textFormat(actions, !a.verboseText)
 				if err != nil {
 					return errors.WithMessage(err, "could not marshal actions")
 				}
-				fmt.Fprint(output, text)
+				fmt.Fprintf(output, "       actions: %s\n", string(text))
 			}
 
 			// note, config options enforce that is statusIndex is set, so is interactive
@@ -512,7 +426,6 @@ func parseArgs(args []string) (*arguments, error) {
 	app := kingpin.New("mircat", "Utility for processing Mir state event logs.")
 	input := app.Flag("input", "The input file to read (defaults to stdin).").Default(os.Stdin.Name()).File()
 	interactive := app.Flag("interactive", "Whether to apply this log to a Mir state machine.").Default("false").Bool()
-	printActions := app.Flag("printActions", "Whether to display the aggregated actions on actions received (requires interactive).").Default("false").Bool()
 	nodeIDs := app.Flag("nodeID", "Report events from this nodeID only (useful for interleaved logs), may be repeated").Uint64List()
 	eventTypes := app.Flag("eventType", "Which event types to report.").Enums(allEventTypes...)
 	notEventTypes := app.Flag("notEventType", "Which eventtypes to exclude. (Cannot combine with --eventTypes)").Enums(allEventTypes...)
@@ -534,8 +447,6 @@ func parseArgs(args []string) (*arguments, error) {
 		return nil, errors.Errorf("cannot set both --stepType and --notStepType")
 	case *statusIndices != nil && !*interactive:
 		return nil, errors.Errorf("cannot set status indices for non-interactive playback")
-	case *printActions && !*interactive:
-		return nil, errors.Errorf("cannot set printActions for non-interactive playback")
 	case *logLevel != "" && !*interactive:
 		return nil, errors.Errorf("cannot set logLevel for non-interactive playback")
 	}
@@ -556,7 +467,6 @@ func parseArgs(args []string) (*arguments, error) {
 	return &arguments{
 		input:         *input,
 		interactive:   *interactive,
-		printActions:  *printActions,
 		nodeIDs:       *nodeIDs,
 		eventTypes:    *eventTypes,
 		logLevel:      mirLogLevel,

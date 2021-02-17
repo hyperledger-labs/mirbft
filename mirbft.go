@@ -172,25 +172,6 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
 	}
 }
 
-func (n *Node) Propose(ctx context.Context, reqSlot RequestSlot, digest []byte) error {
-	proposal := &pb.StateEvent_Proposal{
-		Request: &pb.RequestAck{
-			ClientId: reqSlot.ClientID,
-			ReqNo:    reqSlot.ReqNo,
-			Digest:   digest,
-		},
-	}
-
-	select {
-	case n.s.propC <- proposal:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-n.s.errC:
-		return n.s.getExitErr()
-	}
-}
-
 // Status returns a static snapshot in time of the internal state of the state machine.
 // This method necessarily exposes some of the internal architecture of the system, and
 // especially while the library is in development, the data structures may change substantially.
@@ -289,6 +270,23 @@ func (n *Node) AddResults(results ActionResults) error {
 
 	select {
 	case n.s.resultsC <- stateEventResults:
+		return nil
+	case <-n.s.errC:
+		return n.s.getExitErr()
+	}
+}
+
+// AddClientResults is a callback from the client consumer to the state machine, informing the
+// state machine that ClientActions have been carried out, and the result of those
+// ClientActions is applicable.  In the case that the node is stopped, it returns
+// the exit error otherwise nil is returned.
+func (n *Node) AddClientResults(results ClientActionResults) error {
+	stateEventResults := &pb.StateEvent_ClientActionResults{
+		Persisted: results.PersistedRequests,
+	}
+
+	select {
+	case n.s.clientResultsC <- stateEventResults:
 		return nil
 	case <-n.s.errC:
 		return n.s.getExitErr()

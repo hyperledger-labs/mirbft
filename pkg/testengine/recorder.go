@@ -42,6 +42,7 @@ type RuntimeParameters struct {
 	LinkLatency          int
 	ReadyLatency         int
 	ProcessLatency       int
+	ClientProcessLatency int
 	PersistLatency       int
 	WALReadDelay         int
 	ReqReadDelay         int
@@ -141,12 +142,13 @@ func (wal *WAL) LoadAll(iter func(index uint64, p *pb.Persistent)) {
 }
 
 type RecorderNode struct {
-	PlaybackNode         *PlaybackNode
-	State                *NodeState
-	WAL                  *WAL
-	ReqStore             *ReqStore
-	Config               *RecorderNodeConfig
-	AwaitingProcessEvent bool
+	PlaybackNode               *PlaybackNode
+	State                      *NodeState
+	WAL                        *WAL
+	ReqStore                   *ReqStore
+	Config                     *RecorderNodeConfig
+	AwaitingProcessEvent       bool
+	AwaitingClientProcessEvent bool
 }
 
 type RecorderClient struct {
@@ -256,7 +258,6 @@ func (ns *NodeState) Commit(commits []*pb.StateEventResult_Commit, node uint64) 
 
 type ClientConfig struct {
 	ID          uint64
-	TxLatency   uint64
 	MaxInFlight int
 	Total       uint64
 }
@@ -373,15 +374,16 @@ func (r *Recording) Step() error {
 	case *pb.StateEvent_Tick:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	case *pb.StateEvent_AddResults:
+	case *pb.StateEvent_AddClientResults:
 	case *pb.StateEvent_Step:
-	case *pb.StateEvent_Propose:
-	case *pb.StateEvent_ActionsReceived:
-		if !node.AwaitingProcessEvent {
-			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.NodeId)
+	case *pb.StateEvent_ClientActionsReceived:
+		if !node.AwaitingClientProcessEvent {
+			return errors.Errorf("node %d was not awaiting a client processing message, but got one", lastEvent.NodeId)
 		}
-		node.AwaitingProcessEvent = false
-		processing := playbackNode.Processing
+		node.AwaitingClientProcessEvent = false
+		clientActionResults := &pb.StateEvent_ClientActionResults{}
 
+		processing := playbackNode.ClientProcessing
 		for _, reqSlot := range processing.AllocatedRequests {
 			client := r.Clients[int(reqSlot.ClientId)]
 			if client.Config.ID != reqSlot.ClientId {
@@ -392,13 +394,29 @@ func (r *Recording) Step() error {
 			if req == nil {
 				continue
 			}
-			r.EventLog.InsertProposeEvent(lastEvent.NodeId, req, int64(client.Config.TxLatency))
+			clientActionResults.Persisted = append(clientActionResults.Persisted, req)
 		}
+
+		r.EventLog.InsertStateEvent(
+			lastEvent.NodeId,
+			&pb.StateEvent{
+				Type: &pb.StateEvent_AddClientResults{
+					AddClientResults: clientActionResults,
+				},
+			},
+			0, // TODO, maybe have some additional reqstore latency here?
+		)
 
 		// XXX shouldn't be needed
 		// for _, req := range processing.StoreRequests {
 		// node.ReqStore.Store(req.Ack, req.RequestData)
 		// }
+	case *pb.StateEvent_ActionsReceived:
+		if !node.AwaitingProcessEvent {
+			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.NodeId)
+		}
+		node.AwaitingProcessEvent = false
+		processing := playbackNode.Processing
 
 		for _, write := range processing.WriteAhead {
 			switch {
@@ -553,6 +571,13 @@ func (r *Recording) Step() error {
 		node.AwaitingProcessEvent = true
 	}
 
+	if playbackNode.ClientProcessing == nil &&
+		!isEmpty(playbackNode.ClientActions) &&
+		!node.AwaitingClientProcessEvent {
+		r.EventLog.InsertClientProcess(lastEvent.NodeId, int64(runtimeParms.ClientProcessLatency))
+		node.AwaitingClientProcessEvent = true
+	}
+
 	return nil
 }
 
@@ -630,6 +655,7 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 				LinkLatency:          100,
 				ReadyLatency:         50,
 				ProcessLatency:       10,
+				ClientProcessLatency: 10,
 				PersistLatency:       10,
 				StateTransferLatency: 800,
 			},
@@ -644,7 +670,6 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 			ID:          cl.Id,
 			MaxInFlight: int(networkState.Config.CheckpointInterval / 2),
 			Total:       reqsPerClient,
-			TxLatency:   10,
 		}
 	}
 

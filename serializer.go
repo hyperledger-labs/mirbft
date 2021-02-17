@@ -22,8 +22,8 @@ type serializer struct {
 	actionsC       chan Actions
 	clientActionsC chan ClientActions
 	doneC          chan struct{}
-	propC          chan *pb.StateEvent_Proposal
 	resultsC       chan *pb.StateEvent_ActionResults
+	clientResultsC chan *pb.StateEvent_ClientActionResults
 	transferC      chan *pb.StateEvent_Transfer
 	statusC        chan chan<- *status.StateMachine
 	stepC          chan *pb.StateEvent_Step
@@ -44,7 +44,7 @@ func newSerializer(myConfig *Config, walStorage WALStorage) (*serializer, error)
 		actionsC:       make(chan Actions),
 		clientActionsC: make(chan ClientActions),
 		doneC:          make(chan struct{}),
-		propC:          make(chan *pb.StateEvent_Proposal),
+		clientResultsC: make(chan *pb.StateEvent_ClientActionResults),
 		resultsC:       make(chan *pb.StateEvent_ActionResults),
 		transferC:      make(chan *pb.StateEvent_Transfer),
 		statusC:        make(chan chan<- *status.StateMachine),
@@ -176,12 +176,6 @@ func (s *serializer) run() (exitErr error) {
 	for {
 		var err error
 		select {
-		case data := <-s.propC:
-			err = applyEvent(&pb.StateEvent{
-				Type: &pb.StateEvent_Propose{
-					Propose: data,
-				},
-			})
 		case step := <-s.stepC:
 			err = applyEvent(&pb.StateEvent{
 				Type: step,
@@ -210,6 +204,12 @@ func (s *serializer) run() (exitErr error) {
 			err = applyEvent(&pb.StateEvent{
 				Type: &pb.StateEvent_AddResults{
 					AddResults: results,
+				},
+			})
+		case clientResults := <-s.clientResultsC:
+			err = applyEvent(&pb.StateEvent{
+				Type: &pb.StateEvent_AddClientResults{
+					AddClientResults: clientResults,
 				},
 			})
 		case statusReq := <-s.statusC:

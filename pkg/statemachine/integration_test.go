@@ -89,7 +89,7 @@ var _ = Describe("Mirbft", func() {
 		})
 	})
 
-	When("the network is has just one client", func() {
+	When("the network has just one client", func() {
 		BeforeEach(func() {
 			recorder = BasicRecorder(4, 1, 200)
 		})

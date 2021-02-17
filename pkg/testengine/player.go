@@ -22,11 +22,13 @@ type EventSource interface {
 }
 
 type PlaybackNode struct {
-	ID           uint64
-	StateMachine *statemachine.StateMachine
-	Processing   *pb.StateEventResult
-	Actions      *pb.StateEventResult
-	Status       *status.StateMachine
+	ID               uint64
+	StateMachine     *statemachine.StateMachine
+	Processing       *pb.StateEventResult
+	Actions          *pb.StateEventResult
+	ClientProcessing *pb.StateEventResult
+	ClientActions    *pb.StateEventResult
+	Status           *status.StateMachine
 }
 
 type Player struct {
@@ -51,8 +53,9 @@ func (p *Player) Node(id uint64) *PlaybackNode {
 	}
 
 	node = &PlaybackNode{
-		ID:      id,
-		Actions: &pb.StateEventResult{},
+		ID:            id,
+		Actions:       &pb.StateEventResult{},
+		ClientActions: &pb.StateEventResult{},
 		Status: &status.StateMachine{
 			NodeID: id,
 		},
@@ -122,6 +125,19 @@ func (p *Player) Step() error {
 		}
 
 		node.Processing = nil
+	case *pb.StateEvent_AddClientResults:
+		if node.ClientProcessing == nil {
+			return errors.Errorf("node %d is not currently client processing but got a client apply event", event.NodeId)
+		}
+
+		node.ClientProcessing = nil
+	case *pb.StateEvent_ClientActionsReceived:
+		if node.ClientProcessing != nil {
+			return errors.Errorf("node %d is currently client processing but got a second client process event", event.NodeId)
+		}
+
+		node.ClientProcessing = node.ClientActions
+		node.ClientActions = &pb.StateEventResult{}
 	case *pb.StateEvent_ActionsReceived:
 		if node.Processing != nil {
 			return errors.Errorf("node %d is currently processing but got a second process event", event.NodeId)
@@ -137,8 +153,8 @@ func (p *Player) Step() error {
 	node.Actions.Commits = append(node.Actions.Commits, newActions.Commits...)
 	node.Actions.StoreRequests = append(node.Actions.StoreRequests, newActions.StoreRequests...)
 	node.Actions.WriteAhead = append(node.Actions.WriteAhead, newActions.WriteAhead...)
-	node.Actions.AllocatedRequests = append(node.Actions.AllocatedRequests, newActions.AllocatedRequests...)
-	node.Actions.ForwardRequests = append(node.Actions.ForwardRequests, newActions.ForwardRequests...)
+	node.ClientActions.AllocatedRequests = append(node.ClientActions.AllocatedRequests, newActions.AllocatedRequests...)
+	node.ClientActions.ForwardRequests = append(node.ClientActions.ForwardRequests, newActions.ForwardRequests...)
 	if newActions.StateTransfer != nil {
 		if node.Actions.StateTransfer != nil {
 			return errors.Errorf("node %d has requested state transfer twice without resolution", event.NodeId)

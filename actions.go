@@ -211,6 +211,17 @@ func (ca *ClientActions) concat(o *ClientActions) *ClientActions {
 	return ca
 }
 
+type ClientActionResults struct {
+	// PersistedRequests should be the set of new client requests that
+	// have been persisted (because they are are known to be correct).
+	PersistedRequests []*pb.RequestAck
+}
+
+func (car *ClientActionResults) persisted(ack *pb.RequestAck) *ClientActionResults {
+	car.PersistedRequests = append(car.PersistedRequests, ack)
+	return car
+}
+
 // Write either appends to the WAL or truncates it.  Exactly one operation will be non-nil.
 type Write struct {
 	Truncate *uint64

@@ -259,19 +259,24 @@ func (ct *clientHashDisseminator) applyMsg(source nodeID, msg *pb.Msg) *actionSe
 	}
 }
 
-func (ct *clientHashDisseminator) applyNewRequest(ack *pb.RequestAck) *actionSet {
-	client, ok := ct.clients[ack.ClientId]
-	if !ok {
-		// Unusual, client must have been removed since we processed the request
-		return &actionSet{}
+func (ct *clientHashDisseminator) applyNewRequests(acks []*pb.RequestAck) *actionSet {
+	actions := &actionSet{}
+	for _, ack := range acks {
+		client, ok := ct.clients[ack.ClientId]
+		if !ok {
+			// Unusual, client must have been removed since we processed the request
+			continue
+		}
+
+		if !client.inWatermarks(ack.ReqNo) {
+			// We've already committed this reqno
+			continue
+		}
+
+		actions.concat(client.reqNo(ack.ReqNo).applyNewRequest(ack))
 	}
 
-	if !client.inWatermarks(ack.ReqNo) {
-		// We've already committed this reqno
-		return &actionSet{}
-	}
-
-	return client.reqNo(ack.ReqNo).applyNewRequest(ack)
+	return actions
 }
 
 // allocate should be invoked after the checkpoint is computed and advances the high watermark.

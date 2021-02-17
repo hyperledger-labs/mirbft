@@ -9,8 +9,6 @@ package mirbft
 import (
 	"bytes"
 	"container/list"
-	"context"
-	"fmt"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -49,20 +47,22 @@ func (cp *ClientProcessor) client(clientID uint64) *Client {
 	return c
 }
 
-func (cp *ClientProcessor) Process(ca *ClientActions) {
+func (cp *ClientProcessor) Process(ca *ClientActions) (*ClientActionResults, error) {
+	results := &ClientActionResults{}
+
 	for _, r := range ca.AllocatedRequests {
 		client := cp.client(r.ClientID)
 		digest, err := client.allocate(r.ReqNo)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 
 		if digest != nil {
-			if err := cp.Node.Propose(context.Background(), r, digest); err != nil {
-				// The only way this errors, is if the state machine is shut down
-				// so we ignore it for now.  Eventually we'll return results.
-				return
-			}
+			results.persisted(&pb.RequestAck{
+				ClientId: r.ClientID,
+				ReqNo:    r.ReqNo,
+				Digest:   digest,
+			})
 			continue
 		}
 
@@ -75,7 +75,7 @@ func (cp *ClientProcessor) Process(ca *ClientActions) {
 	}
 
 	if err := cp.RequestStore.Sync(); err != nil {
-		panic(fmt.Sprintf("could not sync request store, unsafe to continue: %s\n", err))
+		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
 	}
 
 	// XXX address
@@ -103,12 +103,13 @@ func (cp *ClientProcessor) Process(ca *ClientActions) {
 	           }
 	   }
 	*/
+
+	return results, nil
 }
 
 type Client struct {
 	mutex        sync.Mutex
 	hasher       Hasher
-	node         *Node
 	clientID     uint64
 	requestStore RequestStore
 	requests     *list.List

@@ -191,15 +191,15 @@ func (sm *StateMachine) applyEvent(stateEvent *pb.StateEvent) *actionSet {
 			nodeID(event.Step.Source),
 			event.Step.Msg,
 		))
-	case *pb.StateEvent_Propose:
-		assertInitialized()
-		actions.concat(sm.clientHashDisseminator.applyNewRequest(
-			event.Propose.Request,
-		))
 	case *pb.StateEvent_AddResults:
 		assertInitialized()
 		actions.concat(sm.processResults(
 			event.AddResults,
+		))
+	case *pb.StateEvent_AddClientResults:
+		assertInitialized()
+		actions.concat(sm.clientHashDisseminator.applyNewRequests(
+			event.AddClientResults.Persisted,
 		))
 	case *pb.StateEvent_Transfer:
 		assertEqualf(sm.commitState.transferring, true, "state transfer event received but the state machine did not request transfer")

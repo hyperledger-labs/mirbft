@@ -374,6 +374,10 @@ message StateEvent {
         repeated CheckpointResult checkpoints = 2;
     }
 
+    message ClientActionResults {
+        repeated RequestAck persisted = 1;
+    }
+
     message Proposal {
         RequestAck request = 1;
     }
@@ -392,12 +396,13 @@ message StateEvent {
 	PersistedEntry load_entry = 2;
 	LoadCompleted complete_initialization = 3;
         ActionResults add_results = 4;
-        CEntry Transfer = 5; // XXX probably wrap this?
-        Proposal propose = 6;
-        InboundMsg step = 7;
-	TickElapsed tick = 8;
-	Ready actions_received = 9;
-	Ready client_actions_received = 10;
+        ClientActionResults add_client_results = 5;
+        CEntry Transfer = 6; // XXX probably wrap this?
+        Proposal propose = 7;
+        InboundMsg step = 8;
+	TickElapsed tick = 9;
+	Ready actions_received = 10;
+	Ready client_actions_received = 11;
     }
 }
 

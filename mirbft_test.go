@@ -402,15 +402,32 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	// TODO, don't pre-allocate all of the requests, do it in the go routine
 	go func() {
 		for {
+			var err error
 			select {
 			case clientActions := <-node.ClientReady():
-				clientProcessor.Process(&clientActions)
-				// TODO, batch results together
-				// node.AddResults(*results)
+				var clientResults *mirbft.ClientActionResults
+				clientResults, err = clientProcessor.Process(&clientActions)
+				if err != nil {
+					break
+				}
+				err = node.AddClientResults(*clientResults)
 			case <-node.Err():
 				return
 			case <-tr.DoneC:
 				return
+			}
+
+			if err != nil {
+				select {
+				case <-time.After(10 * time.Second):
+					// Odds are we're just shutting down, but if not
+					// make a scene.
+					panic(err)
+				case <-node.Err():
+					return
+				case <-tr.DoneC:
+					return
+				}
 			}
 		}
 	}()

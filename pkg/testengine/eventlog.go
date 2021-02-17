@@ -157,6 +157,18 @@ func (l *EventLog) InsertProcess(target uint64, fromNow int64) {
 	)
 }
 
+func (l *EventLog) InsertClientProcess(target uint64, fromNow int64) {
+	l.InsertStateEvent(
+		target,
+		&pb.StateEvent{
+			Type: &pb.StateEvent_ClientActionsReceived{
+				ClientActionsReceived: &pb.StateEvent_Ready{},
+			},
+		},
+		fromNow,
+	)
+}
+
 func (l *EventLog) Insert(event *rpb.RecordedEvent) {
 	if event.Time < l.FakeTime {
 		panic("attempted to modify the past")
