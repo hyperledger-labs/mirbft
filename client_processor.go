@@ -30,6 +30,7 @@ type RequestStore interface {
 // It accepts client related actions from the state machine and injects
 // new client requests.
 type ClientProcessor struct {
+	mutex        sync.Mutex
 	NodeID       uint64
 	RequestStore RequestStore
 	Hasher       Hasher
@@ -84,6 +85,8 @@ func (cw *ClientWork) addPersistedReq(ack *pb.RequestAck) {
 }
 
 func (cp *ClientProcessor) Client(clientID uint64) *Client {
+	cp.mutex.Lock()
+	defer cp.mutex.Unlock()
 	if cp.clients == nil {
 		cp.clients = map[uint64]*Client{}
 	}
