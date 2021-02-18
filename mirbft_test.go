@@ -7,9 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft_test
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
+	"crypto"
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
@@ -325,6 +324,13 @@ func (tr *TestReplica) EventLogPath() string {
 	return filepath.Join(tr.TmpDir, "eventlog.gz")
 }
 
+func clientReq(clientID, reqNo uint64) []byte {
+	res := make([]byte, 16)
+	binary.BigEndian.PutUint64(res, clientID)
+	binary.BigEndian.PutUint64(res[8:], reqNo)
+	return res
+}
+
 func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
@@ -386,18 +392,40 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	processor := &mirbft.Processor{
 		Node:   node,
 		Link:   tr.FakeTransport.Link(node.Config.ID),
-		Hasher: sha256.New,
+		Hasher: crypto.SHA256,
 		Log:    tr.Log,
 		WAL:    wal,
 	}
 
 	clientProcessor := &mirbft.ClientProcessor{
-		Node:         node,
+		NodeID:       node.Config.ID,
 		RequestStore: reqStore,
+		Hasher:       crypto.SHA256,
 	}
 
 	expectedProposalCount := tr.FakeClient.MsgCount
 	Expect(expectedProposalCount).NotTo(Equal(0))
+
+	go func() {
+		defer GinkgoRecover()
+		client := clientProcessor.Client(0)
+		for {
+			nextReqNo, err := client.NextReqNo()
+			if err == mirbft.ErrClientNotExist {
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+
+			// Batch them in, 50 at a time
+			for i := nextReqNo; i < tr.FakeClient.MsgCount && i < nextReqNo+50; i++ {
+				err := client.Propose(i, clientReq(0, i))
+				// We do not support client removal, so errors are bad
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
 
 	// TODO, don't pre-allocate all of the requests, do it in the go routine
 	go func() {
@@ -411,6 +439,8 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 					break
 				}
 				err = node.AddClientResults(*clientResults)
+			case <-clientProcessor.ClientWork.Ready():
+				err = node.AddClientResults(*clientProcessor.ClientWork.Results())
 			case <-node.Err():
 				return
 			case <-tr.DoneC:
@@ -431,29 +461,6 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			}
 		}
 	}()
-
-	for i := uint64(0); i < expectedProposalCount; i++ {
-		var buffer bytes.Buffer
-		buffer.Write(Uint64ToBytes(0))
-		buffer.Write([]byte("-"))
-		buffer.Write(Uint64ToBytes(i))
-
-		h := sha256.New()
-		digest := h.Sum(buffer.Bytes())
-
-		err = reqStore.PutAllocation(0, i, digest)
-		Expect(err).NotTo(HaveOccurred())
-
-		err = reqStore.PutRequest(
-			&pb.RequestAck{
-				ClientId: 0,
-				ReqNo:    i,
-				Digest:   digest,
-			},
-			buffer.Bytes(),
-		)
-		Expect(err).NotTo(HaveOccurred())
-	}
 
 	var process func(*mirbft.Actions) *mirbft.ActionResults
 

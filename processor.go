@@ -18,7 +18,9 @@ import (
 
 // TODO, convert panics into errors
 
-type Hasher func() hash.Hash
+type Hasher interface {
+	New() hash.Hash
+}
 
 type Link interface {
 	Send(dest uint64, msg *pb.Msg)
@@ -89,7 +91,7 @@ func (p *Processor) Process(actions *Actions) *ActionResults {
 	}
 
 	for i, req := range actions.Hash {
-		h := p.Hasher()
+		h := p.Hasher.New()
 		for _, data := range req.Data {
 			h.Write(data)
 		}
@@ -214,7 +216,7 @@ func (wp *ProcessorWorkPool) persistThenSendInParallel(
 }
 
 func (wp *ProcessorWorkPool) serviceHashPool() {
-	h := wp.processor.Hasher()
+	h := wp.processor.Hasher.New()
 	for {
 		select {
 		case hashReq := <-wp.hashC:

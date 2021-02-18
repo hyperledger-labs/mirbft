@@ -60,7 +60,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 type allOutstandingReqs struct {
 	buckets             map[bucketID]*bucketOutstandingReqs
 	availableIterator   *availableList
-	correctRequests     map[string]*pb.RequestAck
+	correctRequests     map[string]*pb.RequestAck // TODO, map by struct with digest + reqNo + clientNo, otherwise clients can engineer collisions.
 	outstandingRequests map[string]*sequence
 }
 
