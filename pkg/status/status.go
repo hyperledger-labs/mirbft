@@ -119,9 +119,16 @@ type EpochChangeMsg struct {
 }
 
 type NodeBuffer struct {
-	ID             uint64       `json:"id"`
-	Buckets        []NodeBucket `json:"buckets"`
-	LastCheckpoint uint64       `json:"last_checkpoint"`
+	ID         uint64       `json:"id"`
+	Size       int          `json:"size"`
+	Msgs       int          `json:"Msgs"`
+	MsgBuffers []*MsgBuffer `json:"msg_buffers"`
+}
+
+type MsgBuffer struct {
+	Component string `json:"component"`
+	Size      int    `json:"size"`
+	Msgs      int    `json:"msgs"`
 }
 
 type NodeBucket struct {
@@ -182,36 +189,6 @@ func (s *StateMachine) Pretty() string {
 				buffer.WriteString(fmt.Sprintf(" %d", seqNo/uint64(magnitude)%10))
 			}
 			buffer.WriteString("\n")
-		}
-
-		for _, nodeBuffer := range s.NodeBuffers {
-			hRule()
-			buffer.WriteString(fmt.Sprintf("- === Node %d === \n", nodeBuffer.ID))
-			for bucket, bucketStatus := range nodeBuffer.Buckets {
-				for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
-					if seqNo == nodeBuffer.LastCheckpoint {
-						buffer.WriteString("|X")
-						continue
-					}
-
-					if seqNo == bucketStatus.LastCommit {
-						buffer.WriteString("|C")
-						continue
-					}
-
-					if seqNo == bucketStatus.LastPrepare {
-						buffer.WriteString("|P")
-						continue
-					}
-					buffer.WriteString("| ")
-				}
-
-				if bucketStatus.IsLeader {
-					buffer.WriteString(fmt.Sprintf("| Bucket=%d (Leader)\n", bucket))
-				} else {
-					buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucket))
-				}
-			}
 		}
 
 		hRule()
@@ -290,6 +267,17 @@ func (s *StateMachine) Pretty() string {
 	for _, rws := range s.ClientWindows {
 		buffer.WriteString(fmt.Sprintf("\nClient %x L/H %d/%d : %v\n", rws.ClientID, rws.LowWatermark, rws.HighWatermark, rws.Allocated))
 		hRule()
+	}
+
+	buffer.WriteString("\n\n Message Buffers\n")
+	hRule()
+
+	for _, nodeBuffer := range s.NodeBuffers {
+		buffer.WriteString(fmt.Sprintf("- === Node %3d buffers === \n", nodeBuffer.ID))
+		buffer.WriteString(fmt.Sprintf("  Bytes=%-8d, Messages=%-5d\n", nodeBuffer.Size, nodeBuffer.Msgs))
+		for _, msgBuf := range nodeBuffer.MsgBuffers {
+			buffer.WriteString(fmt.Sprintf("  -  Bytes=%-8d Messages=%-5d Component=%s", msgBuf.Size, msgBuf.Msgs, msgBuf.Component))
+		}
 	}
 
 	return buffer.String()

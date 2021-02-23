@@ -9,6 +9,7 @@ package statemachine
 import (
 	"container/list"
 	"fmt"
+	"github.com/IBM/mirbft/pkg/status"
 
 	pb "github.com/IBM/mirbft/mirbftpb"
 	"google.golang.org/protobuf/proto"
@@ -35,10 +36,19 @@ func (nbs *nodeBuffers) nodeBuffer(source nodeID) *nodeBuffer {
 			id:       source,
 			logger:   nbs.logger,
 			myConfig: nbs.myConfig,
+			msgBufs:  map[*msgBuffer]struct{}{},
 		}
 	}
 
 	return nb
+}
+
+func (nbs *nodeBuffers) status() []*status.NodeBuffer {
+	var stats []*status.NodeBuffer
+	for _, nb := range nbs.nodeMap {
+		stats = append(stats, nb.status())
+	}
+	return stats
 }
 
 type nodeBuffer struct {
@@ -46,6 +56,10 @@ type nodeBuffer struct {
 	logger    Logger
 	myConfig  *pb.StateEvent_InitialParameters
 	totalSize int
+
+	// Set of pointers to msgBuffers tracked by this nodeBuffer.
+	// Used for logging and status only.
+	msgBufs map[*msgBuffer]struct{}
 }
 
 func (nb *nodeBuffer) logDrop(component string, msg *pb.Msg) {
@@ -62,6 +76,32 @@ func (nb *nodeBuffer) msgStored(msg *pb.Msg) {
 
 func (nb *nodeBuffer) overCapacity() bool {
 	return nb.totalSize > int(nb.myConfig.BufferSize)
+}
+
+func (nb *nodeBuffer) addMsgBuffer(msgBuf *msgBuffer) {
+	nb.msgBufs[msgBuf] = struct{}{}
+}
+
+func (nb *nodeBuffer) removeMsgBuffer(msgBuf *msgBuffer) {
+	delete(nb.msgBufs, msgBuf)
+}
+
+func (nb *nodeBuffer) status() *status.NodeBuffer {
+	var msgBufStatuses []*status.MsgBuffer
+	totalMsgs := 0
+
+	for mb := range nb.msgBufs {
+		mbs := mb.status()
+		msgBufStatuses = append(msgBufStatuses, mbs)
+		totalMsgs += mbs.Msgs
+	}
+
+	return &status.NodeBuffer{
+		ID:         uint64(nb.id),
+		Size:       nb.totalSize,
+		Msgs:       totalMsgs,
+		MsgBuffers: msgBufStatuses,
+	}
 }
 
 type applyable int
@@ -96,12 +136,29 @@ func (mb *msgBuffer) store(msg *pb.Msg) {
 	// the same length.  Maybe we will want to change this strategy.
 	for mb.nodeBuffer.overCapacity() && mb.buffer.Len() > 0 {
 		e := mb.buffer.Front()
-		oldMsg := mb.buffer.Remove(e).(*pb.Msg)
+		oldMsg := mb.remove(e)
 		mb.nodeBuffer.logDrop(mb.component, oldMsg)
-		mb.nodeBuffer.msgRemoved(oldMsg)
 	}
 	mb.buffer.PushBack(msg)
 	mb.nodeBuffer.msgStored(msg)
+	if mb.buffer.Len() == 1 {
+		// If this is the first message in this msgBuffer,
+		// register this msgBuffer with the nodeBuffer.
+		// Used for status reporting only.
+		mb.nodeBuffer.addMsgBuffer(mb)
+	}
+}
+
+func (mb *msgBuffer) remove(e *list.Element) *pb.Msg {
+	msg := mb.buffer.Remove(e).(*pb.Msg)
+	mb.nodeBuffer.msgRemoved(msg)
+	if mb.buffer.Len() == 0 {
+		// If the last message was removed,
+		// deregister msgBuffer from nodeBuffer.
+		// Used for status reporting only.
+		mb.nodeBuffer.removeMsgBuffer(mb)
+	}
+	return msg
 }
 
 func (mb *msgBuffer) next(filter func(source nodeID, msg *pb.Msg) applyable) *pb.Msg {
@@ -116,19 +173,16 @@ func (mb *msgBuffer) next(filter func(source nodeID, msg *pb.Msg) applyable) *pb
 		case past:
 			x := e
 			e = e.Next() // get next before removing current
-			mb.buffer.Remove(x)
-			mb.nodeBuffer.msgRemoved(msg)
+			mb.remove(x)
 		case current:
-			mb.buffer.Remove(e)
-			mb.nodeBuffer.msgRemoved(msg)
+			mb.remove(e)
 			return msg
 		case future:
 			e = e.Next()
 		case invalid:
 			x := e
 			e = e.Next() // get next before removing current
-			mb.buffer.Remove(x)
-			mb.nodeBuffer.msgRemoved(msg)
+			mb.remove(x)
 		}
 	}
 
@@ -146,16 +200,26 @@ func (mb *msgBuffer) iterate(
 		e = e.Next()
 		switch filter(mb.nodeBuffer.id, msg) {
 		case past:
-			mb.buffer.Remove(x)
-			mb.nodeBuffer.msgRemoved(msg)
+			mb.remove(x)
 		case current:
-			mb.buffer.Remove(x)
-			mb.nodeBuffer.msgRemoved(msg)
+			mb.remove(x)
 			apply(mb.nodeBuffer.id, msg)
 		case future:
 		case invalid:
-			mb.buffer.Remove(x)
-			mb.nodeBuffer.msgRemoved(msg)
+			mb.remove(x)
 		}
+	}
+}
+
+func (mb *msgBuffer) status() *status.MsgBuffer {
+	totalSize := 0
+	for e := mb.buffer.Front(); e != nil; e = e.Next() {
+		totalSize += proto.Size(e.Value.(*pb.Msg))
+	}
+
+	return &status.MsgBuffer{
+		Component: mb.component,
+		Size:      totalSize,
+		Msgs:      mb.buffer.Len(),
 	}
 }
