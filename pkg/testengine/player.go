@@ -151,9 +151,9 @@ func (p *Player) Step() error {
 	node.Actions.Send = append(node.Actions.Send, newActions.Send...)
 	node.Actions.Hash = append(node.Actions.Hash, newActions.Hash...)
 	node.Actions.Commits = append(node.Actions.Commits, newActions.Commits...)
-	node.Actions.StoreRequests = append(node.Actions.StoreRequests, newActions.StoreRequests...)
 	node.Actions.WriteAhead = append(node.Actions.WriteAhead, newActions.WriteAhead...)
 	node.ClientActions.AllocatedRequests = append(node.ClientActions.AllocatedRequests, newActions.AllocatedRequests...)
+	node.ClientActions.CorrectRequests = append(node.ClientActions.CorrectRequests, newActions.CorrectRequests...)
 	node.ClientActions.ForwardRequests = append(node.ClientActions.ForwardRequests, newActions.ForwardRequests...)
 	if newActions.StateTransfer != nil {
 		if node.Actions.StateTransfer != nil {

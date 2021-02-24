@@ -20,7 +20,7 @@ func toActions(a *pb.StateEventResult) (*Actions, *ClientActions) {
 
 	caResult := &ClientActions{
 		AllocatedRequests: make([]RequestSlot, len(a.AllocatedRequests)),
-		StoreRequests:     a.StoreRequests,
+		CorrectRequests:   a.CorrectRequests,
 		ForwardRequests:   make([]Forward, len(a.ForwardRequests)),
 	}
 
@@ -179,10 +179,11 @@ type ClientActions struct {
 	// along with a hash of the request back into the state machine via the Propose API.
 	AllocatedRequests []RequestSlot
 
-	// StoreRequests is a list of requests and their identifying digests which must be
-	// stored prior to performing the network sends.  This may be performed in parallel
-	// with the persisted log entries.
-	StoreRequests []*pb.ForwardRequest
+	// CorrectRequests is a list of requests and their identifying digests which are known
+	// to be correct and should be stored if forwarded.  As a special case, if the request is
+	// the null request (the digest is nil) then the consumer need not way for the request
+	// to be forwarded and should immediately store a null request.
+	CorrectRequests []*pb.RequestAck
 
 	// ForwardRequest is a list of requests which must be sent to another replica in the
 	// network.  and their destinations.
@@ -192,13 +193,13 @@ type ClientActions struct {
 // clear nils out all of the fields.
 func (ca *ClientActions) clear() {
 	ca.AllocatedRequests = nil
-	ca.StoreRequests = nil
+	ca.CorrectRequests = nil
 	ca.ForwardRequests = nil
 }
 
 func (ca *ClientActions) isEmpty() bool {
 	return len(ca.AllocatedRequests) == 0 &&
-		len(ca.StoreRequests) == 0 &&
+		len(ca.CorrectRequests) == 0 &&
 		len(ca.ForwardRequests) == 0
 }
 
@@ -206,7 +207,7 @@ func (ca *ClientActions) isEmpty() bool {
 // the corresponding field of itself.
 func (ca *ClientActions) concat(o *ClientActions) *ClientActions {
 	ca.AllocatedRequests = append(ca.AllocatedRequests, o.AllocatedRequests...)
-	ca.StoreRequests = append(ca.StoreRequests, o.StoreRequests...)
+	ca.CorrectRequests = append(ca.CorrectRequests, o.CorrectRequests...)
 	ca.ForwardRequests = append(ca.ForwardRequests, o.ForwardRequests...)
 	return ca
 }

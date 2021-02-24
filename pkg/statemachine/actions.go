@@ -45,8 +45,8 @@ func (a *actionSet) persist(index uint64, p *pb.Persistent) *actionSet {
 	return a
 }
 
-func (a *actionSet) storeRequest(request *pb.ForwardRequest) *actionSet {
-	a.StoreRequests = append(a.StoreRequests, request)
+func (a *actionSet) correctRequest(ack *pb.RequestAck) *actionSet {
+	a.CorrectRequests = append(a.CorrectRequests, ack)
 	return a
 }
 
@@ -56,7 +56,7 @@ func (a *actionSet) isEmpty() bool {
 		len(a.WriteAhead) == 0 &&
 		len(a.AllocatedRequests) == 0 &&
 		len(a.ForwardRequests) == 0 &&
-		len(a.StoreRequests) == 0 &&
+		len(a.CorrectRequests) == 0 &&
 		len(a.Commits) == 0 &&
 		a.StateTransfer == nil
 }
@@ -69,6 +69,7 @@ func (a *actionSet) concat(o *actionSet) *actionSet {
 	a.Hash = append(a.Hash, o.Hash...)
 	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
 	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
+	a.CorrectRequests = append(a.CorrectRequests, o.CorrectRequests...)
 	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
 	if o.StateTransfer != nil {
 		if a.StateTransfer != nil {

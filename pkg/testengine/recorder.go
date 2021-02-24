@@ -630,7 +630,7 @@ func isEmpty(actions *pb.StateEventResult) bool {
 		len(actions.Hash) == 0 &&
 		len(actions.AllocatedRequests) == 0 &&
 		len(actions.ForwardRequests) == 0 &&
-		len(actions.StoreRequests) == 0 &&
+		len(actions.CorrectRequests) == 0 &&
 		len(actions.Commits) == 0 &&
 		actions.StateTransfer == nil
 }

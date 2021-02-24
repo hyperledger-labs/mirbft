@@ -330,7 +330,7 @@ func (ct *clientHashDisseminator) replyFetchRequest(source nodeID, clientID, req
 	)
 }
 
-func (ct *clientHashDisseminator) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
+func (ct *clientHashDisseminator) ack(source nodeID, ack *pb.RequestAck) (*actionSet, *clientRequest) {
 	c, ok := ct.clients[ack.ClientId]
 	assertEqual(ok, true, "the step filtering should delay reqs for non-existent clients")
 
@@ -558,10 +558,8 @@ func (crn *clientReqNo) tick() *actionSet {
 					RequestAck: nullAck,
 				},
 			},
-		).storeRequest(
-			&pb.ForwardRequest{
-				RequestAck: nullAck,
-			},
+		).correctRequest(
+			nullAck,
 		)
 	}
 
@@ -819,7 +817,8 @@ func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfigu
 	return actions
 }
 
-func (c *client) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
+func (c *client) ack(source nodeID, ack *pb.RequestAck) (*actionSet, *clientRequest) {
+	actions := &actionSet{}
 	crne, ok := c.reqNoMap[ack.ReqNo]
 	assertEqualf(ok, true, "client_id=%d got ack for req_no=%d, but lowWatermark=%d highWatermark=%d", c.clientState.Id, ack.ReqNo, c.clientState.LowWatermark, c.highWatermark)
 
@@ -833,6 +832,10 @@ func (c *client) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 
 		// This request just became 'available', add it to the list
 		c.clientTracker.addAvailable(ack)
+
+		if cr.stored {
+			actions.correctRequest(ack)
+		}
 	}
 
 	if len(cr.agreements) == intersectionQuorum(c.networkConfig) {
@@ -842,7 +845,7 @@ func (c *client) ack(source nodeID, ack *pb.RequestAck) *clientRequest {
 		c.advanceReady()
 	}
 
-	return cr
+	return actions, cr
 }
 
 func (c *client) inWatermarks(reqNo uint64) bool {

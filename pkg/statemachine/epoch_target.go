@@ -255,10 +255,12 @@ func (et *epochTarget) fetchNewEpochState() *actionSet {
 			// TODO, do we really want this? We should not need acks to commit, and we fetch explicitly maybe?
 			var cr *clientRequest
 			for _, id := range sources {
-				cr = et.clientHashDisseminator.ack(nodeID(id), requestAck)
+				iActions, icr := et.clientHashDisseminator.ack(nodeID(id), requestAck)
+				cr = icr
+				actions.concat(iActions)
 			}
 
-			if _, ok := cr.agreements[nodeID(et.myConfig.Id)]; ok {
+			if cr.stored {
 				continue
 			}
 
