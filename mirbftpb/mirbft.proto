@@ -378,10 +378,6 @@ message StateEvent {
         repeated RequestAck persisted = 1;
     }
 
-    message Proposal {
-        RequestAck request = 1;
-    }
-
     message InboundMsg {
         uint64 source = 1;
         Msg msg = 2;
@@ -398,11 +394,10 @@ message StateEvent {
         ActionResults add_results = 4;
         ClientActionResults add_client_results = 5;
         CEntry Transfer = 6; // XXX probably wrap this?
-        Proposal propose = 7;
-        InboundMsg step = 8;
-	TickElapsed tick = 9;
-	Ready actions_received = 10;
-	Ready client_actions_received = 11;
+        InboundMsg step = 7;
+	TickElapsed tick = 8;
+	Ready actions_received = 9;
+	Ready client_actions_received = 10;
     }
 }
 

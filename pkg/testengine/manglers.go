@@ -136,7 +136,7 @@ func MatchClientProposal() *ClientMatching {
 	cm.Filters = []mangleFilter{
 		{
 			stateEvent: func(event *pb.StateEvent) bool {
-				_, ok := event.Type.(*pb.StateEvent_Propose)
+				_, ok := event.Type.(*pb.StateEvent_AddClientResults)
 				return ok
 			},
 		},
@@ -159,7 +159,6 @@ func (im InlineMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleRes
 }
 
 type mangleFilter struct {
-	clientID    func(id uint64) bool
 	msgContents func(msg *pb.Msg) bool
 	msgSeqNo    func(seqNo uint64) bool
 	msgEpoch    func(seqNo uint64) bool
@@ -171,8 +170,6 @@ type mangleFilter struct {
 
 func (mf mangleFilter) apply(random int, event *rpb.RecordedEvent) bool {
 	switch {
-	case mf.clientID != nil:
-		return mf.clientID(event.StateEvent.Type.(*pb.StateEvent_Propose).Propose.Request.ClientId)
 	case mf.msgContents != nil:
 		return mf.msgContents(event.StateEvent.Type.(*pb.StateEvent_Step).Step.Msg)
 	case mf.msgEpoch != nil:
@@ -391,25 +388,6 @@ type ClientMatching struct {
 	FromClient func(clientId uint64) *ClientMatching
 }
 
-// XXX tmp staticcheck hack
-var _ = newClientMatching
-
-func newClientMatching() *ClientMatching {
-	cm := &ClientMatching{}
-
-	cm.Filters = []mangleFilter{
-		{
-			stateEvent: func(event *pb.StateEvent) bool {
-				_, ok := event.Type.(*pb.StateEvent_Propose)
-				return ok
-			},
-		},
-	}
-	initializeMatching(cm)
-
-	return cm
-}
-
 type matching struct {
 	Filters []mangleFilter
 }
@@ -527,16 +505,6 @@ func (baseMangling) WithEpoch(epochNo uint64) mangleFilter {
 	return mangleFilter{
 		msgEpoch: func(actualEpoch uint64) bool {
 			return epochNo == actualEpoch
-		},
-	}
-}
-
-// FromClient may only be safely bound into a mangling if
-// the mangling ensures all events are client proposals.
-func (baseMangling) FromClient(clientID uint64) mangleFilter {
-	return mangleFilter{
-		clientID: func(actualClientID uint64) bool {
-			return clientID == actualClientID
 		},
 	}
 }
