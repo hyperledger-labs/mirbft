@@ -49,29 +49,41 @@ type RuntimeParameters struct {
 	StateTransferLatency int
 }
 
+// ackHelper is a map-key usable version of the pb.RequestAck
+type ackHelper struct {
+	clientID uint64
+	reqNo    uint64
+	digest   string
+}
+
+func newAckHelper(ack *pb.RequestAck) ackHelper {
+	return ackHelper{
+		reqNo:    ack.ReqNo,
+		clientID: ack.ClientId,
+		digest:   string(ack.Digest),
+	}
+}
+
 type ReqStore struct {
-	ReqAcks   *list.List
-	ReqAckMap map[*pb.RequestAck]*list.Element
+	reqAcks map[ackHelper]struct{}
 }
 
 func NewReqStore() *ReqStore {
 	return &ReqStore{
-		ReqAcks:   list.New(),
-		ReqAckMap: map[*pb.RequestAck]*list.Element{},
+		reqAcks: map[ackHelper]struct{}{},
 	}
 }
 
-func (rs *ReqStore) Store(ack *pb.RequestAck, _ []byte) {
-	el := rs.ReqAcks.PushBack(ack)
-	rs.ReqAckMap[ack] = el
+func (rs *ReqStore) Store(ack *pb.RequestAck) {
+	helper := newAckHelper(ack)
+	rs.reqAcks[helper] = struct{}{}
 	// TODO, deal with free-ing
 }
 
-func (rs *ReqStore) Uncommitted(forEach func(*pb.RequestAck)) error {
-	for el := rs.ReqAcks.Front(); el != nil; el = el.Next() {
-		forEach(el.Value.(*pb.RequestAck))
-	}
-	return nil
+func (rs *ReqStore) Has(ack *pb.RequestAck) bool {
+	helper := newAckHelper(ack)
+	_, ok := rs.reqAcks[helper]
+	return ok
 }
 
 type WAL struct {
@@ -182,6 +194,7 @@ type NodeState struct {
 	PendingReconfigurations []*pb.Reconfiguration
 	Checkpoints             *list.List
 	CheckpointsBySeqNo      map[uint64]*list.Element
+	ReqStore                *ReqStore
 }
 
 func (ns *NodeState) Set(seqNo uint64, value []byte, networkState *pb.NetworkState) *pb.CheckpointResult {
@@ -221,6 +234,10 @@ func (ns *NodeState) Commit(commits []*pb.StateEventResult_Commit, node uint64) 
 			}
 
 			for _, request := range commit.Batch.Requests {
+				if !ns.ReqStore.Has(request) {
+					panic("reqstore should have request if we are committing it")
+				}
+
 				ns.ActiveHash.Write(request.Digest)
 
 				for _, reconfigPoint := range ns.ReconfigPoints {
@@ -260,6 +277,21 @@ type ClientConfig struct {
 	ID          uint64
 	MaxInFlight int
 	Total       uint64
+
+	// IgnoreNodes may be set to cause the client not to send requests
+	// to a particular set of nodes.  This is useful for testing request
+	// forwarding behavior.
+	IgnoreNodes []uint64
+}
+
+func (cc *ClientConfig) shouldSkip(nodeID uint64) bool {
+	for _, id := range cc.IgnoreNodes {
+		if id == nodeID {
+			return true
+		}
+	}
+
+	return false
 }
 
 type ReconfigPoint struct {
@@ -310,17 +342,20 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 			0,
 		)
 
+		reqStore := NewReqStore()
+
 		nodeState := &NodeState{
 			Hasher:             r.Hasher,
 			ReconfigPoints:     r.ReconfigPoints,
 			Checkpoints:        list.New(),
 			CheckpointsBySeqNo: map[uint64]*list.Element{},
+			ReqStore:           reqStore,
 		}
 
 		nodes[i] = &RecorderNode{
 			State:        nodeState,
 			WAL:          wal,
-			ReqStore:     NewReqStore(),
+			ReqStore:     reqStore,
 			PlaybackNode: player.Node(uint64(i)),
 			Config:       recorderNodeConfig,
 		}
@@ -375,6 +410,9 @@ func (r *Recording) Step() error {
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	case *pb.StateEvent_AddResults:
 	case *pb.StateEvent_AddClientResults:
+		for _, req := range stateEvent.AddClientResults.Persisted {
+			node.ReqStore.Store(req)
+		}
 	case *pb.StateEvent_Step:
 	case *pb.StateEvent_ClientActionsReceived:
 		if !node.AwaitingClientProcessEvent {
@@ -390,10 +428,15 @@ func (r *Recording) Step() error {
 				panic("sanity check")
 			}
 
+			if client.Config.shouldSkip(lastEvent.NodeId) {
+				continue
+			}
+
 			req := client.RequestByReqNo(reqSlot.ReqNo)
 			if req == nil {
 				continue
 			}
+
 			clientActionResults.Persisted = append(clientActionResults.Persisted, req)
 		}
 

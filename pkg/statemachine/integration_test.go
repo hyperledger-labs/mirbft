@@ -98,6 +98,17 @@ var _ = Describe("Mirbft", func() {
 			_, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
 		})
+
+		When("that client ignores one of the nodes", func() {
+			BeforeEach(func() {
+				recorder.ClientConfigs[0].IgnoreNodes = []uint64{0}
+			})
+
+			PIt("still delivers all requests", func() {
+				_, err := recording.DrainClients(50000)
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
 	})
 
 	When("the network is comprised of just one node", func() {
