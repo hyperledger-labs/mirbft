@@ -157,7 +157,7 @@ func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.Ne
 	for _, clientState := range ct.clientStates {
 		client, ok := oldClients[clientState.Id]
 		if !ok {
-			client = newClient(ct.logger, ct.clientTracker)
+			client = newClient(ct.myConfig, ct.logger, ct.clientTracker)
 		}
 
 		ct.clients[clientState.Id] = client
@@ -206,23 +206,6 @@ func (ct *clientHashDisseminator) filter(_ nodeID, msg *pb.Msg) applyable {
 		}
 	case *pb.Msg_FetchRequest:
 		return current // TODO push outside state machine
-	case *pb.Msg_ForwardRequest:
-		requestAck := innerMsg.ForwardRequest.RequestAck
-		client, ok := ct.client(requestAck.ClientId)
-		if !ok {
-			return future
-		}
-		// TODO, we need to validate that the request is correct before further processing
-		// probably by having a separate forward request queue to iterate through, maybe
-		// even using a readyList type iterator if we're feeling fancy.
-		switch {
-		case client.clientState.LowWatermark > requestAck.ReqNo:
-			return past
-		case client.highWatermark < requestAck.ReqNo:
-			return future
-		default:
-			return current
-		}
 	default:
 		panic(fmt.Sprintf("unexpected bad client window message type %T, this indicates a bug", msg.Type))
 	}
@@ -245,15 +228,11 @@ func (ct *clientHashDisseminator) step(source nodeID, msg *pb.Msg) *actionSet {
 func (ct *clientHashDisseminator) applyMsg(source nodeID, msg *pb.Msg) *actionSet {
 	switch innerMsg := msg.Type.(type) {
 	case *pb.Msg_RequestAck:
-		// TODO, make sure nodeMsgs ignores this if client is not defined
-		ct.ack(source, innerMsg.RequestAck)
-		return &actionSet{}
+		actions, _ := ct.ack(source, innerMsg.RequestAck)
+		return actions
 	case *pb.Msg_FetchRequest:
 		msg := innerMsg.FetchRequest
 		return ct.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest)
-	case *pb.Msg_ForwardRequest:
-		// XXX this message is going away, temporarily disabling handling
-		return &actionSet{}
 	default:
 		panic(fmt.Sprintf("unexpected bad client window message type %T, this indicates a bug", msg.Type))
 	}
@@ -360,6 +339,7 @@ func (ct *clientHashDisseminator) client(clientID uint64) (*client, bool) {
 // track which replicas have already acked a non-null request and ignore any further
 // non-null acks.
 type clientReqNo struct {
+	myConfig        *pb.StateEvent_InitialParameters
 	networkConfig   *pb.NetworkState_Config
 	clientID        uint64
 	reqNo           uint64
@@ -374,8 +354,10 @@ type clientReqNo struct {
 	ticksSinceAck   uint
 }
 
-func newClientReqNo(clientID, reqNo uint64, networkConfig *pb.NetworkState_Config, validAfterSeqNo uint64) *clientReqNo {
+func newClientReqNo(myConfig *pb.StateEvent_InitialParameters, clientID, reqNo uint64, networkConfig *pb.NetworkState_Config, validAfterSeqNo uint64) *clientReqNo {
+
 	return &clientReqNo{
+		myConfig:        myConfig,
 		clientID:        clientID,
 		reqNo:           reqNo,
 		networkConfig:   networkConfig,
@@ -438,6 +420,7 @@ func (crn *clientReqNo) clientReq(ack *pb.RequestAck) *clientRequest {
 	clientReq, ok := crn.requests[digestKey]
 	if !ok {
 		clientReq = &clientRequest{
+			myConfig:   crn.myConfig,
 			ack:        ack,
 			agreements: map[nodeID]struct{}{},
 		}
@@ -654,6 +637,7 @@ func (crn *clientReqNo) tick() *actionSet {
 }
 
 type clientRequest struct {
+	myConfig      *pb.StateEvent_InitialParameters
 	ack           *pb.RequestAck
 	agreements    map[nodeID]struct{}
 	stored        bool // set when the request is persisted locally
@@ -692,6 +676,7 @@ func (cr *clientRequest) fetch() *actionSet {
 }
 
 type client struct {
+	myConfig      *pb.StateEvent_InitialParameters
 	logger        Logger
 	networkConfig *pb.NetworkState_Config
 	clientState   *pb.NetworkState_Client
@@ -703,8 +688,9 @@ type client struct {
 	reqNoMap  map[uint64]*list.Element
 }
 
-func newClient(logger Logger, tracker *clientTracker) *client {
+func newClient(myConfig *pb.StateEvent_InitialParameters, logger Logger, tracker *clientTracker) *client {
 	return &client{
+		myConfig:      myConfig,
 		logger:        logger,
 		clientTracker: tracker,
 	}
@@ -741,7 +727,7 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Confi
 			} else {
 				validAfterSeqNo = seqNo
 			}
-			crn = newClientReqNo(clientState.Id, reqNo, c.networkConfig, validAfterSeqNo)
+			crn = newClientReqNo(c.myConfig, clientState.Id, reqNo, c.networkConfig, validAfterSeqNo)
 			actions.allocateRequest(clientState.Id, reqNo)
 		}
 
@@ -805,7 +791,7 @@ func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfigu
 	validAfterSeqNo := seqNo + uint64(c.networkConfig.CheckpointInterval)
 	for reqNo := intermediateHighWatermark + 1; reqNo <= newHighWatermark; reqNo++ {
 		actions.allocateRequest(state.Id, reqNo)
-		el := c.reqNoList.PushBack(newClientReqNo(state.Id, reqNo, c.networkConfig, validAfterSeqNo))
+		el := c.reqNoList.PushBack(newClientReqNo(c.myConfig, state.Id, reqNo, c.networkConfig, validAfterSeqNo))
 		c.reqNoMap[reqNo] = el
 	}
 
@@ -827,15 +813,20 @@ func (c *client) ack(source nodeID, ack *pb.RequestAck) (*actionSet, *clientRequ
 	cr := crn.clientReq(ack)
 	cr.agreements[source] = struct{}{}
 
-	if len(cr.agreements) == someCorrectQuorum(c.networkConfig) {
+	newlyCorrect := len(cr.agreements) == someCorrectQuorum(c.networkConfig)
+	if newlyCorrect {
 		crn.weakRequests[string(ack.Digest)] = cr
 
-		// This request just became 'available', add it to the list
-		c.clientTracker.addAvailable(ack)
-
-		if cr.stored {
+		if !cr.stored {
+			// If we already have the req stored, we know it's correct
 			actions.correctRequest(ack)
 		}
+	}
+
+	correctAndMyAck := len(cr.agreements) >= someCorrectQuorum(c.networkConfig) && uint64(source) == c.myConfig.Id
+	if cr.stored && (newlyCorrect || correctAndMyAck) {
+		// This request just became 'available', add it to the list
+		c.clientTracker.addAvailable(ack)
 	}
 
 	if len(cr.agreements) == intersectionQuorum(c.networkConfig) {

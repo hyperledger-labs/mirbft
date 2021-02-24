@@ -65,24 +65,37 @@ func newAckHelper(ack *pb.RequestAck) ackHelper {
 }
 
 type ReqStore struct {
-	reqAcks map[ackHelper]struct{}
+	storedAcks  map[ackHelper]struct{}
+	correctAcks map[ackHelper]struct{}
 }
 
 func NewReqStore() *ReqStore {
 	return &ReqStore{
-		reqAcks: map[ackHelper]struct{}{},
+		storedAcks:  map[ackHelper]struct{}{},
+		correctAcks: map[ackHelper]struct{}{},
 	}
 }
 
 func (rs *ReqStore) Store(ack *pb.RequestAck) {
 	helper := newAckHelper(ack)
-	rs.reqAcks[helper] = struct{}{}
+	rs.storedAcks[helper] = struct{}{}
 	// TODO, deal with free-ing
 }
 
 func (rs *ReqStore) Has(ack *pb.RequestAck) bool {
 	helper := newAckHelper(ack)
-	_, ok := rs.reqAcks[helper]
+	_, ok := rs.storedAcks[helper]
+	return ok
+}
+
+func (rs *ReqStore) StoreCorrect(ack *pb.RequestAck) {
+	helper := newAckHelper(ack)
+	rs.correctAcks[helper] = struct{}{}
+}
+
+func (rs *ReqStore) HasCorrect(ack *pb.RequestAck) bool {
+	helper := newAckHelper(ack)
+	_, ok := rs.correctAcks[helper]
 	return ok
 }
 
@@ -450,10 +463,43 @@ func (r *Recording) Step() error {
 			0, // TODO, maybe have some additional reqstore latency here?
 		)
 
-		// XXX shouldn't be needed
-		// for _, req := range processing.StoreRequests {
-		// node.ReqStore.Store(req.Ack, req.RequestData)
-		// }
+		for _, ack := range processing.CorrectRequests {
+			node.ReqStore.StoreCorrect(ack)
+		}
+
+		for _, forward := range processing.ForwardRequests {
+			if !node.ReqStore.Has(forward.Ack) {
+				panic("we asked ourselves to forward an ack we do not have")
+			}
+
+			for _, dNodeID := range forward.Targets {
+
+				dNode := r.Nodes[int(dNodeID)]
+				if dNode.ReqStore.Has(forward.Ack) {
+					continue
+				}
+
+				if !dNode.ReqStore.HasCorrect(forward.Ack) {
+					// TODO, this is a bit crude, it assumes that
+					// if the request is not correct at this moment,
+					// there is no buffering, and that it will not become
+					// correct in the future
+					continue
+				}
+
+				r.EventLog.InsertStateEvent(
+					dNodeID,
+					&pb.StateEvent{
+						Type: &pb.StateEvent_AddClientResults{
+							AddClientResults: &pb.StateEvent_ClientActionResults{
+								Persisted: []*pb.RequestAck{forward.Ack},
+							},
+						},
+					},
+					int64(runtimeParms.LinkLatency),
+				)
+			}
+		}
 	case *pb.StateEvent_ActionsReceived:
 		if !node.AwaitingProcessEvent {
 			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.NodeId)

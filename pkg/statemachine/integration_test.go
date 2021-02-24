@@ -104,7 +104,7 @@ var _ = Describe("Mirbft", func() {
 				recorder.ClientConfigs[0].IgnoreNodes = []uint64{0}
 			})
 
-			PIt("still delivers all requests", func() {
+			It("still delivers all requests", func() {
 				_, err := recording.DrainClients(50000)
 				Expect(err).NotTo(HaveOccurred())
 			})

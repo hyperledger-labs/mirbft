@@ -126,9 +126,10 @@ func (p *Player) Step() error {
 
 		node.Processing = nil
 	case *pb.StateEvent_AddClientResults:
-		if node.ClientProcessing == nil {
-			return errors.Errorf("node %d is not currently client processing but got a client apply event", event.NodeId)
-		}
+		// TODO, as a hacky way to do req forwarding, we allow multiply applys, revisit
+		// if node.ClientProcessing == nil {
+		// return errors.Errorf("node %d is not currently client processing but got a client apply event", event.NodeId)
+		// }
 
 		node.ClientProcessing = nil
 	case *pb.StateEvent_ClientActionsReceived:

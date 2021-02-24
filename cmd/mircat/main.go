@@ -37,7 +37,6 @@ var (
 		"CompleteInitialization",
 		"Tick",
 		"Step",
-		"Propose",
 		"AddResults",
 		"ActionsReceived",
 		"ClientActionsReceived",
@@ -235,7 +234,7 @@ func actionsConcat(a, o *pb.StateEventResult) (*pb.StateEventResult, error) {
 // clientActionsConcat appends the client actions of o to the actions a
 func clientActionsConcat(a, o *pb.StateEventResult) *pb.StateEventResult {
 	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
-	a.StoreRequests = append(a.StoreRequests, o.StoreRequests...)
+	a.CorrectRequests = append(a.CorrectRequests, o.CorrectRequests...)
 	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
 	return a
 }
@@ -256,8 +255,6 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 		eventTypeText = "CompleteInitialization"
 	case *pb.StateEvent_Tick:
 		eventTypeText = "Tick"
-	case *pb.StateEvent_Propose:
-		eventTypeText = "Propose"
 	case *pb.StateEvent_AddResults:
 		eventTypeText = "AddResults"
 	case *pb.StateEvent_AddClientResults:
@@ -283,7 +280,6 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 	case *pb.StateEvent_LoadEntry:
 	case *pb.StateEvent_CompleteInitialization:
 	case *pb.StateEvent_Tick:
-	case *pb.StateEvent_Propose:
 	case *pb.StateEvent_AddResults:
 	case *pb.StateEvent_AddClientResults:
 	case *pb.StateEvent_ActionsReceived:
