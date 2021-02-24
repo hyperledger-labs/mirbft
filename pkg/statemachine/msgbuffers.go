@@ -9,10 +9,10 @@ package statemachine
 import (
 	"container/list"
 	"fmt"
-	"github.com/IBM/mirbft/pkg/status"
-
 	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/status"
 	"google.golang.org/protobuf/proto"
+	"sort"
 )
 
 type nodeBuffers struct {
@@ -44,10 +44,17 @@ func (nbs *nodeBuffers) nodeBuffer(source nodeID) *nodeBuffer {
 }
 
 func (nbs *nodeBuffers) status() []*status.NodeBuffer {
-	var stats []*status.NodeBuffer
+	// Create status objects.
+	stats := make([]*status.NodeBuffer, 0, len(nbs.nodeMap))
 	for _, nb := range nbs.nodeMap {
 		stats = append(stats, nb.status())
 	}
+
+	// Sort status objects to ensure deterministic output.
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].ID < stats[j].ID
+	})
+
 	return stats
 }
 
@@ -87,14 +94,20 @@ func (nb *nodeBuffer) removeMsgBuffer(msgBuf *msgBuffer) {
 }
 
 func (nb *nodeBuffer) status() *status.NodeBuffer {
-	var msgBufStatuses []*status.MsgBuffer
+	msgBufStatuses := make([]*status.MsgBuffer, 0, len(nb.msgBufs))
 	totalMsgs := 0
 
+	// Create MsgBuffer status objects, counting the aggregate number of stored messages.
 	for mb := range nb.msgBufs {
 		mbs := mb.status()
 		msgBufStatuses = append(msgBufStatuses, mbs)
 		totalMsgs += mbs.Msgs
 	}
+
+	// Sort status objects to ensure deterministic output.
+	sort.Slice(msgBufStatuses, func(i, j int) bool {
+		return msgBufStatuses[i].Compare(msgBufStatuses[j]) < 0
+	})
 
 	return &status.NodeBuffer{
 		ID:         uint64(nb.id),

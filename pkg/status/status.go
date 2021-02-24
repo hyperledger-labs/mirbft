@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"strings"
 )
 
 type EpochTargetState int
@@ -121,7 +122,7 @@ type EpochChangeMsg struct {
 type NodeBuffer struct {
 	ID         uint64       `json:"id"`
 	Size       int          `json:"size"`
-	Msgs       int          `json:"Msgs"`
+	Msgs       int          `json:"msgs"`
 	MsgBuffers []*MsgBuffer `json:"msg_buffers"`
 }
 
@@ -129,6 +130,22 @@ type MsgBuffer struct {
 	Component string `json:"component"`
 	Size      int    `json:"size"`
 	Msgs      int    `json:"msgs"`
+}
+
+// Used for sorting MsgBuffers
+// (e.g. to produce deterministic output after iteration over a map).
+// Returns a value > 0 if mb is "greater than" other,
+//                 < 0 if mb is "smaller than" other,
+//                 0 if mb and other are equal.
+// Definition of greater / smaller is arbitrary.
+func (mb *MsgBuffer) Compare(other *MsgBuffer) int {
+	if mb.Size != other.Size {
+		return mb.Size - other.Size
+	} else if mb.Msgs != other.Msgs {
+		return mb.Msgs - other.Msgs
+	} else {
+		return strings.Compare(mb.Component, other.Component)
+	}
 }
 
 type NodeBucket struct {
