@@ -16,5 +16,5 @@ before_script:
   - go install honnef.co/go/tools/cmd/staticcheck
 
 script:
-  - MIRBFT_TEST_CONTEXT_TIMEOUT=180s MIRBFT_TEST_STRESS_TICK_INTERVAL=500ms ginkgo -r --randomizeAllSpecs --randomizeSuites --race --trace
+  - MIRBFT_TEST_CONTEXT_TIMEOUT=180s MIRBFT_TEST_STRESS_TICK_INTERVAL=1000ms ginkgo -r --randomizeAllSpecs --randomizeSuites --race --trace
   - staticcheck ./...
