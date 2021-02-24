@@ -404,13 +404,6 @@ func (sm *StateMachine) Status() *status.StateMachine {
 		clientTrackerStatus[i] = sm.clientHashDisseminator.clients[clientState.Id].status()
 	}
 
-	nodes := make([]*status.NodeBuffer, len(sm.checkpointTracker.networkConfig.Nodes))
-	for i, id := range sm.checkpointTracker.networkConfig.Nodes {
-		nodes[i] = &status.NodeBuffer{
-			ID: id,
-		} // TODO, actually populate this again
-	}
-
 	lowWatermark, highWatermark, bucketStatus := sm.epochTracker.currentEpoch.bucketStatus()
 
 	checkpoints := sm.checkpointTracker.status()
@@ -423,6 +416,6 @@ func (sm *StateMachine) Status() *status.StateMachine {
 		ClientWindows: clientTrackerStatus,
 		Buckets:       bucketStatus,
 		Checkpoints:   checkpoints,
-		NodeBuffers:   nodes,
+		NodeBuffers:   sm.nodeBuffers.status(),
 	}
 }
