@@ -17,7 +17,8 @@ import (
 	"context"
 	"fmt"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/status"
 	"github.com/pkg/errors"
 )
@@ -30,7 +31,7 @@ type WALStorage interface {
 	// LoadAll will invoke the given function with the the persisted entry
 	// iteratively, until the entire write-ahead-log has been loaded.
 	// If an error is encountered reading the log, it is returned and iteration stops.
-	LoadAll(forEach func(index uint64, p *pb.Persistent)) error
+	LoadAll(forEach func(index uint64, p *msgs.Persistent)) error
 }
 
 // Node is the local instance of the MirBFT state machine through which the calling application
@@ -42,7 +43,7 @@ type Node struct {
 	s      *serializer
 }
 
-func StandardInitialNetworkState(nodeCount int, clientCount int) *pb.NetworkState {
+func StandardInitialNetworkState(nodeCount int, clientCount int) *msgs.NetworkState {
 	nodes := []uint64{}
 	for i := 0; i < nodeCount; i++ {
 		nodes = append(nodes, uint64(i))
@@ -52,17 +53,17 @@ func StandardInitialNetworkState(nodeCount int, clientCount int) *pb.NetworkStat
 	checkpointInterval := numberOfBuckets * 5
 	maxEpochLength := checkpointInterval * 10
 
-	clients := make([]*pb.NetworkState_Client, clientCount)
+	clients := make([]*msgs.NetworkState_Client, clientCount)
 	for i := range clients {
-		clients[i] = &pb.NetworkState_Client{
+		clients[i] = &msgs.NetworkState_Client{
 			Id:           uint64(i),
 			Width:        100,
 			LowWatermark: 0,
 		}
 	}
 
-	return &pb.NetworkState{
-		Config: &pb.NetworkState_Config{
+	return &msgs.NetworkState{
+		Config: &msgs.NetworkState_Config{
 			Nodes:              nodes,
 			F:                  int32((nodeCount - 1) / 3),
 			NumberOfBuckets:    numberOfBuckets,
@@ -74,14 +75,14 @@ func StandardInitialNetworkState(nodeCount int, clientCount int) *pb.NetworkStat
 }
 
 type dummyWAL struct {
-	initialNetworkState    *pb.NetworkState
+	initialNetworkState    *msgs.NetworkState
 	initialCheckpointValue []byte
 }
 
-func (dw *dummyWAL) LoadAll(forEach func(uint64, *pb.Persistent)) error {
-	forEach(1, &pb.Persistent{
-		Type: &pb.Persistent_CEntry{
-			CEntry: &pb.CEntry{
+func (dw *dummyWAL) LoadAll(forEach func(uint64, *msgs.Persistent)) error {
+	forEach(1, &msgs.Persistent{
+		Type: &msgs.Persistent_CEntry{
+			CEntry: &msgs.CEntry{
 				SeqNo:           0,
 				CheckpointValue: dw.initialCheckpointValue,
 				NetworkState:    dw.initialNetworkState,
@@ -89,10 +90,10 @@ func (dw *dummyWAL) LoadAll(forEach func(uint64, *pb.Persistent)) error {
 		},
 	})
 
-	forEach(2, &pb.Persistent{
-		Type: &pb.Persistent_FEntry{
-			FEntry: &pb.FEntry{
-				EndsEpochConfig: &pb.EpochConfig{
+	forEach(2, &msgs.Persistent{
+		Type: &msgs.Persistent_FEntry{
+			FEntry: &msgs.FEntry{
+				EndsEpochConfig: &msgs.EpochConfig{
 					Number:  0,
 					Leaders: dw.initialNetworkState.Config.Nodes,
 				},
@@ -109,7 +110,7 @@ func (dw *dummyWAL) LoadAll(forEach func(uint64, *pb.Persistent)) error {
 // any initial state of the application as well as the initialNetworkState passed to the start.
 func StartNewNode(
 	config *Config,
-	initialNetworkState *pb.NetworkState,
+	initialNetworkState *msgs.NetworkState,
 	initialCheckpointValue []byte,
 ) (*Node, error) {
 	return RestartNode(
@@ -149,14 +150,14 @@ func (n *Node) Stop() {
 // the designed source.  This method returns an error if the context ends, the node
 // stopped, or the message is not well formed (unknown proto fields, etc.).  In the
 // case that the node is stopped gracefully, it returns ErrStopped.
-func (n *Node) Step(ctx context.Context, source uint64, msg *pb.Msg) error {
+func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 	err := preProcess(msg)
 	if err != nil {
 		return err
 	}
 
-	stepEvent := &pb.StateEvent_Step{
-		Step: &pb.StateEvent_InboundMsg{
+	stepEvent := &state.Event_Step{
+		Step: &state.EventInboundMsg{
 			Source: source,
 			Msg:    msg,
 		},
@@ -245,9 +246,9 @@ func (n *Node) Tick() error {
 // Actions is applicable.  In the case that the node is stopped, it returns
 // the exit error otherwise nil is returned.
 func (n *Node) AddResults(results ActionResults) error {
-	stateEventResults := &pb.StateEvent_ActionResults{
-		Digests:     make([]*pb.HashResult, len(results.Digests)),
-		Checkpoints: make([]*pb.CheckpointResult, len(results.Checkpoints)),
+	stateEventResults := &state.EventActionResults{
+		Digests:     make([]*state.HashResult, len(results.Digests)),
+		Checkpoints: make([]*state.CheckpointResult, len(results.Checkpoints)),
 	}
 
 	for i, hashResult := range results.Digests {
@@ -257,10 +258,10 @@ func (n *Node) AddResults(results ActionResults) error {
 	}
 
 	for i, cr := range results.Checkpoints {
-		stateEventResults.Checkpoints[i] = &pb.CheckpointResult{
+		stateEventResults.Checkpoints[i] = &state.CheckpointResult{
 			SeqNo: cr.Checkpoint.SeqNo,
 			Value: cr.Value,
-			NetworkState: &pb.NetworkState{
+			NetworkState: &msgs.NetworkState{
 				Config:                  cr.Checkpoint.NetworkConfig,
 				Clients:                 cr.Checkpoint.ClientsState,
 				PendingReconfigurations: cr.Reconfigurations,
@@ -281,7 +282,7 @@ func (n *Node) AddResults(results ActionResults) error {
 // ClientActions is applicable.  In the case that the node is stopped, it returns
 // the exit error otherwise nil is returned.
 func (n *Node) AddClientResults(results ClientActionResults) error {
-	stateEventResults := &pb.StateEvent_ClientActionResults{
+	stateEventResults := &state.EventClientActionResults{
 		Persisted: results.PersistedRequests,
 	}
 
@@ -296,10 +297,10 @@ func (n *Node) AddClientResults(results ClientActionResults) error {
 // StateTransferComplete should be called by the consumer in response to a StateTransfer action
 // once state transfer has completed.  In the case that the node is stopped, it returns
 // the exit error, otherwise nil is returned.
-func (n *Node) StateTransferComplete(stateTarget *StateTarget, networkState *pb.NetworkState) error {
+func (n *Node) StateTransferComplete(stateTarget *StateTarget, networkState *msgs.NetworkState) error {
 	select {
-	case n.s.transferC <- &pb.StateEvent_Transfer{
-		Transfer: &pb.CEntry{
+	case n.s.transferC <- &state.Event_Transfer{
+		Transfer: &msgs.CEntry{
 			SeqNo:           stateTarget.SeqNo,
 			CheckpointValue: stateTarget.Value,
 			NetworkState:    networkState,
@@ -318,8 +319,8 @@ func (n *Node) StateTransferComplete(stateTarget *StateTarget, networkState *pb.
 // may be the same target in the event that the network has stalled).
 func (n *Node) StateTransferFailed(stateTarget *StateTarget) error {
 	select {
-	case n.s.transferC <- &pb.StateEvent_Transfer{
-		Transfer: &pb.CEntry{
+	case n.s.transferC <- &state.Event_Transfer{
+		Transfer: &msgs.CEntry{
 			SeqNo:           stateTarget.SeqNo,
 			CheckpointValue: stateTarget.Value,
 			NetworkState:    nil, // nil state indicates error

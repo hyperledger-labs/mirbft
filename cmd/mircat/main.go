@@ -22,9 +22,10 @@ import (
 	"github.com/pkg/errors"
 	"gopkg.in/alecthomas/kingpin.v2"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/pkg/eventlog"
-	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 )
@@ -84,7 +85,7 @@ func excludeByType(value string, include []string, exclude []string) bool {
 	return false
 }
 
-func excludedByNodeID(re *rpb.RecordedEvent, nodeIDs []uint64) bool {
+func excludedByNodeID(re *recording.Event, nodeIDs []uint64) bool {
 	if nodeIDs == nil {
 		return false
 	}
@@ -149,8 +150,8 @@ type stateMachines struct {
 
 type stateMachine struct {
 	machine              *statemachine.StateMachine
-	pendingActions       *pb.StateEventResult
-	pendingClientActions *pb.StateEventResult
+	pendingActions       *state.Actions
+	pendingClientActions *state.Actions
 	executionTime        time.Duration
 }
 
@@ -162,10 +163,10 @@ func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMa
 	}
 }
 
-func (s *stateMachines) apply(event *rpb.RecordedEvent) (result *pb.StateEventResult, err error) {
+func (s *stateMachines) apply(event *recording.Event) (result *state.Actions, err error) {
 	var node *stateMachine
 
-	if _, ok := event.StateEvent.Type.(*pb.StateEvent_Initialize); ok {
+	if _, ok := event.StateEvent.Type.(*state.Event_Initialize); ok {
 		delete(s.nodes, event.NodeId)
 		node = &stateMachine{
 			machine: &statemachine.StateMachine{
@@ -175,8 +176,8 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (result *pb.StateEventRe
 					level:  s.logLevel,
 				},
 			},
-			pendingActions:       &pb.StateEventResult{},
-			pendingClientActions: &pb.StateEventResult{},
+			pendingActions:       &state.Actions{},
+			pendingClientActions: &state.Actions{},
 		}
 		s.nodes[event.NodeId] = node
 	} else {
@@ -203,13 +204,13 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (result *pb.StateEventRe
 	node.pendingClientActions = clientActionsConcat(node.pendingClientActions, actions)
 
 	switch event.StateEvent.Type.(type) {
-	case *pb.StateEvent_ActionsReceived:
+	case *state.Event_ActionsReceived:
 		result := node.pendingActions
-		node.pendingActions = &pb.StateEventResult{}
+		node.pendingActions = &state.Actions{}
 		return result, nil
-	case *pb.StateEvent_ClientActionsReceived:
+	case *state.Event_ClientActionsReceived:
 		result := node.pendingClientActions
-		node.pendingClientActions = &pb.StateEventResult{}
+		node.pendingClientActions = &state.Actions{}
 		return result, nil
 	default:
 		return nil, nil
@@ -217,7 +218,7 @@ func (s *stateMachines) apply(event *rpb.RecordedEvent) (result *pb.StateEventRe
 }
 
 // actionsConcat appends the actions of o to the actions a
-func actionsConcat(a, o *pb.StateEventResult) (*pb.StateEventResult, error) {
+func actionsConcat(a, o *state.Actions) (*state.Actions, error) {
 	a.Send = append(a.Send, o.Send...)
 	a.Commits = append(a.Commits, o.Commits...)
 	a.Hash = append(a.Hash, o.Hash...)
@@ -232,40 +233,40 @@ func actionsConcat(a, o *pb.StateEventResult) (*pb.StateEventResult, error) {
 }
 
 // clientActionsConcat appends the client actions of o to the actions a
-func clientActionsConcat(a, o *pb.StateEventResult) *pb.StateEventResult {
+func clientActionsConcat(a, o *state.Actions) *state.Actions {
 	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
 	a.CorrectRequests = append(a.CorrectRequests, o.CorrectRequests...)
 	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
 	return a
 }
 
-func (s *stateMachines) status(event *rpb.RecordedEvent) *status.StateMachine {
+func (s *stateMachines) status(event *recording.Event) *status.StateMachine {
 	node := s.nodes[event.NodeId]
 	return node.machine.Status()
 }
 
-func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
+func (a *arguments) shouldPrint(event *recording.Event) bool {
 	var eventTypeText string
 	switch event.StateEvent.Type.(type) {
-	case *pb.StateEvent_Initialize:
+	case *state.Event_Initialize:
 		eventTypeText = "Initialize"
-	case *pb.StateEvent_LoadEntry:
+	case *state.Event_LoadEntry:
 		eventTypeText = "LoadEntry"
-	case *pb.StateEvent_CompleteInitialization:
+	case *state.Event_CompleteInitialization:
 		eventTypeText = "CompleteInitialization"
-	case *pb.StateEvent_Tick:
+	case *state.Event_Tick:
 		eventTypeText = "Tick"
-	case *pb.StateEvent_AddResults:
+	case *state.Event_AddResults:
 		eventTypeText = "AddResults"
-	case *pb.StateEvent_AddClientResults:
+	case *state.Event_AddClientResults:
 		eventTypeText = "AddClientResults"
-	case *pb.StateEvent_ActionsReceived:
+	case *state.Event_ActionsReceived:
 		eventTypeText = "ActionsReceived"
-	case *pb.StateEvent_ClientActionsReceived:
+	case *state.Event_ClientActionsReceived:
 		eventTypeText = "ClientActionsReceived"
-	case *pb.StateEvent_Step:
+	case *state.Event_Step:
 		eventTypeText = "Step"
-	case *pb.StateEvent_Transfer:
+	case *state.Event_Transfer:
 		eventTypeText = "StateTransfer"
 	default:
 		panic(fmt.Sprintf("Unknown event type '%T'", event.StateEvent.Type))
@@ -276,46 +277,46 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 	}
 
 	switch et := event.StateEvent.Type.(type) {
-	case *pb.StateEvent_Initialize:
-	case *pb.StateEvent_LoadEntry:
-	case *pb.StateEvent_CompleteInitialization:
-	case *pb.StateEvent_Tick:
-	case *pb.StateEvent_AddResults:
-	case *pb.StateEvent_AddClientResults:
-	case *pb.StateEvent_ActionsReceived:
-	case *pb.StateEvent_ClientActionsReceived:
-	case *pb.StateEvent_Step:
+	case *state.Event_Initialize:
+	case *state.Event_LoadEntry:
+	case *state.Event_CompleteInitialization:
+	case *state.Event_Tick:
+	case *state.Event_AddResults:
+	case *state.Event_AddClientResults:
+	case *state.Event_ActionsReceived:
+	case *state.Event_ClientActionsReceived:
+	case *state.Event_Step:
 		var stepTypeText string
 		switch et.Step.Msg.Type.(type) {
-		case *pb.Msg_Preprepare:
+		case *msgs.Msg_Preprepare:
 			stepTypeText = "Preprepare"
-		case *pb.Msg_Prepare:
+		case *msgs.Msg_Prepare:
 			stepTypeText = "Prepare"
-		case *pb.Msg_Commit:
+		case *msgs.Msg_Commit:
 			stepTypeText = "Commit"
-		case *pb.Msg_Checkpoint:
+		case *msgs.Msg_Checkpoint:
 			stepTypeText = "Checkpoint"
-		case *pb.Msg_Suspect:
+		case *msgs.Msg_Suspect:
 			stepTypeText = "Suspect"
-		case *pb.Msg_EpochChange:
+		case *msgs.Msg_EpochChange:
 			stepTypeText = "EpochChange"
-		case *pb.Msg_EpochChangeAck:
+		case *msgs.Msg_EpochChangeAck:
 			stepTypeText = "EpochChangeAck"
-		case *pb.Msg_NewEpoch:
+		case *msgs.Msg_NewEpoch:
 			stepTypeText = "NewEpoch"
-		case *pb.Msg_NewEpochEcho:
+		case *msgs.Msg_NewEpochEcho:
 			stepTypeText = "NewEpochEcho"
-		case *pb.Msg_NewEpochReady:
+		case *msgs.Msg_NewEpochReady:
 			stepTypeText = "NewEpochReady"
-		case *pb.Msg_FetchBatch:
+		case *msgs.Msg_FetchBatch:
 			stepTypeText = "FetchBatch"
-		case *pb.Msg_ForwardBatch:
+		case *msgs.Msg_ForwardBatch:
 			stepTypeText = "ForwardBatch"
-		case *pb.Msg_FetchRequest:
+		case *msgs.Msg_FetchRequest:
 			stepTypeText = "FetchRequest"
-		case *pb.Msg_ForwardRequest:
+		case *msgs.Msg_ForwardRequest:
 			stepTypeText = "ForwardRequest"
-		case *pb.Msg_RequestAck:
+		case *msgs.Msg_RequestAck:
 			stepTypeText = "RequestAck"
 		default:
 			panic("unknown message type")
@@ -323,7 +324,7 @@ func (a *arguments) shouldPrint(event *rpb.RecordedEvent) bool {
 		if excludeByType(stepTypeText, a.stepTypes, a.notStepTypes) {
 			return false
 		}
-	case *pb.StateEvent_Transfer:
+	case *state.Event_Transfer:
 		eventTypeText = "StateTransfer"
 	default:
 		panic(fmt.Sprintf("Unknown event type '%T'", event.StateEvent.Type))

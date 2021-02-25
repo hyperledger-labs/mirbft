@@ -12,10 +12,10 @@ import (
 	"bytes"
 	"fmt"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 )
 
-func isCommitted(reqNo uint64, clientState *pb.NetworkState_Client) bool {
+func isCommitted(reqNo uint64, clientState *msgs.NetworkState_Client) bool {
 	if reqNo < clientState.LowWatermark {
 		return true
 	}
@@ -103,24 +103,24 @@ func (bm bitmask) setBit(bitIndex int) {
 // such that any two sets intersected will each contain some same
 // correct node.  This is ceil((n+f+1)/2), which is equivalent to
 // (n+f+2)/2 under truncating integer math.
-func intersectionQuorum(nc *pb.NetworkState_Config) int {
+func intersectionQuorum(nc *msgs.NetworkState_Config) int {
 	return (len(nc.Nodes) + int(nc.F) + 2) / 2
 }
 
 // someCorrectQuorum is the number of nodes such that at least one of them is correct
-func someCorrectQuorum(nc *pb.NetworkState_Config) int {
+func someCorrectQuorum(nc *msgs.NetworkState_Config) int {
 	return int(nc.F) + 1
 }
 
-func clientReqToBucket(clientID, reqNo uint64, nc *pb.NetworkState_Config) bucketID {
+func clientReqToBucket(clientID, reqNo uint64, nc *msgs.NetworkState_Config) bucketID {
 	return bucketID((clientID + reqNo) % uint64(nc.NumberOfBuckets))
 }
 
-func seqToBucket(seqNo uint64, nc *pb.NetworkState_Config) bucketID {
+func seqToBucket(seqNo uint64, nc *msgs.NetworkState_Config) bucketID {
 	return bucketID(seqNo % uint64(nc.NumberOfBuckets))
 }
 
-func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64, epochChanges map[nodeID]*parsedEpochChange) *pb.NewEpochConfig {
+func constructNewEpochConfig(config *msgs.NetworkState_Config, newLeaders []uint64, epochChanges map[nodeID]*parsedEpochChange) *msgs.NewEpochConfig {
 	type checkpointKey struct {
 		SeqNo uint64
 		Value string
@@ -193,13 +193,13 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 		return nil
 	}
 
-	newEpochConfig := &pb.NewEpochConfig{
-		Config: &pb.EpochConfig{
+	newEpochConfig := &msgs.NewEpochConfig{
+		Config: &msgs.EpochConfig{
 			Number:            newEpochNumber,
 			Leaders:           newLeaders,
 			PlannedExpiration: maxCheckpoint.SeqNo + config.MaxEpochLength,
 		},
-		StartingCheckpoint: &pb.Checkpoint{
+		StartingCheckpoint: &msgs.Checkpoint{
 			SeqNo: maxCheckpoint.SeqNo,
 			Value: []byte(maxCheckpoint.Value),
 		},
@@ -211,7 +211,7 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 	for seqNoOffset := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(seqNoOffset) + maxCheckpoint.SeqNo + 1
 
-		var selectedEntry *pb.EpochChange_SetEntry
+		var selectedEntry *msgs.EpochChange_SetEntry
 
 		for _, id := range config.Nodes {
 			nodeID := nodeID(id)
@@ -320,7 +320,7 @@ func constructNewEpochConfig(config *pb.NetworkState_Config, newLeaders []uint64
 	return newEpochConfig
 }
 
-func epochChangeHashData(epochChange *pb.EpochChange) [][]byte {
+func epochChangeHashData(epochChange *msgs.EpochChange) [][]byte {
 	// [new_epoch, checkpoints, pSet, qSet]
 	hashData := make([][]byte, 1+len(epochChange.Checkpoints)*2+len(epochChange.PSet)*3+len(epochChange.QSet)*3)
 	hashData[0] = uint64ToBytes(epochChange.NewEpoch)

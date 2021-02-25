@@ -13,7 +13,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 )
 
 var ErrClientNotExist error = errors.New("client does not exist")
@@ -21,8 +21,8 @@ var ErrClientNotExist error = errors.New("client does not exist")
 type RequestStore interface {
 	GetAllocation(clientID, reqNo uint64) ([]byte, error)
 	PutAllocation(clientID, reqNo uint64, digest []byte) error
-	GetRequest(requestAck *pb.RequestAck) ([]byte, error)
-	PutRequest(requestAck *pb.RequestAck, data []byte) error
+	GetRequest(requestAck *msgs.RequestAck) ([]byte, error)
+	PutRequest(requestAck *msgs.RequestAck, data []byte) error
 	Sync() error
 }
 
@@ -72,7 +72,7 @@ func (cw *ClientWork) Results() *ClientActionResults {
 	return results
 }
 
-func (cw *ClientWork) addPersistedReq(ack *pb.RequestAck) {
+func (cw *ClientWork) addPersistedReq(ack *msgs.RequestAck) {
 	cw.mutex.Lock()
 	defer cw.mutex.Unlock()
 	if cw.results == nil {
@@ -110,7 +110,7 @@ func (cp *ClientProcessor) Process(ca *ClientActions) (*ClientActionResults, err
 		}
 
 		if digest != nil {
-			results.persisted(&pb.RequestAck{
+			results.persisted(&msgs.RequestAck{
 				ClientId: r.ClientID,
 				ReqNo:    r.ReqNo,
 				Digest:   digest,
@@ -131,9 +131,9 @@ func (cp *ClientProcessor) Process(ca *ClientActions) (*ClientActionResults, err
 	                   panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
 	           }
 
-	           fr := &pb.Msg{
-	                   Type: &pb.Msg_ForwardRequest{
-	                           &pb.ForwardRequest{
+	           fr := &msgs.Msg{
+	                   Type: &msgs.Msg_ForwardRequest{
+	                           &msgs.ForwardRequest{
 	                                   RequestAck:  r.RequestAck,
 	                                   RequestData: requestData,
 	                           },
@@ -270,7 +270,7 @@ func (c *Client) Propose(reqNo uint64, data []byte) error {
 		}
 	}
 
-	ack := &pb.RequestAck{
+	ack := &msgs.RequestAck{
 		ClientId: c.clientID,
 		ReqNo:    reqNo,
 		Digest:   digest,

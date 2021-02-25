@@ -9,28 +9,28 @@ package statemachine
 import (
 	"container/list"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
-	// "github.com/IBM/mirbft/pkg/status"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 type clientTracker struct {
 	logger   Logger
-	myConfig *pb.StateEvent_InitialParameters
+	myConfig *state.EventInitialParameters
 
-	networkConfig *pb.NetworkState_Config
+	networkConfig *msgs.NetworkState_Config
 	readyList     *readyList
 	availableList *availableList // A list of requests which have f+1 ACKs and the requestData
-	clientStates  []*pb.NetworkState_Client
+	clientStates  []*msgs.NetworkState_Client
 }
 
-func newClientTracker(myConfig *pb.StateEvent_InitialParameters, logger Logger) *clientTracker {
+func newClientTracker(myConfig *state.EventInitialParameters, logger Logger) *clientTracker {
 	return &clientTracker{
 		logger:   logger,
 		myConfig: myConfig,
 	}
 }
 
-func (ct *clientTracker) reinitialize(networkState *pb.NetworkState) {
+func (ct *clientTracker) reinitialize(networkState *msgs.NetworkState) {
 	ct.networkConfig = networkState.Config
 	ct.clientStates = networkState.Clients
 	ct.availableList = newAvailableList()
@@ -42,13 +42,13 @@ func (ct *clientTracker) addReady(crn *clientReqNo) {
 	ct.readyList.pushBack(crn)
 }
 
-func (ct *clientTracker) addAvailable(req *pb.RequestAck) {
+func (ct *clientTracker) addAvailable(req *msgs.RequestAck) {
 	ct.logger.Log(LevelDebug, "JKY pushing to available", "client_id", req.ClientId, "req_no", req.ReqNo)
 	ct.availableList.pushBack(req)
 }
 
-func (ct *clientTracker) allocate(seqNo uint64, state *pb.NetworkState) {
-	stateMap := map[uint64]*pb.NetworkState_Client{}
+func (ct *clientTracker) allocate(seqNo uint64, state *msgs.NetworkState) {
+	stateMap := map[uint64]*msgs.NetworkState_Client{}
 	for _, client := range state.Clients {
 		stateMap[client.Id] = client
 	}
@@ -146,7 +146,7 @@ func (rl *readyList) pushBack(crn *clientReqNo) {
 	rl.appendList.pushBack(crn)
 }
 
-func (rl *readyList) garbageCollect(clientStates map[uint64]*pb.NetworkState_Client) {
+func (rl *readyList) garbageCollect(clientStates map[uint64]*msgs.NetworkState_Client) {
 	rl.appendList.garbageCollect(func(value interface{}) bool {
 		crn := value.(*clientReqNo)
 		state, ok := clientStates[crn.clientID]
@@ -165,7 +165,7 @@ func newAvailableList() *availableList {
 	}
 }
 
-func (al *availableList) pushBack(ack *pb.RequestAck) {
+func (al *availableList) pushBack(ack *msgs.RequestAck) {
 	al.appendList.pushBack(ack)
 }
 
@@ -177,13 +177,13 @@ func (al *availableList) hasNext() bool {
 	return al.appendList.hasNext()
 }
 
-func (al *availableList) next() *pb.RequestAck {
-	return al.appendList.next().(*pb.RequestAck)
+func (al *availableList) next() *msgs.RequestAck {
+	return al.appendList.next().(*msgs.RequestAck)
 }
 
-func (al *availableList) garbageCollect(states map[uint64]*pb.NetworkState_Client) {
+func (al *availableList) garbageCollect(states map[uint64]*msgs.NetworkState_Client) {
 	al.appendList.garbageCollect(func(value interface{}) bool {
-		ack := value.(*pb.RequestAck)
+		ack := value.(*msgs.RequestAck)
 		state, ok := states[ack.ClientId]
 		assertTrue(ok, "any available client req must have client in config")
 		return isCommitted(ack.ReqNo, state)

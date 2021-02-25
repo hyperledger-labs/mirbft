@@ -9,7 +9,8 @@ package statemachine
 import (
 	"bytes"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 type sequenceState int
@@ -42,23 +43,23 @@ type sequence struct {
 	seqNo uint64
 	epoch uint64
 
-	myConfig      *pb.StateEvent_InitialParameters
+	myConfig      *state.EventInitialParameters
 	logger        Logger
-	networkConfig *pb.NetworkState_Config
+	networkConfig *msgs.NetworkState_Config
 
 	state sequenceState
 
 	persisted *persisted
 
 	// qEntry is unset until after state >= sequencePreprepared
-	qEntry *pb.QEntry
+	qEntry *msgs.QEntry
 
 	// clientRequests is set along with batch when sequence >= sequenceAllocated only
 	// if we are the owner who is proposing this batch
 	clientRequests []*clientRequest
 
 	// batch is not set until after state >= sequenceAllocated
-	batch []*pb.RequestAck
+	batch []*msgs.RequestAck
 
 	// outstandingReqs is not set until after state >= sequenceAllocated and may never be set
 	outstandingReqs map[string]struct{}
@@ -73,7 +74,7 @@ type sequence struct {
 	commits  map[string]int
 }
 
-func newSequence(owner nodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *pb.NetworkState_Config, myConfig *pb.StateEvent_InitialParameters, logger Logger) *sequence {
+func newSequence(owner nodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *msgs.NetworkState_Config, myConfig *state.EventInitialParameters, logger Logger) *sequence {
 	return &sequence{
 		owner:         owner,
 		seqNo:         seqNo,
@@ -127,7 +128,7 @@ func (s *sequence) advanceState() *actionSet {
 func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *actionSet {
 	s.clientRequests = clientRequests
 
-	requestAcks := make([]*pb.RequestAck, len(clientRequests))
+	requestAcks := make([]*msgs.RequestAck, len(clientRequests))
 	for i, clientRequest := range clientRequests {
 		requestAcks[i] = clientRequest.ack
 	}
@@ -138,7 +139,7 @@ func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *actionSet {
 // allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the uninitialized state, it returns an error.  Otherwise,
 // It transitions to preprepared and returns a ValidationRequest message.
-func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[string]struct{}) *actionSet {
+func (s *sequence) allocate(requestAcks []*msgs.RequestAck, outstandingReqs map[string]struct{}) *actionSet {
 	assertEqualf(s.state, sequenceUninitialized, "seq_no=%d must be uninitialized to allocate", s.seqNo)
 
 	s.state = sequenceAllocated
@@ -157,14 +158,14 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[st
 	}
 
 	actions := &actionSet{
-		StateEventResult: pb.StateEventResult{
-			Hash: []*pb.StateEventResult_HashRequest{
+		Actions: state.Actions{
+			Hash: []*state.ActionHashRequest{
 				{
 					Data: data,
 
-					Origin: &pb.HashResult{
-						Type: &pb.HashResult_Batch_{
-							Batch: &pb.HashResult_Batch{
+					Origin: &state.HashResult{
+						Type: &state.HashResult_Batch_{
+							Batch: &state.HashResult_Batch{
 								Source:      uint64(s.owner),
 								SeqNo:       s.seqNo,
 								Epoch:       s.epoch,
@@ -182,7 +183,7 @@ func (s *sequence) allocate(requestAcks []*pb.RequestAck, outstandingReqs map[st
 	return actions.concat(s.advanceState())
 }
 
-func (s *sequence) satisfyOutstanding(fr *pb.RequestAck) *actionSet {
+func (s *sequence) satisfyOutstanding(fr *msgs.RequestAck) *actionSet {
 	_, ok := s.outstandingReqs[string(fr.Digest)]
 	assertTruef(ok, "told request %x was ready but we weren't waiting for it", fr.Digest)
 
@@ -206,7 +207,7 @@ func (s *sequence) applyBatchHashResult(digest []byte) *actionSet {
 }
 
 func (s *sequence) prepare() *actionSet {
-	s.qEntry = &pb.QEntry{
+	s.qEntry = &msgs.QEntry{
 		SeqNo:    s.seqNo,
 		Digest:   s.digest,
 		Requests: s.batch,
@@ -231,9 +232,9 @@ func (s *sequence) prepare() *actionSet {
 		}
 		actions.send(
 			s.networkConfig.Nodes,
-			&pb.Msg{
-				Type: &pb.Msg_Preprepare{
-					Preprepare: &pb.Preprepare{
+			&msgs.Msg{
+				Type: &msgs.Msg_Preprepare{
+					Preprepare: &msgs.Preprepare{
 						SeqNo: s.seqNo,
 						Epoch: s.epoch,
 						Batch: s.batch,
@@ -244,9 +245,9 @@ func (s *sequence) prepare() *actionSet {
 	} else {
 		actions.send(
 			s.networkConfig.Nodes,
-			&pb.Msg{
-				Type: &pb.Msg_Prepare{
-					Prepare: &pb.Prepare{
+			&msgs.Msg{
+				Type: &msgs.Msg_Prepare{
+					Prepare: &msgs.Prepare{
 						SeqNo:  s.seqNo,
 						Epoch:  s.epoch,
 						Digest: s.digest,
@@ -303,16 +304,16 @@ func (s *sequence) checkPrepareQuorum() *actionSet {
 
 	s.state = sequencePrepared
 
-	pEntry := &pb.PEntry{
+	pEntry := &msgs.PEntry{
 		SeqNo:  s.seqNo,
 		Digest: s.digest,
 	}
 
 	actions := (&actionSet{}).send(
 		s.networkConfig.Nodes,
-		&pb.Msg{
-			Type: &pb.Msg_Commit{
-				Commit: &pb.Commit{
+		&msgs.Msg{
+			Type: &msgs.Msg_Commit{
+				Commit: &msgs.Commit{
 					SeqNo:  s.seqNo,
 					Epoch:  s.epoch,
 					Digest: s.digest,

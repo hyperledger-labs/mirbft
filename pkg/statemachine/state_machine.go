@@ -9,7 +9,8 @@ package statemachine
 import (
 	"fmt"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/status"
 )
 
@@ -90,7 +91,7 @@ const (
 	smInitialized
 )
 
-// StateMachine contains a deterministic processor for mirbftpb state events.
+// StateMachine contains a deterministic processor for state events.
 // This structure should almost never be initialized directly but should instead
 // be allocated via StartNode.
 type StateMachine struct {
@@ -98,7 +99,7 @@ type StateMachine struct {
 
 	state stateMachineState
 
-	myConfig               *pb.StateEvent_InitialParameters
+	myConfig               *state.EventInitialParameters
 	commitState            *commitState
 	clientTracker          *clientTracker
 	clientHashDisseminator *clientHashDisseminator
@@ -110,7 +111,7 @@ type StateMachine struct {
 	persisted         *persisted
 }
 
-func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) {
+func (sm *StateMachine) initialize(parameters *state.EventInitialParameters) {
 	assertEqualf(sm.state, smUninitialized, "state machine has already been initialized")
 
 	sm.myConfig = parameters
@@ -119,8 +120,8 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 
 	// we use a dummy initial state for components to allow us to use
 	// a common 'reconfiguration'/'state transfer' path for initialization.
-	dummyInitialState := &pb.NetworkState{
-		Config: &pb.NetworkState_Config{
+	dummyInitialState := &msgs.NetworkState{
+		Config: &msgs.NetworkState_Config{
 			Nodes:              []uint64{sm.myConfig.Id},
 			MaxEpochLength:     1,
 			CheckpointInterval: 1,
@@ -148,7 +149,7 @@ func (sm *StateMachine) initialize(parameters *pb.StateEvent_InitialParameters) 
 
 }
 
-func (sm *StateMachine) applyPersisted(index uint64, data *pb.Persistent) {
+func (sm *StateMachine) applyPersisted(index uint64, data *msgs.Persistent) {
 	assertEqualf(sm.state, smLoadingPersisted, "state machine has already finished loading persisted data")
 	sm.persisted.appendInitialLoad(index, data)
 }
@@ -161,11 +162,11 @@ func (sm *StateMachine) completeInitialization() *actionSet {
 	return sm.reinitialize()
 }
 
-func (sm *StateMachine) ApplyEvent(stateEvent *pb.StateEvent) *pb.StateEventResult {
-	return &(sm.applyEvent(stateEvent).StateEventResult)
+func (sm *StateMachine) ApplyEvent(stateEvent *state.Event) *state.Actions {
+	return &(sm.applyEvent(stateEvent).Actions)
 }
 
-func (sm *StateMachine) applyEvent(stateEvent *pb.StateEvent) *actionSet {
+func (sm *StateMachine) applyEvent(stateEvent *state.Event) *actionSet {
 	assertInitialized := func() {
 		assertEqualf(sm.state, smInitialized, "cannot apply events to an uninitialized state machine")
 	}
@@ -173,47 +174,47 @@ func (sm *StateMachine) applyEvent(stateEvent *pb.StateEvent) *actionSet {
 	actions := &actionSet{}
 
 	switch event := stateEvent.Type.(type) {
-	case *pb.StateEvent_Initialize:
+	case *state.Event_Initialize:
 		sm.initialize(event.Initialize)
 		return &actionSet{}
-	case *pb.StateEvent_LoadEntry:
+	case *state.Event_LoadEntry:
 		sm.applyPersisted(event.LoadEntry.Index, event.LoadEntry.Data)
 		return &actionSet{}
-	case *pb.StateEvent_CompleteInitialization:
+	case *state.Event_CompleteInitialization:
 		return sm.completeInitialization()
-	case *pb.StateEvent_Tick:
+	case *state.Event_Tick:
 		assertInitialized()
 		actions.concat(sm.clientHashDisseminator.tick())
 		actions.concat(sm.epochTracker.tick())
-	case *pb.StateEvent_Step:
+	case *state.Event_Step:
 		assertInitialized()
 		actions.concat(sm.step(
 			nodeID(event.Step.Source),
 			event.Step.Msg,
 		))
-	case *pb.StateEvent_AddResults:
+	case *state.Event_AddResults:
 		assertInitialized()
 		actions.concat(sm.processResults(
 			event.AddResults,
 		))
-	case *pb.StateEvent_AddClientResults:
+	case *state.Event_AddClientResults:
 		assertInitialized()
 		actions.concat(sm.clientHashDisseminator.applyNewRequests(
 			event.AddClientResults.Persisted,
 		))
-	case *pb.StateEvent_Transfer:
+	case *state.Event_Transfer:
 		assertEqualf(sm.commitState.transferring, true, "state transfer event received but the state machine did not request transfer")
 
 		sm.Logger.Log(LevelDebug, "state transfer completed", "seq_no", event.Transfer.SeqNo)
 
 		actions.concat(sm.persisted.addCEntry(event.Transfer))
 		actions.concat(sm.reinitialize())
-	case *pb.StateEvent_ActionsReceived:
+	case *state.Event_ActionsReceived:
 		// This is a bit odd, in that it's a no-op, but it's harmless
 		// and allows for much more insightful playback events (allowing
 		// us to tie action results to a particular set of actions)
 		return &actionSet{}
-	case *pb.StateEvent_ClientActionsReceived:
+	case *state.Event_ClientActionsReceived:
 		// This is exactly like ActionsReceived, a no-op for audit.
 		return &actionSet{}
 	default:
@@ -247,7 +248,7 @@ func (sm *StateMachine) applyEvent(stateEvent *pb.StateEvent) *actionSet {
 		// attempting to advance the state causes new actions.
 
 		actions.concat(&actionSet{
-			StateEventResult: pb.StateEventResult{
+			Actions: state.Actions{
 				Commits: sm.commitState.drain(),
 			},
 		})
@@ -281,15 +282,15 @@ func (sm *StateMachine) reinitialize() *actionSet {
 }
 
 func (sm *StateMachine) recoverLog() *actionSet {
-	var lastCEntry *pb.CEntry
+	var lastCEntry *msgs.CEntry
 
 	actions := &actionSet{}
 
 	sm.persisted.iterate(logIterator{
-		onCEntry: func(cEntry *pb.CEntry) {
+		onCEntry: func(cEntry *msgs.CEntry) {
 			lastCEntry = cEntry
 		},
-		onFEntry: func(fEntry *pb.FEntry) {
+		onFEntry: func(fEntry *msgs.FEntry) {
 			assertNotEqualf(lastCEntry, nil, "FEntry without corresponding CEntry, log is corrupt")
 			actions.concat(sm.persisted.truncate(lastCEntry.SeqNo))
 		},
@@ -300,48 +301,48 @@ func (sm *StateMachine) recoverLog() *actionSet {
 	return actions
 }
 
-func (sm *StateMachine) step(source nodeID, msg *pb.Msg) *actionSet {
+func (sm *StateMachine) step(source nodeID, msg *msgs.Msg) *actionSet {
 	actions := &actionSet{}
 	switch msg.Type.(type) {
-	case *pb.Msg_RequestAck:
+	case *msgs.Msg_RequestAck:
 		return actions.concat(sm.clientHashDisseminator.step(source, msg))
-	case *pb.Msg_FetchRequest:
+	case *msgs.Msg_FetchRequest:
 		return actions.concat(sm.clientHashDisseminator.step(source, msg))
-	case *pb.Msg_ForwardRequest:
+	case *msgs.Msg_ForwardRequest:
 		return actions.concat(sm.clientHashDisseminator.step(source, msg))
-	case *pb.Msg_Checkpoint:
+	case *msgs.Msg_Checkpoint:
 		sm.checkpointTracker.step(source, msg)
 		return &actionSet{}
-	case *pb.Msg_FetchBatch:
+	case *msgs.Msg_FetchBatch:
 		// TODO decide if we want some buffering?
 		return sm.batchTracker.step(source, msg)
-	case *pb.Msg_ForwardBatch:
+	case *msgs.Msg_ForwardBatch:
 		// TODO decide if we want some buffering?
 		return sm.batchTracker.step(source, msg)
-	case *pb.Msg_Suspect:
+	case *msgs.Msg_Suspect:
 		return sm.epochTracker.step(source, msg)
-	case *pb.Msg_EpochChange:
+	case *msgs.Msg_EpochChange:
 		return sm.epochTracker.step(source, msg)
-	case *pb.Msg_EpochChangeAck:
+	case *msgs.Msg_EpochChangeAck:
 		return sm.epochTracker.step(source, msg)
-	case *pb.Msg_NewEpoch:
+	case *msgs.Msg_NewEpoch:
 		return sm.epochTracker.step(source, msg)
-	case *pb.Msg_NewEpochEcho:
+	case *msgs.Msg_NewEpochEcho:
 		return sm.epochTracker.step(source, msg)
-	case *pb.Msg_NewEpochReady:
+	case *msgs.Msg_NewEpochReady:
 		return sm.epochTracker.step(source, msg)
-	case *pb.Msg_Preprepare:
+	case *msgs.Msg_Preprepare:
 		return sm.epochTracker.step(source, msg)
-	case *pb.Msg_Prepare:
+	case *msgs.Msg_Prepare:
 		return sm.epochTracker.step(source, msg)
-	case *pb.Msg_Commit:
+	case *msgs.Msg_Commit:
 		return sm.epochTracker.step(source, msg)
 	default:
 		panic(fmt.Sprintf("unexpected bad message type %T", msg.Type))
 	}
 }
 
-func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *actionSet {
+func (sm *StateMachine) processResults(results *state.EventActionResults) *actionSet {
 	actions := &actionSet{}
 
 	for _, checkpointResult := range results.Checkpoints {
@@ -354,7 +355,7 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *ac
 		expectedSeqNo := sm.commitState.lowWatermark + uint64(sm.commitState.activeState.Config.CheckpointInterval)
 		assertEqual(expectedSeqNo, checkpointResult.SeqNo, "new checkpoint results muts be exactly one checkpoint interval after the last")
 
-		var epochConfig *pb.EpochConfig
+		var epochConfig *msgs.EpochConfig
 		if sm.epochTracker.currentEpoch.activeEpoch != nil {
 			// Of course this means epochConfig may be nil, and that's okay
 			// since we know that no new pEntries/qEntries can be persisted
@@ -372,14 +373,14 @@ func (sm *StateMachine) processResults(results *pb.StateEvent_ActionResults) *ac
 
 	for _, hashResult := range results.Digests {
 		switch hashType := hashResult.Type.(type) {
-		case *pb.HashResult_Batch_:
+		case *state.HashResult_Batch_:
 			batch := hashType.Batch
 			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
 			actions.concat(sm.epochTracker.applyBatchHashResult(batch.Epoch, batch.SeqNo, hashResult.Digest))
-		case *pb.HashResult_EpochChange_:
+		case *state.HashResult_EpochChange_:
 			epochChange := hashType.EpochChange
 			actions.concat(sm.epochTracker.applyEpochChangeDigest(epochChange, hashResult.Digest))
-		case *pb.HashResult_VerifyBatch_:
+		case *state.HashResult_VerifyBatch_:
 			verifyBatch := hashType.VerifyBatch
 			sm.batchTracker.applyVerifyBatchHashResult(hashResult.Digest, verifyBatch)
 			if !sm.batchTracker.hasFetchInFlight() && sm.epochTracker.currentEpoch.state == etFetching {

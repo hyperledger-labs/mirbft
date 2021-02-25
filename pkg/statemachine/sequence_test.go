@@ -10,7 +10,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 var _ = XDescribe("sequence", func() {
@@ -20,10 +21,10 @@ var _ = XDescribe("sequence", func() {
 
 	BeforeEach(func() {
 		s = &sequence{
-			myConfig: &pb.StateEvent_InitialParameters{
+			myConfig: &state.EventInitialParameters{
 				Id: 1,
 			},
-			networkConfig: &pb.NetworkState_Config{
+			networkConfig: &msgs.NetworkState_Config{
 				Nodes: []uint64{0, 1, 2, 3},
 				F:     1,
 			},
@@ -39,7 +40,7 @@ var _ = XDescribe("sequence", func() {
 	Describe("allocate", func() {
 		It("transitions from Unknown to Allocated", func() {
 			actions := s.allocate(
-				[]*pb.RequestAck{
+				[]*msgs.RequestAck{
 					{
 						ClientId: 9,
 						ReqNo:    7,
@@ -55,16 +56,16 @@ var _ = XDescribe("sequence", func() {
 			)
 
 			Expect(actions).To(Equal(&actionSet{
-				StateEventResult: pb.StateEventResult{
-					Hash: []*pb.StateEventResult_HashRequest{
+				Actions: state.Actions{
+					Hash: []*state.ActionHashRequest{
 						{
-							Origin: &pb.HashResult{
-								Type: &pb.HashResult_Batch_{
-									Batch: &pb.HashResult_Batch{
+							Origin: &state.HashResult{
+								Type: &state.HashResult_Batch_{
+									Batch: &state.HashResult_Batch{
 										Source: 0,
 										SeqNo:  5,
 										Epoch:  4,
-										RequestAcks: []*pb.RequestAck{
+										RequestAcks: []*msgs.RequestAck{
 											{
 												ClientId: 9,
 												ReqNo:    7,
@@ -92,14 +93,14 @@ var _ = XDescribe("sequence", func() {
 			Expect(s.batch).To(Equal(
 				[]*clientRequest{
 					{
-						ack: &pb.RequestAck{
+						ack: &msgs.RequestAck{
 							ClientId: 9,
 							ReqNo:    7,
 							Digest:   []byte("msg1-digest"),
 						},
 					},
 					{
-						ack: &pb.RequestAck{
+						ack: &msgs.RequestAck{
 							ClientId: 9,
 							ReqNo:    8,
 							Digest:   []byte("msg2-digest"),
@@ -117,7 +118,7 @@ var _ = XDescribe("sequence", func() {
 			It("does not transition and instead panics", func() {
 				badTransition := func() {
 					s.allocate(
-						[]*pb.RequestAck{
+						[]*msgs.RequestAck{
 							{
 								ClientId: 9,
 								ReqNo:    7,
@@ -141,7 +142,7 @@ var _ = XDescribe("sequence", func() {
 	Describe("applyBatchHashResult", func() {
 		BeforeEach(func() {
 			s.state = sequenceAllocated
-			s.batch = []*pb.RequestAck{
+			s.batch = []*msgs.RequestAck{
 				{
 					ClientId: 9,
 					ReqNo:    7,
@@ -158,13 +159,13 @@ var _ = XDescribe("sequence", func() {
 		It("transitions from Allocated to Preprepared", func() {
 			actions := s.applyBatchHashResult([]byte("digest"))
 			Expect(actions).To(Equal(&actionSet{
-				StateEventResult: pb.StateEventResult{
-					Send: []*pb.StateEventResult_Send{
+				Actions: state.Actions{
+					Send: []*state.ActionSend{
 						{
 							Targets: []uint64{0, 1, 2, 3},
-							Msg: &pb.Msg{
-								Type: &pb.Msg_Prepare{
-									Prepare: &pb.Prepare{
+							Msg: &msgs.Msg{
+								Type: &msgs.Msg_Prepare{
+									Prepare: &msgs.Prepare{
 										SeqNo:  5,
 										Epoch:  4,
 										Digest: []byte("digest"),
@@ -173,14 +174,14 @@ var _ = XDescribe("sequence", func() {
 							},
 						},
 					},
-					WriteAhead: []*pb.StateEventResult_Write{
+					WriteAhead: []*state.ActionWrite{
 						{
-							Data: &pb.Persistent{
-								Type: &pb.Persistent_QEntry{
-									QEntry: &pb.QEntry{
+							Data: &msgs.Persistent{
+								Type: &msgs.Persistent_QEntry{
+									QEntry: &msgs.QEntry{
 										SeqNo:  5,
 										Digest: []byte("digest"),
-										Requests: []*pb.RequestAck{
+										Requests: []*msgs.RequestAck{
 											{
 												ClientId: 9,
 												ReqNo:    7,
@@ -201,10 +202,10 @@ var _ = XDescribe("sequence", func() {
 			}))
 			Expect(s.digest).To(Equal([]byte("digest")))
 			Expect(s.state).To(Equal(sequencePreprepared))
-			Expect(s.qEntry).To(Equal(&pb.QEntry{
+			Expect(s.qEntry).To(Equal(&msgs.QEntry{
 				SeqNo:  5,
 				Digest: []byte("digest"),
-				Requests: []*pb.RequestAck{
+				Requests: []*msgs.RequestAck{
 					{
 						ClientId: 9,
 						ReqNo:    7,
@@ -250,13 +251,13 @@ var _ = XDescribe("sequence", func() {
 			s.applyPrepareMsg(0, []byte("digest"))
 			actions := s.advanceState()
 			Expect(actions).To(Equal(&actionSet{
-				StateEventResult: pb.StateEventResult{
-					Send: []*pb.StateEventResult_Send{
+				Actions: state.Actions{
+					Send: []*state.ActionSend{
 						{
 							Targets: []uint64{0, 1, 2, 3},
-							Msg: &pb.Msg{
-								Type: &pb.Msg_Commit{
-									Commit: &pb.Commit{
+							Msg: &msgs.Msg{
+								Type: &msgs.Msg_Commit{
+									Commit: &msgs.Commit{
 										SeqNo:  5,
 										Epoch:  4,
 										Digest: []byte("digest"),
@@ -265,11 +266,11 @@ var _ = XDescribe("sequence", func() {
 							},
 						},
 					},
-					WriteAhead: []*pb.StateEventResult_Write{
+					WriteAhead: []*state.ActionWrite{
 						{
-							Data: &pb.Persistent{
-								Type: &pb.Persistent_PEntry{
-									PEntry: &pb.PEntry{
+							Data: &msgs.Persistent{
+								Type: &msgs.Persistent_PEntry{
+									PEntry: &msgs.PEntry{
 										SeqNo:  5,
 										Digest: []byte("digest"),
 									},

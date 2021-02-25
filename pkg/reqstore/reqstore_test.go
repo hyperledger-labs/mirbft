@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/reqstore"
 )
 
@@ -16,31 +16,31 @@ var _ = Describe("Reqstore", func() {
 		tmpDir   string
 		reqStore *reqstore.Store
 
-		ack1dot1 = &pb.RequestAck{
+		ack1dot1 = &msgs.RequestAck{
 			ClientId: 1,
 			ReqNo:    1,
 			Digest:   []byte("digest1"),
 		}
 
-		ack1dot2 = &pb.RequestAck{
+		ack1dot2 = &msgs.RequestAck{
 			ClientId: 1,
 			ReqNo:    2,
 			Digest:   []byte("digest1"),
 		}
 
-		ack1dot3 = &pb.RequestAck{
+		ack1dot3 = &msgs.RequestAck{
 			ClientId: 1,
 			ReqNo:    3,
 			Digest:   []byte("digest1"),
 		}
 
-		ack2dot1 = &pb.RequestAck{
+		ack2dot1 = &msgs.RequestAck{
 			ClientId: 2,
 			ReqNo:    1,
 			Digest:   []byte("digest1"),
 		}
 
-		ack2dot2 = &pb.RequestAck{
+		ack2dot2 = &msgs.RequestAck{
 			ClientId: 2,
 			ReqNo:    2,
 			Digest:   []byte("digest1"),

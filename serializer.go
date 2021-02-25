@@ -9,7 +9,8 @@ package mirbft
 import (
 	"sync"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 
@@ -22,11 +23,11 @@ type serializer struct {
 	actionsC       chan Actions
 	clientActionsC chan ClientActions
 	doneC          chan struct{}
-	resultsC       chan *pb.StateEvent_ActionResults
-	clientResultsC chan *pb.StateEvent_ClientActionResults
-	transferC      chan *pb.StateEvent_Transfer
+	resultsC       chan *state.EventActionResults
+	clientResultsC chan *state.EventClientActionResults
+	transferC      chan *state.Event_Transfer
 	statusC        chan chan<- *status.StateMachine
-	stepC          chan *pb.StateEvent_Step
+	stepC          chan *state.Event_Step
 	tickC          chan struct{}
 	errC           chan struct{}
 
@@ -44,11 +45,11 @@ func newSerializer(myConfig *Config, walStorage WALStorage) (*serializer, error)
 		actionsC:       make(chan Actions),
 		clientActionsC: make(chan ClientActions),
 		doneC:          make(chan struct{}),
-		clientResultsC: make(chan *pb.StateEvent_ClientActionResults),
-		resultsC:       make(chan *pb.StateEvent_ActionResults),
-		transferC:      make(chan *pb.StateEvent_Transfer),
+		clientResultsC: make(chan *state.EventClientActionResults),
+		resultsC:       make(chan *state.EventActionResults),
+		transferC:      make(chan *state.Event_Transfer),
 		statusC:        make(chan chan<- *status.StateMachine),
-		stepC:          make(chan *pb.StateEvent_Step),
+		stepC:          make(chan *state.Event_Step),
 		tickC:          make(chan struct{}),
 		errC:           make(chan struct{}),
 		myConfig:       myConfig,
@@ -110,7 +111,7 @@ func (s *serializer) run() (exitErr error) {
 	actions := &Actions{}
 	clientActions := &ClientActions{}
 
-	applyEvent := func(stateEvent *pb.StateEvent) error {
+	applyEvent := func(stateEvent *state.Event) error {
 		if s.myConfig.EventInterceptor != nil {
 			err := s.myConfig.EventInterceptor.Intercept(stateEvent)
 			if err != nil {
@@ -125,9 +126,9 @@ func (s *serializer) run() (exitErr error) {
 		return nil
 	}
 
-	err := applyEvent(&pb.StateEvent{
-		Type: &pb.StateEvent_Initialize{
-			Initialize: &pb.StateEvent_InitialParameters{
+	err := applyEvent(&state.Event{
+		Type: &state.Event_Initialize{
+			Initialize: &state.EventInitialParameters{
 				Id:                   s.myConfig.ID,
 				BatchSize:            s.myConfig.BatchSize,
 				HeartbeatTicks:       s.myConfig.HeartbeatTicks,
@@ -141,16 +142,16 @@ func (s *serializer) run() (exitErr error) {
 		return err
 	}
 
-	err = s.walStorage.LoadAll(func(i uint64, p *pb.Persistent) {
+	err = s.walStorage.LoadAll(func(i uint64, p *msgs.Persistent) {
 		if _, ok := s.walStorage.(*dummyWAL); ok {
 			// This was our own startup/bootstrap WAL,
 			// we need to get these entries persisted into the real one.
 			actions.persist(i, p)
 		}
 
-		applyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_LoadEntry{
-				LoadEntry: &pb.StateEvent_PersistedEntry{
+		applyEvent(&state.Event{
+			Type: &state.Event_LoadEntry{
+				LoadEntry: &state.EventPersistedEntry{
 					Index: i,
 					Data:  p,
 				},
@@ -162,9 +163,9 @@ func (s *serializer) run() (exitErr error) {
 		return errors.WithMessage(err, "failed to load persisted from WALStorage")
 	}
 
-	err = applyEvent(&pb.StateEvent{
-		Type: &pb.StateEvent_CompleteInitialization{
-			CompleteInitialization: &pb.StateEvent_LoadCompleted{},
+	err = applyEvent(&state.Event{
+		Type: &state.Event_CompleteInitialization{
+			CompleteInitialization: &state.EventLoadCompleted{},
 		},
 	})
 	if err != nil {
@@ -177,38 +178,38 @@ func (s *serializer) run() (exitErr error) {
 		var err error
 		select {
 		case step := <-s.stepC:
-			err = applyEvent(&pb.StateEvent{
+			err = applyEvent(&state.Event{
 				Type: step,
 			})
 		case actionsC <- *actions:
 			actions.clear()
 			actionsC = nil
-			err = applyEvent(&pb.StateEvent{
-				Type: &pb.StateEvent_ActionsReceived{
-					ActionsReceived: &pb.StateEvent_Ready{},
+			err = applyEvent(&state.Event{
+				Type: &state.Event_ActionsReceived{
+					ActionsReceived: &state.EventReady{},
 				},
 			})
 		case clientActionsC <- *clientActions:
 			clientActions.clear()
 			clientActionsC = nil
-			err = applyEvent(&pb.StateEvent{
-				Type: &pb.StateEvent_ClientActionsReceived{
-					ClientActionsReceived: &pb.StateEvent_Ready{},
+			err = applyEvent(&state.Event{
+				Type: &state.Event_ClientActionsReceived{
+					ClientActionsReceived: &state.EventReady{},
 				},
 			})
 		case transfer := <-s.transferC:
-			err = applyEvent(&pb.StateEvent{
+			err = applyEvent(&state.Event{
 				Type: transfer,
 			})
 		case results := <-s.resultsC:
-			err = applyEvent(&pb.StateEvent{
-				Type: &pb.StateEvent_AddResults{
+			err = applyEvent(&state.Event{
+				Type: &state.Event_AddResults{
 					AddResults: results,
 				},
 			})
 		case clientResults := <-s.clientResultsC:
-			err = applyEvent(&pb.StateEvent{
-				Type: &pb.StateEvent_AddClientResults{
+			err = applyEvent(&state.Event{
+				Type: &state.Event_AddClientResults{
 					AddClientResults: clientResults,
 				},
 			})
@@ -218,9 +219,9 @@ func (s *serializer) run() (exitErr error) {
 			case <-s.doneC:
 			}
 		case <-s.tickC:
-			err = applyEvent(&pb.StateEvent{
-				Type: &pb.StateEvent_Tick{
-					Tick: &pb.StateEvent_TickElapsed{},
+			err = applyEvent(&state.Event{
+				Type: &state.Event_Tick{
+					Tick: &state.EventTickElapsed{},
 				},
 			})
 		case <-s.doneC:

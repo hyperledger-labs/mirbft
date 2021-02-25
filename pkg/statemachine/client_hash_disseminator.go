@@ -12,7 +12,8 @@ import (
 	"fmt"
 	"sort"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/status"
 )
 
@@ -119,18 +120,18 @@ import (
 
 type clientHashDisseminator struct {
 	logger      Logger
-	myConfig    *pb.StateEvent_InitialParameters
+	myConfig    *state.EventInitialParameters
 	nodeBuffers *nodeBuffers
 
 	allocatedThrough uint64
-	networkConfig    *pb.NetworkState_Config
-	clientStates     []*pb.NetworkState_Client
+	networkConfig    *msgs.NetworkState_Config
+	clientStates     []*msgs.NetworkState_Client
 	msgBuffers       map[nodeID]*msgBuffer
 	clients          map[uint64]*client
 	clientTracker    *clientTracker
 }
 
-func newClientHashDisseminator(nodeBuffers *nodeBuffers, myConfig *pb.StateEvent_InitialParameters, logger Logger, clientTracker *clientTracker) *clientHashDisseminator {
+func newClientHashDisseminator(nodeBuffers *nodeBuffers, myConfig *state.EventInitialParameters, logger Logger, clientTracker *clientTracker) *clientHashDisseminator {
 	return &clientHashDisseminator{
 		logger:        logger,
 		myConfig:      myConfig,
@@ -139,11 +140,11 @@ func newClientHashDisseminator(nodeBuffers *nodeBuffers, myConfig *pb.StateEvent
 	}
 }
 
-func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *pb.NetworkState) *actionSet {
+func (ct *clientHashDisseminator) reinitialize(seqNo uint64, networkState *msgs.NetworkState) *actionSet {
 	actions := &actionSet{}
 	reconfiguring := len(networkState.PendingReconfigurations) > 0
 
-	latestClientStates := map[uint64]*pb.NetworkState_Client{}
+	latestClientStates := map[uint64]*msgs.NetworkState_Client{}
 	for _, clientState := range networkState.Clients {
 		latestClientStates[clientState.Id] = clientState
 	}
@@ -187,9 +188,9 @@ func (ct *clientHashDisseminator) tick() *actionSet {
 	return actions
 }
 
-func (ct *clientHashDisseminator) filter(_ nodeID, msg *pb.Msg) applyable {
+func (ct *clientHashDisseminator) filter(_ nodeID, msg *msgs.Msg) applyable {
 	switch innerMsg := msg.Type.(type) {
-	case *pb.Msg_RequestAck:
+	case *msgs.Msg_RequestAck:
 		// TODO, prevent ack spam of multiple msg digests from the same node
 		ack := innerMsg.RequestAck
 		client, ok := ct.client(ack.ClientId)
@@ -204,14 +205,14 @@ func (ct *clientHashDisseminator) filter(_ nodeID, msg *pb.Msg) applyable {
 		default:
 			return current
 		}
-	case *pb.Msg_FetchRequest:
+	case *msgs.Msg_FetchRequest:
 		return current // TODO push outside state machine
 	default:
 		panic(fmt.Sprintf("unexpected bad client window message type %T, this indicates a bug", msg.Type))
 	}
 }
 
-func (ct *clientHashDisseminator) step(source nodeID, msg *pb.Msg) *actionSet {
+func (ct *clientHashDisseminator) step(source nodeID, msg *msgs.Msg) *actionSet {
 	switch ct.filter(source, msg) {
 	case past:
 		// discard
@@ -225,12 +226,12 @@ func (ct *clientHashDisseminator) step(source nodeID, msg *pb.Msg) *actionSet {
 	return ct.applyMsg(source, msg)
 }
 
-func (ct *clientHashDisseminator) applyMsg(source nodeID, msg *pb.Msg) *actionSet {
+func (ct *clientHashDisseminator) applyMsg(source nodeID, msg *msgs.Msg) *actionSet {
 	switch innerMsg := msg.Type.(type) {
-	case *pb.Msg_RequestAck:
+	case *msgs.Msg_RequestAck:
 		actions, _ := ct.ack(source, innerMsg.RequestAck)
 		return actions
-	case *pb.Msg_FetchRequest:
+	case *msgs.Msg_FetchRequest:
 		msg := innerMsg.FetchRequest
 		return ct.replyFetchRequest(source, msg.ClientId, msg.ReqNo, msg.Digest)
 	default:
@@ -238,7 +239,7 @@ func (ct *clientHashDisseminator) applyMsg(source nodeID, msg *pb.Msg) *actionSe
 	}
 }
 
-func (ct *clientHashDisseminator) applyNewRequests(acks []*pb.RequestAck) *actionSet {
+func (ct *clientHashDisseminator) applyNewRequests(acks []*msgs.RequestAck) *actionSet {
 	actions := &actionSet{}
 	for _, ack := range acks {
 		client, ok := ct.clients[ack.ClientId]
@@ -259,7 +260,7 @@ func (ct *clientHashDisseminator) applyNewRequests(acks []*pb.RequestAck) *actio
 }
 
 // allocate should be invoked after the checkpoint is computed and advances the high watermark.
-func (ct *clientHashDisseminator) allocate(seqNo uint64, networkState *pb.NetworkState) *actionSet {
+func (ct *clientHashDisseminator) allocate(seqNo uint64, networkState *msgs.NetworkState) *actionSet {
 	assertEqual(seqNo, uint64(networkState.Config.CheckpointInterval)+ct.allocatedThrough, "unexpected skip in allocate, expected next allocation at next checkpoint")
 
 	actions := &actionSet{}
@@ -272,7 +273,7 @@ func (ct *clientHashDisseminator) allocate(seqNo uint64, networkState *pb.Networ
 	}
 
 	for _, id := range ct.networkConfig.Nodes {
-		ct.msgBuffers[nodeID(id)].iterate(ct.filter, func(source nodeID, msg *pb.Msg) {
+		ct.msgBuffers[nodeID(id)].iterate(ct.filter, func(source nodeID, msg *msgs.Msg) {
 			actions.concat(ct.applyMsg(source, msg))
 		})
 	}
@@ -301,7 +302,7 @@ func (ct *clientHashDisseminator) replyFetchRequest(source nodeID, clientID, req
 
 	return (&actionSet{}).forwardRequest(
 		[]uint64{uint64(source)},
-		&pb.RequestAck{
+		&msgs.RequestAck{
 			ClientId: clientID,
 			ReqNo:    reqNo,
 			Digest:   digest,
@@ -309,7 +310,7 @@ func (ct *clientHashDisseminator) replyFetchRequest(source nodeID, clientID, req
 	)
 }
 
-func (ct *clientHashDisseminator) ack(source nodeID, ack *pb.RequestAck) (*actionSet, *clientRequest) {
+func (ct *clientHashDisseminator) ack(source nodeID, ack *msgs.RequestAck) (*actionSet, *clientRequest) {
 	c, ok := ct.clients[ack.ClientId]
 	assertEqual(ok, true, "the step filtering should delay reqs for non-existent clients")
 
@@ -339,8 +340,8 @@ func (ct *clientHashDisseminator) client(clientID uint64) (*client, bool) {
 // track which replicas have already acked a non-null request and ignore any further
 // non-null acks.
 type clientReqNo struct {
-	myConfig        *pb.StateEvent_InitialParameters
-	networkConfig   *pb.NetworkState_Config
+	myConfig        *state.EventInitialParameters
+	networkConfig   *msgs.NetworkState_Config
 	clientID        uint64
 	reqNo           uint64
 	validAfterSeqNo uint64
@@ -354,7 +355,7 @@ type clientReqNo struct {
 	ticksSinceAck   uint
 }
 
-func newClientReqNo(myConfig *pb.StateEvent_InitialParameters, clientID, reqNo uint64, networkConfig *pb.NetworkState_Config, validAfterSeqNo uint64) *clientReqNo {
+func newClientReqNo(myConfig *state.EventInitialParameters, clientID, reqNo uint64, networkConfig *msgs.NetworkState_Config, validAfterSeqNo uint64) *clientReqNo {
 
 	return &clientReqNo{
 		myConfig:        myConfig,
@@ -370,7 +371,7 @@ func newClientReqNo(myConfig *pb.StateEvent_InitialParameters, clientID, reqNo u
 	}
 }
 
-func (crn *clientReqNo) reinitialize(networkConfig *pb.NetworkState_Config) {
+func (crn *clientReqNo) reinitialize(networkConfig *msgs.NetworkState_Config) {
 	crn.networkConfig = networkConfig
 
 	oldRequests := crn.requests
@@ -409,7 +410,7 @@ func (crn *clientReqNo) reinitialize(networkConfig *pb.NetworkState_Config) {
 	}
 }
 
-func (crn *clientReqNo) clientReq(ack *pb.RequestAck) *clientRequest {
+func (crn *clientReqNo) clientReq(ack *msgs.RequestAck) *clientRequest {
 	var digestKey string
 	if len(ack.Digest) == 0 {
 		digestKey = ""
@@ -430,7 +431,7 @@ func (crn *clientReqNo) clientReq(ack *pb.RequestAck) *clientRequest {
 	return clientReq
 }
 
-func (crn *clientReqNo) applyNewRequest(ack *pb.RequestAck) *actionSet {
+func (crn *clientReqNo) applyNewRequest(ack *msgs.RequestAck) *actionSet {
 	_, ok := crn.myRequests[string(ack.Digest)]
 	if ok {
 		// We have already persisted this request, likely
@@ -450,8 +451,8 @@ func (crn *clientReqNo) applyNewRequest(ack *pb.RequestAck) *actionSet {
 		crn.ticksSinceAck = 0
 		return actions.send(
 			crn.networkConfig.Nodes,
-			&pb.Msg{
-				Type: &pb.Msg_RequestAck{
+			&msgs.Msg{
+				Type: &msgs.Msg_RequestAck{
 					RequestAck: ack,
 				},
 			},
@@ -464,7 +465,7 @@ func (crn *clientReqNo) applyNewRequest(ack *pb.RequestAck) *actionSet {
 		return actions
 	}
 
-	nullAck := &pb.RequestAck{
+	nullAck := &msgs.RequestAck{
 		ClientId: crn.clientID,
 		ReqNo:    crn.reqNo,
 	}
@@ -478,15 +479,15 @@ func (crn *clientReqNo) applyNewRequest(ack *pb.RequestAck) *actionSet {
 
 	return actions.send(
 		crn.networkConfig.Nodes,
-		&pb.Msg{
-			Type: &pb.Msg_RequestAck{
+		&msgs.Msg{
+			Type: &msgs.Msg_RequestAck{
 				RequestAck: nullAck,
 			},
 		},
 	)
 }
 
-func (crn *clientReqNo) applyRequestAck(source nodeID, ack *pb.RequestAck, force bool) {
+func (crn *clientReqNo) applyRequestAck(source nodeID, ack *msgs.RequestAck, force bool) {
 	if len(ack.Digest) != 0 {
 		_, ok := crn.nonNullVoters[source]
 		if !ok && !force {
@@ -522,7 +523,7 @@ func (crn *clientReqNo) tick() *actionSet {
 	// First, if we have accumulated conflicting correct requests and not committed,
 	// we switch to promoting the null request
 	if _, ok := crn.myRequests[""]; !ok && len(crn.weakRequests) > 1 {
-		nullAck := &pb.RequestAck{
+		nullAck := &msgs.RequestAck{
 			ClientId: crn.clientID,
 			ReqNo:    crn.reqNo,
 		}
@@ -536,8 +537,8 @@ func (crn *clientReqNo) tick() *actionSet {
 
 		actions.send(
 			crn.networkConfig.Nodes,
-			&pb.Msg{
-				Type: &pb.Msg_RequestAck{
+			&msgs.Msg{
+				Type: &msgs.Msg_RequestAck{
 					RequestAck: nullAck,
 				},
 			},
@@ -608,7 +609,7 @@ func (crn *clientReqNo) tick() *actionSet {
 		return actions
 	}
 
-	var ack *pb.RequestAck
+	var ack *msgs.RequestAck
 	switch {
 	case len(crn.myRequests) > 1:
 		ack = crn.myRequests[""].ack
@@ -626,8 +627,8 @@ func (crn *clientReqNo) tick() *actionSet {
 
 	actions.send(
 		crn.networkConfig.Nodes,
-		&pb.Msg{
-			Type: &pb.Msg_RequestAck{
+		&msgs.Msg{
+			Type: &msgs.Msg_RequestAck{
 				RequestAck: ack,
 			},
 		},
@@ -637,8 +638,8 @@ func (crn *clientReqNo) tick() *actionSet {
 }
 
 type clientRequest struct {
-	myConfig      *pb.StateEvent_InitialParameters
-	ack           *pb.RequestAck
+	myConfig      *state.EventInitialParameters
+	ack           *msgs.RequestAck
 	agreements    map[nodeID]struct{}
 	stored        bool // set when the request is persisted locally
 	fetching      bool // set when we have sent a request for this request
@@ -667,8 +668,8 @@ func (cr *clientRequest) fetch() *actionSet {
 
 	return (&actionSet{}).send(
 		nodes,
-		&pb.Msg{
-			Type: &pb.Msg_FetchRequest{
+		&msgs.Msg{
+			Type: &msgs.Msg_FetchRequest{
 				FetchRequest: cr.ack,
 			},
 		},
@@ -676,10 +677,10 @@ func (cr *clientRequest) fetch() *actionSet {
 }
 
 type client struct {
-	myConfig      *pb.StateEvent_InitialParameters
+	myConfig      *state.EventInitialParameters
 	logger        Logger
-	networkConfig *pb.NetworkState_Config
-	clientState   *pb.NetworkState_Client
+	networkConfig *msgs.NetworkState_Config
+	clientState   *msgs.NetworkState_Client
 	clientTracker *clientTracker
 	highWatermark uint64 // TODO, remove, it's just convenient for the moment
 	nextReadyMark uint64
@@ -688,7 +689,7 @@ type client struct {
 	reqNoMap  map[uint64]*list.Element
 }
 
-func newClient(myConfig *pb.StateEvent_InitialParameters, logger Logger, tracker *clientTracker) *client {
+func newClient(myConfig *state.EventInitialParameters, logger Logger, tracker *clientTracker) *client {
 	return &client{
 		myConfig:      myConfig,
 		logger:        logger,
@@ -696,7 +697,7 @@ func newClient(myConfig *pb.StateEvent_InitialParameters, logger Logger, tracker
 	}
 }
 
-func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Config, clientState *pb.NetworkState_Client, reconfiguring bool) *actionSet {
+func (c *client) reinitialize(seqNo uint64, networkConfig *msgs.NetworkState_Config, clientState *msgs.NetworkState_Client, reconfiguring bool) *actionSet {
 	actions := &actionSet{}
 	oldReqNoMap := c.reqNoMap
 
@@ -746,7 +747,7 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *pb.NetworkState_Confi
 	return actions
 }
 
-func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfiguring bool) *actionSet {
+func (c *client) allocate(seqNo uint64, state *msgs.NetworkState_Client, reconfiguring bool) *actionSet {
 	actions := &actionSet{}
 
 	intermediateHighWatermark := state.LowWatermark + uint64(state.Width) - uint64(state.WidthConsumedLastCheckpoint)
@@ -803,7 +804,7 @@ func (c *client) allocate(seqNo uint64, state *pb.NetworkState_Client, reconfigu
 	return actions
 }
 
-func (c *client) ack(source nodeID, ack *pb.RequestAck) (*actionSet, *clientRequest) {
+func (c *client) ack(source nodeID, ack *msgs.RequestAck) (*actionSet, *clientRequest) {
 	actions := &actionSet{}
 	crne, ok := c.reqNoMap[ack.ReqNo]
 	assertEqualf(ok, true, "client_id=%d got ack for req_no=%d, but lowWatermark=%d highWatermark=%d", c.clientState.Id, ack.ReqNo, c.clientState.LowWatermark, c.highWatermark)

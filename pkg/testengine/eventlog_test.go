@@ -10,8 +10,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
-	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/testengine"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -43,8 +43,8 @@ var _ = XDescribe("Non-determinism finding test", func() {
 		logEntry1 := eventLog1.List.Front()
 		logEntry2 := eventLog2.List.Front()
 		for {
-			e1 := logEntry1.Value.(*rpb.RecordedEvent)
-			e2 := logEntry2.Value.(*rpb.RecordedEvent)
+			e1 := logEntry1.Value.(*recording.Event)
+			e2 := logEntry2.Value.(*recording.Event)
 
 			if !proto.Equal(e1, e2) {
 				jLogEntry1, err := jsonMarshaler.Marshal(e1)
@@ -70,7 +70,7 @@ var _ = XDescribe("Non-determinism finding test", func() {
 	})
 })
 
-var tickEvent = &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}}
+var tickEvent = &state.Event{Type: &state.Event_Tick{Tick: &state.EventTickElapsed{}}}
 
 var _ = Describe("Eventlog", func() {
 
@@ -88,14 +88,14 @@ var _ = Describe("Eventlog", func() {
 			List:   list.New(),
 		}
 		initialLog.Insert(
-			&rpb.RecordedEvent{
+			&recording.Event{
 				NodeId:     1,
 				StateEvent: tickEvent,
 				Time:       10,
 			},
 		)
 		initialLog.Insert(
-			&rpb.RecordedEvent{
+			&recording.Event{
 				NodeId:     2,
 				StateEvent: tickEvent,
 				Time:       20,
@@ -113,18 +113,18 @@ var _ = Describe("Eventlog", func() {
 
 		Expect(eventLog.List.Len()).To(Equal(2))
 		Expect(proto.Equal(
-			eventLog.List.Front().Value.(*rpb.RecordedEvent),
-			&rpb.RecordedEvent{
+			eventLog.List.Front().Value.(*recording.Event),
+			&recording.Event{
 				NodeId:     1,
-				StateEvent: &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}},
+				StateEvent: &state.Event{Type: &state.Event_Tick{Tick: &state.EventTickElapsed{}}},
 				Time:       10,
 			},
 		)).To(BeTrue())
 		Expect(proto.Equal(
-			eventLog.List.Back().Value.(*rpb.RecordedEvent),
-			&rpb.RecordedEvent{
+			eventLog.List.Back().Value.(*recording.Event),
+			&recording.Event{
 				NodeId:     2,
-				StateEvent: &pb.StateEvent{Type: &pb.StateEvent_Tick{Tick: &pb.StateEvent_TickElapsed{}}},
+				StateEvent: &state.Event{Type: &state.Event_Tick{Tick: &state.EventTickElapsed{}}},
 				Time:       20,
 			},
 		)).To(BeTrue())

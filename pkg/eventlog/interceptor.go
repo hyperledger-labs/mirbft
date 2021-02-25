@@ -19,8 +19,8 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
-	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 type RecorderOpt interface{}
@@ -127,7 +127,7 @@ func NewRecorder(nodeID uint64, dest io.Writer, opts ...RecorderOpt) *Recorder {
 }
 
 type eventTime struct {
-	event *pb.StateEvent
+	event *state.Event
 	time  int64
 }
 
@@ -135,7 +135,7 @@ type eventTime struct {
 // If there is no room in the buffer, it blocks.  If draining the buffer
 // to the output stream has completed (successfully or otherwise), Intercept
 // returns an error.
-func (i *Recorder) Intercept(event *pb.StateEvent) error {
+func (i *Recorder) Intercept(event *state.Event) error {
 	select {
 	case i.eventC <- eventTime{
 		event: event,
@@ -180,7 +180,7 @@ func (i *Recorder) run(dest io.Writer) (exitErr error) {
 	defer gzWriter.Close()
 
 	write := func(eventTime eventTime) error {
-		return WriteRecordedEvent(gzWriter, &rpb.RecordedEvent{
+		return WriteRecordedEvent(gzWriter, &recording.Event{
 			NodeId:     i.nodeID,
 			Time:       eventTime.time,
 			StateEvent: eventTime.event,
@@ -209,7 +209,7 @@ func (i *Recorder) run(dest io.Writer) (exitErr error) {
 	}
 }
 
-func WriteRecordedEvent(writer io.Writer, event *rpb.RecordedEvent) error {
+func WriteRecordedEvent(writer io.Writer, event *recording.Event) error {
 	return writeSizePrefixedProto(writer, event)
 }
 
@@ -251,8 +251,8 @@ func NewReader(source io.Reader) (*Reader, error) {
 	}, nil
 }
 
-func (r *Reader) ReadEvent() (*rpb.RecordedEvent, error) {
-	re := &rpb.RecordedEvent{}
+func (r *Reader) ReadEvent() (*recording.Event, error) {
+	re := &recording.Event{}
 	err := readSizePrefixedProto(r.source, re, r.buffer)
 	if err == io.EOF {
 		r.gzReader.Close()

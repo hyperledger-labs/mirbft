@@ -10,12 +10,13 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 var _ = Describe("StateMachineInitialization", func() {
 	var (
-		networkState *pb.NetworkState
+		networkState *msgs.NetworkState
 		sm           *StateMachine
 	)
 
@@ -26,9 +27,9 @@ var _ = Describe("StateMachineInitialization", func() {
 			Logger: ConsoleInfoLogger,
 		}
 
-		sm.ApplyEvent(&pb.StateEvent{
-			Type: &pb.StateEvent_Initialize{
-				Initialize: &pb.StateEvent_InitialParameters{
+		sm.ApplyEvent(&state.Event{
+			Type: &state.Event_Initialize{
+				Initialize: &state.EventInitialParameters{
 					Id:                   1,
 					BatchSize:            1,
 					HeartbeatTicks:       1,
@@ -46,10 +47,10 @@ var _ = Describe("StateMachineInitialization", func() {
 
 	When("fresh initialization state is applied", func() {
 		BeforeEach(func() {
-			for i, walEntry := range []*pb.Persistent{
+			for i, walEntry := range []*msgs.Persistent{
 				{
-					Type: &pb.Persistent_CEntry{
-						CEntry: &pb.CEntry{
+					Type: &msgs.Persistent_CEntry{
+						CEntry: &msgs.CEntry{
 							SeqNo:           0,
 							CheckpointValue: []byte("fake-initial-value"),
 							NetworkState:    networkState,
@@ -57,9 +58,9 @@ var _ = Describe("StateMachineInitialization", func() {
 					},
 				},
 				{
-					Type: &pb.Persistent_FEntry{
-						FEntry: &pb.FEntry{
-							EndsEpochConfig: &pb.EpochConfig{
+					Type: &msgs.Persistent_FEntry{
+						FEntry: &msgs.FEntry{
+							EndsEpochConfig: &msgs.EpochConfig{
 								Number:  0,
 								Leaders: networkState.Config.Nodes,
 							},
@@ -67,9 +68,9 @@ var _ = Describe("StateMachineInitialization", func() {
 					},
 				},
 			} {
-				sm.ApplyEvent(&pb.StateEvent{
-					Type: &pb.StateEvent_LoadEntry{
-						LoadEntry: &pb.StateEvent_PersistedEntry{
+				sm.ApplyEvent(&msgs.StateEvent{
+					Type: &msgs.StateEvent_LoadEntry{
+						LoadEntry: &msgs.StateEvent_PersistedEntry{
 							Index: uint64(i),
 							Data:  walEntry,
 						},
@@ -77,9 +78,9 @@ var _ = Describe("StateMachineInitialization", func() {
 				})
 			}
 
-			sm.ApplyEvent(&pb.StateEvent{
-				Type: &pb.StateEvent_CompleteInitialization{
-					CompleteInitialization: &pb.StateEvent_LoadCompleted{},
+			sm.ApplyEvent(&msgs.StateEvent{
+				Type: &msgs.StateEvent_CompleteInitialization{
+					CompleteInitialization: &state.vent_LoadCompleted{},
 				},
 			})
 		})

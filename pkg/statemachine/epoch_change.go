@@ -9,7 +9,7 @@ package statemachine
 import (
 	"sort"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/status"
 
 	"github.com/pkg/errors"
@@ -17,7 +17,7 @@ import (
 
 type epochChange struct {
 	// set at creation
-	networkConfig *pb.NetworkState_Config
+	networkConfig *msgs.NetworkState_Config
 
 	// set via setMsg and setDigest
 	parsedByDigest map[string]*parsedEpochChange
@@ -26,7 +26,7 @@ type epochChange struct {
 	strongCert []byte
 }
 
-func (ec *epochChange) addMsg(source nodeID, msg *pb.EpochChange, digest []byte) {
+func (ec *epochChange) addMsg(source nodeID, msg *msgs.EpochChange, digest []byte) {
 	if ec.parsedByDigest == nil {
 		ec.parsedByDigest = map[string]*parsedEpochChange{}
 	}
@@ -52,21 +52,21 @@ func (ec *epochChange) addMsg(source nodeID, msg *pb.EpochChange, digest []byte)
 }
 
 type parsedEpochChange struct {
-	underlying   *pb.EpochChange
-	pSet         map[uint64]*pb.EpochChange_SetEntry // TODO, maybe make a real type?
-	qSet         map[uint64]map[uint64][]byte        // TODO, maybe make a real type?
+	underlying   *msgs.EpochChange
+	pSet         map[uint64]*msgs.EpochChange_SetEntry // TODO, maybe make a real type?
+	qSet         map[uint64]map[uint64][]byte          // TODO, maybe make a real type?
 	lowWatermark uint64
 
 	acks map[nodeID]struct{}
 }
 
-func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error) {
+func newParsedEpochChange(underlying *msgs.EpochChange) (*parsedEpochChange, error) {
 	if len(underlying.Checkpoints) == 0 {
 		return nil, errors.Errorf("epoch change did not contain any checkpoints")
 	}
 
 	lowWatermark := underlying.Checkpoints[0].SeqNo
-	checkpoints := map[uint64]*pb.Checkpoint{}
+	checkpoints := map[uint64]*msgs.Checkpoint{}
 
 	for _, checkpoint := range underlying.Checkpoints {
 		if lowWatermark > checkpoint.SeqNo {
@@ -82,7 +82,7 @@ func newParsedEpochChange(underlying *pb.EpochChange) (*parsedEpochChange, error
 
 	// TODO, check pSet and qSet for entries within log window relative to low watermark
 
-	pSet := map[uint64]*pb.EpochChange_SetEntry{}
+	pSet := map[uint64]*msgs.EpochChange_SetEntry{}
 	for _, entry := range underlying.PSet {
 		if _, ok := pSet[entry.SeqNo]; ok {
 			return nil, errors.Errorf("epoch change pSet contained duplicate entries for seqno=%d", entry.SeqNo)

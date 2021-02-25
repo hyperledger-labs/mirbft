@@ -10,18 +10,19 @@ import (
 	"fmt"
 	"reflect"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
-	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/state"
 
 	"google.golang.org/protobuf/proto"
 )
 
 type Mangler interface {
-	Mangle(random int, event *rpb.RecordedEvent) []MangleResult
+	Mangle(random int, event *recording.Event) []MangleResult
 }
 
 type MangleResult struct {
-	Event    *rpb.RecordedEvent
+	Event    *recording.Event
 	Remangle bool
 }
 
@@ -36,7 +37,7 @@ type MangleResult struct {
 // if they are from nodes 1 and 3, they will be dropped.
 
 type MangleMatcher interface {
-	Matches(random int, event *rpb.RecordedEvent) bool
+	Matches(random int, event *recording.Event) bool
 }
 
 // Until is useful to perform a mangling until some condition is complete.  This is useful
@@ -45,7 +46,7 @@ type MangleMatcher interface {
 func Until(matcher MangleMatcher) *Mangling {
 	matched := false
 	return &Mangling{
-		Filter: InlineMatcher(func(random int, event *rpb.RecordedEvent) bool {
+		Filter: InlineMatcher(func(random int, event *recording.Event) bool {
 			if matched || matcher.Matches(random, event) {
 				matched = true
 				return false
@@ -61,7 +62,7 @@ func Until(matcher MangleMatcher) *Mangling {
 func After(matcher MangleMatcher) *Mangling {
 	matched := false
 	return &Mangling{
-		Filter: InlineMatcher(func(random int, event *rpb.RecordedEvent) bool {
+		Filter: InlineMatcher(func(random int, event *recording.Event) bool {
 			if matched || matcher.Matches(random, event) {
 				matched = true
 				return true
@@ -86,7 +87,7 @@ type Mangling struct {
 }
 
 func (m *Mangling) Do(mangler Mangler) Mangler {
-	return InlineMangler(func(random int, event *rpb.RecordedEvent) []MangleResult {
+	return InlineMangler(func(random int, event *recording.Event) []MangleResult {
 		if !m.Filter.Matches(random, event) {
 			return []MangleResult{
 				{
@@ -115,7 +116,7 @@ func (m *Mangling) Delay(delay int) Mangler {
 	return m.Do(&DelayMangler{Delay: delay})
 }
 
-func (m *Mangling) CrashAndRestartAfter(delay int64, initParms *pb.StateEvent_InitialParameters) Mangler {
+func (m *Mangling) CrashAndRestartAfter(delay int64, initParms *state.EventInitialParameters) Mangler {
 	return m.Do(&CrashAndRestartAfterMangler{
 		InitParms: initParms,
 		Delay:     delay,
@@ -135,8 +136,8 @@ func MatchClientProposal() *ClientMatching {
 
 	cm.Filters = []mangleFilter{
 		{
-			stateEvent: func(event *pb.StateEvent) bool {
-				_, ok := event.Type.(*pb.StateEvent_AddClientResults)
+			stateEvent: func(event *state.Event) bool {
+				_, ok := event.Type.(*state.Event_AddClientResults)
 				return ok
 			},
 		},
@@ -146,52 +147,52 @@ func MatchClientProposal() *ClientMatching {
 	return cm
 }
 
-type InlineMatcher func(random int, event *rpb.RecordedEvent) bool
+type InlineMatcher func(random int, event *recording.Event) bool
 
-func (im InlineMatcher) Matches(random int, event *rpb.RecordedEvent) bool {
+func (im InlineMatcher) Matches(random int, event *recording.Event) bool {
 	return im(random, event)
 }
 
-type InlineMangler func(random int, event *rpb.RecordedEvent) []MangleResult
+type InlineMangler func(random int, event *recording.Event) []MangleResult
 
-func (im InlineMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
+func (im InlineMangler) Mangle(random int, event *recording.Event) []MangleResult {
 	return im(random, event)
 }
 
 type mangleFilter struct {
-	msgContents func(msg *pb.Msg) bool
+	msgContents func(msg *msgs.Msg) bool
 	msgSeqNo    func(seqNo uint64) bool
 	msgEpoch    func(seqNo uint64) bool
 	msgSource   func(target, source uint64) bool
-	stateEvent  func(event *pb.StateEvent) bool
+	stateEvent  func(event *state.Event) bool
 	target      func(target uint64) bool
 	blind       func(random int) bool
 }
 
-func (mf mangleFilter) apply(random int, event *rpb.RecordedEvent) bool {
+func (mf mangleFilter) apply(random int, event *recording.Event) bool {
 	switch {
 	case mf.msgContents != nil:
-		return mf.msgContents(event.StateEvent.Type.(*pb.StateEvent_Step).Step.Msg)
+		return mf.msgContents(event.StateEvent.Type.(*state.Event_Step).Step.Msg)
 	case mf.msgEpoch != nil:
 		var epoch uint64
-		switch c := event.StateEvent.Type.(*pb.StateEvent_Step).Step.Msg.Type.(type) {
-		case *pb.Msg_Preprepare:
+		switch c := event.StateEvent.Type.(*state.Event_Step).Step.Msg.Type.(type) {
+		case *msgs.Msg_Preprepare:
 			epoch = c.Preprepare.Epoch
-		case *pb.Msg_Prepare:
+		case *msgs.Msg_Prepare:
 			epoch = c.Prepare.Epoch
-		case *pb.Msg_Commit:
+		case *msgs.Msg_Commit:
 			epoch = c.Commit.Epoch
-		case *pb.Msg_Suspect:
+		case *msgs.Msg_Suspect:
 			epoch = c.Suspect.Epoch
-		case *pb.Msg_EpochChange:
+		case *msgs.Msg_EpochChange:
 			epoch = c.EpochChange.NewEpoch
-		case *pb.Msg_EpochChangeAck:
+		case *msgs.Msg_EpochChangeAck:
 			epoch = c.EpochChangeAck.EpochChange.NewEpoch
-		case *pb.Msg_NewEpoch:
+		case *msgs.Msg_NewEpoch:
 			epoch = c.NewEpoch.NewConfig.Config.Number
-		case *pb.Msg_NewEpochEcho:
+		case *msgs.Msg_NewEpochEcho:
 			epoch = c.NewEpochEcho.Config.Number
-		case *pb.Msg_NewEpochReady:
+		case *msgs.Msg_NewEpochReady:
 			epoch = c.NewEpochReady.Config.Number
 		default:
 			return false
@@ -200,18 +201,18 @@ func (mf mangleFilter) apply(random int, event *rpb.RecordedEvent) bool {
 		return mf.msgEpoch(epoch)
 	case mf.msgSeqNo != nil:
 		var seqNo uint64
-		switch c := event.StateEvent.Type.(*pb.StateEvent_Step).Step.Msg.Type.(type) {
-		case *pb.Msg_Preprepare:
+		switch c := event.StateEvent.Type.(*state.Event_Step).Step.Msg.Type.(type) {
+		case *msgs.Msg_Preprepare:
 			seqNo = c.Preprepare.SeqNo
-		case *pb.Msg_Prepare:
+		case *msgs.Msg_Prepare:
 			seqNo = c.Prepare.SeqNo
-		case *pb.Msg_Commit:
+		case *msgs.Msg_Commit:
 			seqNo = c.Commit.SeqNo
-		case *pb.Msg_Checkpoint:
+		case *msgs.Msg_Checkpoint:
 			seqNo = c.Checkpoint.SeqNo
-		case *pb.Msg_FetchBatch:
+		case *msgs.Msg_FetchBatch:
 			seqNo = c.FetchBatch.SeqNo
-		case *pb.Msg_ForwardBatch:
+		case *msgs.Msg_ForwardBatch:
 			seqNo = c.ForwardBatch.SeqNo
 		default:
 			return false
@@ -219,7 +220,7 @@ func (mf mangleFilter) apply(random int, event *rpb.RecordedEvent) bool {
 
 		return mf.msgSeqNo(seqNo)
 	case mf.msgSource != nil:
-		return mf.msgSource(event.NodeId, event.StateEvent.Type.(*pb.StateEvent_Step).Step.Source)
+		return mf.msgSource(event.NodeId, event.StateEvent.Type.(*state.Event_Step).Step.Source)
 	case mf.stateEvent != nil:
 		return mf.stateEvent(event.StateEvent)
 	case mf.target != nil:
@@ -345,8 +346,8 @@ func newMsgMatching() *MsgMatching {
 
 	mm.Filters = []mangleFilter{
 		{
-			stateEvent: func(event *pb.StateEvent) bool {
-				_, ok := event.Type.(*pb.StateEvent_Step)
+			stateEvent: func(event *state.Event) bool {
+				_, ok := event.Type.(*state.Event_Step)
 				return ok
 			},
 		},
@@ -368,8 +369,8 @@ func newStartupMatching() *StartupMatching {
 
 	sm.Filters = []mangleFilter{
 		{
-			stateEvent: func(event *pb.StateEvent) bool {
-				_, ok := event.Type.(*pb.StateEvent_Initialize)
+			stateEvent: func(event *state.Event) bool {
+				_, ok := event.Type.(*state.Event_Initialize)
 				return ok
 			},
 		},
@@ -392,7 +393,7 @@ type matching struct {
 	Filters []mangleFilter
 }
 
-func (m matching) Matches(random int, event *rpb.RecordedEvent) bool {
+func (m matching) Matches(random int, event *recording.Event) bool {
 	for _, filter := range m.Filters {
 		if !filter.apply(random, event) {
 			return false
@@ -511,7 +512,7 @@ func (baseMangling) WithEpoch(epochNo uint64) mangleFilter {
 
 func ofType(msgType reflect.Type) mangleFilter {
 	return mangleFilter{
-		msgContents: func(msg *pb.Msg) bool {
+		msgContents: func(msg *msgs.Msg) bool {
 			return reflect.TypeOf(msg.Type).AssignableTo(msgType)
 		},
 	}
@@ -520,96 +521,96 @@ func ofType(msgType reflect.Type) mangleFilter {
 // OfTypePreprepare may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypePreprepare() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_Preprepare{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_Preprepare{}))
 }
 
 // OfTypePrepare may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypePrepare() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_Prepare{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_Prepare{}))
 }
 
 // OfTypeCommit may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeCommit() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_Commit{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_Commit{}))
 }
 
 // OfTypeCheckpoint may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeCheckpoint() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_Checkpoint{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_Checkpoint{}))
 }
 
 // OfTypeSuspect may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeSuspect() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_Suspect{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_Suspect{}))
 }
 
 // OfTypeEpochChange may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeEpochChange() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_EpochChange{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_EpochChange{}))
 }
 
 // OfTypeEpochChangeAck may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeEpochChangeAck() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_EpochChangeAck{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_EpochChangeAck{}))
 }
 
 // OfTypeNewEpoch may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeNewEpoch() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_NewEpoch{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_NewEpoch{}))
 }
 
 // OfTypeNewEpochEcho may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeNewEpochEcho() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_NewEpochEcho{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_NewEpochEcho{}))
 }
 
 // OfTypeNewEpochReady may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeNewEpochReady() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_NewEpochReady{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_NewEpochReady{}))
 }
 
 // OfTypeFetchBatch may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeFetchBatch() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_FetchBatch{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_FetchBatch{}))
 }
 
 // OfTypeForwardBatch may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeForwardBatch() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_ForwardBatch{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_ForwardBatch{}))
 }
 
 // OfTypeFetchRequest may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeFetchRequest() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_FetchRequest{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_FetchRequest{}))
 }
 
 // OfTypeForwardRequest may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeForwardRequest() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_ForwardRequest{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_ForwardRequest{}))
 }
 
 // OfTypeRequestAck may only be safely bound to mangling if
 // the mangling ensures all events are step messages.
 func (baseMangling) OfTypeRequestAck() mangleFilter {
-	return ofType(reflect.TypeOf(&pb.Msg_RequestAck{}))
+	return ofType(reflect.TypeOf(&msgs.Msg_RequestAck{}))
 }
 
 type DropMangler struct{}
 
-func (DropMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
+func (DropMangler) Mangle(random int, event *recording.Event) []MangleResult {
 	return nil
 }
 
@@ -617,8 +618,8 @@ type DuplicateMangler struct {
 	MaxDelay int
 }
 
-func (dm *DuplicateMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
-	clone := proto.Clone(event).(*rpb.RecordedEvent)
+func (dm *DuplicateMangler) Mangle(random int, event *recording.Event) []MangleResult {
+	clone := proto.Clone(event).(*recording.Event)
 	delay := int64(random % dm.MaxDelay)
 	clone.Time += delay
 	return []MangleResult{
@@ -636,7 +637,7 @@ type JitterMangler struct {
 	MaxDelay int
 }
 
-func (jm *JitterMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
+func (jm *JitterMangler) Mangle(random int, event *recording.Event) []MangleResult {
 	delay := int64(random % jm.MaxDelay)
 	event.Time += delay
 	return []MangleResult{
@@ -651,7 +652,7 @@ type DelayMangler struct {
 	Delay int
 }
 
-func (dm *DelayMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
+func (dm *DelayMangler) Mangle(random int, event *recording.Event) []MangleResult {
 	event.Time += int64(dm.Delay)
 	return []MangleResult{
 		{
@@ -662,21 +663,21 @@ func (dm *DelayMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleRes
 }
 
 type CrashAndRestartAfterMangler struct {
-	InitParms *pb.StateEvent_InitialParameters
+	InitParms *state.EventInitialParameters
 	Delay     int64
 }
 
-func (cm CrashAndRestartAfterMangler) Mangle(random int, event *rpb.RecordedEvent) []MangleResult {
+func (cm CrashAndRestartAfterMangler) Mangle(random int, event *recording.Event) []MangleResult {
 	return []MangleResult{
 		{
 			Event: event,
 		},
 		{
-			Event: &rpb.RecordedEvent{
+			Event: &recording.Event{
 				Time:   event.Time + cm.Delay,
 				NodeId: cm.InitParms.Id,
-				StateEvent: &pb.StateEvent{
-					Type: &pb.StateEvent_Initialize{
+				StateEvent: &state.Event{
+					Type: &state.Event_Initialize{
 						Initialize: cm.InitParms,
 					},
 				},

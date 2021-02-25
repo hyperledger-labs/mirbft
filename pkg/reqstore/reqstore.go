@@ -12,12 +12,12 @@ package reqstore
 
 import (
 	"fmt"
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 	badger "github.com/dgraph-io/badger/v2"
 	"github.com/pkg/errors"
 )
 
-func reqKey(ack *pb.RequestAck) []byte {
+func reqKey(ack *msgs.RequestAck) []byte {
 	return []byte(fmt.Sprintf("req-%d.%d.%x", ack.ClientId, ack.ReqNo, ack.Digest))
 }
 
@@ -72,13 +72,13 @@ func (s *Store) GetAllocation(clientID, reqNo uint64) ([]byte, error) {
 	return valCopy, err
 }
 
-func (s *Store) PutRequest(requestAck *pb.RequestAck, data []byte) error {
+func (s *Store) PutRequest(requestAck *msgs.RequestAck, data []byte) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(reqKey(requestAck), data)
 	})
 }
 
-func (s *Store) GetRequest(requestAck *pb.RequestAck) ([]byte, error) {
+func (s *Store) GetRequest(requestAck *msgs.RequestAck) ([]byte, error) {
 	var valCopy []byte
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(reqKey(requestAck))
@@ -97,7 +97,7 @@ func (s *Store) GetRequest(requestAck *pb.RequestAck) ([]byte, error) {
 	return valCopy, err
 }
 
-func (s *Store) Commit(ack *pb.RequestAck) error {
+func (s *Store) Commit(ack *msgs.RequestAck) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(reqKey(ack))
 	})

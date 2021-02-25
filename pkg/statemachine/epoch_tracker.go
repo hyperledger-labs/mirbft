@@ -10,7 +10,8 @@ import (
 	"fmt"
 	"sort"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/status"
 )
 
@@ -19,9 +20,9 @@ type epochTracker struct {
 	persisted              *persisted
 	nodeBuffers            *nodeBuffers
 	commitState            *commitState
-	networkConfig          *pb.NetworkState_Config
+	networkConfig          *msgs.NetworkState_Config
 	logger                 Logger
-	myConfig               *pb.StateEvent_InitialParameters
+	myConfig               *state.EventInitialParameters
 	batchTracker           *batchTracker
 	clientTracker          *clientTracker
 	clientHashDisseminator *clientHashDisseminator
@@ -38,9 +39,9 @@ func newEpochTracker(
 	persisted *persisted,
 	nodeBuffers *nodeBuffers,
 	commitState *commitState,
-	networkConfig *pb.NetworkState_Config,
+	networkConfig *msgs.NetworkState_Config,
 	logger Logger,
-	myConfig *pb.StateEvent_InitialParameters,
+	myConfig *state.EventInitialParameters,
 	batchTracker *batchTracker,
 	clientTracker *clientTracker,
 	clientHashDisseminator *clientHashDisseminator,
@@ -76,27 +77,27 @@ func (et *epochTracker) reinitialize() *actionSet {
 	et.futureMsgs = newFutureMsgs
 
 	actions := &actionSet{}
-	var lastNEntry *pb.NEntry
-	var lastECEntry *pb.ECEntry
-	var lastFEntry *pb.FEntry
+	var lastNEntry *msgs.NEntry
+	var lastECEntry *msgs.ECEntry
+	var lastFEntry *msgs.FEntry
 	var highestPreprepared uint64
 
 	et.persisted.iterate(logIterator{
-		onNEntry: func(nEntry *pb.NEntry) {
+		onNEntry: func(nEntry *msgs.NEntry) {
 			lastNEntry = nEntry
 		},
-		onFEntry: func(fEntry *pb.FEntry) {
+		onFEntry: func(fEntry *msgs.FEntry) {
 			lastFEntry = fEntry
 		},
-		onECEntry: func(ecEntry *pb.ECEntry) {
+		onECEntry: func(ecEntry *msgs.ECEntry) {
 			lastECEntry = ecEntry
 		},
-		onQEntry: func(qEntry *pb.QEntry) {
+		onQEntry: func(qEntry *msgs.QEntry) {
 			if qEntry.SeqNo > highestPreprepared {
 				highestPreprepared = qEntry.SeqNo
 			}
 		},
-		onCEntry: func(cEntry *pb.CEntry) {
+		onCEntry: func(cEntry *msgs.CEntry) {
 			// In the state transfer case, we may
 			// have a CEntry for a seqno we have no QEntry
 			if cEntry.SeqNo > highestPreprepared {
@@ -105,10 +106,10 @@ func (et *epochTracker) reinitialize() *actionSet {
 		},
 
 		// TODO, implement
-		onSuspect: func(*pb.Suspect) {},
+		onSuspect: func(*msgs.Suspect) {},
 	})
 
-	var lastEpochConfig *pb.EpochConfig
+	var lastEpochConfig *msgs.EpochConfig
 	graceful := false
 	switch {
 	case lastNEntry != nil && lastFEntry != nil:
@@ -155,19 +156,19 @@ func (et *epochTracker) reinitialize() *actionSet {
 		}
 		et.currentEpoch.startingSeqNo = startingSeqNo
 		et.currentEpoch.state = etResuming
-		suspect := &pb.Suspect{
+		suspect := &msgs.Suspect{
 			Epoch: lastNEntry.EpochConfig.Number,
 		}
 		actions.concat(et.persisted.addSuspect(suspect))
-		actions.send(et.networkConfig.Nodes, &pb.Msg{
-			Type: &pb.Msg_Suspect{
+		actions.send(et.networkConfig.Nodes, &msgs.Msg{
+			Type: &msgs.Msg_Suspect{
 				Suspect: suspect,
 			},
 		})
 	case lastFEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastFEntry.EndsEpochConfig.Number):
 		et.logger.Log(LevelDebug, "reinitializing immediately after graceful epoch end, but before epoch change sent, creating epoch change")
 		// An epoch has just gracefully ended, and we have not yet tried to move to the next
-		lastECEntry = &pb.ECEntry{
+		lastECEntry = &msgs.ECEntry{
 			EpochNumber: lastFEntry.EndsEpochConfig.Number + 1,
 		}
 		actions.concat(et.persisted.addECEntry(lastECEntry))
@@ -211,7 +212,7 @@ func (et *epochTracker) reinitialize() *actionSet {
 	}
 
 	for _, id := range et.networkConfig.Nodes {
-		et.futureMsgs[nodeID(id)].iterate(et.filter, func(source nodeID, msg *pb.Msg) {
+		et.futureMsgs[nodeID(id)].iterate(et.filter, func(source nodeID, msg *msgs.Msg) {
 			actions.concat(et.applyMsg(source, msg))
 		})
 	}
@@ -254,19 +255,19 @@ func (et *epochTracker) advanceState() *actionSet {
 	et.currentEpoch.myEpochChange = myEpochChange
 	et.currentEpoch.myLeaderChoice = []uint64{et.myConfig.Id} // XXX, wrong
 
-	actions := et.persisted.addECEntry(&pb.ECEntry{
+	actions := et.persisted.addECEntry(&msgs.ECEntry{
 		EpochNumber: newEpochNumber,
 	}).send(
 		et.networkConfig.Nodes,
-		&pb.Msg{
-			Type: &pb.Msg_EpochChange{
+		&msgs.Msg{
+			Type: &msgs.Msg_EpochChange{
 				EpochChange: epochChange,
 			},
 		},
 	)
 
 	for _, id := range et.networkConfig.Nodes {
-		et.futureMsgs[nodeID(id)].iterate(et.filter, func(source nodeID, msg *pb.Msg) {
+		et.futureMsgs[nodeID(id)].iterate(et.filter, func(source nodeID, msg *msgs.Msg) {
 			actions.concat(et.applyMsg(source, msg))
 		})
 	}
@@ -274,32 +275,32 @@ func (et *epochTracker) advanceState() *actionSet {
 	return actions
 }
 
-func epochForMsg(msg *pb.Msg) uint64 {
+func epochForMsg(msg *msgs.Msg) uint64 {
 	switch innerMsg := msg.Type.(type) {
-	case *pb.Msg_Preprepare:
+	case *msgs.Msg_Preprepare:
 		return innerMsg.Preprepare.Epoch
-	case *pb.Msg_Prepare:
+	case *msgs.Msg_Prepare:
 		return innerMsg.Prepare.Epoch
-	case *pb.Msg_Commit:
+	case *msgs.Msg_Commit:
 		return innerMsg.Commit.Epoch
-	case *pb.Msg_Suspect:
+	case *msgs.Msg_Suspect:
 		return innerMsg.Suspect.Epoch
-	case *pb.Msg_EpochChange:
+	case *msgs.Msg_EpochChange:
 		return innerMsg.EpochChange.NewEpoch
-	case *pb.Msg_EpochChangeAck:
+	case *msgs.Msg_EpochChangeAck:
 		return innerMsg.EpochChangeAck.EpochChange.NewEpoch
-	case *pb.Msg_NewEpoch:
+	case *msgs.Msg_NewEpoch:
 		return innerMsg.NewEpoch.NewConfig.Config.Number
-	case *pb.Msg_NewEpochEcho:
+	case *msgs.Msg_NewEpochEcho:
 		return innerMsg.NewEpochEcho.Config.Number
-	case *pb.Msg_NewEpochReady:
+	case *msgs.Msg_NewEpochReady:
 		return innerMsg.NewEpochReady.Config.Number
 	default:
 		panic(fmt.Sprintf("unexpected bad epoch message type %T, this indicates a bug", msg.Type))
 	}
 }
 
-func (et *epochTracker) filter(_ nodeID, msg *pb.Msg) applyable {
+func (et *epochTracker) filter(_ nodeID, msg *msgs.Msg) applyable {
 	epochNumber := epochForMsg(msg)
 
 	switch {
@@ -312,7 +313,7 @@ func (et *epochTracker) filter(_ nodeID, msg *pb.Msg) applyable {
 	}
 }
 
-func (et *epochTracker) step(source nodeID, msg *pb.Msg) *actionSet {
+func (et *epochTracker) step(source nodeID, msg *msgs.Msg) *actionSet {
 	epochNumber := epochForMsg(msg)
 
 	switch {
@@ -333,32 +334,32 @@ func (et *epochTracker) step(source nodeID, msg *pb.Msg) *actionSet {
 	}
 }
 
-func (et *epochTracker) applyMsg(source nodeID, msg *pb.Msg) *actionSet {
+func (et *epochTracker) applyMsg(source nodeID, msg *msgs.Msg) *actionSet {
 	target := et.currentEpoch
 
 	switch innerMsg := msg.Type.(type) {
-	case *pb.Msg_Preprepare:
+	case *msgs.Msg_Preprepare:
 		return target.step(source, msg)
-	case *pb.Msg_Prepare:
+	case *msgs.Msg_Prepare:
 		return target.step(source, msg)
-	case *pb.Msg_Commit:
+	case *msgs.Msg_Commit:
 		return target.step(source, msg)
-	case *pb.Msg_Suspect:
+	case *msgs.Msg_Suspect:
 		target.applySuspectMsg(source)
 		return &actionSet{}
-	case *pb.Msg_EpochChange:
+	case *msgs.Msg_EpochChange:
 		return target.applyEpochChangeMsg(source, innerMsg.EpochChange)
-	case *pb.Msg_EpochChangeAck:
+	case *msgs.Msg_EpochChangeAck:
 		return target.applyEpochChangeAckMsg(source, nodeID(innerMsg.EpochChangeAck.Originator), innerMsg.EpochChangeAck.EpochChange)
-	case *pb.Msg_NewEpoch:
+	case *msgs.Msg_NewEpoch:
 		if innerMsg.NewEpoch.NewConfig.Config.Number%uint64(len(et.networkConfig.Nodes)) != uint64(source) {
 			// TODO, log oddity
 			return &actionSet{}
 		}
 		return target.applyNewEpochMsg(innerMsg.NewEpoch)
-	case *pb.Msg_NewEpochEcho:
+	case *msgs.Msg_NewEpochEcho:
 		return target.applyNewEpochEchoMsg(source, innerMsg.NewEpochEcho)
-	case *pb.Msg_NewEpochReady:
+	case *msgs.Msg_NewEpochReady:
 		return target.applyNewEpochReadyMsg(source, innerMsg.NewEpochReady)
 	default:
 		panic(fmt.Sprintf("unexpected bad epoch message type %T, this indicates a bug", msg.Type))
@@ -410,7 +411,7 @@ func (et *epochTracker) moveLowWatermark(seqNo uint64) *actionSet {
 	return et.currentEpoch.moveLowWatermark(seqNo)
 }
 
-func (et *epochTracker) applyEpochChangeDigest(hashResult *pb.HashResult_EpochChange, digest []byte) *actionSet {
+func (et *epochTracker) applyEpochChangeDigest(hashResult *state.HashResult_EpochChange, digest []byte) *actionSet {
 	targetNumber := hashResult.EpochChange.NewEpoch
 	switch {
 	case targetNumber < et.currentEpoch.number:

@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 type Config struct {
@@ -57,5 +57,5 @@ type EventInterceptor interface {
 	// Intercept is invoked prior to passing each state event to
 	// the state machine.  If Intercept returns an error, the
 	// state machine halts.
-	Intercept(s *pb.StateEvent) error
+	Intercept(s *state.Event) error
 }

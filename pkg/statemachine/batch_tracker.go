@@ -10,7 +10,8 @@ import (
 	"bytes"
 	"fmt"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 type batchTracker struct {
@@ -21,7 +22,7 @@ type batchTracker struct {
 
 type batch struct {
 	observedSequences map[uint64]struct{}
-	requestAcks       []*pb.RequestAck
+	requestAcks       []*msgs.RequestAck
 }
 
 func newBatchTracker(persisted *persisted) *batchTracker {
@@ -34,18 +35,18 @@ func newBatchTracker(persisted *persisted) *batchTracker {
 
 func (bt *batchTracker) reinitialize() {
 	bt.persisted.iterate(logIterator{
-		onQEntry: func(qEntry *pb.QEntry) {
+		onQEntry: func(qEntry *msgs.QEntry) {
 			bt.addBatch(qEntry.SeqNo, qEntry.Digest, qEntry.Requests)
 		},
 	})
 }
 
-func (bt *batchTracker) step(source nodeID, msg *pb.Msg) *actionSet {
+func (bt *batchTracker) step(source nodeID, msg *msgs.Msg) *actionSet {
 	switch innerMsg := msg.Type.(type) {
-	case *pb.Msg_FetchBatch:
+	case *msgs.Msg_FetchBatch:
 		msg := innerMsg.FetchBatch
 		return bt.replyFetchBatch(uint64(source), msg.SeqNo, msg.Digest)
-	case *pb.Msg_ForwardBatch:
+	case *msgs.Msg_ForwardBatch:
 		msg := innerMsg.ForwardBatch
 		return bt.applyForwardBatchMsg(source, msg.SeqNo, msg.Digest, msg.RequestAcks)
 	default:
@@ -66,7 +67,7 @@ func (bt *batchTracker) truncate(seqNo uint64) {
 	}
 }
 
-func (bt *batchTracker) addBatch(seqNo uint64, digest []byte, requestAcks []*pb.RequestAck) {
+func (bt *batchTracker) addBatch(seqNo uint64, digest []byte, requestAcks []*msgs.RequestAck) {
 	b, ok := bt.batchesByDigest[string(digest)]
 	if !ok {
 		b = &batch{
@@ -104,9 +105,9 @@ func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte, sources []uint64
 
 	return (&actionSet{}).send(
 		sources,
-		&pb.Msg{
-			Type: &pb.Msg_FetchBatch{
-				FetchBatch: &pb.FetchBatch{
+		&msgs.Msg{
+			Type: &msgs.Msg_FetchBatch{
+				FetchBatch: &msgs.FetchBatch{
 					SeqNo:  seqNo,
 					Digest: digest,
 				},
@@ -124,9 +125,9 @@ func (bt *batchTracker) replyFetchBatch(source uint64, seqNo uint64, digest []by
 
 	return (&actionSet{}).send(
 		[]uint64{source},
-		&pb.Msg{
-			Type: &pb.Msg_ForwardBatch{
-				ForwardBatch: &pb.ForwardBatch{
+		&msgs.Msg{
+			Type: &msgs.Msg_ForwardBatch{
+				ForwardBatch: &msgs.ForwardBatch{
 					SeqNo:       seqNo,
 					Digest:      digest,
 					RequestAcks: batch.requestAcks,
@@ -136,7 +137,7 @@ func (bt *batchTracker) replyFetchBatch(source uint64, seqNo uint64, digest []by
 	)
 }
 
-func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest []byte, requestAcks []*pb.RequestAck) *actionSet {
+func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest []byte, requestAcks []*msgs.RequestAck) *actionSet {
 	_, ok := bt.fetchInFlight[string(digest)]
 	if !ok {
 		// We did not request this batch digest, so we don't know if we can trust it, discard
@@ -149,13 +150,13 @@ func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest
 		data[i] = requestAck.Digest
 	}
 	return &actionSet{
-		StateEventResult: pb.StateEventResult{
-			Hash: []*pb.StateEventResult_HashRequest{
+		Actions: state.Actions{
+			Hash: []*state.ActionHashRequest{
 				{
 					Data: data,
-					Origin: &pb.HashResult{
-						Type: &pb.HashResult_VerifyBatch_{
-							VerifyBatch: &pb.HashResult_VerifyBatch{
+					Origin: &state.HashResult{
+						Type: &state.HashResult_VerifyBatch_{
+							VerifyBatch: &state.HashResult_VerifyBatch{
 								Source:         uint64(source),
 								SeqNo:          seqNo,
 								RequestAcks:    requestAcks,
@@ -169,7 +170,7 @@ func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest
 	}
 }
 
-func (bt *batchTracker) applyVerifyBatchHashResult(digest []byte, verifyBatch *pb.HashResult_VerifyBatch) {
+func (bt *batchTracker) applyVerifyBatchHashResult(digest []byte, verifyBatch *state.HashResult_VerifyBatch) {
 	if !bytes.Equal(verifyBatch.ExpectedDigest, digest) {
 		panic("byzantine")
 		// XXX this should be a log only, but panic-ing to make dev easier for now

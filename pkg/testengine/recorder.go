@@ -18,8 +18,9 @@ import (
 	"os"
 
 	"github.com/IBM/mirbft"
-	pb "github.com/IBM/mirbft/mirbftpb"
-	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/state"
 
 	"github.com/pkg/errors"
 )
@@ -33,7 +34,7 @@ func uint64ToBytes(value uint64) []byte {
 }
 
 type RecorderNodeConfig struct {
-	InitParms    *pb.StateEvent_InitialParameters
+	InitParms    *state.EventInitialParameters
 	RuntimeParms *RuntimeParameters
 }
 
@@ -49,14 +50,14 @@ type RuntimeParameters struct {
 	StateTransferLatency int
 }
 
-// ackHelper is a map-key usable version of the pb.RequestAck
+// ackHelper is a map-key usable version of the msgs.RequestAck
 type ackHelper struct {
 	clientID uint64
 	reqNo    uint64
 	digest   string
 }
 
-func newAckHelper(ack *pb.RequestAck) ackHelper {
+func newAckHelper(ack *msgs.RequestAck) ackHelper {
 	return ackHelper{
 		reqNo:    ack.ReqNo,
 		clientID: ack.ClientId,
@@ -76,24 +77,24 @@ func NewReqStore() *ReqStore {
 	}
 }
 
-func (rs *ReqStore) Store(ack *pb.RequestAck) {
+func (rs *ReqStore) Store(ack *msgs.RequestAck) {
 	helper := newAckHelper(ack)
 	rs.storedAcks[helper] = struct{}{}
 	// TODO, deal with free-ing
 }
 
-func (rs *ReqStore) Has(ack *pb.RequestAck) bool {
+func (rs *ReqStore) Has(ack *msgs.RequestAck) bool {
 	helper := newAckHelper(ack)
 	_, ok := rs.storedAcks[helper]
 	return ok
 }
 
-func (rs *ReqStore) StoreCorrect(ack *pb.RequestAck) {
+func (rs *ReqStore) StoreCorrect(ack *msgs.RequestAck) {
 	helper := newAckHelper(ack)
 	rs.correctAcks[helper] = struct{}{}
 }
 
-func (rs *ReqStore) HasCorrect(ack *pb.RequestAck) bool {
+func (rs *ReqStore) HasCorrect(ack *msgs.RequestAck) bool {
 	helper := newAckHelper(ack)
 	_, ok := rs.correctAcks[helper]
 	return ok
@@ -104,15 +105,15 @@ type WAL struct {
 	List     *list.List
 }
 
-func NewWAL(initialState *pb.NetworkState, initialCP []byte) *WAL {
+func NewWAL(initialState *msgs.NetworkState, initialCP []byte) *WAL {
 	wal := &WAL{
 		List:     list.New(),
 		LowIndex: 1,
 	}
 
-	wal.List.PushBack(&pb.Persistent{
-		Type: &pb.Persistent_CEntry{
-			CEntry: &pb.CEntry{
+	wal.List.PushBack(&msgs.Persistent{
+		Type: &msgs.Persistent_CEntry{
+			CEntry: &msgs.CEntry{
 				SeqNo:           0,
 				CheckpointValue: []byte("fake-initial-value"),
 				NetworkState:    initialState,
@@ -120,10 +121,10 @@ func NewWAL(initialState *pb.NetworkState, initialCP []byte) *WAL {
 		},
 	})
 
-	wal.List.PushBack(&pb.Persistent{
-		Type: &pb.Persistent_FEntry{
-			FEntry: &pb.FEntry{
-				EndsEpochConfig: &pb.EpochConfig{
+	wal.List.PushBack(&msgs.Persistent{
+		Type: &msgs.Persistent_FEntry{
+			FEntry: &msgs.FEntry{
+				EndsEpochConfig: &msgs.EpochConfig{
 					Number:  0,
 					Leaders: initialState.Config.Nodes,
 				},
@@ -134,7 +135,7 @@ func NewWAL(initialState *pb.NetworkState, initialCP []byte) *WAL {
 	return wal
 }
 
-func (wal *WAL) Append(index uint64, p *pb.Persistent) {
+func (wal *WAL) Append(index uint64, p *msgs.Persistent) {
 	if index != wal.LowIndex+uint64(wal.List.Len()) {
 		panic(fmt.Sprintf("WAL out of order: expect next index %d, but got %d", wal.LowIndex+uint64(wal.List.Len()), index))
 	}
@@ -158,10 +159,10 @@ func (wal *WAL) Truncate(index uint64) {
 	}
 }
 
-func (wal *WAL) LoadAll(iter func(index uint64, p *pb.Persistent)) {
+func (wal *WAL) LoadAll(iter func(index uint64, p *msgs.Persistent)) {
 	i := uint64(0)
 	for el := wal.List.Front(); el != nil; el = el.Next() {
-		iter(wal.LowIndex+i, el.Value.(*pb.Persistent))
+		iter(wal.LowIndex+i, el.Value.(*msgs.Persistent))
 		i++
 	}
 }
@@ -181,7 +182,7 @@ type RecorderClient struct {
 	Hasher Hasher
 }
 
-func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.RequestAck {
+func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *msgs.RequestAck {
 	if reqNo >= rc.Config.Total {
 		// We've sent all we should
 		return nil
@@ -192,7 +193,7 @@ func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *pb.RequestAck {
 	h.Write([]byte("-"))
 	h.Write(uint64ToBytes(reqNo))
 
-	return &pb.RequestAck{
+	return &msgs.RequestAck{
 		ClientId: rc.Config.ID,
 		ReqNo:    reqNo,
 		Digest:   h.Sum(nil),
@@ -204,16 +205,16 @@ type NodeState struct {
 	ActiveHash              hash.Hash
 	LastSeqNo               uint64
 	ReconfigPoints          []*ReconfigPoint
-	PendingReconfigurations []*pb.Reconfiguration
+	PendingReconfigurations []*msgs.Reconfiguration
 	Checkpoints             *list.List
 	CheckpointsBySeqNo      map[uint64]*list.Element
 	ReqStore                *ReqStore
 }
 
-func (ns *NodeState) Set(seqNo uint64, value []byte, networkState *pb.NetworkState) *pb.CheckpointResult {
+func (ns *NodeState) Set(seqNo uint64, value []byte, networkState *msgs.NetworkState) *state.CheckpointResult {
 	ns.ActiveHash = ns.Hasher()
 
-	checkpoint := &pb.CheckpointResult{
+	checkpoint := &state.CheckpointResult{
 		SeqNo:        seqNo,
 		NetworkState: networkState,
 		Value:        value,
@@ -227,18 +228,18 @@ func (ns *NodeState) Set(seqNo uint64, value []byte, networkState *pb.NetworkSta
 		// prevent the size of the storage from growing indefinitely,
 		// keep only the last 100 checkpoints.
 		del := ns.Checkpoints.Remove(ns.Checkpoints.Front())
-		delete(ns.CheckpointsBySeqNo, del.(*pb.CheckpointResult).SeqNo)
+		delete(ns.CheckpointsBySeqNo, del.(*state.CheckpointResult).SeqNo)
 	}
 
 	return checkpoint
 }
 
-func (ns *NodeState) LastCheckpoint() *pb.CheckpointResult {
-	return ns.Checkpoints.Back().Value.(*pb.CheckpointResult)
+func (ns *NodeState) LastCheckpoint() *state.CheckpointResult {
+	return ns.Checkpoints.Back().Value.(*state.CheckpointResult)
 }
 
-func (ns *NodeState) Commit(commits []*pb.StateEventResult_Commit, node uint64) []*pb.CheckpointResult {
-	var results []*pb.CheckpointResult
+func (ns *NodeState) Commit(commits []*state.ActionCommit, node uint64) []*state.CheckpointResult {
+	var results []*state.CheckpointResult
 	for _, commit := range commits {
 		if commit.Batch != nil {
 			ns.LastSeqNo++
@@ -273,7 +274,7 @@ func (ns *NodeState) Commit(commits []*pb.StateEventResult_Commit, node uint64) 
 		checkpoint := ns.Set(
 			commit.SeqNo,
 			ns.ActiveHash.Sum(nil),
-			&pb.NetworkState{
+			&msgs.NetworkState{
 				Config:  commit.NetworkConfig,
 				Clients: commit.ClientStates,
 			},
@@ -310,11 +311,11 @@ func (cc *ClientConfig) shouldSkip(nodeID uint64) bool {
 type ReconfigPoint struct {
 	ClientID        uint64
 	ReqNo           uint64
-	Reconfiguration *pb.Reconfiguration
+	Reconfiguration *msgs.Reconfiguration
 }
 
 type Recorder struct {
-	NetworkState        *pb.NetworkState
+	NetworkState        *msgs.NetworkState
 	RecorderNodeConfigs []*RecorderNodeConfig
 	ClientConfigs       []*ClientConfig
 	ReconfigPoints      []*ReconfigPoint
@@ -347,8 +348,8 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 
 		eventLog.InsertStateEvent(
 			nodeID,
-			&pb.StateEvent{
-				Type: &pb.StateEvent_Initialize{
+			&state.Event{
+				Type: &state.Event_Initialize{
 					Initialize: recorderNodeConfig.InitParms,
 				},
 			},
@@ -419,20 +420,20 @@ func (r *Recording) Step() error {
 	nodeState := node.State
 
 	switch stateEvent := lastEvent.StateEvent.Type.(type) {
-	case *pb.StateEvent_Tick:
+	case *state.Event_Tick:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
-	case *pb.StateEvent_AddResults:
-	case *pb.StateEvent_AddClientResults:
+	case *state.Event_AddResults:
+	case *state.Event_AddClientResults:
 		for _, req := range stateEvent.AddClientResults.Persisted {
 			node.ReqStore.Store(req)
 		}
-	case *pb.StateEvent_Step:
-	case *pb.StateEvent_ClientActionsReceived:
+	case *state.Event_Step:
+	case *state.Event_ClientActionsReceived:
 		if !node.AwaitingClientProcessEvent {
 			return errors.Errorf("node %d was not awaiting a client processing message, but got one", lastEvent.NodeId)
 		}
 		node.AwaitingClientProcessEvent = false
-		clientActionResults := &pb.StateEvent_ClientActionResults{}
+		clientActionResults := &state.EventClientActionResults{}
 
 		processing := playbackNode.ClientProcessing
 		for _, reqSlot := range processing.AllocatedRequests {
@@ -455,8 +456,8 @@ func (r *Recording) Step() error {
 
 		r.EventLog.InsertStateEvent(
 			lastEvent.NodeId,
-			&pb.StateEvent{
-				Type: &pb.StateEvent_AddClientResults{
+			&state.Event{
+				Type: &state.Event_AddClientResults{
 					AddClientResults: clientActionResults,
 				},
 			},
@@ -489,10 +490,10 @@ func (r *Recording) Step() error {
 
 				r.EventLog.InsertStateEvent(
 					dNodeID,
-					&pb.StateEvent{
-						Type: &pb.StateEvent_AddClientResults{
-							AddClientResults: &pb.StateEvent_ClientActionResults{
-								Persisted: []*pb.RequestAck{forward.Ack},
+					&state.Event{
+						Type: &state.Event_AddClientResults{
+							AddClientResults: &state.EventClientActionResults{
+								Persisted: []*msgs.RequestAck{forward.Ack},
 							},
 						},
 					},
@@ -500,7 +501,7 @@ func (r *Recording) Step() error {
 				)
 			}
 		}
-	case *pb.StateEvent_ActionsReceived:
+	case *state.Event_ActionsReceived:
 		if !node.AwaitingProcessEvent {
 			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.NodeId)
 		}
@@ -530,7 +531,7 @@ func (r *Recording) Step() error {
 				}
 				r.EventLog.InsertStepEvent(
 					i,
-					&pb.StateEvent_InboundMsg{
+					&state.EventInboundMsg{
 						Source: lastEvent.NodeId,
 						Msg:    send.Msg,
 					},
@@ -539,8 +540,8 @@ func (r *Recording) Step() error {
 			}
 		}
 
-		apply := &pb.StateEvent_ActionResults{
-			Digests: make([]*pb.HashResult, len(processing.Hash)),
+		apply := &state.EventActionResults{
+			Digests: make([]*state.HashResult, len(processing.Hash)),
 		}
 
 		for i, hashRequest := range processing.Hash {
@@ -549,7 +550,7 @@ func (r *Recording) Step() error {
 				hasher.Write(data)
 			}
 
-			apply.Digests[i] = &pb.HashResult{
+			apply.Digests[i] = &state.HashResult{
 				Digest: hasher.Sum(nil),
 				Type:   hashRequest.Origin.Type,
 			}
@@ -559,8 +560,8 @@ func (r *Recording) Step() error {
 
 		r.EventLog.InsertStateEvent(
 			lastEvent.NodeId,
-			&pb.StateEvent{
-				Type: &pb.StateEvent_AddResults{
+			&state.Event{
+				Type: &state.Event_AddResults{
 					AddResults: apply,
 				},
 			},
@@ -568,7 +569,7 @@ func (r *Recording) Step() error {
 		)
 
 		if processing.StateTransfer != nil {
-			var networkState *pb.NetworkState
+			var networkState *msgs.NetworkState
 			for _, node := range r.Nodes {
 				el, ok := node.State.CheckpointsBySeqNo[processing.StateTransfer.SeqNo]
 				if !ok {
@@ -577,14 +578,14 @@ func (r *Recording) Step() error {
 					continue
 				}
 
-				networkState = el.Value.(*pb.CheckpointResult).NetworkState
+				networkState = el.Value.(*state.CheckpointResult).NetworkState
 				break
 			}
 			r.EventLog.InsertStateEvent(
 				lastEvent.NodeId,
-				&pb.StateEvent{
-					Type: &pb.StateEvent_Transfer{
-						Transfer: &pb.CEntry{
+				&state.Event{
+					Type: &state.Event_Transfer{
+						Transfer: &msgs.CEntry{
 							SeqNo:           processing.StateTransfer.SeqNo,
 							CheckpointValue: processing.StateTransfer.Value,
 							NetworkState:    networkState,
@@ -594,7 +595,7 @@ func (r *Recording) Step() error {
 				int64(runtimeParms.StateTransferLatency),
 			)
 		}
-	case *pb.StateEvent_Initialize:
+	case *state.Event_Initialize:
 		// If this is an Initialize, it is either the first event for the node,
 		// and nothing else is in the log, or, it is a restart.  In the case of
 		// a restart, we clear any outstanding events associated to this NodeID from
@@ -604,22 +605,22 @@ func (r *Recording) Step() error {
 		for el != nil {
 			x := el
 			el = el.Next()
-			if x.Value.(*rpb.RecordedEvent).NodeId == lastEvent.NodeId {
+			if x.Value.(*recording.Event).NodeId == lastEvent.NodeId {
 				r.EventLog.List.Remove(x)
 			}
 		}
 
 		delay := int64(0)
 
-		var maxCEntry *pb.CEntry
+		var maxCEntry *msgs.CEntry
 
-		node.WAL.LoadAll(func(index uint64, p *pb.Persistent) {
+		node.WAL.LoadAll(func(index uint64, p *msgs.Persistent) {
 			delay += int64(runtimeParms.WALReadDelay)
 			r.EventLog.InsertStateEvent(
 				lastEvent.NodeId,
-				&pb.StateEvent{
-					Type: &pb.StateEvent_LoadEntry{
-						LoadEntry: &pb.StateEvent_PersistedEntry{
+				&state.Event{
+					Type: &state.Event_LoadEntry{
+						LoadEntry: &state.EventPersistedEntry{
 							Index: index,
 							Data:  p,
 						},
@@ -628,7 +629,7 @@ func (r *Recording) Step() error {
 				delay,
 			)
 
-			if cEntryT, ok := p.Type.(*pb.Persistent_CEntry); ok {
+			if cEntryT, ok := p.Type.(*msgs.Persistent_CEntry); ok {
 				maxCEntry = cEntryT.CEntry
 			}
 		})
@@ -637,17 +638,17 @@ func (r *Recording) Step() error {
 
 		r.EventLog.InsertStateEvent(
 			lastEvent.NodeId,
-			&pb.StateEvent{
-				Type: &pb.StateEvent_CompleteInitialization{
-					CompleteInitialization: &pb.StateEvent_LoadCompleted{},
+			&state.Event{
+				Type: &state.Event_CompleteInitialization{
+					CompleteInitialization: &state.EventLoadCompleted{},
 				},
 			},
 			delay,
 		)
-	case *pb.StateEvent_LoadEntry:
-	case *pb.StateEvent_Transfer:
+	case *state.Event_LoadEntry:
+	case *state.Event_Transfer:
 		node.State.Set(stateEvent.Transfer.SeqNo, stateEvent.Transfer.CheckpointValue, stateEvent.Transfer.NetworkState)
-	case *pb.StateEvent_CompleteInitialization:
+	case *state.Event_CompleteInitialization:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	default:
 		panic(fmt.Sprintf("unhandled state event type: %T", lastEvent.StateEvent.Type))
@@ -670,7 +671,7 @@ func (r *Recording) Step() error {
 	return nil
 }
 
-func isEmpty(actions *pb.StateEventResult) bool {
+func isEmpty(actions *state.Actions) bool {
 	return len(actions.Send) == 0 &&
 		len(actions.WriteAhead) == 0 &&
 		len(actions.Hash) == 0 &&
@@ -731,7 +732,7 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 	var recorderNodeConfigs []*RecorderNodeConfig
 	for i := 0; i < nodeCount; i++ {
 		recorderNodeConfigs = append(recorderNodeConfigs, &RecorderNodeConfig{
-			InitParms: &pb.StateEvent_InitialParameters{
+			InitParms: &state.EventInitialParameters{
 				Id:                   uint64(i),
 				HeartbeatTicks:       2,
 				SuspectTicks:         4,

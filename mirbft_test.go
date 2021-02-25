@@ -23,8 +23,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/IBM/mirbft"
-	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/pkg/eventlog"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/reqstore"
 	"github.com/IBM/mirbft/pkg/simplewal"
 	"github.com/IBM/mirbft/pkg/status"
@@ -53,7 +53,7 @@ type FakeClient struct {
 
 type SourceMsg struct {
 	Source uint64
-	Msg    *pb.Msg
+	Msg    *msgs.Msg
 }
 
 type FakeLink struct {
@@ -61,28 +61,28 @@ type FakeLink struct {
 	Source        uint64
 }
 
-func (fl *FakeLink) Send(dest uint64, msg *pb.Msg) {
+func (fl *FakeLink) Send(dest uint64, msg *msgs.Msg) {
 	fl.FakeTransport.Send(fl.Source, dest, msg)
 }
 
 type FakeTransport struct {
 	// Buffers is source x dest
-	Buffers   [][]chan *pb.Msg
+	Buffers   [][]chan *msgs.Msg
 	NodeSinks []chan SourceMsg
 	WaitGroup sync.WaitGroup
 	DoneC     chan struct{}
 }
 
 func NewFakeTransport(nodes int) *FakeTransport {
-	buffers := make([][]chan *pb.Msg, nodes)
+	buffers := make([][]chan *msgs.Msg, nodes)
 	nodeSinks := make([]chan SourceMsg, nodes)
 	for i := 0; i < nodes; i++ {
-		buffers[i] = make([]chan *pb.Msg, nodes)
+		buffers[i] = make([]chan *msgs.Msg, nodes)
 		for j := 0; j < nodes; j++ {
 			if i == j {
 				continue
 			}
-			buffers[i][j] = make(chan *pb.Msg, 10000)
+			buffers[i][j] = make(chan *msgs.Msg, 10000)
 		}
 		nodeSinks[i] = make(chan SourceMsg)
 	}
@@ -94,7 +94,7 @@ func NewFakeTransport(nodes int) *FakeTransport {
 	}
 }
 
-func (ft *FakeTransport) Send(source, dest uint64, msg *pb.Msg) {
+func (ft *FakeTransport) Send(source, dest uint64, msg *msgs.Msg) {
 	select {
 	case ft.Buffers[int(source)][int(dest)] <- msg:
 	default:
@@ -121,7 +121,7 @@ func (ft *FakeTransport) Start() {
 			}
 
 			ft.WaitGroup.Add(1)
-			go func(i, j int, buffer chan *pb.Msg) {
+			go func(i, j int, buffer chan *msgs.Msg) {
 				// fmt.Printf("Starting drain thread from %d to %d\n", i, j)
 				defer ft.WaitGroup.Done()
 				for {
@@ -151,11 +151,11 @@ func (ft *FakeTransport) Stop() {
 }
 
 type FakeLog struct {
-	Entries []*pb.QEntry
-	CommitC chan *pb.QEntry
+	Entries []*msgs.QEntry
+	CommitC chan *msgs.QEntry
 }
 
-func (fl *FakeLog) Apply(entry *pb.QEntry) {
+func (fl *FakeLog) Apply(entry *msgs.QEntry) {
 	if len(entry.Requests) == 0 {
 		// this is a no-op batch from a tick, or catchup, ignore it
 		return
@@ -164,7 +164,7 @@ func (fl *FakeLog) Apply(entry *pb.QEntry) {
 	fl.CommitC <- entry
 }
 
-func (fl *FakeLog) Snap(*pb.NetworkState_Config, []*pb.NetworkState_Client) []byte {
+func (fl *FakeLog) Snap(*msgs.NetworkState_Config, []*msgs.NetworkState_Client) []byte {
 	return Uint64ToBytes(uint64(len(fl.Entries)))
 }
 
@@ -194,7 +194,7 @@ var _ = Describe("StressyTest", func() {
 	var (
 		doneC                 chan struct{}
 		expectedProposalCount int
-		proposals             map[uint64]*pb.Request
+		proposals             map[uint64]*msgs.Request
 		wg                    sync.WaitGroup
 		nodeStatusesC         chan []*NodeStatus
 
@@ -202,7 +202,7 @@ var _ = Describe("StressyTest", func() {
 	)
 
 	BeforeEach(func() {
-		proposals = map[uint64]*pb.Request{}
+		proposals = map[uint64]*msgs.Request{}
 
 		doneC = make(chan struct{})
 
@@ -266,7 +266,7 @@ var _ = Describe("StressyTest", func() {
 		for j, replica := range network.TestReplicas {
 			By(fmt.Sprintf("checking for node %d that each message only commits once", j))
 			for len(observations) < testConfig.MsgCount {
-				entry := &pb.QEntry{}
+				entry := &msgs.QEntry{}
 				Eventually(replica.Log.CommitC, 10*time.Second).Should(Receive(&entry))
 
 				for _, req := range entry.Requests {
@@ -311,7 +311,7 @@ var _ = Describe("StressyTest", func() {
 
 type TestReplica struct {
 	Config              *mirbft.Config
-	InitialNetworkState *pb.NetworkState
+	InitialNetworkState *msgs.NetworkState
 	TmpDir              string
 	Log                 *FakeLog
 	FakeTransport       *FakeTransport
@@ -543,7 +543,7 @@ func CreateNetwork(testConfig *TestConfig, doneC <-chan struct{}) *Network {
 		fakeLog := &FakeLog{
 			// We make the CommitC excessive, to prevent deadlock
 			// in case of bugs this test would otherwise catch.
-			CommitC: make(chan *pb.QEntry, 5*testConfig.MsgCount),
+			CommitC: make(chan *msgs.QEntry, 5*testConfig.MsgCount),
 		}
 
 		replicas[i] = &TestReplica{

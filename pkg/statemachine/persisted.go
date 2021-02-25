@@ -9,25 +9,26 @@ package statemachine
 import (
 	"fmt"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 type logIterator struct {
-	onQEntry   func(*pb.QEntry)
-	onPEntry   func(*pb.PEntry)
-	onCEntry   func(*pb.CEntry)
-	onNEntry   func(*pb.NEntry)
-	onFEntry   func(*pb.FEntry)
-	onECEntry  func(*pb.ECEntry)
-	onTEntry   func(*pb.TEntry)
-	onSuspect  func(*pb.Suspect)
+	onQEntry   func(*msgs.QEntry)
+	onPEntry   func(*msgs.PEntry)
+	onCEntry   func(*msgs.CEntry)
+	onNEntry   func(*msgs.NEntry)
+	onFEntry   func(*msgs.FEntry)
+	onECEntry  func(*msgs.ECEntry)
+	onTEntry   func(*msgs.TEntry)
+	onSuspect  func(*msgs.Suspect)
 	shouldExit func() bool
 	// TODO, suspect_ready
 }
 
 type logEntry struct {
 	index uint64
-	entry *pb.Persistent
+	entry *msgs.Persistent
 	next  *logEntry
 }
 
@@ -45,7 +46,7 @@ func newPersisted(logger Logger) *persisted {
 	}
 }
 
-func (p *persisted) appendInitialLoad(index uint64, data *pb.Persistent) {
+func (p *persisted) appendInitialLoad(index uint64, data *msgs.Persistent) {
 	if p.logHead == nil {
 		p.nextIndex = index
 		p.logHead = &logEntry{
@@ -66,7 +67,7 @@ func (p *persisted) appendInitialLoad(index uint64, data *pb.Persistent) {
 	p.nextIndex = index + 1
 }
 
-func (p *persisted) appendLogEntry(entry *pb.Persistent) *actionSet {
+func (p *persisted) appendLogEntry(entry *msgs.Persistent) *actionSet {
 	p.logTail.next = &logEntry{
 		index: p.nextIndex,
 		entry: entry,
@@ -77,9 +78,9 @@ func (p *persisted) appendLogEntry(entry *pb.Persistent) *actionSet {
 	return result
 }
 
-func (p *persisted) addPEntry(pEntry *pb.PEntry) *actionSet {
-	d := &pb.Persistent{
-		Type: &pb.Persistent_PEntry{
+func (p *persisted) addPEntry(pEntry *msgs.PEntry) *actionSet {
+	d := &msgs.Persistent{
+		Type: &msgs.Persistent_PEntry{
 			PEntry: pEntry,
 		},
 	}
@@ -87,9 +88,9 @@ func (p *persisted) addPEntry(pEntry *pb.PEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addQEntry(qEntry *pb.QEntry) *actionSet {
-	d := &pb.Persistent{
-		Type: &pb.Persistent_QEntry{
+func (p *persisted) addQEntry(qEntry *msgs.QEntry) *actionSet {
+	d := &msgs.Persistent{
+		Type: &msgs.Persistent_QEntry{
 			QEntry: qEntry,
 		},
 	}
@@ -97,9 +98,9 @@ func (p *persisted) addQEntry(qEntry *pb.QEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addNEntry(nEntry *pb.NEntry) *actionSet {
-	d := &pb.Persistent{
-		Type: &pb.Persistent_NEntry{
+func (p *persisted) addNEntry(nEntry *msgs.NEntry) *actionSet {
+	d := &msgs.Persistent{
+		Type: &msgs.Persistent_NEntry{
 			NEntry: nEntry,
 		},
 	}
@@ -107,11 +108,11 @@ func (p *persisted) addNEntry(nEntry *pb.NEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addCEntry(cEntry *pb.CEntry) *actionSet {
+func (p *persisted) addCEntry(cEntry *msgs.CEntry) *actionSet {
 	assertNotEqual(cEntry.NetworkState, nil, "network config must be set")
 
-	d := &pb.Persistent{
-		Type: &pb.Persistent_CEntry{
+	d := &msgs.Persistent{
+		Type: &msgs.Persistent_CEntry{
 			CEntry: cEntry,
 		},
 	}
@@ -119,9 +120,9 @@ func (p *persisted) addCEntry(cEntry *pb.CEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addSuspect(suspect *pb.Suspect) *actionSet {
-	d := &pb.Persistent{
-		Type: &pb.Persistent_Suspect{
+func (p *persisted) addSuspect(suspect *msgs.Suspect) *actionSet {
+	d := &msgs.Persistent{
+		Type: &msgs.Persistent_Suspect{
 			Suspect: suspect,
 		},
 	}
@@ -129,9 +130,9 @@ func (p *persisted) addSuspect(suspect *pb.Suspect) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addECEntry(ecEntry *pb.ECEntry) *actionSet {
-	d := &pb.Persistent{
-		Type: &pb.Persistent_ECEntry{
+func (p *persisted) addECEntry(ecEntry *msgs.ECEntry) *actionSet {
+	d := &msgs.Persistent{
+		Type: &msgs.Persistent_ECEntry{
 			ECEntry: ecEntry,
 		},
 	}
@@ -139,9 +140,9 @@ func (p *persisted) addECEntry(ecEntry *pb.ECEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addTEntry(tEntry *pb.TEntry) *actionSet {
-	d := &pb.Persistent{
-		Type: &pb.Persistent_TEntry{
+func (p *persisted) addTEntry(tEntry *msgs.TEntry) *actionSet {
+	d := &msgs.Persistent{
+		Type: &msgs.Persistent_TEntry{
 			TEntry: tEntry,
 		},
 	}
@@ -152,11 +153,11 @@ func (p *persisted) addTEntry(tEntry *pb.TEntry) *actionSet {
 func (p *persisted) truncate(lowWatermark uint64) *actionSet {
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
 		switch d := logEntry.entry.Type.(type) {
-		case *pb.Persistent_CEntry:
+		case *msgs.Persistent_CEntry:
 			if d.CEntry.SeqNo < lowWatermark {
 				continue
 			}
-		case *pb.Persistent_NEntry:
+		case *msgs.Persistent_NEntry:
 			if d.NEntry.SeqNo <= lowWatermark {
 				continue
 			}
@@ -172,8 +173,8 @@ func (p *persisted) truncate(lowWatermark uint64) *actionSet {
 
 		p.logHead = logEntry
 		return &actionSet{
-			StateEventResult: pb.StateEventResult{
-				WriteAhead: []*pb.StateEventResult_Write{
+			Actions: state.Actions{
+				WriteAhead: []*state.ActionWrite{
 					{
 						Truncate: logEntry.index,
 					},
@@ -200,35 +201,35 @@ func (p *persisted) logEntries() {
 func (p *persisted) iterate(li logIterator) {
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
 		switch d := logEntry.entry.Type.(type) {
-		case *pb.Persistent_PEntry:
+		case *msgs.Persistent_PEntry:
 			if li.onPEntry != nil {
 				li.onPEntry(d.PEntry)
 			}
-		case *pb.Persistent_QEntry:
+		case *msgs.Persistent_QEntry:
 			if li.onQEntry != nil {
 				li.onQEntry(d.QEntry)
 			}
-		case *pb.Persistent_CEntry:
+		case *msgs.Persistent_CEntry:
 			if li.onCEntry != nil {
 				li.onCEntry(d.CEntry)
 			}
-		case *pb.Persistent_NEntry:
+		case *msgs.Persistent_NEntry:
 			if li.onNEntry != nil {
 				li.onNEntry(d.NEntry)
 			}
-		case *pb.Persistent_FEntry:
+		case *msgs.Persistent_FEntry:
 			if li.onFEntry != nil {
 				li.onFEntry(d.FEntry)
 			}
-		case *pb.Persistent_ECEntry:
+		case *msgs.Persistent_ECEntry:
 			if li.onECEntry != nil {
 				li.onECEntry(d.ECEntry)
 			}
-		case *pb.Persistent_TEntry:
+		case *msgs.Persistent_TEntry:
 			if li.onTEntry != nil {
 				li.onTEntry(d.TEntry)
 			}
-		case *pb.Persistent_Suspect:
+		case *msgs.Persistent_Suspect:
 			if li.onSuspect != nil {
 				li.onSuspect(d.Suspect)
 			}
@@ -243,8 +244,8 @@ func (p *persisted) iterate(li logIterator) {
 	}
 }
 
-func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
-	newEpochChange := &pb.EpochChange{
+func (p *persisted) constructEpochChange(newEpoch uint64) *msgs.EpochChange {
+	newEpochChange := &msgs.EpochChange{
 		NewEpoch: newEpoch,
 	}
 
@@ -257,14 +258,14 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 		shouldExit: func() bool {
 			return logEpoch != nil && *logEpoch >= newEpoch
 		},
-		onPEntry: func(pEntry *pb.PEntry) {
+		onPEntry: func(pEntry *msgs.PEntry) {
 			count := pSkips[pEntry.SeqNo]
 			pSkips[pEntry.SeqNo] = count + 1
 		},
-		onNEntry: func(nEntry *pb.NEntry) {
+		onNEntry: func(nEntry *msgs.NEntry) {
 			logEpoch = &nEntry.EpochConfig.Number
 		},
-		onFEntry: func(fEntry *pb.FEntry) {
+		onFEntry: func(fEntry *msgs.FEntry) {
 			logEpoch = &fEntry.EndsEpochConfig.Number
 		},
 	})
@@ -274,40 +275,40 @@ func (p *persisted) constructEpochChange(newEpoch uint64) *pb.EpochChange {
 		shouldExit: func() bool {
 			return logEpoch != nil && *logEpoch >= newEpoch
 		},
-		onPEntry: func(pEntry *pb.PEntry) {
+		onPEntry: func(pEntry *msgs.PEntry) {
 			count := pSkips[pEntry.SeqNo]
 			if count != 1 {
 				pSkips[pEntry.SeqNo] = count - 1
 				return
 			}
-			newEpochChange.PSet = append(newEpochChange.PSet, &pb.EpochChange_SetEntry{
+			newEpochChange.PSet = append(newEpochChange.PSet, &msgs.EpochChange_SetEntry{
 				Epoch:  *logEpoch,
 				SeqNo:  pEntry.SeqNo,
 				Digest: pEntry.Digest,
 			})
 		},
-		onQEntry: func(qEntry *pb.QEntry) {
-			newEpochChange.QSet = append(newEpochChange.QSet, &pb.EpochChange_SetEntry{
+		onQEntry: func(qEntry *msgs.QEntry) {
+			newEpochChange.QSet = append(newEpochChange.QSet, &msgs.EpochChange_SetEntry{
 				Epoch:  *logEpoch,
 				SeqNo:  qEntry.SeqNo,
 				Digest: qEntry.Digest,
 			})
 		},
-		onNEntry: func(nEntry *pb.NEntry) {
+		onNEntry: func(nEntry *msgs.NEntry) {
 			logEpoch = &nEntry.EpochConfig.Number
 		},
-		onFEntry: func(fEntry *pb.FEntry) {
+		onFEntry: func(fEntry *msgs.FEntry) {
 			logEpoch = &fEntry.EndsEpochConfig.Number
 		},
-		onCEntry: func(cEntry *pb.CEntry) {
-			newEpochChange.Checkpoints = append(newEpochChange.Checkpoints, &pb.Checkpoint{
+		onCEntry: func(cEntry *msgs.CEntry) {
+			newEpochChange.Checkpoints = append(newEpochChange.Checkpoints, &msgs.Checkpoint{
 				SeqNo: cEntry.SeqNo,
 				Value: cEntry.CheckpointValue,
 			})
 		},
 		/*
 			// This is actually okay, since we could be catching up and need to skip epochs
-					onECEntry: func(ecEntry *pb.ECEntry) {
+					onECEntry: func(ecEntry *msgs.ECEntry) {
 						if logEpoch != nil && *logEpoch+1 != ecEntry.EpochNumber {
 							panic(fmt.Sprintf("dev sanity test: expected epochChange target %d to be exactly one more than our current epoch %d", ecEntry.EpochNumber, *logEpoch))
 						}

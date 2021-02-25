@@ -9,15 +9,15 @@ package statemachine
 import (
 	"fmt"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 )
 
-func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkState, logger Logger) *allOutstandingReqs {
+func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.NetworkState, logger Logger) *allOutstandingReqs {
 	clientTracker.availableList.resetIterator()
 
 	ao := &allOutstandingReqs{
 		buckets:             map[bucketID]*bucketOutstandingReqs{},
-		correctRequests:     map[string]*pb.RequestAck{},
+		correctRequests:     map[string]*msgs.RequestAck{},
 		outstandingRequests: map[string]*sequence{},
 		availableIterator:   clientTracker.availableList,
 	}
@@ -60,7 +60,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *pb.NetworkSt
 type allOutstandingReqs struct {
 	buckets             map[bucketID]*bucketOutstandingReqs
 	availableIterator   *availableList
-	correctRequests     map[string]*pb.RequestAck // TODO, map by struct with digest + reqNo + clientNo, otherwise clients can engineer collisions.
+	correctRequests     map[string]*msgs.RequestAck // TODO, map by struct with digest + reqNo + clientNo, otherwise clients can engineer collisions.
 	outstandingRequests map[string]*sequence
 }
 
@@ -71,7 +71,7 @@ type bucketOutstandingReqs struct {
 type clientOutstandingReqs struct {
 	nextReqNo  uint64
 	numBuckets uint64
-	client     *pb.NetworkState_Client
+	client     *msgs.NetworkState_Client
 }
 
 func (cors *clientOutstandingReqs) skipPreviouslyCommitted() {
@@ -103,7 +103,7 @@ func (ao *allOutstandingReqs) advanceRequests() *actionSet {
 }
 
 // TODO, bucket probably can/should be stored in the *sequence
-func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []*pb.RequestAck) (*actionSet, error) {
+func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []*msgs.RequestAck) (*actionSet, error) {
 	bo, ok := ao.buckets[bucket]
 	assertTruef(ok, "told to apply acks for bucket %d which does not exist", bucket)
 

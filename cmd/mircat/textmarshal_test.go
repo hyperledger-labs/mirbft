@@ -10,22 +10,23 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
-	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 var _ = Describe("textmarshal", func() {
 	var (
-		sampleStepEvent = &rpb.RecordedEvent{
+		sampleStepEvent = &recording.Event{
 			NodeId: 7,
 			Time:   9,
-			StateEvent: &pb.StateEvent{
-				Type: &pb.StateEvent_Step{
-					Step: &pb.StateEvent_InboundMsg{
+			StateEvent: &state.Event{
+				Type: &state.Event_Step{
+					Step: &state.EventInboundMsg{
 						Source: 4,
-						Msg: &pb.Msg{
-							Type: &pb.Msg_Prepare{
-								Prepare: &pb.Prepare{
+						Msg: &msgs.Msg{
+							Type: &msgs.Msg_Prepare{
+								Prepare: &msgs.Prepare{
 									SeqNo:  11,
 									Digest: []byte{0xde, 0xad, 0xbe, 0xef, 0xde, 0xad, 0xbe, 0xef},
 								},

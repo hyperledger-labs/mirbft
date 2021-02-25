@@ -9,7 +9,8 @@ package statemachine
 import (
 	"fmt"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/status"
 )
 
@@ -19,9 +20,9 @@ type preprepareBuffer struct {
 }
 
 type activeEpoch struct {
-	epochConfig   *pb.EpochConfig
-	networkConfig *pb.NetworkState_Config
-	myConfig      *pb.StateEvent_InitialParameters
+	epochConfig   *msgs.EpochConfig
+	networkConfig *msgs.NetworkState_Config
+	myConfig      *state.EventInitialParameters
 	logger        Logger
 
 	outstandingReqs *allOutstandingReqs
@@ -41,7 +42,7 @@ type activeEpoch struct {
 	ticksSinceProgress  uint32
 }
 
-func newActiveEpoch(epochConfig *pb.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *pb.StateEvent_InitialParameters, logger Logger) *activeEpoch {
+func newActiveEpoch(epochConfig *msgs.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *state.EventInitialParameters, logger Logger) *activeEpoch {
 	networkConfig := commitState.activeState.Config
 	startingSeqNo := commitState.highestCommit
 
@@ -138,9 +139,9 @@ func (e *activeEpoch) sequence(seqNo uint64) *sequence {
 	return sequence
 }
 
-func (ae *activeEpoch) filter(source nodeID, msg *pb.Msg) applyable {
+func (ae *activeEpoch) filter(source nodeID, msg *msgs.Msg) applyable {
 	switch innerMsg := msg.Type.(type) {
-	case *pb.Msg_Preprepare:
+	case *msgs.Msg_Preprepare:
 		seqNo := innerMsg.Preprepare.SeqNo
 
 		bucketID := ae.seqToBucket(seqNo)
@@ -170,7 +171,7 @@ func (ae *activeEpoch) filter(source nodeID, msg *pb.Msg) applyable {
 		default:
 			return current
 		}
-	case *pb.Msg_Prepare:
+	case *msgs.Msg_Prepare:
 		seqNo := innerMsg.Prepare.SeqNo
 
 		bucketID := ae.seqToBucket(seqNo)
@@ -191,7 +192,7 @@ func (ae *activeEpoch) filter(source nodeID, msg *pb.Msg) applyable {
 		default:
 			return current
 		}
-	case *pb.Msg_Commit:
+	case *msgs.Msg_Commit:
 		seqNo := innerMsg.Commit.SeqNo
 
 		if seqNo > ae.epochConfig.PlannedExpiration {
@@ -211,24 +212,24 @@ func (ae *activeEpoch) filter(source nodeID, msg *pb.Msg) applyable {
 	}
 }
 
-func (ae *activeEpoch) apply(source nodeID, msg *pb.Msg) *actionSet {
+func (ae *activeEpoch) apply(source nodeID, msg *msgs.Msg) *actionSet {
 	actions := &actionSet{}
 
 	switch innerMsg := msg.Type.(type) {
-	case *pb.Msg_Preprepare:
+	case *msgs.Msg_Preprepare:
 		bucket := ae.seqToBucket(innerMsg.Preprepare.SeqNo)
 		preprepareBuffer := ae.preprepareBuffers[bucket]
 		nextMsg := msg
 		for nextMsg != nil {
-			ppMsg := nextMsg.Type.(*pb.Msg_Preprepare).Preprepare
+			ppMsg := nextMsg.Type.(*msgs.Msg_Preprepare).Preprepare
 			actions.concat(ae.applyPreprepareMsg(source, ppMsg.SeqNo, ppMsg.Batch))
 			preprepareBuffer.nextSeqNo += uint64(len(ae.buckets))
 			nextMsg = preprepareBuffer.buffer.next(ae.filter)
 		}
-	case *pb.Msg_Prepare:
+	case *msgs.Msg_Prepare:
 		msg := innerMsg.Prepare
 		actions.concat(ae.applyPrepareMsg(source, msg.SeqNo, msg.Digest))
-	case *pb.Msg_Commit:
+	case *msgs.Msg_Commit:
 		msg := innerMsg.Commit
 		actions.concat(ae.applyCommitMsg(source, msg.SeqNo, msg.Digest))
 	default:
@@ -238,12 +239,12 @@ func (ae *activeEpoch) apply(source nodeID, msg *pb.Msg) *actionSet {
 	return actions
 }
 
-func (ae *activeEpoch) step(source nodeID, msg *pb.Msg) *actionSet {
+func (ae *activeEpoch) step(source nodeID, msg *msgs.Msg) *actionSet {
 	switch ae.filter(source, msg) {
 	case past:
 	case future:
 		switch innerMsg := msg.Type.(type) {
-		case *pb.Msg_Preprepare:
+		case *msgs.Msg_Preprepare:
 			bucket := ae.seqToBucket(innerMsg.Preprepare.SeqNo)
 			ae.preprepareBuffers[int(bucket)].buffer.store(msg)
 		default:
@@ -261,7 +262,7 @@ func (e *activeEpoch) inWatermarks(seqNo uint64) bool {
 	return seqNo >= e.lowWatermark() && seqNo <= e.highWatermark()
 }
 
-func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*pb.RequestAck) *actionSet {
+func (e *activeEpoch) applyPreprepareMsg(source nodeID, seqNo uint64, batch []*msgs.RequestAck) *actionSet {
 	seq := e.sequence(seqNo)
 
 	if seq.owner == nodeID(e.myConfig.Id) {
@@ -356,7 +357,7 @@ func (e *activeEpoch) drainBuffers() *actionSet {
 	}
 
 	for _, id := range e.networkConfig.Nodes {
-		e.otherBuffers[nodeID(id)].iterate(e.filter, func(id nodeID, msg *pb.Msg) {
+		e.otherBuffers[nodeID(id)].iterate(e.filter, func(id nodeID, msg *msgs.Msg) {
 			actions.concat(e.apply(id, msg))
 		})
 	}
@@ -375,7 +376,7 @@ func (e *activeEpoch) advance() *actionSet {
 	for e.highWatermark() < e.epochConfig.PlannedExpiration &&
 		e.highWatermark() < e.commitState.stopAtSeqNo {
 		newSequences := make([]*sequence, ci)
-		actions.concat(e.persisted.addNEntry(&pb.NEntry{
+		actions.concat(e.persisted.addNEntry(&msgs.NEntry{
 			SeqNo:       e.highWatermark() + 1,
 			EpochConfig: e.epochConfig,
 		}))
@@ -445,11 +446,11 @@ func (e *activeEpoch) tick() *actionSet {
 	actions := &actionSet{}
 
 	if e.ticksSinceProgress > e.myConfig.SuspectTicks {
-		suspect := &pb.Suspect{
+		suspect := &msgs.Suspect{
 			Epoch: e.epochConfig.Number,
 		}
-		actions.send(e.networkConfig.Nodes, &pb.Msg{
-			Type: &pb.Msg_Suspect{
+		actions.send(e.networkConfig.Nodes, &msgs.Msg{
+			Type: &msgs.Msg_Suspect{
 				Suspect: suspect,
 			},
 		})

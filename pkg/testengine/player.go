@@ -10,29 +10,29 @@ import (
 	"fmt"
 	"io"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
-	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 	"github.com/pkg/errors"
 )
 
 type EventSource interface {
-	ReadEvent() (*rpb.RecordedEvent, error)
+	ReadEvent() (*recording.Event, error)
 }
 
 type PlaybackNode struct {
 	ID               uint64
 	StateMachine     *statemachine.StateMachine
-	Processing       *pb.StateEventResult
-	Actions          *pb.StateEventResult
-	ClientProcessing *pb.StateEventResult
-	ClientActions    *pb.StateEventResult
+	Processing       *state.Actions
+	Actions          *state.Actions
+	ClientProcessing *state.Actions
+	ClientActions    *state.Actions
 	Status           *status.StateMachine
 }
 
 type Player struct {
-	LastEvent   *rpb.RecordedEvent
+	LastEvent   *recording.Event
 	EventSource EventSource
 	LogOutput   io.Writer
 	Nodes       map[uint64]*PlaybackNode
@@ -54,8 +54,8 @@ func (p *Player) Node(id uint64) *PlaybackNode {
 
 	node = &PlaybackNode{
 		ID:            id,
-		Actions:       &pb.StateEventResult{},
-		ClientActions: &pb.StateEventResult{},
+		Actions:       &state.Actions{},
+		ClientActions: &state.Actions{},
 		Status: &status.StateMachine{
 			NodeID: id,
 		},
@@ -106,7 +106,7 @@ func (p *Player) Step() error {
 	node := p.Node(event.NodeId)
 
 	switch event.StateEvent.Type.(type) {
-	case *pb.StateEvent_Initialize:
+	case *state.Event_Initialize:
 		sm := &statemachine.StateMachine{
 			Logger: NamedLogger{
 				Output: p.LogOutput,
@@ -115,37 +115,37 @@ func (p *Player) Step() error {
 			},
 		}
 		node.StateMachine = sm
-		node.Actions = &pb.StateEventResult{}
+		node.Actions = &state.Actions{}
 		node.Status = sm.Status()
 		node.Processing = nil
-	case *pb.StateEvent_Transfer:
-	case *pb.StateEvent_AddResults:
+	case *state.Event_Transfer:
+	case *state.Event_AddResults:
 		if node.Processing == nil {
 			return errors.Errorf("node %d is not currently processing but got an apply event", event.NodeId)
 		}
 
 		node.Processing = nil
-	case *pb.StateEvent_AddClientResults:
+	case *state.Event_AddClientResults:
 		// TODO, as a hacky way to do req forwarding, we allow multiply applys, revisit
 		// if node.ClientProcessing == nil {
 		// return errors.Errorf("node %d is not currently client processing but got a client apply event", event.NodeId)
 		// }
 
 		node.ClientProcessing = nil
-	case *pb.StateEvent_ClientActionsReceived:
+	case *state.Event_ClientActionsReceived:
 		if node.ClientProcessing != nil {
 			return errors.Errorf("node %d is currently client processing but got a second client process event", event.NodeId)
 		}
 
 		node.ClientProcessing = node.ClientActions
-		node.ClientActions = &pb.StateEventResult{}
-	case *pb.StateEvent_ActionsReceived:
+		node.ClientActions = &state.Actions{}
+	case *state.Event_ActionsReceived:
 		if node.Processing != nil {
 			return errors.Errorf("node %d is currently processing but got a second process event", event.NodeId)
 		}
 
 		node.Processing = node.Actions
-		node.Actions = &pb.StateEventResult{}
+		node.Actions = &state.Actions{}
 	}
 
 	newActions := node.StateMachine.ApplyEvent(event.StateEvent)

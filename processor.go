@@ -13,7 +13,7 @@ import (
 	"runtime"
 	"sync"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 )
 
 // TODO, convert panics into errors
@@ -23,17 +23,17 @@ type Hasher interface {
 }
 
 type Link interface {
-	Send(dest uint64, msg *pb.Msg)
+	Send(dest uint64, msg *msgs.Msg)
 }
 
 // TODO allow these to return errors
 type Log interface {
-	Apply(*pb.QEntry)
-	Snap(networkConfig *pb.NetworkState_Config, clientsState []*pb.NetworkState_Client) (id []byte)
+	Apply(*msgs.QEntry)
+	Snap(networkConfig *msgs.NetworkState_Config, clientsState []*msgs.NetworkState_Client) (id []byte)
 }
 
 type WAL interface {
-	Write(index uint64, entry *pb.Persistent) error
+	Write(index uint64, entry *msgs.Persistent) error
 	Truncate(index uint64) error
 	Sync() error
 }

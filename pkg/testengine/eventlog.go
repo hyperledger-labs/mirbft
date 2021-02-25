@@ -14,13 +14,13 @@ import (
 
 	"github.com/pkg/errors"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/pkg/eventlog"
-	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 type EventLog struct {
-	// List is a list of *rpb.RecordedEvent messages, in order of time.
+	// List is a list of *recording.Event messages, in order of time.
 	List *list.List
 
 	// FakeTime is the current 'time' according to this log.
@@ -33,7 +33,7 @@ type EventLog struct {
 	Mangler Mangler
 
 	// Mangled tracks which events have already been mangled and need not be reprocessed
-	Mangled map[*rpb.RecordedEvent]struct{}
+	Mangled map[*recording.Event]struct{}
 
 	// Output is optionally a place to serialize RecordedEvents when consumed.
 	Output *gzip.Writer
@@ -63,9 +63,9 @@ func ReadEventLog(source io.Reader) (el *EventLog, err error) {
 	return eventLog, nil
 }
 
-func (l *EventLog) ReadEvent() (*rpb.RecordedEvent, error) {
+func (l *EventLog) ReadEvent() (*recording.Event, error) {
 	if l.Mangled == nil {
-		l.Mangled = map[*rpb.RecordedEvent]struct{}{}
+		l.Mangled = map[*recording.Event]struct{}{}
 	}
 
 	for {
@@ -74,7 +74,7 @@ func (l *EventLog) ReadEvent() (*rpb.RecordedEvent, error) {
 			return nil, io.EOF
 		}
 
-		event := l.List.Remove(nele).(*rpb.RecordedEvent)
+		event := l.List.Remove(nele).(*recording.Event)
 		_, ok := l.Mangled[event]
 		if ok || l.Mangler == nil {
 			delete(l.Mangled, event)
@@ -102,20 +102,20 @@ func (l *EventLog) ReadEvent() (*rpb.RecordedEvent, error) {
 func (l *EventLog) InsertTickEvent(target uint64, fromNow int64) {
 	l.InsertStateEvent(
 		target,
-		&pb.StateEvent{
-			Type: &pb.StateEvent_Tick{
-				Tick: &pb.StateEvent_TickElapsed{},
+		&state.Event{
+			Type: &state.Event_Tick{
+				Tick: &state.EventTickElapsed{},
 			},
 		},
 		fromNow,
 	)
 }
 
-func (l *EventLog) InsertStepEvent(target uint64, stepEvent *pb.StateEvent_InboundMsg, fromNow int64) {
+func (l *EventLog) InsertStepEvent(target uint64, stepEvent *state.EventInboundMsg, fromNow int64) {
 	l.InsertStateEvent(
 		target,
-		&pb.StateEvent{
-			Type: &pb.StateEvent_Step{
+		&state.Event{
+			Type: &state.Event_Step{
 				Step: stepEvent,
 			},
 		},
@@ -123,8 +123,8 @@ func (l *EventLog) InsertStepEvent(target uint64, stepEvent *pb.StateEvent_Inbou
 	)
 }
 
-func (l *EventLog) InsertStateEvent(target uint64, stateEvent *pb.StateEvent, fromNow int64) {
-	l.Insert(&rpb.RecordedEvent{
+func (l *EventLog) InsertStateEvent(target uint64, stateEvent *state.Event, fromNow int64) {
+	l.Insert(&recording.Event{
 		NodeId:     target,
 		Time:       l.FakeTime + fromNow,
 		StateEvent: stateEvent,
@@ -134,9 +134,9 @@ func (l *EventLog) InsertStateEvent(target uint64, stateEvent *pb.StateEvent, fr
 func (l *EventLog) InsertProcess(target uint64, fromNow int64) {
 	l.InsertStateEvent(
 		target,
-		&pb.StateEvent{
-			Type: &pb.StateEvent_ActionsReceived{
-				ActionsReceived: &pb.StateEvent_Ready{},
+		&state.Event{
+			Type: &state.Event_ActionsReceived{
+				ActionsReceived: &state.EventReady{},
 			},
 		},
 		fromNow,
@@ -146,22 +146,22 @@ func (l *EventLog) InsertProcess(target uint64, fromNow int64) {
 func (l *EventLog) InsertClientProcess(target uint64, fromNow int64) {
 	l.InsertStateEvent(
 		target,
-		&pb.StateEvent{
-			Type: &pb.StateEvent_ClientActionsReceived{
-				ClientActionsReceived: &pb.StateEvent_Ready{},
+		&state.Event{
+			Type: &state.Event_ClientActionsReceived{
+				ClientActionsReceived: &state.EventReady{},
 			},
 		},
 		fromNow,
 	)
 }
 
-func (l *EventLog) Insert(event *rpb.RecordedEvent) {
+func (l *EventLog) Insert(event *recording.Event) {
 	if event.Time < l.FakeTime {
 		panic("attempted to modify the past")
 	}
 
 	for el := l.List.Front(); el != nil; el = el.Next() {
-		if el.Value.(*rpb.RecordedEvent).Time > event.Time {
+		if el.Value.(*recording.Event).Time > event.Time {
 			l.List.InsertBefore(event, el)
 			return
 		}

@@ -10,7 +10,7 @@ import (
 	"container/list"
 	"encoding/binary"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 func uint64ToBytes(value uint64) []byte {
@@ -20,7 +20,7 @@ func uint64ToBytes(value uint64) []byte {
 }
 
 type proposer struct {
-	myConfig        *pb.StateEvent_InitialParameters
+	myConfig        *state.EventInitialParameters
 	proposalBuckets map[bucketID]*proposalBucket
 	readyIterator   *readyList
 	totalBuckets    int
@@ -47,7 +47,7 @@ type proposalBucket struct {
 	nextReadyList *list.List
 }
 
-func newProposer(baseCheckpoint uint64, checkpointInterval uint64, myConfig *pb.StateEvent_InitialParameters, clientTracker *clientTracker, buckets map[bucketID]nodeID) *proposer {
+func newProposer(baseCheckpoint uint64, checkpointInterval uint64, myConfig *state.EventInitialParameters, clientTracker *clientTracker, buckets map[bucketID]nodeID) *proposer {
 	proposalBuckets := map[bucketID]*proposalBucket{}
 	for bucketID, id := range buckets {
 		if id != nodeID(myConfig.Id) {

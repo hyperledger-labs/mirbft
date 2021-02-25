@@ -12,7 +12,8 @@ import (
 	"fmt"
 	"sort"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/status"
 )
 
@@ -32,15 +33,15 @@ type checkpointTracker struct {
 	checkpointMap      map[uint64]*checkpoint
 	activeCheckpoints  *list.List
 	msgBuffers         map[nodeID]*msgBuffer
-	networkConfig      *pb.NetworkState_Config
+	networkConfig      *msgs.NetworkState_Config
 	persisted          *persisted
 
 	nodeBuffers *nodeBuffers
-	myConfig    *pb.StateEvent_InitialParameters
+	myConfig    *state.EventInitialParameters
 	logger      Logger
 }
 
-func newCheckpointTracker(seqNo uint64, networkState *pb.NetworkState, persisted *persisted, nodeBuffers *nodeBuffers, myConfig *pb.StateEvent_InitialParameters, logger Logger) *checkpointTracker {
+func newCheckpointTracker(seqNo uint64, networkState *msgs.NetworkState, persisted *persisted, nodeBuffers *nodeBuffers, myConfig *state.EventInitialParameters, logger Logger) *checkpointTracker {
 	ct := &checkpointTracker{
 		myConfig:    myConfig,
 		state:       cpsIdle,
@@ -63,7 +64,7 @@ func (ct *checkpointTracker) reinitialize() {
 	ct.networkConfig = nil
 
 	ct.persisted.iterate(logIterator{
-		onCEntry: func(cEntry *pb.CEntry) {
+		onCEntry: func(cEntry *msgs.CEntry) {
 			if ct.networkConfig == nil {
 				// Initialize this once, it will not change until the next
 				// time we reinitialize.
@@ -108,8 +109,8 @@ func (ct *checkpointTracker) reinitialize() {
 	ct.garbageCollect()
 }
 
-func (ct *checkpointTracker) filter(_ nodeID, msg *pb.Msg) applyable {
-	cpMsg := msg.Type.(*pb.Msg_Checkpoint).Checkpoint
+func (ct *checkpointTracker) filter(_ nodeID, msg *msgs.Msg) applyable {
+	cpMsg := msg.Type.(*msgs.Msg_Checkpoint).Checkpoint
 
 	switch {
 	case cpMsg.SeqNo < ct.activeCheckpoints.Front().Value.(*checkpoint).seqNo:
@@ -121,7 +122,7 @@ func (ct *checkpointTracker) filter(_ nodeID, msg *pb.Msg) applyable {
 	}
 }
 
-func (ct *checkpointTracker) step(source nodeID, msg *pb.Msg) {
+func (ct *checkpointTracker) step(source nodeID, msg *msgs.Msg) {
 	switch ct.filter(source, msg) {
 	case past:
 		return
@@ -133,9 +134,9 @@ func (ct *checkpointTracker) step(source nodeID, msg *pb.Msg) {
 	}
 }
 
-func (ct *checkpointTracker) applyMsg(source nodeID, msg *pb.Msg) {
+func (ct *checkpointTracker) applyMsg(source nodeID, msg *msgs.Msg) {
 	switch innerMsg := msg.Type.(type) {
-	case *pb.Msg_Checkpoint:
+	case *msgs.Msg_Checkpoint:
 		msg := innerMsg.Checkpoint
 		ct.applyCheckpointMsg(source, msg.SeqNo, msg.Value)
 	default:
@@ -256,8 +257,8 @@ func (ct *checkpointTracker) status() []*status.Checkpoint {
 
 type checkpoint struct {
 	seqNo         uint64
-	myConfig      *pb.StateEvent_InitialParameters
-	networkConfig *pb.NetworkState_Config
+	myConfig      *state.EventInitialParameters
+	networkConfig *msgs.NetworkState_Config
 	logger        Logger
 
 	values         map[string][]nodeID

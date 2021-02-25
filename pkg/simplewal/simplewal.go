@@ -12,7 +12,7 @@ package simplewal
 import (
 	"sync"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 
 	"github.com/pkg/errors"
 	"github.com/tidwall/wal"
@@ -47,7 +47,7 @@ func (w *WAL) IsEmpty() (bool, error) {
 	return firstIndex == 0, nil
 }
 
-func (w *WAL) LoadAll(forEach func(index uint64, p *pb.Persistent)) error {
+func (w *WAL) LoadAll(forEach func(index uint64, p *msgs.Persistent)) error {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 	firstIndex, err := w.log.FirstIndex()
@@ -71,7 +71,7 @@ func (w *WAL) LoadAll(forEach func(index uint64, p *pb.Persistent)) error {
 			return errors.WithMessagef(err, "could not read index %d", i)
 		}
 
-		result := &pb.Persistent{}
+		result := &msgs.Persistent{}
 		err = proto.Unmarshal(data, result)
 		if err != nil {
 			return errors.WithMessage(err, "error decoding to proto, is the WAL corrupt?")
@@ -83,7 +83,7 @@ func (w *WAL) LoadAll(forEach func(index uint64, p *pb.Persistent)) error {
 	return nil
 }
 
-func (w *WAL) Write(index uint64, p *pb.Persistent) error {
+func (w *WAL) Write(index uint64, p *msgs.Persistent) error {
 	data, err := proto.Marshal(p)
 	if err != nil {
 		return errors.WithMessage(err, "could not marshal")

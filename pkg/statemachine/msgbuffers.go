@@ -9,7 +9,8 @@ package statemachine
 import (
 	"container/list"
 	"fmt"
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/status"
 	"google.golang.org/protobuf/proto"
 	"sort"
@@ -17,11 +18,11 @@ import (
 
 type nodeBuffers struct {
 	logger   Logger
-	myConfig *pb.StateEvent_InitialParameters
+	myConfig *state.EventInitialParameters
 	nodeMap  map[nodeID]*nodeBuffer
 }
 
-func newNodeBuffers(myConfig *pb.StateEvent_InitialParameters, logger Logger) *nodeBuffers {
+func newNodeBuffers(myConfig *state.EventInitialParameters, logger Logger) *nodeBuffers {
 	return &nodeBuffers{
 		logger:   logger,
 		myConfig: myConfig,
@@ -61,7 +62,7 @@ func (nbs *nodeBuffers) status() []*status.NodeBuffer {
 type nodeBuffer struct {
 	id        nodeID
 	logger    Logger
-	myConfig  *pb.StateEvent_InitialParameters
+	myConfig  *state.EventInitialParameters
 	totalSize int
 
 	// Set of pointers to msgBuffers tracked by this nodeBuffer.
@@ -69,15 +70,15 @@ type nodeBuffer struct {
 	msgBufs map[*msgBuffer]struct{}
 }
 
-func (nb *nodeBuffer) logDrop(component string, msg *pb.Msg) {
+func (nb *nodeBuffer) logDrop(component string, msg *msgs.Msg) {
 	nb.logger.Log(LevelWarn, "dropping buffered msg", "component", component, "type", fmt.Sprintf("%T", msg.Type))
 }
 
-func (nb *nodeBuffer) msgRemoved(msg *pb.Msg) {
+func (nb *nodeBuffer) msgRemoved(msg *msgs.Msg) {
 	nb.totalSize -= proto.Size(msg)
 }
 
-func (nb *nodeBuffer) msgStored(msg *pb.Msg) {
+func (nb *nodeBuffer) msgStored(msg *msgs.Msg) {
 	nb.totalSize += proto.Size(msg)
 }
 
@@ -141,7 +142,7 @@ func newMsgBuffer(component string, nodeBuffer *nodeBuffer) *msgBuffer {
 	}
 }
 
-func (mb *msgBuffer) store(msg *pb.Msg) {
+func (mb *msgBuffer) store(msg *msgs.Msg) {
 	// If there is not configured room to buffer, and we have anything
 	// in our buffer, flush it first.  This isn't really 'fair',
 	// but the handwaving says that buffers should accumulate messages
@@ -162,8 +163,8 @@ func (mb *msgBuffer) store(msg *pb.Msg) {
 	}
 }
 
-func (mb *msgBuffer) remove(e *list.Element) *pb.Msg {
-	msg := mb.buffer.Remove(e).(*pb.Msg)
+func (mb *msgBuffer) remove(e *list.Element) *msgs.Msg {
+	msg := mb.buffer.Remove(e).(*msgs.Msg)
 	mb.nodeBuffer.msgRemoved(msg)
 	if mb.buffer.Len() == 0 {
 		// If the last message was removed,
@@ -174,14 +175,14 @@ func (mb *msgBuffer) remove(e *list.Element) *pb.Msg {
 	return msg
 }
 
-func (mb *msgBuffer) next(filter func(source nodeID, msg *pb.Msg) applyable) *pb.Msg {
+func (mb *msgBuffer) next(filter func(source nodeID, msg *msgs.Msg) applyable) *msgs.Msg {
 	e := mb.buffer.Front()
 	if e == nil {
 		return nil
 	}
 
 	for e != nil {
-		msg := e.Value.(*pb.Msg)
+		msg := e.Value.(*msgs.Msg)
 		switch filter(mb.nodeBuffer.id, msg) {
 		case past:
 			x := e
@@ -203,12 +204,12 @@ func (mb *msgBuffer) next(filter func(source nodeID, msg *pb.Msg) applyable) *pb
 }
 
 func (mb *msgBuffer) iterate(
-	filter func(source nodeID, msg *pb.Msg) applyable,
-	apply func(source nodeID, msg *pb.Msg),
+	filter func(source nodeID, msg *msgs.Msg) applyable,
+	apply func(source nodeID, msg *msgs.Msg),
 ) {
 	e := mb.buffer.Front()
 	for e != nil {
-		msg := e.Value.(*pb.Msg)
+		msg := e.Value.(*msgs.Msg)
 		x := e
 		e = e.Next()
 		switch filter(mb.nodeBuffer.id, msg) {
@@ -227,7 +228,7 @@ func (mb *msgBuffer) iterate(
 func (mb *msgBuffer) status() *status.MsgBuffer {
 	totalSize := 0
 	for e := mb.buffer.Front(); e != nil; e = e.Next() {
-		totalSize += proto.Size(e.Value.(*pb.Msg))
+		totalSize += proto.Size(e.Value.(*msgs.Msg))
 	}
 
 	return &status.MsgBuffer{

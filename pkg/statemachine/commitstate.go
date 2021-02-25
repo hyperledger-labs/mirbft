@@ -9,7 +9,8 @@ package statemachine
 import (
 	"bytes"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 // commitState represents our state, as reflected within our log watermarks.
@@ -29,9 +30,9 @@ type commitState struct {
 	lastAppliedCommit uint64
 	highestCommit     uint64
 	stopAtSeqNo       uint64
-	activeState       *pb.NetworkState
-	lowerHalfCommits  []*pb.QEntry
-	upperHalfCommits  []*pb.QEntry
+	activeState       *msgs.NetworkState
+	lowerHalfCommits  []*msgs.QEntry
+	upperHalfCommits  []*msgs.QEntry
 	checkpointPending bool
 	transferring      bool
 }
@@ -46,14 +47,14 @@ func newCommitState(persisted *persisted, logger Logger) *commitState {
 }
 
 func (cs *commitState) reinitialize() *actionSet {
-	var lastCEntry, secondToLastCEntry *pb.CEntry
-	var lastTEntry *pb.TEntry
+	var lastCEntry, secondToLastCEntry *msgs.CEntry
+	var lastTEntry *msgs.TEntry
 
 	cs.persisted.iterate(logIterator{
-		onCEntry: func(cEntry *pb.CEntry) {
+		onCEntry: func(cEntry *msgs.CEntry) {
 			lastCEntry, secondToLastCEntry = cEntry, lastCEntry
 		},
-		onTEntry: func(tEntry *pb.TEntry) {
+		onTEntry: func(tEntry *msgs.TEntry) {
 			lastTEntry = tEntry
 		},
 	})
@@ -76,8 +77,8 @@ func (cs *commitState) reinitialize() *actionSet {
 	cs.lastAppliedCommit = lastCEntry.SeqNo
 	cs.highestCommit = lastCEntry.SeqNo
 
-	cs.lowerHalfCommits = make([]*pb.QEntry, ci)
-	cs.upperHalfCommits = make([]*pb.QEntry, ci)
+	cs.lowerHalfCommits = make([]*msgs.QEntry, ci)
+	cs.upperHalfCommits = make([]*msgs.QEntry, ci)
 
 	cs.committingClients = map[uint64]*committingClient{}
 	for _, clientState := range lastCEntry.NetworkState.Clients {
@@ -95,8 +96,8 @@ func (cs *commitState) reinitialize() *actionSet {
 	// We crashed during a state transfer
 	cs.transferring = true
 	return &actionSet{
-		StateEventResult: pb.StateEventResult{
-			StateTransfer: &pb.StateEventResult_StateTarget{
+		Actions: state.Actions{
+			StateTransfer: &state.ActionStateTarget{
 				SeqNo: lastTEntry.SeqNo,
 				Value: lastTEntry.Value,
 			},
@@ -108,12 +109,12 @@ func (cs *commitState) transferTo(seqNo uint64, value []byte) *actionSet {
 	cs.logger.Log(LevelDebug, "initiating state transfer", "target_seq_no", seqNo, "target_value", value)
 	assertEqual(cs.transferring, false, "multiple state transfers are not supported concurrently")
 	cs.transferring = true
-	return cs.persisted.addTEntry(&pb.TEntry{
+	return cs.persisted.addTEntry(&msgs.TEntry{
 		SeqNo: seqNo,
 		Value: value,
 	}).concat(&actionSet{
-		StateEventResult: pb.StateEventResult{
-			StateTransfer: &pb.StateEventResult_StateTarget{
+		Actions: state.Actions{
+			StateTransfer: &state.ActionStateTarget{
 				SeqNo: seqNo,
 				Value: value,
 			},
@@ -121,7 +122,7 @@ func (cs *commitState) transferTo(seqNo uint64, value []byte) *actionSet {
 	})
 }
 
-func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result *pb.CheckpointResult) *actionSet {
+func (cs *commitState) applyCheckpointResult(epochConfig *msgs.EpochConfig, result *state.CheckpointResult) *actionSet {
 	cs.logger.Log(LevelDebug, "applying checkpoint result", "seq_no", result.SeqNo, "value", result.Value)
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 
@@ -141,19 +142,19 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 
 	cs.activeState = result.NetworkState
 	cs.lowerHalfCommits = cs.upperHalfCommits
-	cs.upperHalfCommits = make([]*pb.QEntry, ci)
+	cs.upperHalfCommits = make([]*msgs.QEntry, ci)
 	cs.lowWatermark = result.SeqNo
 	cs.checkpointPending = false
 
-	return cs.persisted.addCEntry(&pb.CEntry{
+	return cs.persisted.addCEntry(&msgs.CEntry{
 		SeqNo:           result.SeqNo,
 		CheckpointValue: result.Value,
 		NetworkState:    result.NetworkState,
 	}).send(
 		cs.activeState.Config.Nodes,
-		&pb.Msg{
-			Type: &pb.Msg_Checkpoint{
-				Checkpoint: &pb.Checkpoint{
+		&msgs.Msg{
+			Type: &msgs.Msg_Checkpoint{
+				Checkpoint: &msgs.Checkpoint{
 					SeqNo: result.SeqNo,
 					Value: result.Value,
 				},
@@ -162,7 +163,7 @@ func (cs *commitState) applyCheckpointResult(epochConfig *pb.EpochConfig, result
 	)
 }
 
-func (cs *commitState) commit(qEntry *pb.QEntry) {
+func (cs *commitState) commit(qEntry *msgs.QEntry) {
 	assertEqual(cs.transferring, false, "we should never commit during state transfer")
 	assertGreaterThanOrEqual(cs.stopAtSeqNo, qEntry.SeqNo, "commit sequence exceeds stop sequence")
 
@@ -181,7 +182,7 @@ func (cs *commitState) commit(qEntry *pb.QEntry) {
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 	upper := qEntry.SeqNo-cs.lowWatermark > ci
 	offset := int((qEntry.SeqNo - (cs.lowWatermark + 1)) % ci)
-	var commits []*pb.QEntry
+	var commits []*msgs.QEntry
 	if upper {
 		commits = cs.upperHalfCommits
 	} else {
@@ -195,10 +196,10 @@ func (cs *commitState) commit(qEntry *pb.QEntry) {
 	}
 }
 
-func nextNetworkConfig(startingState *pb.NetworkState, committingClients map[uint64]*committingClient) (*pb.NetworkState_Config, []*pb.NetworkState_Client) {
+func nextNetworkConfig(startingState *msgs.NetworkState, committingClients map[uint64]*committingClient) (*msgs.NetworkState_Config, []*msgs.NetworkState_Client) {
 	nextConfig := startingState.Config
 
-	nextClients := make([]*pb.NetworkState_Client, len(startingState.Clients))
+	nextClients := make([]*msgs.NetworkState_Client, len(startingState.Clients))
 	for i, oldClientState := range startingState.Clients {
 		cc, ok := committingClients[oldClientState.Id]
 		assertTrue(ok, "must have a committing client instance all client states")
@@ -207,12 +208,12 @@ func nextNetworkConfig(startingState *pb.NetworkState, committingClients map[uin
 
 	for _, reconfig := range startingState.PendingReconfigurations {
 		switch rc := reconfig.Type.(type) {
-		case *pb.Reconfiguration_NewClient_:
-			nextClients = append(nextClients, &pb.NetworkState_Client{
+		case *msgs.Reconfiguration_NewClient_:
+			nextClients = append(nextClients, &msgs.NetworkState_Client{
 				Id:    rc.NewClient.Id,
 				Width: rc.NewClient.Width,
 			})
-		case *pb.Reconfiguration_RemoveClient:
+		case *msgs.Reconfiguration_RemoveClient:
 			found := false
 			for i, clientConfig := range nextClients {
 				if clientConfig.Id != rc.RemoveClient {
@@ -226,7 +227,7 @@ func nextNetworkConfig(startingState *pb.NetworkState, committingClients map[uin
 
 			// TODO, heavy handed, back off to a warning
 			assertTruef(found, "asked to remove client %d which doesn't exist", rc.RemoveClient)
-		case *pb.Reconfiguration_NewConfig:
+		case *msgs.Reconfiguration_NewConfig:
 			nextConfig = rc.NewConfig
 		}
 	}
@@ -235,15 +236,15 @@ func nextNetworkConfig(startingState *pb.NetworkState, committingClients map[uin
 }
 
 // drain returns all available Commits (including checkpoint requests)
-func (cs *commitState) drain() []*pb.StateEventResult_Commit {
+func (cs *commitState) drain() []*state.ActionCommit {
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 
-	var result []*pb.StateEventResult_Commit
+	var result []*state.ActionCommit
 	for cs.lastAppliedCommit < cs.lowWatermark+2*ci {
 		if cs.lastAppliedCommit == cs.lowWatermark+ci && !cs.checkpointPending {
 			networkConfig, clientConfigs := nextNetworkConfig(cs.activeState, cs.committingClients)
 
-			result = append(result, &pb.StateEventResult_Commit{
+			result = append(result, &state.ActionCommit{
 				SeqNo:         cs.lastAppliedCommit,
 				NetworkConfig: networkConfig,
 				ClientStates:  clientConfigs,
@@ -257,7 +258,7 @@ func (cs *commitState) drain() []*pb.StateEventResult_Commit {
 		nextCommit := cs.lastAppliedCommit + 1
 		upper := nextCommit-cs.lowWatermark > ci
 		offset := int((nextCommit - (cs.lowWatermark + 1)) % ci)
-		var commits []*pb.QEntry
+		var commits []*msgs.QEntry
 		if upper {
 			commits = cs.upperHalfCommits
 		} else {
@@ -270,7 +271,7 @@ func (cs *commitState) drain() []*pb.StateEventResult_Commit {
 
 		assertEqual(commit.SeqNo, nextCommit, "attempted out of order commit")
 
-		result = append(result, &pb.StateEventResult_Commit{
+		result = append(result, &state.ActionCommit{
 			Batch: commit,
 		})
 
@@ -285,11 +286,11 @@ func (cs *commitState) drain() []*pb.StateEventResult_Commit {
 }
 
 type committingClient struct {
-	lastState                    *pb.NetworkState_Client
+	lastState                    *msgs.NetworkState_Client
 	committedSinceLastCheckpoint []*uint64
 }
 
-func newCommittingClient(seqNo uint64, clientState *pb.NetworkState_Client) *committingClient {
+func newCommittingClient(seqNo uint64, clientState *msgs.NetworkState_Client) *committingClient {
 	committedSinceLastCheckpoint := make([]*uint64, clientState.Width)
 	mask := bitmask(clientState.CommittedMask)
 	for i := 0; i < mask.bits(); i++ {
@@ -311,7 +312,7 @@ func (cc *committingClient) markCommitted(seqNo, reqNo uint64) {
 	cc.committedSinceLastCheckpoint[offset] = &seqNo
 }
 
-func (cc *committingClient) createCheckpointState() (newState *pb.NetworkState_Client) {
+func (cc *committingClient) createCheckpointState() (newState *msgs.NetworkState_Client) {
 	defer func() {
 		cc.lastState = newState
 	}()
@@ -330,7 +331,7 @@ func (cc *committingClient) createCheckpointState() (newState *pb.NetworkState_C
 	}
 
 	if lastCommitted == nil {
-		return &pb.NetworkState_Client{
+		return &msgs.NetworkState_Client{
 			Id:                          cc.lastState.Id,
 			Width:                       cc.lastState.Width,
 			WidthConsumedLastCheckpoint: 0,
@@ -343,7 +344,7 @@ func (cc *committingClient) createCheckpointState() (newState *pb.NetworkState_C
 		assertEqual(*lastCommitted, highWatermark, "if no client reqs are uncommitted, then all though the high watermark should be committed")
 
 		cc.committedSinceLastCheckpoint = []*uint64{}
-		return &pb.NetworkState_Client{
+		return &msgs.NetworkState_Client{
 			Id:                          cc.lastState.Id,
 			Width:                       cc.lastState.Width,
 			WidthConsumedLastCheckpoint: cc.lastState.Width,
@@ -369,7 +370,7 @@ func (cc *committingClient) createCheckpointState() (newState *pb.NetworkState_C
 		}
 	}
 
-	return &pb.NetworkState_Client{
+	return &msgs.NetworkState_Client{
 		Id:                          cc.lastState.Id,
 		Width:                       cc.lastState.Width,
 		LowWatermark:                *firstUncommitted,

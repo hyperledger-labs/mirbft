@@ -7,15 +7,16 @@ SPDX-License-Identifier: Apache-2.0
 package statemachine
 
 import (
-	pb "github.com/IBM/mirbft/mirbftpb"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 type actionSet struct {
-	pb.StateEventResult
+	state.Actions
 }
 
-func (a *actionSet) send(targets []uint64, msg *pb.Msg) *actionSet {
-	a.Send = append(a.Send, &pb.StateEventResult_Send{
+func (a *actionSet) send(targets []uint64, msg *msgs.Msg) *actionSet {
+	a.Send = append(a.Send, &state.ActionSend{
 		Targets: targets,
 		Msg:     msg,
 	})
@@ -24,28 +25,28 @@ func (a *actionSet) send(targets []uint64, msg *pb.Msg) *actionSet {
 }
 
 func (a *actionSet) allocateRequest(clientID, reqNo uint64) *actionSet {
-	a.AllocatedRequests = append(a.AllocatedRequests, &pb.StateEventResult_RequestSlot{ClientId: clientID, ReqNo: reqNo})
+	a.AllocatedRequests = append(a.AllocatedRequests, &state.ActionRequestSlot{ClientId: clientID, ReqNo: reqNo})
 	return a
 }
 
-func (a *actionSet) forwardRequest(targets []uint64, requestAck *pb.RequestAck) *actionSet {
-	a.ForwardRequests = append(a.ForwardRequests, &pb.StateEventResult_Forward{
+func (a *actionSet) forwardRequest(targets []uint64, requestAck *msgs.RequestAck) *actionSet {
+	a.ForwardRequests = append(a.ForwardRequests, &state.ActionForward{
 		Targets: targets,
 		Ack:     requestAck,
 	})
 	return a
 }
 
-func (a *actionSet) persist(index uint64, p *pb.Persistent) *actionSet {
+func (a *actionSet) persist(index uint64, p *msgs.Persistent) *actionSet {
 	a.WriteAhead = append(a.WriteAhead,
-		&pb.StateEventResult_Write{
+		&state.ActionWrite{
 			Append: index,
 			Data:   p,
 		})
 	return a
 }
 
-func (a *actionSet) correctRequest(ack *pb.RequestAck) *actionSet {
+func (a *actionSet) correctRequest(ack *msgs.RequestAck) *actionSet {
 	a.CorrectRequests = append(a.CorrectRequests, ack)
 	return a
 }

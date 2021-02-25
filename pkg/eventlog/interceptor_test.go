@@ -15,14 +15,14 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	pb "github.com/IBM/mirbft/mirbftpb"
 	"github.com/IBM/mirbft/pkg/eventlog"
-	rpb "github.com/IBM/mirbft/pkg/eventlog/recorderpb"
+	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
-var tickEvent = &pb.StateEvent{
-	Type: &pb.StateEvent_Tick{
-		Tick: &pb.StateEvent_TickElapsed{},
+var tickEvent = &state.Event{
+	Type: &state.Event_Tick{
+		Tick: &state.EventTickElapsed{},
 	},
 }
 
@@ -75,7 +75,7 @@ var _ = Describe("Reader", func() {
 		reader, err := eventlog.NewReader(output)
 		Expect(err).NotTo(HaveOccurred())
 
-		recordedTickEvent := &rpb.RecordedEvent{
+		recordedTickEvent := &recording.Event{
 			NodeId:     1,
 			Time:       2,
 			StateEvent: tickEvent,
