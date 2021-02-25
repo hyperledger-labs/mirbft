@@ -1,0 +1,347 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package msgs;
+
+option go_package = "github.com/IBM/mirbft/pkg/pb/msgs";
+
+// NetworkState contains the configuration agreed to by all nodes in the network
+// as well as the current client statuses.  NetworkState must be reflected in the
+// state digest for checkpoints.  The easiest way to accomplish this is by serializing
+// the structure and including it in the application state.  Note, when there are a large
+// number of clients, performing a custom serialization may be desirable.
+message NetworkState {
+    message Config {
+        // Nodes represent the active nodeIDs in the network.
+        // The number of nodeIDs corresponds to the size of the network.
+        repeated uint64 nodes = 1;
+
+        // CheckpointInterval is how often checkpoints are taken.  In terms of
+        // of sequence numbers, this is multiplied by the configured number of
+        // buckets, so that it scales naturally as the number of buckets increases
+        // or decreases.
+        int32 checkpoint_interval = 2;
+
+        // MaxEpochLength is the maximum number of sequence numbers which may preprepare
+        // in an epoch.  This is to force bucket rotation even when the system is otherwise
+        // in a healthy state.  Setting this value to uint64_max will effectively disable
+        // graceful epoch changes.
+        uint64 max_epoch_length = 3;
+
+        // NumberOfBuckets is the number of buckets the network is configured to operate over.
+        // Each bucket is a partition of the request space.  Typically, number of buckets should
+        // be nodes * m, where 'm' is some small constant.  Setting this value to 1 effectively
+        // reduces Mir to PBFT.
+        int32 number_of_buckets = 4;
+
+        // F is the number of byzantine faults tolerated by the network.
+        // It must be less than len(nodes)/3 (truncated).  The 'F' parameter
+        // need not be maximal, ie, a network of 9 nodes with 'F' set to 1 may
+        // simultaneously tolerate 1 byzantine fault, and 2 crash faults.  Whereas
+        // when F=2, that 9 node network may only tolerate 2 crash faults.  Note
+        // usually, a maximal value makes sense.  For instance in a network of 7
+        // nodes F=1, and F=2 both provide crash tolerance of only 2 nodes.  The
+        // following table summarizes the number of crash faults tolerated for
+        // a given network of size N and number of byzantine faults tolerated F.
+        //
+        //    |           F           |
+        //    | 0 | 1 | 2 | 3 | 4 | 5 |
+        // N --------------------------
+        // 1  | 0 |   |   |   |   |   |
+        // 2  | 0 |   |   |   |   |   |
+        // 3  | 1 |   |   |   |   |   |
+        // 4  | 1 | 1 |   |   |   |   |
+        // 5  | 2 | 1 |   |   |   |   |
+        // 6  | 2 | 1 |   |   |   |   |
+        // 7  | 3 | 2 | 2 |   |   |   |
+        // 8  | 3 | 3 | 2 |   |   |   |
+        // 9  | 4 | 3 | 2 |   |   |   |
+        // 10 | 4 | 4 | 3 | 3 |   |   |
+        // 11 | 5 | 4 | 4 | 3 |   |   |
+        // 12 | 5 | 5 | 4 | 4 |   |   |
+        // 13 | 6 | 5 | 5 | 4 | 4 |   |
+        // 14 | 6 | 6 | 5 | 5 | 4 |   |
+        // 15 | 7 | 6 | 6 | 5 | 5 |   |
+        // 16 | 7 | 7 | 6 | 6 | 5 | 5 |
+        // 17 | 8 | 7 | 7 | 6 | 6 | 5 |
+        int32 f = 5;
+    }
+
+    message Client {
+	// A unique ID for this client, never repeated.
+        uint64 id = 1;
+
+	// Width is the configured width of the request window for this client.
+	// Clients must submit requests sequentially, but, replicas will participate
+	// in the ack procedures for any request acknowledged within this window.
+	uint32 width = 2;
+
+	// WidthConsumedLastCheckpoint is the portion of the request window which
+	// overlaps with commits in the last checkpoint.  It must be tracked because
+	// we do not want to wait for the previous checkpoint to be computed before
+	// processing requests in the next checkpoint window.  Therefore, we restrict
+	// the width in the current checkpoint window to be width - width_consumed_last_checkpoint
+	// and in this way, we ensure that all replicas regardless of whether they have the
+	// last checkpoint can deterministically evaluate whether a request is within the
+	// expected watermarks.
+	uint32 width_consumed_last_checkpoint = 3;
+
+	// LowWatermark is the lowest uncommitted request number.
+	uint64 low_watermark = 4;
+
+	// CommittedMask is a bitmask of up to length 'width', indicating which request numbers
+	// beyond the low_watermark have committed.  If non-empty, the last byte is never 0,
+	// and all request numbers beyond the last bit are uncommitted.  Note, a repeated bool
+	// would be much more natural, but very space inefficient per proto's implementation.
+	bytes committed_mask = 5;
+    }
+
+    Config config = 1;
+
+    repeated Client clients = 2;
+
+    repeated Reconfiguration pending_reconfigurations = 3;
+
+    bool reconfigured = 4;
+}
+
+message Reconfiguration {
+    message NewClient {
+        uint64 id = 1;
+        uint32 width = 2;
+    }
+
+    oneof type {
+        NewClient new_client = 1;
+        uint64 remove_client = 2;
+        NetworkState.Config new_config = 3;
+    }
+}
+
+// Persistent contains data that should be persited by lib user
+message Persistent {
+    oneof type {
+        QEntry q_entry = 1;
+        PEntry p_entry = 2;
+        CEntry c_entry = 3;
+        NEntry n_entry = 4;
+        FEntry f_entry = 5;
+	ECEntry e_c_entry = 6;
+	TEntry t_entry = 7;
+	Suspect suspect = 8;
+	// TODO, suspect_ready?
+    }
+}
+
+
+// NEntry indicates that a new set of sequences are being allocated, and
+// will be persisted immediately before log truncation occurs.
+message NEntry {
+    uint64 seq_no = 1;
+    EpochConfig epoch_config = 2;
+    // TODO, include whether we've suspected
+}
+
+message FEntry {
+    EpochConfig ends_epoch_config = 1;
+}
+
+// ECEntry indicates that an epoch change has been sent, and that log truncation
+// must halt until the next epoch begins.
+message ECEntry {
+    uint64 epoch_number = 1;
+}
+
+// TEntry indicates that a state transfer has been requested.
+message TEntry {
+    uint64 seq_no = 1;
+    bytes value = 2;
+}
+
+// QEntry is an entry which must be persisted before a batch is Preprepared (ie,
+// before a Preprepare or Prepare message is sent).  Note, any RequestAck referenced
+// by the QEntry is already persisted to disk.
+message QEntry {
+    uint64 seq_no = 2;
+    bytes digest = 3;
+    repeated RequestAck requests = 4;
+}
+
+// PEntry is an entry which must be persisted before a batch is Prepared (ie,
+// before a Commit message is sent).
+message PEntry {
+    uint64 seq_no = 2;
+    bytes digest = 3;
+}
+
+// CEntry is an entry which must be persisted before a Checkpoint message is sent.
+message CEntry {
+    uint64 seq_no = 1;
+    bytes checkpoint_value = 2;
+    NetworkState network_state = 3;
+}
+
+message Msg {
+    oneof type {
+        Preprepare preprepare = 1;
+        Prepare prepare = 2;
+        Commit commit = 3;
+        Checkpoint checkpoint = 4;
+        Suspect suspect = 5;
+        EpochChange epoch_change = 6;
+        EpochChangeAck epoch_change_ack = 7;
+        NewEpoch new_epoch = 8;
+        NewEpochConfig new_epoch_echo = 9;
+        NewEpochConfig new_epoch_ready = 10;
+	FetchBatch fetch_batch = 11;
+	ForwardBatch forward_batch = 12;
+	RequestAck fetch_request = 13;
+        ForwardRequest forward_request = 14;
+	RequestAck request_ack = 15;
+    }
+}
+
+message FetchBatch {
+    uint64 seq_no = 1;
+    bytes digest = 2;
+}
+
+message ForwardBatch {
+    uint64 seq_no = 1;
+    repeated RequestAck request_acks = 2;
+    bytes digest = 3;
+}
+
+message ForwardRequest {
+    RequestAck request_ack = 1;
+    bytes request_data = 2;
+}
+
+message Request {
+    uint64 client_id = 1;
+    uint64 req_no = 2;
+    bytes data = 3;
+}
+
+message RequestAck {
+    uint64 client_id = 1;
+    uint64 req_no = 2;
+    bytes digest = 3;
+}
+
+message Preprepare {
+    uint64 seq_no = 1;
+    uint64 epoch = 2;
+    repeated RequestAck batch = 3;
+}
+
+message Prepare {
+    uint64 seq_no = 1;
+    uint64 epoch = 2;
+    bytes digest = 3;
+}
+
+message Commit {
+    uint64 seq_no = 1;
+    uint64 epoch = 2;
+    bytes digest = 3;
+}
+
+message Checkpoint {
+    uint64 seq_no = 1;
+    bytes value = 2;
+}
+
+message Suspect {
+    uint64 epoch = 1;
+}
+
+// EpochChange messages are used to implement the classical PBFT view-change
+// protocol, (very) slightly modified to adapt to Mir.  The assorted sets
+// are encoded as repeated fields, rather than as maps for ease of serialization
+// and particularly for computing a digest to attest to.  If any set contains
+// a duplicated entry, the message may be discarded as byzantine.
+message EpochChange {
+    uint64 new_epoch = 1;
+
+    // c_set contains the entries for the C-set as defined by the classical
+    // PBFT view-change protocol.
+    repeated Checkpoint checkpoints = 2;
+
+    message SetEntry {
+        uint64 epoch = 1;
+        uint64 seq_no = 2;
+        bytes digest = 3;
+    }
+
+    // p_set contains the entries for the P-set as defined by the classical
+    // PBFT view-change protocol.  
+    repeated SetEntry p_set = 3;
+
+    // q_set contains the entries for the Q-set as defined by the classical
+    // PBFT view-change protocol.
+    repeated SetEntry q_set = 4;
+}
+
+// EpochChangeAck messages are broadcast in response to receiving a valid epoch change
+// from a replica.  Replicas collect these epoch change ack messages, and when there are 2f+1
+// such messages begin to count that epoch change as appropriately broadcast for purposes of
+// the epoch change timer.
+message EpochChangeAck {
+    uint64 originator = 1;
+
+    // epoch_change is included fully instead of echo-ing the digest as suggested by the original
+    // PBFT paper.  This is purely to prevent requiring a separate fetch step for missing epoch change
+    // requests.  Although this is slightly heavier, because ungraceful epoch change is not a performance
+    // optimal path, the simplification seems worthwhile.
+    EpochChange epoch_change = 2;
+}
+
+message EpochConfig {
+    // number of this new epoch
+    uint64 number = 1;
+
+    repeated uint64 leaders = 2;
+
+    uint64 planned_expiration = 3;
+}
+
+message NewEpochConfig {
+    EpochConfig config = 1;
+
+    Checkpoint starting_checkpoint = 2;
+
+    // final_preprepares finalizes the last checkpoint window or windows
+    // which some correct replica preprepared a sequence in. The entries are
+    // digests indexed by sequence number offset by the starting_checkpoint
+    // seq_no. An empty digest corresponds to a null request.
+    repeated bytes final_preprepares = 3;
+}
+
+// NewEpoch is akin to the NewView message in classical PBFT and follows the same
+// semantics.  Optionally, for graceful epoch change, the epoch_changes field may
+// be empty.  In the event that the previous epoch does not complete gracefully,
+// the graceful NewEpoch is ignored.  Unlike in classical PBFT, we employ a classical
+// Bracha reliable broadcast on embedded config.  A replica should respond to a NewEpoch
+// message with a NewEpochEcho (assuming that the NewEpoch message is validly constructed).
+// We consider the payload of the broadcast to be the config, and treat the epoch changes
+// as the signature / proof which validates the initial connection but does not need
+// to be rebroadcast.
+message NewEpoch {
+    NewEpochConfig new_config = 1;
+
+    message RemoteEpochChange {
+        uint64 node_id = 1;
+        bytes digest = 2;
+    }
+
+    // epoch_changes must contains at least 2f+1 EpochChange messages references from
+    // replicas in the network.  If two EpochChanges references originated from the same
+    // replica, then the NewEpoch message is invalid.
+    repeated RemoteEpochChange epoch_changes = 2;
+}
