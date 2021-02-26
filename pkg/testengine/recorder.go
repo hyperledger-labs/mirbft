@@ -461,16 +461,10 @@ func (r *Recording) Step() error {
 					Digest: hasher.Sum(nil),
 					Type:   hashRequest.Origin.Type,
 				})
-			case *state.Action_WriteAhead:
-				write := t.WriteAhead
-				switch {
-				case write.Append != 0:
-					node.WAL.Append(write.Append, write.Data)
-				case write.Truncate != 0:
-					node.WAL.Truncate(write.Truncate)
-				default:
-					panic("Append or Truncate must be set")
-				}
+			case *state.Action_TruncateWriteAhead:
+				node.WAL.Truncate(t.TruncateWriteAhead.Index)
+			case *state.Action_AppendWriteAhead:
+				node.WAL.Append(t.AppendWriteAhead.Index, t.AppendWriteAhead.Data)
 			case *state.Action_AllocatedRequest:
 				reqSlot := t.AllocatedRequest
 				client := r.Clients[int(reqSlot.ClientId)]

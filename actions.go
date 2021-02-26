@@ -30,19 +30,17 @@ func toActions(a *statemachine.ActionList) (*Actions, *ClientActions) {
 				Data:   t.Hash.Data,
 				Origin: t.Hash.Origin,
 			})
-		case *state.Action_WriteAhead:
-			var write *Write
-			if t.WriteAhead.Truncate != 0 {
-				write = &Write{
-					Truncate: &t.WriteAhead.Truncate,
-				}
-			} else {
-				write = &Write{
-					Append: &WALEntry{
-						Index: t.WriteAhead.Append,
-						Data:  t.WriteAhead.Data,
-					},
-				}
+		case *state.Action_TruncateWriteAhead:
+			write := &Write{
+				Truncate: &t.TruncateWriteAhead.Index,
+			}
+			aResult.WriteAhead = append(aResult.WriteAhead, write)
+		case *state.Action_AppendWriteAhead:
+			write := &Write{
+				Append: &WALEntry{
+					Index: t.AppendWriteAhead.Index,
+					Data:  t.AppendWriteAhead.Data,
+				},
 			}
 			aResult.WriteAhead = append(aResult.WriteAhead, write)
 		case *state.Action_AllocatedRequest:

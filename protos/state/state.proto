@@ -66,13 +66,14 @@ message Action {
     oneof type {
        ActionSend send = 1;
        ActionHashRequest hash = 2;
-       ActionWrite write_ahead = 3;
-       ActionCommit commit = 4;
-       ActionCheckpoint checkpoint = 5;
-       ActionRequestSlot allocated_request = 6;
-       msgs.RequestAck correct_request = 7;
-       ActionForward forward_request = 8;
-       ActionStateTarget state_transfer = 9;
+       ActionWrite append_write_ahead = 3;
+       ActionTruncate truncate_write_ahead = 4;
+       ActionCommit commit = 5;
+       ActionCheckpoint checkpoint = 6;
+       ActionRequestSlot allocated_request = 7;
+       msgs.RequestAck correct_request = 8;
+       ActionForward forward_request = 9;
+       ActionStateTarget state_transfer = 10;
     }
 }
 
@@ -81,12 +82,13 @@ message ActionSend {
     msgs.Msg msg = 2;
 }
 
-// Write requires either but not both truncate to be zero,
-// data is non-nil iff append is non-zero
+message ActionTruncate {
+    uint64 index = 1;
+}
+
 message ActionWrite {
-    uint64 truncate = 1;
-    uint64 append = 2;
-    msgs.Persistent data = 3;
+    uint64 index = 1;
+    msgs.Persistent data = 2;
 }
 
 message ActionCommit {

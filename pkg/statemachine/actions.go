@@ -85,9 +85,9 @@ func (a *ActionList) forwardRequest(targets []uint64, requestAck *msgs.RequestAc
 
 func (a *ActionList) truncate(index uint64) *ActionList {
 	a.PushBack(&state.Action{
-		Type: &state.Action_WriteAhead{
-			WriteAhead: &state.ActionWrite{
-				Truncate: index,
+		Type: &state.Action_TruncateWriteAhead{
+			TruncateWriteAhead: &state.ActionTruncate{
+				Index: index,
 			},
 		},
 	})
@@ -96,10 +96,10 @@ func (a *ActionList) truncate(index uint64) *ActionList {
 
 func (a *ActionList) persist(index uint64, p *msgs.Persistent) *ActionList {
 	a.PushBack(&state.Action{
-		Type: &state.Action_WriteAhead{
-			WriteAhead: &state.ActionWrite{
-				Append: index,
-				Data:   p,
+		Type: &state.Action_AppendWriteAhead{
+			AppendWriteAhead: &state.ActionWrite{
+				Index: index,
+				Data:  p,
 			},
 		},
 	})
