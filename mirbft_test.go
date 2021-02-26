@@ -32,6 +32,7 @@ import (
 
 var (
 	tickInterval = 100 * time.Millisecond
+	testTimeout  = 10 * time.Second
 )
 
 func init() {
@@ -44,6 +45,17 @@ func init() {
 		}
 		fmt.Printf("Setting tick interval to be %v\n", dur)
 		tickInterval = dur
+	}
+
+	val = os.Getenv("MIRBFT_TEST_STRESS_TEST_TIMEOUT")
+	if val != "" {
+		dur, err := time.ParseDuration(val)
+		if err != nil {
+			fmt.Printf("Could not parse duration for stress tick interval: %s\n", err)
+			return
+		}
+		fmt.Printf("Setting test timeout to be %v\n", dur)
+		testTimeout = dur
 	}
 }
 
