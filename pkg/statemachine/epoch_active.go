@@ -449,7 +449,7 @@ func (e *activeEpoch) tick() *ActionList {
 		suspect := &msgs.Suspect{
 			Epoch: e.epochConfig.Number,
 		}
-		actions.send(e.networkConfig.Nodes, &msgs.Msg{
+		actions.Send(e.networkConfig.Nodes, &msgs.Msg{
 			Type: &msgs.Msg_Suspect{
 				Suspect: suspect,
 			},

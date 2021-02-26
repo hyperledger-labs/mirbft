@@ -346,7 +346,7 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 	et.startingSeqNo = newEpochConfig.StartingCheckpoint.SeqNo +
 		uint64(len(newEpochConfig.FinalPreprepares)) + 1
 
-	return actions.send(
+	return actions.Send(
 		et.networkConfig.Nodes,
 		&msgs.Msg{
 			Type: &msgs.Msg_NewEpochEcho{
@@ -373,7 +373,7 @@ func (et *epochTarget) tick() *ActionList {
 }
 
 func (et *epochTarget) repeatEpochChangeBroadcast() *ActionList {
-	return (&ActionList{}).send(
+	return (&ActionList{}).Send(
 		et.networkConfig.Nodes,
 		&msgs.Msg{
 			Type: &msgs.Msg_EpochChange{
@@ -393,7 +393,7 @@ func (et *epochTarget) tickPrepending() *ActionList {
 	}
 
 	if et.isLeader {
-		return (&ActionList{}).send(
+		return (&ActionList{}).Send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_NewEpoch{
@@ -411,7 +411,7 @@ func (et *epochTarget) tickPending() *ActionList {
 	if et.isLeader {
 		// resend the new-view if others perhaps missed it
 		if pendingTicks%2 == 0 {
-			return (&ActionList{}).send(
+			return (&ActionList{}).Send(
 				et.networkConfig.Nodes,
 				&msgs.Msg{
 					Type: &msgs.Msg_NewEpoch{
@@ -425,7 +425,7 @@ func (et *epochTarget) tickPending() *ActionList {
 			suspect := &msgs.Suspect{
 				Epoch: et.myNewEpoch.NewConfig.Config.Number,
 			}
-			return (&ActionList{}).send(
+			return (&ActionList{}).Send(
 				et.networkConfig.Nodes,
 				&msgs.Msg{
 					Type: &msgs.Msg_Suspect{
@@ -446,7 +446,7 @@ func (et *epochTarget) applyEpochChangeMsg(source nodeID, msg *msgs.EpochChange)
 	if source != nodeID(et.myConfig.Id) {
 		// We don't want to echo our own EpochChange message,
 		// as we already broadcast/rebroadcast it.
-		actions.send(
+		actions.Send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_EpochChangeAck{
@@ -465,7 +465,7 @@ func (et *epochTarget) applyEpochChangeMsg(source nodeID, msg *msgs.EpochChange)
 
 func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg *msgs.EpochChange) *ActionList {
 
-	return (&ActionList{}).hash(
+	return (&ActionList{}).Hash(
 		epochChangeHashData(msg),
 		&state.HashOrigin{
 			Type: &state.HashOrigin_EpochChange_{
@@ -521,7 +521,7 @@ func (et *epochTarget) checkEpochQuorum() *ActionList {
 	et.state = etPending
 
 	if et.isLeader {
-		return (&ActionList{}).send(
+		return (&ActionList{}).Send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_NewEpoch{
@@ -576,7 +576,7 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *ActionList {
 			}))
 		}
 
-		return actions.send(
+		return actions.Send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_NewEpochReady{
@@ -623,7 +623,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochCo
 		et.logger.Log(LevelDebug, "epoch transitioning from echoing to ready", "epoch_no", et.number)
 		et.state = etReadying
 
-		actions := (&ActionList{}).send(
+		actions := (&ActionList{}).Send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_NewEpochReady{

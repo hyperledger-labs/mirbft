@@ -95,7 +95,7 @@ func (cs *commitState) reinitialize() *ActionList {
 
 	// We crashed during a state transfer
 	cs.transferring = true
-	return (&ActionList{}).stateTransfer(lastTEntry.SeqNo, lastTEntry.Value)
+	return (&ActionList{}).StateTransfer(lastTEntry.SeqNo, lastTEntry.Value)
 }
 
 func (cs *commitState) transferTo(seqNo uint64, value []byte) *ActionList {
@@ -105,7 +105,7 @@ func (cs *commitState) transferTo(seqNo uint64, value []byte) *ActionList {
 	return cs.persisted.addTEntry(&msgs.TEntry{
 		SeqNo: seqNo,
 		Value: value,
-	}).stateTransfer(seqNo, value)
+	}).StateTransfer(seqNo, value)
 }
 
 func (cs *commitState) applyCheckpointResult(epochConfig *msgs.EpochConfig, result *state.EventCheckpointResult) *ActionList {
@@ -136,7 +136,7 @@ func (cs *commitState) applyCheckpointResult(epochConfig *msgs.EpochConfig, resu
 		SeqNo:           result.SeqNo,
 		CheckpointValue: result.Value,
 		NetworkState:    result.NetworkState,
-	}).send(
+	}).Send(
 		cs.activeState.Config.Nodes,
 		&msgs.Msg{
 			Type: &msgs.Msg_Checkpoint{
@@ -230,7 +230,7 @@ func (cs *commitState) drain() *ActionList {
 		if cs.lastAppliedCommit == cs.lowWatermark+ci && !cs.checkpointPending {
 			networkConfig, clientConfigs := nextNetworkConfig(cs.activeState, cs.committingClients)
 
-			actions.checkpoint(cs.lastAppliedCommit, networkConfig, clientConfigs)
+			actions.Checkpoint(cs.lastAppliedCommit, networkConfig, clientConfigs)
 
 			cs.checkpointPending = true
 			cs.logger.Log(LevelDebug, "all previous sequences has committed, requesting checkpoint", "seq_no", cs.lastAppliedCommit)
@@ -253,7 +253,7 @@ func (cs *commitState) drain() *ActionList {
 
 		assertEqual(commit.SeqNo, nextCommit, "attempted out of order commit")
 
-		actions.commit(commit)
+		actions.Commit(commit)
 
 		for _, req := range commit.Requests {
 			cs.committingClients[req.ClientId].markCommitted(commit.SeqNo, req.ReqNo)

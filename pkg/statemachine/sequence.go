@@ -157,7 +157,7 @@ func (s *sequence) allocate(requestAcks []*msgs.RequestAck, outstandingReqs map[
 		data[i] = ack.Digest
 	}
 
-	actions := (&ActionList{}).hash(
+	actions := (&ActionList{}).Hash(
 		data,
 		&state.HashOrigin{
 			Type: &state.HashOrigin_Batch_{
@@ -208,7 +208,7 @@ func (s *sequence) prepare() *ActionList {
 
 	s.state = sequencePreprepared
 
-	actions := &ActionList{}
+	actions := s.persisted.addQEntry(s.qEntry)
 
 	if uint64(s.owner) == s.myConfig.Id {
 		for _, cr := range s.clientRequests {
@@ -218,12 +218,12 @@ func (s *sequence) prepare() *ActionList {
 					nodes = append(nodes, id)
 				}
 			}
-			actions.forwardRequest(
+			actions.ForwardRequest(
 				nodes,
 				cr.ack,
 			)
 		}
-		actions.send(
+		actions.Send(
 			s.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_Preprepare{
@@ -236,7 +236,7 @@ func (s *sequence) prepare() *ActionList {
 			},
 		)
 	} else {
-		actions.send(
+		actions.Send(
 			s.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_Prepare{
@@ -250,7 +250,7 @@ func (s *sequence) prepare() *ActionList {
 		)
 	}
 
-	return actions.concat(s.persisted.addQEntry(s.qEntry))
+	return actions
 }
 
 func (s *sequence) applyPrepareMsg(source nodeID, digest []byte) *ActionList {
@@ -302,7 +302,7 @@ func (s *sequence) checkPrepareQuorum() *ActionList {
 		Digest: s.digest,
 	}
 
-	actions := (&ActionList{}).send(
+	return s.persisted.addPEntry(pEntry).Send(
 		s.networkConfig.Nodes,
 		&msgs.Msg{
 			Type: &msgs.Msg_Commit{
@@ -314,7 +314,6 @@ func (s *sequence) checkPrepareQuorum() *ActionList {
 			},
 		},
 	)
-	return actions.concat(s.persisted.addPEntry(pEntry))
 }
 
 func (s *sequence) applyCommitMsg(source nodeID, digest []byte) *ActionList {

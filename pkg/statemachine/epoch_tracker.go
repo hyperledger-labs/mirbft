@@ -160,7 +160,7 @@ func (et *epochTracker) reinitialize() *ActionList {
 			Epoch: lastNEntry.EpochConfig.Number,
 		}
 		actions.concat(et.persisted.addSuspect(suspect))
-		actions.send(et.networkConfig.Nodes, &msgs.Msg{
+		actions.Send(et.networkConfig.Nodes, &msgs.Msg{
 			Type: &msgs.Msg_Suspect{
 				Suspect: suspect,
 			},
@@ -257,7 +257,7 @@ func (et *epochTracker) advanceState() *ActionList {
 
 	actions := et.persisted.addECEntry(&msgs.ECEntry{
 		EpochNumber: newEpochNumber,
-	}).send(
+	}).Send(
 		et.networkConfig.Nodes,
 		&msgs.Msg{
 			Type: &msgs.Msg_EpochChange{

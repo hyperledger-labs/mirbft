@@ -295,7 +295,7 @@ func (ct *clientHashDisseminator) replyFetchRequest(source nodeID, clientID, req
 		return &ActionList{}
 	}
 
-	return (&ActionList{}).forwardRequest(
+	return (&ActionList{}).ForwardRequest(
 		[]uint64{uint64(source)},
 		&msgs.RequestAck{
 			ClientId: clientID,
@@ -444,7 +444,7 @@ func (crn *clientReqNo) applyNewRequest(ack *msgs.RequestAck) *ActionList {
 	if len(crn.myRequests) == 1 {
 		crn.acksSent = 1
 		crn.ticksSinceAck = 0
-		return actions.send(
+		return actions.Send(
 			crn.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_RequestAck{
@@ -472,7 +472,7 @@ func (crn *clientReqNo) applyNewRequest(ack *msgs.RequestAck) *ActionList {
 	crn.acksSent = 1
 	crn.ticksSinceAck = 0
 
-	return actions.send(
+	return actions.Send(
 		crn.networkConfig.Nodes,
 		&msgs.Msg{
 			Type: &msgs.Msg_RequestAck{
@@ -530,14 +530,14 @@ func (crn *clientReqNo) tick() *ActionList {
 		crn.acksSent = 1
 		crn.ticksSinceAck = 0
 
-		actions.send(
+		actions.Send(
 			crn.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_RequestAck{
 					RequestAck: nullAck,
 				},
 			},
-		).correctRequest(
+		).CorrectRequest(
 			nullAck,
 		)
 	}
@@ -620,7 +620,7 @@ func (crn *clientReqNo) tick() *ActionList {
 	crn.acksSent++
 	crn.ticksSinceAck = 0
 
-	actions.send(
+	actions.Send(
 		crn.networkConfig.Nodes,
 		&msgs.Msg{
 			Type: &msgs.Msg_RequestAck{
@@ -661,7 +661,7 @@ func (cr *clientRequest) fetch() *ActionList {
 	cr.fetching = true
 	cr.ticksFetching = 0
 
-	return (&ActionList{}).send(
+	return (&ActionList{}).Send(
 		nodes,
 		&msgs.Msg{
 			Type: &msgs.Msg_FetchRequest{
@@ -724,7 +724,7 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *msgs.NetworkState_Con
 				validAfterSeqNo = seqNo
 			}
 			crn = newClientReqNo(c.myConfig, clientState.Id, reqNo, c.networkConfig, validAfterSeqNo)
-			actions.allocateRequest(clientState.Id, reqNo)
+			actions.AllocateRequest(clientState.Id, reqNo)
 		}
 
 		crn.committed = committed
@@ -786,7 +786,7 @@ func (c *client) allocate(seqNo uint64, state *msgs.NetworkState_Client, reconfi
 	// old high watermark, so allocate starting after that one.
 	validAfterSeqNo := seqNo + uint64(c.networkConfig.CheckpointInterval)
 	for reqNo := intermediateHighWatermark + 1; reqNo <= newHighWatermark; reqNo++ {
-		actions.allocateRequest(state.Id, reqNo)
+		actions.AllocateRequest(state.Id, reqNo)
 		el := c.reqNoList.PushBack(newClientReqNo(c.myConfig, state.Id, reqNo, c.networkConfig, validAfterSeqNo))
 		c.reqNoMap[reqNo] = el
 	}
@@ -815,7 +815,7 @@ func (c *client) ack(source nodeID, ack *msgs.RequestAck) (*ActionList, *clientR
 
 		if !cr.stored {
 			// If we already have the req stored, we know it's correct
-			actions.correctRequest(ack)
+			actions.CorrectRequest(ack)
 		}
 	}
 

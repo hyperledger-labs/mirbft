@@ -55,7 +55,7 @@ var _ = XDescribe("sequence", func() {
 				nil,
 			)
 
-			Expect(actions).To(Equal((&ActionList{}).hash(
+			Expect(actions).To(Equal((&ActionList{}).Hash(
 				[][]byte{
 					[]byte("msg1-digest"),
 					[]byte("msg2-digest"),
@@ -154,7 +154,7 @@ var _ = XDescribe("sequence", func() {
 
 		It("transitions from Allocated to Preprepared", func() {
 			actions := s.applyBatchHashResult([]byte("digest"))
-			Expect(actions).To(Equal((&ActionList{}).persist(
+			Expect(actions).To(Equal((&ActionList{}).Persist(
 				0,
 				&msgs.Persistent{
 					Type: &msgs.Persistent_QEntry{
@@ -176,7 +176,7 @@ var _ = XDescribe("sequence", func() {
 						},
 					},
 				},
-			).send(
+			).Send(
 				[]uint64{0, 1, 2, 3},
 				&msgs.Msg{
 					Type: &msgs.Msg_Prepare{
@@ -238,7 +238,7 @@ var _ = XDescribe("sequence", func() {
 		It("transitions from Preprepared to Prepared", func() {
 			s.applyPrepareMsg(0, []byte("digest"))
 			actions := s.advanceState()
-			Expect(actions).To(Equal((&ActionList{}).persist(
+			Expect(actions).To(Equal((&ActionList{}).Persist(
 				0,
 				&msgs.Persistent{
 					Type: &msgs.Persistent_PEntry{
@@ -248,7 +248,7 @@ var _ = XDescribe("sequence", func() {
 						},
 					},
 				},
-			).send(
+			).Send(
 				[]uint64{0, 1, 2, 3},
 				&msgs.Msg{
 					Type: &msgs.Msg_Commit{

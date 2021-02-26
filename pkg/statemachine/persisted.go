@@ -72,7 +72,7 @@ func (p *persisted) appendLogEntry(entry *msgs.Persistent) *ActionList {
 		entry: entry,
 	}
 	p.logTail = p.logTail.next
-	result := (&ActionList{}).persist(p.nextIndex, entry)
+	result := (&ActionList{}).Persist(p.nextIndex, entry)
 	p.nextIndex++
 	return result
 }
@@ -171,7 +171,7 @@ func (p *persisted) truncate(lowWatermark uint64) *ActionList {
 		}
 
 		p.logHead = logEntry
-		return (&ActionList{}).truncate(logEntry.index)
+		return (&ActionList{}).Truncate(logEntry.index)
 	}
 
 	return &ActionList{}

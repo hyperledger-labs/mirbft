@@ -103,7 +103,7 @@ func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte, sources []uint64
 	inFlight = append(inFlight, seqNo)
 	bt.fetchInFlight[string(digest)] = inFlight
 
-	return (&ActionList{}).send(
+	return (&ActionList{}).Send(
 		sources,
 		&msgs.Msg{
 			Type: &msgs.Msg_FetchBatch{
@@ -123,7 +123,7 @@ func (bt *batchTracker) replyFetchBatch(source uint64, seqNo uint64, digest []by
 		return &ActionList{}
 	}
 
-	return (&ActionList{}).send(
+	return (&ActionList{}).Send(
 		[]uint64{source},
 		&msgs.Msg{
 			Type: &msgs.Msg_ForwardBatch{
@@ -149,7 +149,7 @@ func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest
 	for i, requestAck := range requestAcks {
 		data[i] = requestAck.Digest
 	}
-	return (&ActionList{}).hash(data, &state.HashOrigin{
+	return (&ActionList{}).Hash(data, &state.HashOrigin{
 		Type: &state.HashOrigin_VerifyBatch_{
 			VerifyBatch: &state.HashOrigin_VerifyBatch{
 				Source:         uint64(source),
