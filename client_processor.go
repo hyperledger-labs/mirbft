@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
@@ -100,55 +101,62 @@ func (cp *ClientProcessor) Client(clientID uint64) *Client {
 	return c
 }
 
-func (cp *ClientProcessor) Process(ca *ClientActions) (*statemachine.EventList, error) {
+func (cp *ClientProcessor) Process(actions *statemachine.ActionList) (*statemachine.EventList, error) {
 	events := &statemachine.EventList{}
 
-	for _, r := range ca.AllocatedRequests {
-		client := cp.Client(r.ClientID)
-		digest, err := client.allocate(r.ReqNo)
-		if err != nil {
-			return nil, err
-		}
+	iter := actions.Iterator()
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_AllocatedRequest:
+			r := t.AllocatedRequest
+			client := cp.Client(r.ClientId)
+			digest, err := client.allocate(r.ReqNo)
+			if err != nil {
+				return nil, err
+			}
 
-		if digest != nil {
+			if digest == nil {
+				continue
+			}
+
 			events.RequestPersisted(&msgs.RequestAck{
-				ClientId: r.ClientID,
+				ClientId: r.ClientId,
 				ReqNo:    r.ReqNo,
 				Digest:   digest,
 			})
-			continue
+		case *state.Action_ForwardRequest:
+		// XXX address
+		/*
+		   requestData, err := p.RequestStore.Get(r.RequestAck)
+		   if err != nil {
+		           panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
+		   }
+
+		   fr := &msgs.Msg{
+		           Type: &msgs.Msg_ForwardRequest{
+		                   &msgs.ForwardRequest{
+		                           RequestAck:  r.RequestAck,
+		                           RequestData: requestData,
+		                   },
+		           },
+		   }
+		   for _, replica := range r.Targets {
+		           if replica == p.Node.Config.ID {
+		                   p.Node.Step(context.Background(), replica, fr)
+		           } else {
+		                   p.Link.Send(replica, fr)
+		           }
+		   }
+		*/
+		case *state.Action_CorrectRequest:
+		default:
+			// Handled elsewhere... for now
 		}
 	}
 
 	if err := cp.RequestStore.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
 	}
-
-	// XXX address
-	/*
-	   for _, r := range actions.ForwardRequests {
-	           requestData, err := p.RequestStore.Get(r.RequestAck)
-	           if err != nil {
-	                   panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
-	           }
-
-	           fr := &msgs.Msg{
-	                   Type: &msgs.Msg_ForwardRequest{
-	                           &msgs.ForwardRequest{
-	                                   RequestAck:  r.RequestAck,
-	                                   RequestData: requestData,
-	                           },
-	                   },
-	           }
-	           for _, replica := range r.Targets {
-	                   if replica == p.Node.Config.ID {
-	                           p.Node.Step(context.Background(), replica, fr)
-	                   } else {
-	                           p.Link.Send(replica, fr)
-	                   }
-	           }
-	   }
-	*/
 
 	return events, nil
 }

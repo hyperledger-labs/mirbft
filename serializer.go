@@ -20,12 +20,11 @@ import (
 // serializer provides a single threaded way to access the Mir state machine
 // and passes work to/from the state machine.
 type serializer struct {
-	clientActionsC chan ClientActions
-	doneC          chan struct{}
-	actionsC       chan *statemachine.ActionList
-	eventsC        chan *statemachine.EventList
-	statusC        chan chan<- *status.StateMachine
-	errC           chan struct{}
+	doneC    chan struct{}
+	actionsC chan *statemachine.ActionList
+	eventsC  chan *statemachine.EventList
+	statusC  chan chan<- *status.StateMachine
+	errC     chan struct{}
 
 	myConfig   *Config
 	walStorage WALStorage
@@ -38,14 +37,13 @@ type serializer struct {
 func newSerializer(myConfig *Config, walStorage WALStorage) (*serializer, error) {
 
 	s := &serializer{
-		actionsC:       make(chan *statemachine.ActionList),
-		clientActionsC: make(chan ClientActions),
-		doneC:          make(chan struct{}),
-		eventsC:        make(chan *statemachine.EventList),
-		statusC:        make(chan chan<- *status.StateMachine),
-		errC:           make(chan struct{}),
-		myConfig:       myConfig,
-		walStorage:     walStorage,
+		actionsC:   make(chan *statemachine.ActionList),
+		doneC:      make(chan struct{}),
+		eventsC:    make(chan *statemachine.EventList),
+		statusC:    make(chan chan<- *status.StateMachine),
+		errC:       make(chan struct{}),
+		myConfig:   myConfig,
+		walStorage: walStorage,
 	}
 	go s.run()
 	return s, nil
@@ -101,7 +99,6 @@ func (s *serializer) run() (exitErr error) {
 	}()
 
 	actions := &statemachine.ActionList{}
-	clientActions := &ClientActions{}
 
 	applyEvent := func(stateEvent *state.Event) error {
 		if s.myConfig.EventInterceptor != nil {
@@ -111,10 +108,7 @@ func (s *serializer) run() (exitErr error) {
 			}
 		}
 
-		newActions, newClientActions := toActions(sm.ApplyEvent(stateEvent))
-
-		actions.PushBackList(newActions)
-		clientActions.concat(newClientActions)
+		actions.PushBackList(sm.ApplyEvent(stateEvent))
 		return nil
 	}
 
@@ -165,7 +159,6 @@ func (s *serializer) run() (exitErr error) {
 	}
 
 	var actionsC chan<- *statemachine.ActionList
-	var clientActionsC chan<- ClientActions
 	for {
 		var err error
 		select {
@@ -177,9 +170,6 @@ func (s *serializer) run() (exitErr error) {
 					ActionsReceived: &state.EventActionsReceived{},
 				},
 			})
-		case clientActionsC <- *clientActions:
-			clientActions.clear()
-			clientActionsC = nil
 		case events := <-s.eventsC:
 			iter := events.Iterator()
 			for event := iter.Next(); event != nil; event = iter.Next() {
@@ -203,10 +193,6 @@ func (s *serializer) run() (exitErr error) {
 
 		if actions.Len() > 0 {
 			actionsC = s.actionsC
-		}
-
-		if !clientActions.isEmpty() {
-			clientActionsC = s.clientActionsC
 		}
 	}
 }

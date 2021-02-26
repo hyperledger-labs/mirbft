@@ -182,12 +182,6 @@ func (n *Node) Actions() <-chan *statemachine.ActionList {
 	return n.s.actionsC
 }
 
-// ClientReady returns a channel,much like the Ready channel which should be read
-// from and serviced by a dedicated go routine.
-func (n *Node) ClientReady() <-chan ClientActions {
-	return n.s.clientActionsC
-}
-
 // Err should never close unless the consumer has requested the library exit
 // by closing the doneC supplied at construction time.  However, if unforeseen
 // programatic errors violate the safety of the state machine, rather than panic

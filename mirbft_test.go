@@ -461,37 +461,6 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for {
-			var err error
-			select {
-			case clientActions := <-node.ClientReady():
-				newEvents, err := clientProcessor.Process(&clientActions)
-				if err != nil {
-					break
-				}
-				err = node.InjectEvents(newEvents)
-			case <-clientProcessor.ClientWork.Ready():
-				err = node.InjectEvents(clientProcessor.ClientWork.Results())
-			case <-node.Err():
-				return
-			}
-
-			if err != nil {
-				select {
-				case <-time.After(10 * time.Second):
-					// Odds are we're just shutting down, but if not
-					// make a scene.
-					panic(err)
-				case <-node.Err():
-					return
-				}
-			}
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
 		defer GinkgoRecover()
 		processor := &mirbft.Processor{
 			NodeID: node.Config.ID,
@@ -504,15 +473,23 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		events := &statemachine.EventList{}
 		var eC chan *statemachine.EventList
 		for {
+			var err error
 			select {
 			case actions := <-node.Actions():
-				newEvents, err := processor.Process(actions)
-				if err == mirbft.ErrStopped {
-					return
+				var newEvents *statemachine.EventList
+				newEvents, err = processor.Process(actions)
+				if err != nil {
+					break
 				}
-				Expect(err).NotTo(HaveOccurred())
-
 				events.PushBackList(newEvents)
+
+				newEvents, err = clientProcessor.Process(actions)
+				if err != nil {
+					break
+				}
+				events.PushBackList(newEvents)
+			case <-clientProcessor.ClientWork.Ready():
+				events.PushBackList(clientProcessor.ClientWork.Results())
 			case eC <- events:
 				events = &statemachine.EventList{}
 				eC = nil
@@ -521,6 +498,11 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			case <-node.Err():
 				return
 			}
+
+			if err == mirbft.ErrStopped {
+				return
+			}
+			Expect(err).NotTo(HaveOccurred())
 
 			if events.Len() > 0 {
 				eC = eventsC
