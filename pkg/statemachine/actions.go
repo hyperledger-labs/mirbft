@@ -118,8 +118,8 @@ func (a *ActionList) commit(qEntry *msgs.QEntry) *ActionList {
 }
 func (a *ActionList) checkpoint(seqNo uint64, networkConfig *msgs.NetworkState_Config, clientStates []*msgs.NetworkState_Client) *ActionList {
 	a.PushBack(&state.Action{
-		Type: &state.Action_Commit{
-			Commit: &state.ActionCommit{
+		Type: &state.Action_Checkpoint{
+			Checkpoint: &state.ActionCheckpoint{
 				SeqNo:         seqNo,
 				NetworkConfig: networkConfig,
 				ClientStates:  clientStates,

@@ -58,19 +58,17 @@ func toActions(a *statemachine.ActionList) (*Actions, *ClientActions) {
 				RequestAck: t.ForwardRequest.Ack,
 			})
 		case *state.Action_Commit:
-			var commit *Commit
-			if t.Commit.Batch != nil {
-				commit = &Commit{
-					Batch: t.Commit.Batch,
-				}
-			} else {
-				commit = &Commit{
-					Checkpoint: &Checkpoint{
-						SeqNo:         t.Commit.SeqNo,
-						NetworkConfig: t.Commit.NetworkConfig,
-						ClientsState:  t.Commit.ClientStates,
-					},
-				}
+			commit := &Commit{
+				Batch: t.Commit.Batch,
+			}
+			aResult.Commits = append(aResult.Commits, commit)
+		case *state.Action_Checkpoint:
+			commit := &Commit{
+				Checkpoint: &Checkpoint{
+					SeqNo:         t.Checkpoint.SeqNo,
+					NetworkConfig: t.Checkpoint.NetworkConfig,
+					ClientsState:  t.Checkpoint.ClientStates,
+				},
 			}
 			aResult.Commits = append(aResult.Commits, commit)
 		case *state.Action_StateTransfer:

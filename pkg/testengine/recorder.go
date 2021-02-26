@@ -238,43 +238,40 @@ func (ns *NodeState) LastCheckpoint() *state.CheckpointResult {
 	return ns.Checkpoints.Back().Value.(*state.CheckpointResult)
 }
 
-func (ns *NodeState) Commit(commit *state.ActionCommit) *state.CheckpointResult {
-	if commit.Batch != nil {
-		ns.LastSeqNo++
-		if commit.Batch.SeqNo != ns.LastSeqNo {
-			panic(fmt.Sprintf("unexpected out of order commit sequence number, expected %d, got %d", ns.LastSeqNo, commit.Batch.SeqNo))
-		}
-
-		for _, request := range commit.Batch.Requests {
-			if !ns.ReqStore.Has(request) {
-				panic("reqstore should have request if we are committing it")
-			}
-
-			ns.ActiveHash.Write(request.Digest)
-
-			for _, reconfigPoint := range ns.ReconfigPoints {
-				if reconfigPoint.ClientID == request.ClientId &&
-					reconfigPoint.ReqNo == request.ReqNo {
-					ns.PendingReconfigurations = append(ns.PendingReconfigurations, reconfigPoint.Reconfiguration)
-				}
-			}
-		}
-
-		return nil
+func (ns *NodeState) Commit(commit *state.ActionCommit) {
+	ns.LastSeqNo++
+	if commit.Batch.SeqNo != ns.LastSeqNo {
+		panic(fmt.Sprintf("unexpected out of order commit sequence number, expected %d, got %d", ns.LastSeqNo, commit.Batch.SeqNo))
 	}
 
+	for _, request := range commit.Batch.Requests {
+		if !ns.ReqStore.Has(request) {
+			panic("reqstore should have request if we are committing it")
+		}
+
+		ns.ActiveHash.Write(request.Digest)
+
+		for _, reconfigPoint := range ns.ReconfigPoints {
+			if reconfigPoint.ClientID == request.ClientId &&
+				reconfigPoint.ReqNo == request.ReqNo {
+				ns.PendingReconfigurations = append(ns.PendingReconfigurations, reconfigPoint.Reconfiguration)
+			}
+		}
+	}
+}
+func (ns *NodeState) Checkpoint(checkpoint *state.ActionCheckpoint) *state.CheckpointResult {
 	// We must have a checkpoint
 
-	if commit.SeqNo != ns.LastSeqNo {
+	if checkpoint.SeqNo != ns.LastSeqNo {
 		panic("asked to checkpoint for uncommitted sequence")
 	}
 
 	return ns.Set(
-		commit.SeqNo,
+		checkpoint.SeqNo,
 		ns.ActiveHash.Sum(nil),
 		&msgs.NetworkState{
-			Config:  commit.NetworkConfig,
-			Clients: commit.ClientStates,
+			Config:  checkpoint.NetworkConfig,
+			Clients: checkpoint.ClientStates,
 		},
 	)
 }
@@ -527,10 +524,9 @@ func (r *Recording) Step() error {
 			case *state.Action_CorrectRequest:
 				node.ReqStore.StoreCorrect(t.CorrectRequest)
 			case *state.Action_Commit:
-				checkpoint := nodeState.Commit(t.Commit)
-				if checkpoint != nil {
-					apply.Checkpoints = append(apply.Checkpoints, checkpoint)
-				}
+				nodeState.Commit(t.Commit)
+			case *state.Action_Checkpoint:
+				apply.Checkpoints = append(apply.Checkpoints, nodeState.Checkpoint(t.Checkpoint))
 			case *state.Action_StateTransfer:
 				var networkState *msgs.NetworkState
 				for _, node := range r.Nodes {

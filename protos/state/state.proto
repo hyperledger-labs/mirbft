@@ -68,10 +68,11 @@ message Action {
        ActionHashRequest hash = 2;
        ActionWrite write_ahead = 3;
        ActionCommit commit = 4;
-       ActionRequestSlot allocated_request = 5;
-       msgs.RequestAck correct_request = 6;
-       ActionForward forward_request = 7;
-       ActionStateTarget state_transfer = 8;
+       ActionCheckpoint checkpoint = 5;
+       ActionRequestSlot allocated_request = 6;
+       msgs.RequestAck correct_request = 7;
+       ActionForward forward_request = 8;
+       ActionStateTarget state_transfer = 9;
     }
 }
 
@@ -88,9 +89,11 @@ message ActionWrite {
     msgs.Persistent data = 3;
 }
 
-// Commit either has the batch set, or seq_no,  network_config, and client_state set.
 message ActionCommit {
     msgs.QEntry batch = 1;
+}
+
+message ActionCheckpoint {
     uint64 seq_no = 2;
     msgs.NetworkState.Config network_config = 3;
     repeated msgs.NetworkState.Client client_states = 4;
