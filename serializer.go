@@ -23,12 +23,8 @@ type serializer struct {
 	actionsC       chan Actions
 	clientActionsC chan ClientActions
 	doneC          chan struct{}
-	resultsC       chan *state.EventActionResults
-	clientResultsC chan *state.EventClientActionResults
-	transferC      chan *state.Event_Transfer
+	resultsC       chan *state.Event
 	statusC        chan chan<- *status.StateMachine
-	stepC          chan *state.Event_Step
-	tickC          chan struct{}
 	errC           chan struct{}
 
 	myConfig   *Config
@@ -45,12 +41,8 @@ func newSerializer(myConfig *Config, walStorage WALStorage) (*serializer, error)
 		actionsC:       make(chan Actions),
 		clientActionsC: make(chan ClientActions),
 		doneC:          make(chan struct{}),
-		clientResultsC: make(chan *state.EventClientActionResults),
-		resultsC:       make(chan *state.EventActionResults),
-		transferC:      make(chan *state.Event_Transfer),
+		resultsC:       make(chan *state.Event),
 		statusC:        make(chan chan<- *status.StateMachine),
-		stepC:          make(chan *state.Event_Step),
-		tickC:          make(chan struct{}),
 		errC:           make(chan struct{}),
 		myConfig:       myConfig,
 		walStorage:     walStorage,
@@ -150,10 +142,10 @@ func (s *serializer) run() (exitErr error) {
 		}
 
 		applyEvent(&state.Event{
-			Type: &state.Event_LoadEntry{
-				LoadEntry: &state.EventPersistedEntry{
+			Type: &state.Event_LoadPersistedEntry{
+				LoadPersistedEntry: &state.EventLoadPersistedEntry{
 					Index: i,
-					Data:  p,
+					Entry: p,
 				},
 			},
 		})
@@ -177,55 +169,30 @@ func (s *serializer) run() (exitErr error) {
 	for {
 		var err error
 		select {
-		case step := <-s.stepC:
-			err = applyEvent(&state.Event{
-				Type: step,
-			})
 		case actionsC <- *actions:
 			actions.clear()
 			actionsC = nil
 			err = applyEvent(&state.Event{
 				Type: &state.Event_ActionsReceived{
-					ActionsReceived: &state.EventReady{},
+					ActionsReceived: &state.EventActionsReceived{},
 				},
 			})
 		case clientActionsC <- *clientActions:
 			clientActions.clear()
 			clientActionsC = nil
-			err = applyEvent(&state.Event{
-				Type: &state.Event_ClientActionsReceived{
-					ClientActionsReceived: &state.EventReady{},
-				},
-			})
-		case transfer := <-s.transferC:
-			err = applyEvent(&state.Event{
-				Type: transfer,
-			})
 		case results := <-s.resultsC:
-			err = applyEvent(&state.Event{
-				Type: &state.Event_AddResults{
-					AddResults: results,
-				},
-			})
-		case clientResults := <-s.clientResultsC:
-			err = applyEvent(&state.Event{
-				Type: &state.Event_AddClientResults{
-					AddClientResults: clientResults,
-				},
-			})
+			err = applyEvent(results)
 		case statusReq := <-s.statusC:
 			select {
 			case statusReq <- sm.Status():
 			case <-s.doneC:
 			}
-		case <-s.tickC:
-			err = applyEvent(&state.Event{
-				Type: &state.Event_Tick{
-					Tick: &state.EventTickElapsed{},
-				},
-			})
 		case <-s.doneC:
 			return ErrStopped
+		}
+
+		if err != nil {
+			return err
 		}
 
 		if !actions.isEmpty() {
@@ -234,10 +201,6 @@ func (s *serializer) run() (exitErr error) {
 
 		if !clientActions.isEmpty() {
 			clientActionsC = s.clientActionsC
-		}
-
-		if err != nil {
-			return err
 		}
 	}
 }

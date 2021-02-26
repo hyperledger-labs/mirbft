@@ -138,7 +138,7 @@ func (a *ActionList) correctRequest(ack *msgs.RequestAck) *ActionList {
 	return a
 }
 
-func (a *ActionList) hash(data [][]byte, origin *state.HashResult) *ActionList {
+func (a *ActionList) hash(data [][]byte, origin *state.HashOrigin) *ActionList {
 	a.PushBack(&state.Action{
 		Type: &state.Action_Hash{
 			Hash: &state.ActionHashRequest{

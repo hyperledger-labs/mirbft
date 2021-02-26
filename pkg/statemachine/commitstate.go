@@ -108,7 +108,7 @@ func (cs *commitState) transferTo(seqNo uint64, value []byte) *ActionList {
 	}).stateTransfer(seqNo, value)
 }
 
-func (cs *commitState) applyCheckpointResult(epochConfig *msgs.EpochConfig, result *state.CheckpointResult) *ActionList {
+func (cs *commitState) applyCheckpointResult(epochConfig *msgs.EpochConfig, result *state.EventCheckpointResult) *ActionList {
 	cs.logger.Log(LevelDebug, "applying checkpoint result", "seq_no", result.SeqNo, "value", result.Value)
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 

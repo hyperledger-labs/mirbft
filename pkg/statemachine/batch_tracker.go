@@ -149,9 +149,9 @@ func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest
 	for i, requestAck := range requestAcks {
 		data[i] = requestAck.Digest
 	}
-	return (&ActionList{}).hash(data, &state.HashResult{
-		Type: &state.HashResult_VerifyBatch_{
-			VerifyBatch: &state.HashResult_VerifyBatch{
+	return (&ActionList{}).hash(data, &state.HashOrigin{
+		Type: &state.HashOrigin_VerifyBatch_{
+			VerifyBatch: &state.HashOrigin_VerifyBatch{
 				Source:         uint64(source),
 				SeqNo:          seqNo,
 				RequestAcks:    requestAcks,
@@ -161,7 +161,7 @@ func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest
 	})
 }
 
-func (bt *batchTracker) applyVerifyBatchHashResult(digest []byte, verifyBatch *state.HashResult_VerifyBatch) {
+func (bt *batchTracker) applyVerifyBatchHashResult(digest []byte, verifyBatch *state.HashOrigin_VerifyBatch) {
 	if !bytes.Equal(verifyBatch.ExpectedDigest, digest) {
 		panic("byzantine")
 		// XXX this should be a log only, but panic-ing to make dev easier for now

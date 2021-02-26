@@ -159,9 +159,9 @@ func (s *sequence) allocate(requestAcks []*msgs.RequestAck, outstandingReqs map[
 
 	actions := (&ActionList{}).hash(
 		data,
-		&state.HashResult{
-			Type: &state.HashResult_Batch_{
-				Batch: &state.HashResult_Batch{
+		&state.HashOrigin{
+			Type: &state.HashOrigin_Batch_{
+				Batch: &state.HashOrigin_Batch{
 					Source:      uint64(s.owner),
 					SeqNo:       s.seqNo,
 					Epoch:       s.epoch,

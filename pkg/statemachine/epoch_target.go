@@ -467,9 +467,9 @@ func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg 
 
 	return (&ActionList{}).hash(
 		epochChangeHashData(msg),
-		&state.HashResult{
-			Type: &state.HashResult_EpochChange_{
-				EpochChange: &state.HashResult_EpochChange{
+		&state.HashOrigin{
+			Type: &state.HashOrigin_EpochChange_{
+				EpochChange: &state.HashOrigin_EpochChange{
 					Source:      uint64(source),
 					Origin:      uint64(origin),
 					EpochChange: msg,
@@ -479,7 +479,7 @@ func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg 
 	)
 }
 
-func (et *epochTarget) applyEpochChangeDigest(processedChange *state.HashResult_EpochChange, digest []byte) *ActionList {
+func (et *epochTarget) applyEpochChangeDigest(processedChange *state.HashOrigin_EpochChange, digest []byte) *ActionList {
 	originNode := nodeID(processedChange.Origin)
 	sourceNode := nodeID(processedChange.Source)
 

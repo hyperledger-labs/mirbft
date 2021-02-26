@@ -137,7 +137,7 @@ func MatchClientProposal() *ClientMatching {
 	cm.Filters = []mangleFilter{
 		{
 			stateEvent: func(event *state.Event) bool {
-				_, ok := event.Type.(*state.Event_AddClientResults)
+				_, ok := event.Type.(*state.Event_RequestPersisted)
 				return ok
 			},
 		},

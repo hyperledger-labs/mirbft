@@ -42,7 +42,7 @@ var _ = Describe("Matchers", func() {
 			Expect(mtm.Filters[1].apply(0, &recording.Event{
 				StateEvent: &state.Event{
 					Type: &state.Event_Step{
-						Step: &state.EventInboundMsg{
+						Step: &state.EventStep{
 							Msg: &msgs.Msg{
 								Type: &msgs.Msg_Preprepare{
 									Preprepare: &msgs.Preprepare{},
@@ -61,7 +61,7 @@ var _ = Describe("Matchers", func() {
 			Expect(mtm.Filters[1].apply(0, &recording.Event{
 				StateEvent: &state.Event{
 					Type: &state.Event_Step{
-						Step: &state.EventInboundMsg{
+						Step: &state.EventStep{
 							Msg: &msgs.Msg{
 								Type: &msgs.Msg_Commit{
 									Commit: &msgs.Commit{},

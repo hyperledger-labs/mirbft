@@ -252,7 +252,7 @@ type HashRequest struct {
 
 	// Origin is the request that originated, encoded awkwardly as a HashResult
 	// with an empty Digest field but a populated Type.
-	Origin *state.HashResult
+	Origin *state.HashOrigin
 }
 
 // Commit contains a either batch of requests which have achieved total order and are ready

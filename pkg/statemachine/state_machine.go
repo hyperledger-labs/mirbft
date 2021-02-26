@@ -177,12 +177,12 @@ func (sm *StateMachine) applyEvent(stateEvent *state.Event) *ActionList {
 	case *state.Event_Initialize:
 		sm.initialize(event.Initialize)
 		return &ActionList{}
-	case *state.Event_LoadEntry:
-		sm.applyPersisted(event.LoadEntry.Index, event.LoadEntry.Data)
+	case *state.Event_LoadPersistedEntry:
+		sm.applyPersisted(event.LoadPersistedEntry.Index, event.LoadPersistedEntry.Entry)
 		return &ActionList{}
 	case *state.Event_CompleteInitialization:
 		return sm.completeInitialization()
-	case *state.Event_Tick:
+	case *state.Event_TickElapsed:
 		assertInitialized()
 		actions.concat(sm.clientHashDisseminator.tick())
 		actions.concat(sm.epochTracker.tick())
@@ -192,30 +192,35 @@ func (sm *StateMachine) applyEvent(stateEvent *state.Event) *ActionList {
 			nodeID(event.Step.Source),
 			event.Step.Msg,
 		))
-	case *state.Event_AddResults:
+	case *state.Event_HashResult:
 		assertInitialized()
-		actions.concat(sm.processResults(
-			event.AddResults,
-		))
-	case *state.Event_AddClientResults:
+		actions.concat(sm.processHashResult(event.HashResult))
+	case *state.Event_CheckpointResult:
 		assertInitialized()
-		actions.concat(sm.clientHashDisseminator.applyNewRequests(
-			event.AddClientResults.Persisted,
+		actions.concat(sm.processCheckpointResult(event.CheckpointResult))
+	case *state.Event_RequestPersisted:
+		assertInitialized()
+		actions.concat(sm.clientHashDisseminator.applyNewRequest(
+			event.RequestPersisted.RequestAck,
 		))
-	case *state.Event_Transfer:
+	case *state.Event_StateTransferFailed:
+		sm.Logger.Log(LevelDebug, "state transfer failed", "seq_no", event.StateTransferFailed.SeqNo)
+		panic("XXX handle me")
+	case *state.Event_StateTransferComplete:
 		assertEqualf(sm.commitState.transferring, true, "state transfer event received but the state machine did not request transfer")
 
-		sm.Logger.Log(LevelDebug, "state transfer completed", "seq_no", event.Transfer.SeqNo)
+		sm.Logger.Log(LevelDebug, "state transfer completed", "seq_no", event.StateTransferComplete.SeqNo)
 
-		actions.concat(sm.persisted.addCEntry(event.Transfer))
+		actions.concat(sm.persisted.addCEntry(&msgs.CEntry{
+			SeqNo:           event.StateTransferComplete.SeqNo,
+			CheckpointValue: event.StateTransferComplete.CheckpointValue,
+			NetworkState:    event.StateTransferComplete.NetworkState,
+		}))
 		actions.concat(sm.reinitialize())
 	case *state.Event_ActionsReceived:
 		// This is a bit odd, in that it's a no-op, but it's harmless
 		// and allows for much more insightful playback events (allowing
 		// us to tie action results to a particular set of actions)
-		return &ActionList{}
-	case *state.Event_ClientActionsReceived:
-		// This is exactly like ActionsReceived, a no-op for audit.
 		return &ActionList{}
 	default:
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
@@ -338,53 +343,53 @@ func (sm *StateMachine) step(source nodeID, msg *msgs.Msg) *ActionList {
 	}
 }
 
-func (sm *StateMachine) processResults(results *state.EventActionResults) *ActionList {
+func (sm *StateMachine) processHashResult(hashResult *state.EventHashResult) *ActionList {
+	switch hashType := hashResult.Origin.Type.(type) {
+	case *state.HashOrigin_Batch_:
+		batch := hashType.Batch
+		sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
+		return sm.epochTracker.applyBatchHashResult(batch.Epoch, batch.SeqNo, hashResult.Digest)
+	case *state.HashOrigin_EpochChange_:
+		epochChange := hashType.EpochChange
+		return sm.epochTracker.applyEpochChangeDigest(epochChange, hashResult.Digest)
+	case *state.HashOrigin_VerifyBatch_:
+		actions := &ActionList{}
+		verifyBatch := hashType.VerifyBatch
+		sm.batchTracker.applyVerifyBatchHashResult(hashResult.Digest, verifyBatch)
+		if !sm.batchTracker.hasFetchInFlight() && sm.epochTracker.currentEpoch.state == etFetching {
+			actions.concat(sm.epochTracker.currentEpoch.fetchNewEpochState())
+		}
+		return actions
+	default:
+		panic("no hash result type set")
+	}
+}
+
+func (sm *StateMachine) processCheckpointResult(checkpointResult *state.EventCheckpointResult) *ActionList {
 	actions := &ActionList{}
 
-	for _, checkpointResult := range results.Checkpoints {
-		if checkpointResult.SeqNo < sm.commitState.lowWatermark {
-			// Sometimes the application might send a stale checkpoint after
-			// state transfer, so we ignore.
-			continue
-		}
-
-		expectedSeqNo := sm.commitState.lowWatermark + uint64(sm.commitState.activeState.Config.CheckpointInterval)
-		assertEqual(expectedSeqNo, checkpointResult.SeqNo, "new checkpoint results muts be exactly one checkpoint interval after the last")
-
-		var epochConfig *msgs.EpochConfig
-		if sm.epochTracker.currentEpoch.activeEpoch != nil {
-			// Of course this means epochConfig may be nil, and that's okay
-			// since we know that no new pEntries/qEntries can be persisted
-			// until we send an epoch related persisted entry
-			epochConfig = sm.epochTracker.currentEpoch.activeEpoch.epochConfig
-		}
-
-		prevStopAtSeqNo := sm.commitState.stopAtSeqNo
-		actions.concat(sm.commitState.applyCheckpointResult(epochConfig, checkpointResult))
-		if prevStopAtSeqNo < sm.commitState.stopAtSeqNo {
-			sm.clientTracker.allocate(checkpointResult.SeqNo, checkpointResult.NetworkState)
-			actions.concat(sm.clientHashDisseminator.allocate(checkpointResult.SeqNo, checkpointResult.NetworkState))
-		}
+	if checkpointResult.SeqNo < sm.commitState.lowWatermark {
+		// Sometimes the application might send a stale checkpoint after
+		// state transfer, so we ignore.
+		return actions
 	}
 
-	for _, hashResult := range results.Digests {
-		switch hashType := hashResult.Type.(type) {
-		case *state.HashResult_Batch_:
-			batch := hashType.Batch
-			sm.batchTracker.addBatch(batch.SeqNo, hashResult.Digest, batch.RequestAcks)
-			actions.concat(sm.epochTracker.applyBatchHashResult(batch.Epoch, batch.SeqNo, hashResult.Digest))
-		case *state.HashResult_EpochChange_:
-			epochChange := hashType.EpochChange
-			actions.concat(sm.epochTracker.applyEpochChangeDigest(epochChange, hashResult.Digest))
-		case *state.HashResult_VerifyBatch_:
-			verifyBatch := hashType.VerifyBatch
-			sm.batchTracker.applyVerifyBatchHashResult(hashResult.Digest, verifyBatch)
-			if !sm.batchTracker.hasFetchInFlight() && sm.epochTracker.currentEpoch.state == etFetching {
-				actions.concat(sm.epochTracker.currentEpoch.fetchNewEpochState())
-			}
-		default:
-			panic("no hash result type set")
-		}
+	expectedSeqNo := sm.commitState.lowWatermark + uint64(sm.commitState.activeState.Config.CheckpointInterval)
+	assertEqual(expectedSeqNo, checkpointResult.SeqNo, "new checkpoint results muts be exactly one checkpoint interval after the last")
+
+	var epochConfig *msgs.EpochConfig
+	if sm.epochTracker.currentEpoch.activeEpoch != nil {
+		// Of course this means epochConfig may be nil, and that's okay
+		// since we know that no new pEntries/qEntries can be persisted
+		// until we send an epoch related persisted entry
+		epochConfig = sm.epochTracker.currentEpoch.activeEpoch.epochConfig
+	}
+
+	prevStopAtSeqNo := sm.commitState.stopAtSeqNo
+	actions.concat(sm.commitState.applyCheckpointResult(epochConfig, checkpointResult))
+	if prevStopAtSeqNo < sm.commitState.stopAtSeqNo {
+		sm.clientTracker.allocate(checkpointResult.SeqNo, checkpointResult.NetworkState)
+		actions.concat(sm.clientHashDisseminator.allocate(checkpointResult.SeqNo, checkpointResult.NetworkState))
 	}
 
 	return actions

@@ -61,9 +61,9 @@ var _ = XDescribe("sequence", func() {
 					[]byte("msg2-digest"),
 				},
 
-				&state.HashResult{
-					Type: &state.HashResult_Batch_{
-						Batch: &state.HashResult_Batch{
+				&state.HashOrigin{
+					Type: &state.HashOrigin_Batch_{
+						Batch: &state.HashOrigin_Batch{
 							Source: 0,
 							SeqNo:  5,
 							Epoch:  4,

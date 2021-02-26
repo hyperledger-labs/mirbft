@@ -211,10 +211,10 @@ type NodeState struct {
 	ReqStore                *ReqStore
 }
 
-func (ns *NodeState) Set(seqNo uint64, value []byte, networkState *msgs.NetworkState) *state.CheckpointResult {
+func (ns *NodeState) Set(seqNo uint64, value []byte, networkState *msgs.NetworkState) *state.EventCheckpointResult {
 	ns.ActiveHash = ns.Hasher()
 
-	checkpoint := &state.CheckpointResult{
+	checkpoint := &state.EventCheckpointResult{
 		SeqNo:        seqNo,
 		NetworkState: networkState,
 		Value:        value,
@@ -228,14 +228,14 @@ func (ns *NodeState) Set(seqNo uint64, value []byte, networkState *msgs.NetworkS
 		// prevent the size of the storage from growing indefinitely,
 		// keep only the last 100 checkpoints.
 		del := ns.Checkpoints.Remove(ns.Checkpoints.Front())
-		delete(ns.CheckpointsBySeqNo, del.(*state.CheckpointResult).SeqNo)
+		delete(ns.CheckpointsBySeqNo, del.(*state.EventCheckpointResult).SeqNo)
 	}
 
 	return checkpoint
 }
 
-func (ns *NodeState) LastCheckpoint() *state.CheckpointResult {
-	return ns.Checkpoints.Back().Value.(*state.CheckpointResult)
+func (ns *NodeState) LastCheckpoint() *state.EventCheckpointResult {
+	return ns.Checkpoints.Back().Value.(*state.EventCheckpointResult)
 }
 
 func (ns *NodeState) Commit(commit *state.ActionCommit) {
@@ -259,7 +259,7 @@ func (ns *NodeState) Commit(commit *state.ActionCommit) {
 		}
 	}
 }
-func (ns *NodeState) Checkpoint(checkpoint *state.ActionCheckpoint) *state.CheckpointResult {
+func (ns *NodeState) Checkpoint(checkpoint *state.ActionCheckpoint) *state.EventCheckpointResult {
 	// We must have a checkpoint
 
 	if checkpoint.SeqNo != ns.LastSeqNo {
@@ -409,13 +409,12 @@ func (r *Recording) Step() error {
 	nodeState := node.State
 
 	switch stateEvent := lastEvent.StateEvent.Type.(type) {
-	case *state.Event_Tick:
+	case *state.Event_TickElapsed:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
-	case *state.Event_AddResults:
-	case *state.Event_AddClientResults:
-		for _, req := range stateEvent.AddClientResults.Persisted {
-			node.ReqStore.Store(req)
-		}
+	case *state.Event_HashResult:
+	case *state.Event_CheckpointResult:
+	case *state.Event_RequestPersisted:
+		node.ReqStore.Store(stateEvent.RequestPersisted.RequestAck)
 	case *state.Event_Step:
 	case *state.Event_ActionsReceived:
 		if !node.AwaitingProcessEvent {
@@ -423,9 +422,6 @@ func (r *Recording) Step() error {
 		}
 		node.AwaitingProcessEvent = false
 		processing := playbackNode.Processing
-
-		clientActionResults := &state.EventClientActionResults{}
-		apply := &state.EventActionResults{}
 
 		iter := processing.Iterator()
 		for action := iter.Next(); action != nil; action = iter.Next() {
@@ -443,7 +439,7 @@ func (r *Recording) Step() error {
 					}
 					r.EventLog.InsertStepEvent(
 						i,
-						&state.EventInboundMsg{
+						&state.EventStep{
 							Source: lastEvent.NodeId,
 							Msg:    send.Msg,
 						},
@@ -457,10 +453,18 @@ func (r *Recording) Step() error {
 					hasher.Write(data)
 				}
 
-				apply.Digests = append(apply.Digests, &state.HashResult{
-					Digest: hasher.Sum(nil),
-					Type:   hashRequest.Origin.Type,
-				})
+				r.EventLog.InsertStateEvent(
+					lastEvent.NodeId,
+					&state.Event{
+						Type: &state.Event_HashResult{
+							HashResult: &state.EventHashResult{
+								Digest: hasher.Sum(nil),
+								Origin: hashRequest.Origin,
+							},
+						},
+					},
+					int64(runtimeParms.ReadyLatency),
+				)
 			case *state.Action_TruncateWriteAhead:
 				node.WAL.Truncate(t.TruncateWriteAhead.Index)
 			case *state.Action_AppendWriteAhead:
@@ -481,7 +485,17 @@ func (r *Recording) Step() error {
 					continue
 				}
 
-				clientActionResults.Persisted = append(clientActionResults.Persisted, req)
+				r.EventLog.InsertStateEvent(
+					lastEvent.NodeId,
+					&state.Event{
+						Type: &state.Event_RequestPersisted{
+							RequestPersisted: &state.EventRequestPersisted{
+								RequestAck: req,
+							},
+						},
+					},
+					int64(runtimeParms.ClientProcessLatency),
+				)
 			case *state.Action_ForwardRequest:
 				forward := t.ForwardRequest
 				if !node.ReqStore.Has(forward.Ack) {
@@ -506,9 +520,9 @@ func (r *Recording) Step() error {
 					r.EventLog.InsertStateEvent(
 						dNodeID,
 						&state.Event{
-							Type: &state.Event_AddClientResults{
-								AddClientResults: &state.EventClientActionResults{
-									Persisted: []*msgs.RequestAck{forward.Ack},
+							Type: &state.Event_RequestPersisted{
+								RequestPersisted: &state.EventRequestPersisted{
+									RequestAck: forward.Ack,
 								},
 							},
 						},
@@ -520,7 +534,15 @@ func (r *Recording) Step() error {
 			case *state.Action_Commit:
 				nodeState.Commit(t.Commit)
 			case *state.Action_Checkpoint:
-				apply.Checkpoints = append(apply.Checkpoints, nodeState.Checkpoint(t.Checkpoint))
+				r.EventLog.InsertStateEvent(
+					lastEvent.NodeId,
+					&state.Event{
+						Type: &state.Event_CheckpointResult{
+							CheckpointResult: nodeState.Checkpoint(t.Checkpoint),
+						},
+					},
+					int64(runtimeParms.ProcessLatency),
+				)
 			case *state.Action_StateTransfer:
 				var networkState *msgs.NetworkState
 				for _, node := range r.Nodes {
@@ -531,14 +553,14 @@ func (r *Recording) Step() error {
 						continue
 					}
 
-					networkState = el.Value.(*state.CheckpointResult).NetworkState
+					networkState = el.Value.(*state.EventCheckpointResult).NetworkState
 					break
 				}
 				r.EventLog.InsertStateEvent(
 					lastEvent.NodeId,
 					&state.Event{
-						Type: &state.Event_Transfer{
-							Transfer: &msgs.CEntry{
+						Type: &state.Event_StateTransferComplete{
+							StateTransferComplete: &state.EventStateTransferComplete{
 								SeqNo:           t.StateTransfer.SeqNo,
 								CheckpointValue: t.StateTransfer.Value,
 								NetworkState:    networkState,
@@ -550,28 +572,12 @@ func (r *Recording) Step() error {
 			default:
 				panic(fmt.Sprintf("unhandled type: %T", t))
 			}
+
+			playbackNode.Processing = nil
 		}
-
-		r.EventLog.InsertStateEvent(
-			lastEvent.NodeId,
-			&state.Event{
-				Type: &state.Event_AddClientResults{
-					AddClientResults: clientActionResults,
-				},
-			},
-			0, // TODO, maybe have some additional reqstore latency here?
-		)
-
-		r.EventLog.InsertStateEvent(
-			lastEvent.NodeId,
-			&state.Event{
-				Type: &state.Event_AddResults{
-					AddResults: apply,
-				},
-			},
-			int64(runtimeParms.ReadyLatency),
-		)
 	case *state.Event_Initialize:
+		node.AwaitingProcessEvent = false
+
 		// If this is an Initialize, it is either the first event for the node,
 		// and nothing else is in the log, or, it is a restart.  In the case of
 		// a restart, we clear any outstanding events associated to this NodeID from
@@ -595,10 +601,10 @@ func (r *Recording) Step() error {
 			r.EventLog.InsertStateEvent(
 				lastEvent.NodeId,
 				&state.Event{
-					Type: &state.Event_LoadEntry{
-						LoadEntry: &state.EventPersistedEntry{
+					Type: &state.Event_LoadPersistedEntry{
+						LoadPersistedEntry: &state.EventLoadPersistedEntry{
 							Index: index,
-							Data:  p,
+							Entry: p,
 						},
 					},
 				},
@@ -621,9 +627,14 @@ func (r *Recording) Step() error {
 			},
 			delay,
 		)
-	case *state.Event_LoadEntry:
-	case *state.Event_Transfer:
-		node.State.Set(stateEvent.Transfer.SeqNo, stateEvent.Transfer.CheckpointValue, stateEvent.Transfer.NetworkState)
+	case *state.Event_LoadPersistedEntry:
+	case *state.Event_StateTransferComplete:
+		node.State.Set(
+			stateEvent.StateTransferComplete.SeqNo,
+			stateEvent.StateTransferComplete.CheckpointValue,
+			stateEvent.StateTransferComplete.NetworkState,
+		)
+	case *state.Event_StateTransferFailed:
 	case *state.Event_CompleteInitialization:
 		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
 	default:
@@ -631,7 +642,7 @@ func (r *Recording) Step() error {
 	}
 
 	if playbackNode.Processing == nil &&
-		playbackNode.Actions.Len() != 0 &&
+		playbackNode.Actions.Len() > 0 &&
 		!node.AwaitingProcessEvent {
 		r.EventLog.InsertProcess(lastEvent.NodeId, int64(runtimeParms.ProcessLatency))
 		node.AwaitingProcessEvent = true

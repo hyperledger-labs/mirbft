@@ -70,7 +70,7 @@ var _ = XDescribe("Non-determinism finding test", func() {
 	})
 })
 
-var tickEvent = &state.Event{Type: &state.Event_Tick{Tick: &state.EventTickElapsed{}}}
+var tickEvent = &state.Event{Type: &state.Event_TickElapsed{TickElapsed: &state.EventTickElapsed{}}}
 
 var _ = Describe("Eventlog", func() {
 
@@ -116,7 +116,7 @@ var _ = Describe("Eventlog", func() {
 			eventLog.List.Front().Value.(*recording.Event),
 			&recording.Event{
 				NodeId:     1,
-				StateEvent: &state.Event{Type: &state.Event_Tick{Tick: &state.EventTickElapsed{}}},
+				StateEvent: &state.Event{Type: &state.Event_TickElapsed{TickElapsed: &state.EventTickElapsed{}}},
 				Time:       10,
 			},
 		)).To(BeTrue())
@@ -124,7 +124,7 @@ var _ = Describe("Eventlog", func() {
 			eventLog.List.Back().Value.(*recording.Event),
 			&recording.Event{
 				NodeId:     2,
-				StateEvent: &state.Event{Type: &state.Event_Tick{Tick: &state.EventTickElapsed{}}},
+				StateEvent: &state.Event{Type: &state.Event_TickElapsed{TickElapsed: &state.EventTickElapsed{}}},
 				Time:       20,
 			},
 		)).To(BeTrue())

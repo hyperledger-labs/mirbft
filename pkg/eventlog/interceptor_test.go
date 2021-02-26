@@ -21,8 +21,8 @@ import (
 )
 
 var tickEvent = &state.Event{
-	Type: &state.Event_Tick{
-		Tick: &state.EventTickElapsed{},
+	Type: &state.Event_TickElapsed{
+		TickElapsed: &state.EventTickElapsed{},
 	},
 }
 

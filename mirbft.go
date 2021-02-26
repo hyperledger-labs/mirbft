@@ -157,14 +157,16 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 	}
 
 	stepEvent := &state.Event_Step{
-		Step: &state.EventInboundMsg{
+		Step: &state.EventStep{
 			Source: source,
 			Msg:    msg,
 		},
 	}
 
 	select {
-	case n.s.stepC <- stepEvent:
+	case n.s.resultsC <- &state.Event{
+		Type: stepEvent,
+	}:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -234,7 +236,11 @@ func (n *Node) Err() <-chan struct{} {
 // only if the state machine has stopped (if it was stopped gracefully, ErrStopped is returned).
 func (n *Node) Tick() error {
 	select {
-	case n.s.tickC <- struct{}{}:
+	case n.s.resultsC <- &state.Event{
+		Type: &state.Event_TickElapsed{
+			TickElapsed: &state.EventTickElapsed{},
+		},
+	}:
 		return nil
 	case <-n.s.errC:
 		return n.s.getExitErr()
@@ -246,35 +252,42 @@ func (n *Node) Tick() error {
 // Actions is applicable.  In the case that the node is stopped, it returns
 // the exit error otherwise nil is returned.
 func (n *Node) AddResults(results ActionResults) error {
-	stateEventResults := &state.EventActionResults{
-		Digests:     make([]*state.HashResult, len(results.Digests)),
-		Checkpoints: make([]*state.CheckpointResult, len(results.Checkpoints)),
-	}
-
-	for i, hashResult := range results.Digests {
-		// TODO, I really don't like this... but it should be safe
-		hashResult.Request.Origin.Digest = hashResult.Digest
-		stateEventResults.Digests[i] = hashResult.Request.Origin
-	}
-
-	for i, cr := range results.Checkpoints {
-		stateEventResults.Checkpoints[i] = &state.CheckpointResult{
-			SeqNo: cr.Checkpoint.SeqNo,
-			Value: cr.Value,
-			NetworkState: &msgs.NetworkState{
-				Config:                  cr.Checkpoint.NetworkConfig,
-				Clients:                 cr.Checkpoint.ClientsState,
-				PendingReconfigurations: cr.Reconfigurations,
+	for _, hashResult := range results.Digests {
+		select {
+		case n.s.resultsC <- &state.Event{
+			Type: &state.Event_HashResult{
+				HashResult: &state.EventHashResult{
+					Digest: hashResult.Digest,
+					Origin: hashResult.Request.Origin,
+				},
 			},
+		}:
+		case <-n.s.errC:
+			return n.s.getExitErr()
 		}
 	}
 
-	select {
-	case n.s.resultsC <- stateEventResults:
-		return nil
-	case <-n.s.errC:
-		return n.s.getExitErr()
+	for _, cr := range results.Checkpoints {
+		select {
+		case n.s.resultsC <- &state.Event{
+			Type: &state.Event_CheckpointResult{
+				CheckpointResult: &state.EventCheckpointResult{
+					SeqNo: cr.Checkpoint.SeqNo,
+					Value: cr.Value,
+					NetworkState: &msgs.NetworkState{
+						Config:                  cr.Checkpoint.NetworkConfig,
+						Clients:                 cr.Checkpoint.ClientsState,
+						PendingReconfigurations: cr.Reconfigurations,
+					},
+				},
+			},
+		}:
+		case <-n.s.errC:
+			return n.s.getExitErr()
+		}
 	}
+
+	return nil
 }
 
 // AddClientResults is a callback from the client consumer to the state machine, informing the
@@ -282,16 +295,20 @@ func (n *Node) AddResults(results ActionResults) error {
 // ClientActions is applicable.  In the case that the node is stopped, it returns
 // the exit error otherwise nil is returned.
 func (n *Node) AddClientResults(results ClientActionResults) error {
-	stateEventResults := &state.EventClientActionResults{
-		Persisted: results.PersistedRequests,
+	for _, persisted := range results.PersistedRequests {
+		select {
+		case n.s.resultsC <- &state.Event{
+			Type: &state.Event_RequestPersisted{
+				RequestPersisted: &state.EventRequestPersisted{
+					RequestAck: persisted,
+				},
+			},
+		}:
+		case <-n.s.errC:
+			return n.s.getExitErr()
+		}
 	}
-
-	select {
-	case n.s.clientResultsC <- stateEventResults:
-		return nil
-	case <-n.s.errC:
-		return n.s.getExitErr()
-	}
+	return nil
 }
 
 // StateTransferComplete should be called by the consumer in response to a StateTransfer action
@@ -299,11 +316,13 @@ func (n *Node) AddClientResults(results ClientActionResults) error {
 // the exit error, otherwise nil is returned.
 func (n *Node) StateTransferComplete(stateTarget *StateTarget, networkState *msgs.NetworkState) error {
 	select {
-	case n.s.transferC <- &state.Event_Transfer{
-		Transfer: &msgs.CEntry{
-			SeqNo:           stateTarget.SeqNo,
-			CheckpointValue: stateTarget.Value,
-			NetworkState:    networkState,
+	case n.s.resultsC <- &state.Event{
+		Type: &state.Event_StateTransferComplete{
+			StateTransferComplete: &state.EventStateTransferComplete{
+				SeqNo:           stateTarget.SeqNo,
+				CheckpointValue: stateTarget.Value,
+				NetworkState:    networkState,
+			},
 		},
 	}:
 		return nil
@@ -319,11 +338,12 @@ func (n *Node) StateTransferComplete(stateTarget *StateTarget, networkState *msg
 // may be the same target in the event that the network has stalled).
 func (n *Node) StateTransferFailed(stateTarget *StateTarget) error {
 	select {
-	case n.s.transferC <- &state.Event_Transfer{
-		Transfer: &msgs.CEntry{
-			SeqNo:           stateTarget.SeqNo,
-			CheckpointValue: stateTarget.Value,
-			NetworkState:    nil, // nil state indicates error
+	case n.s.resultsC <- &state.Event{
+		Type: &state.Event_StateTransferFailed{
+			StateTransferFailed: &state.EventStateTransferFailed{
+				SeqNo:           stateTarget.SeqNo,
+				CheckpointValue: stateTarget.Value,
+			},
 		},
 	}:
 		return nil

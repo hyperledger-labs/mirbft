@@ -118,19 +118,21 @@ func (p *Player) Step() error {
 		node.Actions = &statemachine.ActionList{}
 		node.Status = sm.Status()
 		node.Processing = nil
-	case *state.Event_Transfer:
-	case *state.Event_AddResults:
-		node.Processing = nil
+	case *state.Event_StateTransferComplete:
+	case *state.Event_StateTransferFailed:
+	case *state.Event_HashResult:
+	case *state.Event_CheckpointResult:
+	case *state.Event_RequestPersisted:
 	case *state.Event_ActionsReceived:
-		if node.Processing != nil {
-			return errors.Errorf("node %d is currently processing but got a second process event", event.NodeId)
-		}
-
 		node.Processing = node.Actions
 		node.Actions = &statemachine.ActionList{}
 	}
 
 	node.Actions.PushBackList(node.StateMachine.ApplyEvent(event.StateEvent))
+
+	// Note, we don't strictly need to poll status after each event, as
+	// we never consume it.  It's a nice test that status works, but,
+	// it adds 60% or more to the execution time.
 	node.Status = node.StateMachine.Status()
 
 	return nil

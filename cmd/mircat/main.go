@@ -220,24 +220,26 @@ func (a *arguments) shouldPrint(event *recording.Event) bool {
 	switch event.StateEvent.Type.(type) {
 	case *state.Event_Initialize:
 		eventTypeText = "Initialize"
-	case *state.Event_LoadEntry:
-		eventTypeText = "LoadEntry"
+	case *state.Event_LoadPersistedEntry:
+		eventTypeText = "LoadPersistedEntry"
 	case *state.Event_CompleteInitialization:
 		eventTypeText = "CompleteInitialization"
-	case *state.Event_Tick:
-		eventTypeText = "Tick"
-	case *state.Event_AddResults:
-		eventTypeText = "AddResults"
-	case *state.Event_AddClientResults:
-		eventTypeText = "AddClientResults"
+	case *state.Event_TickElapsed:
+		eventTypeText = "TickElapsed"
+	case *state.Event_HashResult:
+		eventTypeText = "HashResult"
+	case *state.Event_CheckpointResult:
+		eventTypeText = "CheckpointResult"
+	case *state.Event_RequestPersisted:
+		eventTypeText = "RequestPersisted"
 	case *state.Event_ActionsReceived:
 		eventTypeText = "ActionsReceived"
-	case *state.Event_ClientActionsReceived:
-		eventTypeText = "ClientActionsReceived"
 	case *state.Event_Step:
 		eventTypeText = "Step"
-	case *state.Event_Transfer:
-		eventTypeText = "StateTransfer"
+	case *state.Event_StateTransferComplete:
+		eventTypeText = "StateTransferComplete"
+	case *state.Event_StateTransferFailed:
+		eventTypeText = "StateTransferFailed"
 	default:
 		panic(fmt.Sprintf("Unknown event type '%T'", event.StateEvent.Type))
 	}
@@ -248,13 +250,13 @@ func (a *arguments) shouldPrint(event *recording.Event) bool {
 
 	switch et := event.StateEvent.Type.(type) {
 	case *state.Event_Initialize:
-	case *state.Event_LoadEntry:
+	case *state.Event_LoadPersistedEntry:
 	case *state.Event_CompleteInitialization:
-	case *state.Event_Tick:
-	case *state.Event_AddResults:
-	case *state.Event_AddClientResults:
+	case *state.Event_TickElapsed:
+	case *state.Event_HashResult:
+	case *state.Event_CheckpointResult:
+	case *state.Event_RequestPersisted:
 	case *state.Event_ActionsReceived:
-	case *state.Event_ClientActionsReceived:
 	case *state.Event_Step:
 		var stepTypeText string
 		switch et.Step.Msg.Type.(type) {
@@ -294,8 +296,10 @@ func (a *arguments) shouldPrint(event *recording.Event) bool {
 		if excludeByType(stepTypeText, a.stepTypes, a.notStepTypes) {
 			return false
 		}
-	case *state.Event_Transfer:
-		eventTypeText = "StateTransfer"
+	case *state.Event_StateTransferComplete:
+		eventTypeText = "StateTransferComplete"
+	case *state.Event_StateTransferFailed:
+		eventTypeText = "StateTransferFailed"
 	default:
 		panic(fmt.Sprintf("Unknown event type '%T'", event.StateEvent.Type))
 	}

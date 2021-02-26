@@ -22,7 +22,7 @@ var _ = Describe("textmarshal", func() {
 			Time:   9,
 			StateEvent: &state.Event{
 				Type: &state.Event_Step{
-					Step: &state.EventInboundMsg{
+					Step: &state.EventStep{
 						Source: 4,
 						Msg: &msgs.Msg{
 							Type: &msgs.Msg_Prepare{

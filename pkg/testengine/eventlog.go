@@ -103,15 +103,15 @@ func (l *EventLog) InsertTickEvent(target uint64, fromNow int64) {
 	l.InsertStateEvent(
 		target,
 		&state.Event{
-			Type: &state.Event_Tick{
-				Tick: &state.EventTickElapsed{},
+			Type: &state.Event_TickElapsed{
+				TickElapsed: &state.EventTickElapsed{},
 			},
 		},
 		fromNow,
 	)
 }
 
-func (l *EventLog) InsertStepEvent(target uint64, stepEvent *state.EventInboundMsg, fromNow int64) {
+func (l *EventLog) InsertStepEvent(target uint64, stepEvent *state.EventStep, fromNow int64) {
 	l.InsertStateEvent(
 		target,
 		&state.Event{
@@ -136,19 +136,7 @@ func (l *EventLog) InsertProcess(target uint64, fromNow int64) {
 		target,
 		&state.Event{
 			Type: &state.Event_ActionsReceived{
-				ActionsReceived: &state.EventReady{},
-			},
-		},
-		fromNow,
-	)
-}
-
-func (l *EventLog) InsertClientProcess(target uint64, fromNow int64) {
-	l.InsertStateEvent(
-		target,
-		&state.Event{
-			Type: &state.Event_ClientActionsReceived{
-				ClientActionsReceived: &state.EventReady{},
+				ActionsReceived: &state.EventActionsReceived{},
 			},
 		},
 		fromNow,

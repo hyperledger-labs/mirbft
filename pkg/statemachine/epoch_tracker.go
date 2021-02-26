@@ -411,8 +411,8 @@ func (et *epochTracker) moveLowWatermark(seqNo uint64) *ActionList {
 	return et.currentEpoch.moveLowWatermark(seqNo)
 }
 
-func (et *epochTracker) applyEpochChangeDigest(hashResult *state.HashResult_EpochChange, digest []byte) *ActionList {
-	targetNumber := hashResult.EpochChange.NewEpoch
+func (et *epochTracker) applyEpochChangeDigest(origin *state.HashOrigin_EpochChange, digest []byte) *ActionList {
+	targetNumber := origin.EpochChange.NewEpoch
 	switch {
 	case targetNumber < et.currentEpoch.number:
 		// This is for an old epoch we no long care about
@@ -421,7 +421,7 @@ func (et *epochTracker) applyEpochChangeDigest(hashResult *state.HashResult_Epoc
 		assertFailed("", "got an epoch change digest for epoch %d we are processing %d", targetNumber, et.currentEpoch.number)
 
 	}
-	return et.currentEpoch.applyEpochChangeDigest(hashResult, digest)
+	return et.currentEpoch.applyEpochChangeDigest(origin, digest)
 }
 
 func (et *epochTracker) status() *status.EpochTracker {
