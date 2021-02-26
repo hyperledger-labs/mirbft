@@ -107,7 +107,7 @@ message NetworkState {
 
     repeated Reconfiguration pending_reconfigurations = 3;
 
-    bool reconfigured = 4;
+    bool reconfigured = 4; // TODO, do we need this?
 }
 
 message Reconfiguration {
