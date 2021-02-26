@@ -205,7 +205,7 @@ func (sm *StateMachine) applyEvent(stateEvent *state.Event) *ActionList {
 		))
 	case *state.Event_StateTransferFailed:
 		sm.Logger.Log(LevelDebug, "state transfer failed", "seq_no", event.StateTransferFailed.SeqNo)
-		panic("XXX handle me")
+		panic("XXX handle state transfer failure")
 	case *state.Event_StateTransferComplete:
 		assertEqualf(sm.commitState.transferring, true, "state transfer event received but the state machine did not request transfer")
 

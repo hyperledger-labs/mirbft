@@ -351,6 +351,8 @@ func clientReq(clientID, reqNo uint64) []byte {
 }
 
 func (tr *TestReplica) Run() (*status.StateMachine, error) {
+	eventsC := make(chan *statemachine.EventList)
+
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 
@@ -381,40 +383,34 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	Expect(err).NotTo(HaveOccurred())
 	defer reqStore.Close()
 
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
 	node, err := mirbft.StartNewNode(tr.Config, tr.InitialNetworkState, []byte("fake-application-state"))
 	Expect(err).NotTo(HaveOccurred())
 	defer node.Stop()
 
-	linkDoneC := make(chan struct{})
+	wg.Add(1)
 	go func() {
-		defer GinkgoRecover()
-		defer close(linkDoneC)
+		defer wg.Done()
 		recvC := tr.FakeTransport.RecvC(node.Config.ID)
+		events := &statemachine.EventList{}
+		var eC chan *statemachine.EventList
 		for {
 			select {
 			case sourceMsg := <-recvC:
-				// fmt.Printf("Stepping message from %d to %d\n", sourceMsg.Source, node.Config.ID)
-				err := node.InjectEvents((&statemachine.EventList{}).Step(sourceMsg.Source, sourceMsg.Msg))
-				if err == mirbft.ErrStopped {
-					return
+				events.Step(sourceMsg.Source, sourceMsg.Msg)
+				if eC == nil {
+					eC = eventsC
 				}
-				Expect(err).NotTo(HaveOccurred())
-			case <-tr.DoneC:
+			case eC <- events:
+				events = &statemachine.EventList{}
+				eC = nil
+			case <-node.Err():
 				return
 			}
 		}
 	}()
-	defer func() {
-		<-linkDoneC
-	}()
-
-	processor := &mirbft.Processor{
-		NodeID: node.Config.ID,
-		Link:   tr.FakeTransport.Link(node.Config.ID),
-		Hasher: crypto.SHA256,
-		App:    tr.App,
-		WAL:    wal,
-	}
 
 	clientProcessor := &mirbft.ClientProcessor{
 		NodeID:       node.Config.ID,
@@ -425,19 +421,24 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	expectedProposalCount := tr.FakeClient.MsgCount
 	Expect(expectedProposalCount).NotTo(Equal(0))
 
-	clientDoneC := make(chan struct{})
-	defer func() {
-		<-clientDoneC
-	}()
+	wg.Add(1)
 	go func() {
-		defer GinkgoRecover()
-		defer close(clientDoneC)
+		defer wg.Done()
 		client := clientProcessor.Client(0)
 		for {
+			select {
+			case <-node.Err():
+				return
+			default:
+			}
+
 			nextReqNo, err := client.NextReqNo()
 			if err == mirbft.ErrClientNotExist {
 				time.Sleep(20 * time.Millisecond)
 				continue
+			}
+			if err != nil {
+				return // TODO, make this less dumb
 			}
 			if nextReqNo == tr.FakeClient.MsgCount {
 				return
@@ -457,8 +458,9 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		}
 	}()
 
-	// TODO, don't pre-allocate all of the requests, do it in the go routine
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
 			var err error
 			select {
@@ -473,8 +475,6 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 				err = node.AddClientResults(*clientProcessor.ClientWork.Results())
 			case <-node.Err():
 				return
-			case <-tr.DoneC:
-				return
 			}
 
 			if err != nil {
@@ -485,28 +485,60 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 					panic(err)
 				case <-node.Err():
 					return
-				case <-tr.DoneC:
-					return
 				}
 			}
 		}
 	}()
 
-	var process func(*statemachine.ActionList) (*statemachine.EventList, error)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer GinkgoRecover()
+		processor := &mirbft.Processor{
+			NodeID: node.Config.ID,
+			Link:   tr.FakeTransport.Link(node.Config.ID),
+			Hasher: crypto.SHA256,
+			App:    tr.App,
+			WAL:    wal,
+		}
 
-	Expect(tr.ParallelProcess).To(BeFalse())
-	process = processor.Process
+		events := &statemachine.EventList{}
+		var eC chan *statemachine.EventList
+		for {
+			select {
+			case actions := <-node.Actions():
+				newEvents, err := processor.Process(actions)
+				if err == mirbft.ErrStopped {
+					return
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				events.PushBackList(newEvents)
+			case eC <- events:
+				events = &statemachine.EventList{}
+				eC = nil
+			case <-ticker.C:
+				events.TickElapsed()
+			case <-node.Err():
+				return
+			}
+
+			if events.Len() > 0 {
+				eC = eventsC
+			}
+		}
+	}()
 
 	for {
 		select {
-		case actions := <-node.Actions():
-			events, err := process(actions)
+		case events := <-eventsC:
+			err := node.InjectEvents(events)
+			if err == mirbft.ErrStopped {
+				return node.Status(context.Background())
+			}
 			Expect(err).NotTo(HaveOccurred())
-			node.InjectEvents(events)
 		case <-node.Err():
 			return node.Status(context.Background())
-		case <-ticker.C:
-			node.InjectEvents((&statemachine.EventList{}).TickElapsed())
 		case <-tr.DoneC:
 			node.Stop()
 			return node.Status(context.Background())

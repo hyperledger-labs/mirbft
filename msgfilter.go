@@ -15,6 +15,8 @@ import (
 // TODO, we probably can/should add some more basic error checking here.  Particularly
 // identifying pointer fields which must be set.
 
+var _ = preProcess // XXX temporary hack to make staticccheck not made
+
 func preProcess(outerMsg *msgs.Msg) error {
 	switch innerMsg := outerMsg.Type.(type) {
 	case *msgs.Msg_Preprepare:
