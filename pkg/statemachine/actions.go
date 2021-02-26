@@ -17,37 +17,37 @@ type ActionList struct {
 	list *list.List
 }
 
-func (a *ActionList) Iterator() *ActionListIterator {
-	if a.list == nil {
+func (al *ActionList) Iterator() *ActionListIterator {
+	if al.list == nil {
 		return &ActionListIterator{}
 	}
 
 	return &ActionListIterator{
-		currentElement: a.list.Front(),
+		currentElement: al.list.Front(),
 	}
 }
 
-func (a *ActionList) PushBack(action *state.Action) {
-	if a.list == nil {
-		a.list = list.New()
+func (al *ActionList) PushBack(action *state.Action) {
+	if al.list == nil {
+		al.list = list.New()
 	}
 
-	a.list.PushBack(action)
+	al.list.PushBack(action)
 }
 
-func (a *ActionList) PushBackList(actionList *ActionList) {
-	a.concat(actionList)
+func (al *ActionList) PushBackList(actionList *ActionList) {
+	al.concat(actionList)
 }
 
-func (a *ActionList) Len() int {
-	if a.list == nil {
+func (al *ActionList) Len() int {
+	if al.list == nil {
 		return 0
 	}
-	return a.list.Len()
+	return al.list.Len()
 }
 
-func (a *ActionList) send(targets []uint64, msg *msgs.Msg) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) send(targets []uint64, msg *msgs.Msg) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_Send{
 			Send: &state.ActionSend{
 				Targets: targets,
@@ -56,11 +56,11 @@ func (a *ActionList) send(targets []uint64, msg *msgs.Msg) *ActionList {
 		},
 	})
 
-	return a
+	return al
 }
 
-func (a *ActionList) allocateRequest(clientID, reqNo uint64) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) allocateRequest(clientID, reqNo uint64) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_AllocatedRequest{
 			AllocatedRequest: &state.ActionRequestSlot{
 				ClientId: clientID,
@@ -68,11 +68,11 @@ func (a *ActionList) allocateRequest(clientID, reqNo uint64) *ActionList {
 			},
 		},
 	})
-	return a
+	return al
 }
 
-func (a *ActionList) forwardRequest(targets []uint64, requestAck *msgs.RequestAck) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) forwardRequest(targets []uint64, requestAck *msgs.RequestAck) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_ForwardRequest{
 			ForwardRequest: &state.ActionForward{
 				Targets: targets,
@@ -80,22 +80,22 @@ func (a *ActionList) forwardRequest(targets []uint64, requestAck *msgs.RequestAc
 			},
 		},
 	})
-	return a
+	return al
 }
 
-func (a *ActionList) truncate(index uint64) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) truncate(index uint64) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_TruncateWriteAhead{
 			TruncateWriteAhead: &state.ActionTruncate{
 				Index: index,
 			},
 		},
 	})
-	return a
+	return al
 }
 
-func (a *ActionList) persist(index uint64, p *msgs.Persistent) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) persist(index uint64, p *msgs.Persistent) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_AppendWriteAhead{
 			AppendWriteAhead: &state.ActionWrite{
 				Index: index,
@@ -103,21 +103,21 @@ func (a *ActionList) persist(index uint64, p *msgs.Persistent) *ActionList {
 			},
 		},
 	})
-	return a
+	return al
 }
 
-func (a *ActionList) commit(qEntry *msgs.QEntry) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) commit(qEntry *msgs.QEntry) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_Commit{
 			Commit: &state.ActionCommit{
 				Batch: qEntry,
 			},
 		},
 	})
-	return a
+	return al
 }
-func (a *ActionList) checkpoint(seqNo uint64, networkConfig *msgs.NetworkState_Config, clientStates []*msgs.NetworkState_Client) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) checkpoint(seqNo uint64, networkConfig *msgs.NetworkState_Config, clientStates []*msgs.NetworkState_Client) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_Checkpoint{
 			Checkpoint: &state.ActionCheckpoint{
 				SeqNo:         seqNo,
@@ -126,20 +126,20 @@ func (a *ActionList) checkpoint(seqNo uint64, networkConfig *msgs.NetworkState_C
 			},
 		},
 	})
-	return a
+	return al
 }
 
-func (a *ActionList) correctRequest(ack *msgs.RequestAck) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) correctRequest(ack *msgs.RequestAck) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_CorrectRequest{
 			CorrectRequest: ack,
 		},
 	})
-	return a
+	return al
 }
 
-func (a *ActionList) hash(data [][]byte, origin *state.HashOrigin) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) hash(data [][]byte, origin *state.HashOrigin) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_Hash{
 			Hash: &state.ActionHashRequest{
 				Data:   data,
@@ -147,11 +147,11 @@ func (a *ActionList) hash(data [][]byte, origin *state.HashOrigin) *ActionList {
 			},
 		},
 	})
-	return a
+	return al
 }
 
-func (a *ActionList) stateTransfer(seqNo uint64, value []byte) *ActionList {
-	a.PushBack(&state.Action{
+func (al *ActionList) stateTransfer(seqNo uint64, value []byte) *ActionList {
+	al.PushBack(&state.Action{
 		Type: &state.Action_StateTransfer{
 			StateTransfer: &state.ActionStateTarget{
 				SeqNo: seqNo,
@@ -160,20 +160,20 @@ func (a *ActionList) stateTransfer(seqNo uint64, value []byte) *ActionList {
 		},
 	})
 
-	return a
+	return al
 }
 
-func (a *ActionList) isEmpty() bool {
-	return a.list == nil || a.list.Len() == 0
+func (al *ActionList) isEmpty() bool {
+	return al.list == nil || al.list.Len() == 0
 }
-func (a *ActionList) concat(o *ActionList) *ActionList {
+func (al *ActionList) concat(o *ActionList) *ActionList {
 	if o.list != nil {
-		if a.list == nil {
-			a.list = list.New()
+		if al.list == nil {
+			al.list = list.New()
 		}
-		a.list.PushBackList(o.list)
+		al.list.PushBackList(o.list)
 	}
-	return a
+	return al
 }
 
 type ActionListIterator struct {
