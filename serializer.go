@@ -23,7 +23,7 @@ type serializer struct {
 	actionsC       chan Actions
 	clientActionsC chan ClientActions
 	doneC          chan struct{}
-	resultsC       chan *state.Event
+	eventsC        chan *statemachine.EventList
 	statusC        chan chan<- *status.StateMachine
 	errC           chan struct{}
 
@@ -41,7 +41,7 @@ func newSerializer(myConfig *Config, walStorage WALStorage) (*serializer, error)
 		actionsC:       make(chan Actions),
 		clientActionsC: make(chan ClientActions),
 		doneC:          make(chan struct{}),
-		resultsC:       make(chan *state.Event),
+		eventsC:        make(chan *statemachine.EventList),
 		statusC:        make(chan chan<- *status.StateMachine),
 		errC:           make(chan struct{}),
 		myConfig:       myConfig,
@@ -180,8 +180,14 @@ func (s *serializer) run() (exitErr error) {
 		case clientActionsC <- *clientActions:
 			clientActions.clear()
 			clientActionsC = nil
-		case results := <-s.resultsC:
-			err = applyEvent(results)
+		case events := <-s.eventsC:
+			iter := events.Iterator()
+			for event := iter.Next(); event != nil; event = iter.Next() {
+				err = applyEvent(event)
+				if err != nil {
+					break
+				}
+			}
 		case statusReq := <-s.statusC:
 			select {
 			case statusReq <- sm.Status():
