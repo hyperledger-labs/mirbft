@@ -18,7 +18,6 @@ import (
 	"fmt"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 	"github.com/pkg/errors"
@@ -146,29 +145,6 @@ func (n *Node) Stop() {
 	n.s.stop()
 }
 
-// Step takes authenticated messages from the other nodes in the network.  It
-// is the responsibility of the caller to ensure that the message originated from
-// the designed source.  This method returns an error if the context ends, the node
-// stopped, or the message is not well formed (unknown proto fields, etc.).  In the
-// case that the node is stopped gracefully, it returns ErrStopped.
-func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
-	err := preProcess(msg)
-	if err != nil {
-		return err
-	}
-
-	el := (&statemachine.EventList{}).Step(source, msg)
-
-	select {
-	case n.s.eventsC <- el:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-n.s.errC:
-		return n.s.getExitErr()
-	}
-}
-
 // Status returns a static snapshot in time of the internal state of the state machine.
 // This method necessarily exposes some of the internal architecture of the system, and
 // especially while the library is in development, the data structures may change substantially.
@@ -223,20 +199,6 @@ func (n *Node) Err() <-chan struct{} {
 	return n.s.errC
 }
 
-// Tick injects a tick into the state machine.  Ticks inform the state machine that
-// time has elapsed, and cause it to perform operations like emit no-op heartbeat
-// batches, or transition into an epoch change.  Typically, a time.Ticker is used
-// and selected on in the same select statement as Ready().  An error is returned
-// only if the state machine has stopped (if it was stopped gracefully, ErrStopped is returned).
-func (n *Node) Tick() error {
-	select {
-	case n.s.eventsC <- (&statemachine.EventList{}).TickElapsed():
-		return nil
-	case <-n.s.errC:
-		return n.s.getExitErr()
-	}
-}
-
 // InjectEvents is called by the consumer after processing actions, or because
 // events such as network sends or client requests have occurred.
 // If the node is stopped, it returns the exit error otherwise nil is returned.
@@ -262,44 +224,6 @@ func (n *Node) AddClientResults(results ClientActionResults) error {
 
 	select {
 	case n.s.eventsC <- el:
-		return nil
-	case <-n.s.errC:
-		return n.s.getExitErr()
-	}
-}
-
-// StateTransferComplete should be called by the consumer in response to a StateTransfer action
-// once state transfer has completed.  In the case that the node is stopped, it returns
-// the exit error, otherwise nil is returned.
-func (n *Node) StateTransferComplete(stateTarget *StateTarget, networkState *msgs.NetworkState) error {
-	select {
-	case n.s.eventsC <- (&statemachine.EventList{}).StateTransferComplete(
-		networkState,
-		&state.ActionStateTarget{
-			SeqNo: stateTarget.SeqNo,
-			Value: stateTarget.Value,
-		},
-	):
-
-		return nil
-	case <-n.s.errC:
-		return n.s.getExitErr()
-	}
-}
-
-// StateTransferFailed should be called by the consumerr in response to a StateTransfer action
-// if a state transfer is unable to complete.  This should only be called when the state target is
-// unavailable because it has been garbage collected at all correct nodes.  This call will trigger
-// the state machine to request another state transfer to the latest known state target (which
-// may be the same target in the event that the network has stalled).
-func (n *Node) StateTransferFailed(stateTarget *StateTarget) error {
-	select {
-	case n.s.eventsC <- (&statemachine.EventList{}).StateTransferFailed(
-		&state.ActionStateTarget{
-			SeqNo: stateTarget.SeqNo,
-			Value: stateTarget.Value,
-		},
-	):
 		return nil
 	case <-n.s.errC:
 		return n.s.getExitErr()

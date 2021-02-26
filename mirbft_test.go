@@ -394,7 +394,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			select {
 			case sourceMsg := <-recvC:
 				// fmt.Printf("Stepping message from %d to %d\n", sourceMsg.Source, node.Config.ID)
-				err := node.Step(context.Background(), sourceMsg.Source, sourceMsg.Msg)
+				err := node.InjectEvents((&statemachine.EventList{}).Step(sourceMsg.Source, sourceMsg.Msg))
 				if err == mirbft.ErrStopped {
 					return
 				}
@@ -506,7 +506,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		case <-node.Err():
 			return node.Status(context.Background())
 		case <-ticker.C:
-			node.Tick()
+			node.InjectEvents((&statemachine.EventList{}).TickElapsed())
 		case <-tr.DoneC:
 			node.Stop()
 			return node.Status(context.Background())
