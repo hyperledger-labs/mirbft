@@ -84,8 +84,8 @@ func (cors *clientOutstandingReqs) skipPreviouslyCommitted() {
 	}
 }
 
-func (ao *allOutstandingReqs) advanceRequests() *actionSet {
-	actions := &actionSet{}
+func (ao *allOutstandingReqs) advanceRequests() *ActionList {
+	actions := &ActionList{}
 	for ao.availableIterator.hasNext() {
 		ack := ao.availableIterator.next()
 		key := string(ack.Digest)
@@ -103,7 +103,7 @@ func (ao *allOutstandingReqs) advanceRequests() *actionSet {
 }
 
 // TODO, bucket probably can/should be stored in the *sequence
-func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []*msgs.RequestAck) (*actionSet, error) {
+func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []*msgs.RequestAck) (*ActionList, error) {
 	bo, ok := ao.buckets[bucket]
 	assertTruef(ok, "told to apply acks for bucket %d which does not exist", bucket)
 

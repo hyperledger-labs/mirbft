@@ -149,10 +149,9 @@ type stateMachines struct {
 }
 
 type stateMachine struct {
-	machine              *statemachine.StateMachine
-	pendingActions       *state.Actions
-	pendingClientActions *state.Actions
-	executionTime        time.Duration
+	machine        *statemachine.StateMachine
+	pendingActions *statemachine.ActionList
+	executionTime  time.Duration
 }
 
 func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMachines {
@@ -163,7 +162,7 @@ func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMa
 	}
 }
 
-func (s *stateMachines) apply(event *recording.Event) (result *state.Actions, err error) {
+func (s *stateMachines) apply(event *recording.Event) (result *statemachine.ActionList, err error) {
 	var node *stateMachine
 
 	if _, ok := event.StateEvent.Type.(*state.Event_Initialize); ok {
@@ -176,8 +175,7 @@ func (s *stateMachines) apply(event *recording.Event) (result *state.Actions, er
 					level:  s.logLevel,
 				},
 			},
-			pendingActions:       &state.Actions{},
-			pendingClientActions: &state.Actions{},
+			pendingActions: &statemachine.ActionList{},
 		}
 		s.nodes[event.NodeId] = node
 	} else {
@@ -197,47 +195,19 @@ func (s *stateMachines) apply(event *recording.Event) (result *state.Actions, er
 	start := time.Now()
 	actions := node.machine.ApplyEvent(event.StateEvent)
 	node.executionTime += time.Since(start)
-	node.pendingActions, err = actionsConcat(node.pendingActions, actions)
+	node.pendingActions.PushBackList(actions)
 	if err != nil {
 		return nil, err
 	}
-	node.pendingClientActions = clientActionsConcat(node.pendingClientActions, actions)
 
 	switch event.StateEvent.Type.(type) {
 	case *state.Event_ActionsReceived:
 		result := node.pendingActions
-		node.pendingActions = &state.Actions{}
-		return result, nil
-	case *state.Event_ClientActionsReceived:
-		result := node.pendingClientActions
-		node.pendingClientActions = &state.Actions{}
+		node.pendingActions = &statemachine.ActionList{}
 		return result, nil
 	default:
 		return nil, nil
 	}
-}
-
-// actionsConcat appends the actions of o to the actions a
-func actionsConcat(a, o *state.Actions) (*state.Actions, error) {
-	a.Send = append(a.Send, o.Send...)
-	a.Commits = append(a.Commits, o.Commits...)
-	a.Hash = append(a.Hash, o.Hash...)
-	a.WriteAhead = append(a.WriteAhead, o.WriteAhead...)
-	if o.StateTransfer != nil {
-		if a.StateTransfer != nil {
-			return nil, fmt.Errorf("attempted to concatenate two concurrent state transfer requests")
-		}
-		a.StateTransfer = o.StateTransfer
-	}
-	return a, nil
-}
-
-// clientActionsConcat appends the client actions of o to the actions a
-func clientActionsConcat(a, o *state.Actions) *state.Actions {
-	a.AllocatedRequests = append(a.AllocatedRequests, o.AllocatedRequests...)
-	a.CorrectRequests = append(a.CorrectRequests, o.CorrectRequests...)
-	a.ForwardRequests = append(a.ForwardRequests, o.ForwardRequests...)
-	return a
 }
 
 func (s *stateMachines) status(event *recording.Event) *status.StateMachine {
@@ -385,11 +355,14 @@ func (a *arguments) execute(output io.Writer) error {
 			}
 
 			if actions != nil {
-				text, err := textFormat(actions, !a.verboseText)
-				if err != nil {
-					return errors.WithMessage(err, "could not marshal actions")
+				iter := actions.Iterator()
+				for action := iter.Next(); action != nil; action = iter.Next() {
+					text, err := textFormat(action, !a.verboseText)
+					if err != nil {
+						return errors.WithMessage(err, "could not marshal actions")
+					}
+					fmt.Fprintf(output, "       actions: %s\n", string(text))
 				}
-				fmt.Fprintf(output, "       actions: %s\n", string(text))
 			}
 
 			// note, config options enforce that is statusIndex is set, so is interactive

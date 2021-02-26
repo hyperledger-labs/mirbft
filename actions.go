@@ -7,87 +7,79 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
+	"fmt"
+
 	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/pb/state"
+	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
-func toActions(a *state.Actions) (*Actions, *ClientActions) {
-	aResult := &Actions{
-		Send:       make([]Send, len(a.Send)),
-		Hash:       make([]*HashRequest, len(a.Hash)),
-		WriteAhead: make([]*Write, len(a.WriteAhead)),
-		Commits:    make([]*Commit, len(a.Commits)),
-	}
-
-	caResult := &ClientActions{
-		AllocatedRequests: make([]RequestSlot, len(a.AllocatedRequests)),
-		CorrectRequests:   a.CorrectRequests,
-		ForwardRequests:   make([]Forward, len(a.ForwardRequests)),
-	}
-
-	for i, send := range a.Send {
-		aResult.Send[i] = Send{
-			Targets: send.Targets,
-			Msg:     send.Msg,
-		}
-	}
-
-	for i, hash := range a.Hash {
-		aResult.Hash[i] = &HashRequest{
-			Data:   hash.Data,
-			Origin: hash.Origin,
-		}
-	}
-
-	for i, write := range a.WriteAhead {
-		if write.Truncate != 0 {
-			aResult.WriteAhead[i] = &Write{
-				Truncate: &write.Truncate,
+func toActions(a *statemachine.ActionList) (*Actions, *ClientActions) {
+	iter := a.Iterator()
+	aResult := &Actions{}
+	caResult := &ClientActions{}
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_Send:
+			aResult.Send = append(aResult.Send, Send{
+				Targets: t.Send.Targets,
+				Msg:     t.Send.Msg,
+			})
+		case *state.Action_Hash:
+			aResult.Hash = append(aResult.Hash, &HashRequest{
+				Data:   t.Hash.Data,
+				Origin: t.Hash.Origin,
+			})
+		case *state.Action_WriteAhead:
+			var write *Write
+			if t.WriteAhead.Truncate != 0 {
+				write = &Write{
+					Truncate: &t.WriteAhead.Truncate,
+				}
+			} else {
+				write = &Write{
+					Append: &WALEntry{
+						Index: t.WriteAhead.Append,
+						Data:  t.WriteAhead.Data,
+					},
+				}
 			}
-		} else {
-			aResult.WriteAhead[i] = &Write{
-				Append: &WALEntry{
-					Index: write.Append,
-					Data:  write.Data,
-				},
+			aResult.WriteAhead = append(aResult.WriteAhead, write)
+		case *state.Action_AllocatedRequest:
+			caResult.AllocatedRequests = append(caResult.AllocatedRequests, RequestSlot{
+				ClientID: t.AllocatedRequest.ClientId,
+				ReqNo:    t.AllocatedRequest.ReqNo,
+			})
+		case *state.Action_CorrectRequest:
+			caResult.CorrectRequests = append(caResult.CorrectRequests, t.CorrectRequest)
+		case *state.Action_ForwardRequest:
+			caResult.ForwardRequests = append(caResult.ForwardRequests, Forward{
+				Targets:    t.ForwardRequest.Targets,
+				RequestAck: t.ForwardRequest.Ack,
+			})
+		case *state.Action_Commit:
+			var commit *Commit
+			if t.Commit.Batch != nil {
+				commit = &Commit{
+					Batch: t.Commit.Batch,
+				}
+			} else {
+				commit = &Commit{
+					Checkpoint: &Checkpoint{
+						SeqNo:         t.Commit.SeqNo,
+						NetworkConfig: t.Commit.NetworkConfig,
+						ClientsState:  t.Commit.ClientStates,
+					},
+				}
 			}
-		}
-	}
-
-	for i, ar := range a.AllocatedRequests {
-		caResult.AllocatedRequests[i] = RequestSlot{
-			ClientID: ar.ClientId,
-			ReqNo:    ar.ReqNo,
-		}
-	}
-
-	for i, f := range a.ForwardRequests {
-		caResult.ForwardRequests[i] = Forward{
-			Targets:    f.Targets,
-			RequestAck: f.Ack,
-		}
-	}
-
-	for i, c := range a.Commits {
-		if c.Batch != nil {
-			aResult.Commits[i] = &Commit{
-				Batch: c.Batch,
+			aResult.Commits = append(aResult.Commits, commit)
+		case *state.Action_StateTransfer:
+			aResult.StateTransfer = &StateTarget{
+				SeqNo: t.StateTransfer.SeqNo,
+				Value: t.StateTransfer.Value,
 			}
-		} else {
-			aResult.Commits[i] = &Commit{
-				Checkpoint: &Checkpoint{
-					SeqNo:         c.SeqNo,
-					NetworkConfig: c.NetworkConfig,
-					ClientsState:  c.ClientStates,
-				},
-			}
-		}
-	}
-
-	if a.StateTransfer != nil {
-		aResult.StateTransfer = &StateTarget{
-			SeqNo: a.StateTransfer.SeqNo,
-			Value: a.StateTransfer.Value,
+		default:
+			panic(fmt.Sprintf("unhandled type: %T", t))
 		}
 	}
 

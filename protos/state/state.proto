@@ -62,15 +62,17 @@ message EventTickElapsed {}
 
 message EventReady{}
 
-message Actions {
-    repeated ActionSend send = 1;
-    repeated ActionHashRequest hash = 2;
-    repeated ActionWrite write_ahead = 3;
-    repeated ActionCommit commits = 4;
-    repeated ActionRequestSlot allocated_requests = 5;
-    repeated msgs.RequestAck correct_requests = 6;
-    repeated ActionForward forward_requests = 7;
-    ActionStateTarget state_transfer = 8;
+message Action {
+    oneof type {
+       ActionSend send = 1;
+       ActionHashRequest hash = 2;
+       ActionWrite write_ahead = 3;
+       ActionCommit commit = 4;
+       ActionRequestSlot allocated_request = 5;
+       msgs.RequestAck correct_request = 6;
+       ActionForward forward_request = 7;
+       ActionStateTarget state_transfer = 8;
+    }
 }
 
 message ActionSend {

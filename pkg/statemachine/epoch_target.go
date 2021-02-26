@@ -108,14 +108,14 @@ func newEpochTarget(
 	}
 }
 
-func (et *epochTarget) step(source nodeID, msg *msgs.Msg) *actionSet {
+func (et *epochTarget) step(source nodeID, msg *msgs.Msg) *ActionList {
 	if et.state < etInProgress {
 		et.prestartBuffers[source].store(msg)
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	if et.state == etDone {
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	return et.activeEpoch.step(source, msg)
@@ -159,23 +159,23 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *msgs.NetworkSt
 	}
 }
 
-func (et *epochTarget) verifyNewEpochState() *actionSet {
+func (et *epochTarget) verifyNewEpochState() *ActionList {
 	epochChanges := map[nodeID]*parsedEpochChange{}
 	for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
 		if _, ok := epochChanges[nodeID(remoteEpochChange.NodeId)]; ok {
 			// TODO, references multiple epoch changes from the same node, malformed, log oddity
-			return &actionSet{}
+			return &ActionList{}
 		}
 
 		change, ok := et.changes[nodeID(remoteEpochChange.NodeId)]
 		if !ok {
 			// Either the primary is lying, or, we simply don't have enough information yet.
-			return &actionSet{}
+			return &ActionList{}
 		}
 
 		parsedChange, ok := change.parsedByDigest[string(remoteEpochChange.Digest)]
 		if !ok || len(parsedChange.acks) < someCorrectQuorum(et.networkConfig) {
-			return &actionSet{}
+			return &ActionList{}
 		}
 
 		epochChanges[nodeID(remoteEpochChange.NodeId)] = parsedChange
@@ -189,7 +189,7 @@ func (et *epochTarget) verifyNewEpochState() *actionSet {
 
 	if !proto.Equal(newEpochConfig, et.leaderNewEpoch.NewConfig) {
 		// TODO byzantine, log oddity
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	et.logger.Log(LevelDebug, "epoch transitioning from from verifying to fetching", "epoch_no", et.number)
@@ -198,13 +198,13 @@ func (et *epochTarget) verifyNewEpochState() *actionSet {
 	return et.advanceState()
 }
 
-func (et *epochTarget) fetchNewEpochState() *actionSet {
+func (et *epochTarget) fetchNewEpochState() *ActionList {
 	newEpochConfig := et.leaderNewEpoch.NewConfig
 
 	if et.commitState.transferring {
 		// Wait until state transfer completes before attempting to process the new view
 		et.logger.Log(LevelDebug, "delaying fetching of epoch state until state transfer completes", "epoch_no", et.number)
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.highestCommit {
@@ -212,7 +212,7 @@ func (et *epochTarget) fetchNewEpochState() *actionSet {
 		return et.commitState.transferTo(newEpochConfig.StartingCheckpoint.SeqNo, newEpochConfig.StartingCheckpoint.Value)
 	}
 
-	actions := &actionSet{}
+	actions := &ActionList{}
 	fetchPending := false
 
 	for i, digest := range newEpochConfig.FinalPreprepares {
@@ -356,7 +356,7 @@ func (et *epochTarget) fetchNewEpochState() *actionSet {
 	)
 }
 
-func (et *epochTarget) tick() *actionSet {
+func (et *epochTarget) tick() *ActionList {
 	et.stateTicks++
 	if et.state == etPrepending {
 		// Waiting for a quorum of epoch changes
@@ -369,11 +369,11 @@ func (et *epochTarget) tick() *actionSet {
 		return et.activeEpoch.tick()
 	}
 
-	return &actionSet{}
+	return &ActionList{}
 }
 
-func (et *epochTarget) repeatEpochChangeBroadcast() *actionSet {
-	return (&actionSet{}).send(
+func (et *epochTarget) repeatEpochChangeBroadcast() *ActionList {
+	return (&ActionList{}).send(
 		et.networkConfig.Nodes,
 		&msgs.Msg{
 			Type: &msgs.Msg_EpochChange{
@@ -383,17 +383,17 @@ func (et *epochTarget) repeatEpochChangeBroadcast() *actionSet {
 	)
 }
 
-func (et *epochTarget) tickPrepending() *actionSet {
+func (et *epochTarget) tickPrepending() *ActionList {
 	if et.myNewEpoch == nil {
 		if et.stateTicks%uint64(et.myConfig.NewEpochTimeoutTicks/2) == 0 {
 			return et.repeatEpochChangeBroadcast()
 		}
 
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	if et.isLeader {
-		return (&actionSet{}).send(
+		return (&ActionList{}).send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_NewEpoch{
@@ -403,15 +403,15 @@ func (et *epochTarget) tickPrepending() *actionSet {
 		)
 	}
 
-	return &actionSet{}
+	return &ActionList{}
 }
 
-func (et *epochTarget) tickPending() *actionSet {
+func (et *epochTarget) tickPending() *ActionList {
 	pendingTicks := et.stateTicks % uint64(et.myConfig.NewEpochTimeoutTicks)
 	if et.isLeader {
 		// resend the new-view if others perhaps missed it
 		if pendingTicks%2 == 0 {
-			return (&actionSet{}).send(
+			return (&ActionList{}).send(
 				et.networkConfig.Nodes,
 				&msgs.Msg{
 					Type: &msgs.Msg_NewEpoch{
@@ -425,7 +425,7 @@ func (et *epochTarget) tickPending() *actionSet {
 			suspect := &msgs.Suspect{
 				Epoch: et.myNewEpoch.NewConfig.Config.Number,
 			}
-			return (&actionSet{}).send(
+			return (&ActionList{}).send(
 				et.networkConfig.Nodes,
 				&msgs.Msg{
 					Type: &msgs.Msg_Suspect{
@@ -438,11 +438,11 @@ func (et *epochTarget) tickPending() *actionSet {
 			return et.repeatEpochChangeBroadcast()
 		}
 	}
-	return &actionSet{}
+	return &ActionList{}
 }
 
-func (et *epochTarget) applyEpochChangeMsg(source nodeID, msg *msgs.EpochChange) *actionSet {
-	actions := &actionSet{}
+func (et *epochTarget) applyEpochChangeMsg(source nodeID, msg *msgs.EpochChange) *ActionList {
+	actions := &ActionList{}
 	if source != nodeID(et.myConfig.Id) {
 		// We don't want to echo our own EpochChange message,
 		// as we already broadcast/rebroadcast it.
@@ -463,11 +463,11 @@ func (et *epochTarget) applyEpochChangeMsg(source nodeID, msg *msgs.EpochChange)
 	return actions.concat(et.applyEpochChangeAckMsg(source, source, msg))
 }
 
-func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg *msgs.EpochChange) *actionSet {
-	// TODO, prevent multiple different acks from the same source for the same target
-	hashRequest := &state.ActionHashRequest{
-		Data: epochChangeHashData(msg),
-		Origin: &state.HashResult{
+func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg *msgs.EpochChange) *ActionList {
+
+	return (&ActionList{}).hash(
+		epochChangeHashData(msg),
+		&state.HashResult{
 			Type: &state.HashResult_EpochChange_{
 				EpochChange: &state.HashResult_EpochChange{
 					Source:      uint64(source),
@@ -476,16 +476,10 @@ func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg 
 				},
 			},
 		},
-	}
-
-	return &actionSet{
-		Actions: state.Actions{
-			Hash: []*state.ActionHashRequest{hashRequest},
-		},
-	}
+	)
 }
 
-func (et *epochTarget) applyEpochChangeDigest(processedChange *state.HashResult_EpochChange, digest []byte) *actionSet {
+func (et *epochTarget) applyEpochChangeDigest(processedChange *state.HashResult_EpochChange, digest []byte) *ActionList {
 	originNode := nodeID(processedChange.Origin)
 	sourceNode := nodeID(processedChange.Source)
 
@@ -500,11 +494,11 @@ func (et *epochTarget) applyEpochChangeDigest(processedChange *state.HashResult_
 	change.addMsg(sourceNode, processedChange.EpochChange, digest)
 
 	if change.strongCert == nil {
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	if _, alreadyInQuorum := et.strongChanges[originNode]; alreadyInQuorum {
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	et.strongChanges[originNode] = change.parsedByDigest[string(change.strongCert)]
@@ -512,22 +506,22 @@ func (et *epochTarget) applyEpochChangeDigest(processedChange *state.HashResult_
 	return et.advanceState()
 }
 
-func (et *epochTarget) checkEpochQuorum() *actionSet {
+func (et *epochTarget) checkEpochQuorum() *ActionList {
 	if len(et.strongChanges) < intersectionQuorum(et.networkConfig) || et.myEpochChange == nil {
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	et.myNewEpoch = et.constructNewEpoch(et.myLeaderChoice, et.networkConfig)
 	if et.myNewEpoch == nil {
 
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	et.stateTicks = 0
 	et.state = etPending
 
 	if et.isLeader {
-		return (&actionSet{}).send(
+		return (&ActionList{}).send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_NewEpoch{
@@ -537,15 +531,15 @@ func (et *epochTarget) checkEpochQuorum() *actionSet {
 		)
 	}
 
-	return &actionSet{}
+	return &ActionList{}
 }
 
-func (et *epochTarget) applyNewEpochMsg(msg *msgs.NewEpoch) *actionSet {
+func (et *epochTarget) applyNewEpochMsg(msg *msgs.NewEpoch) *ActionList {
 	et.leaderNewEpoch = msg
 	return et.advanceState()
 }
 
-func (et *epochTarget) applyNewEpochEchoMsg(source nodeID, msg *msgs.NewEpochConfig) *actionSet {
+func (et *epochTarget) applyNewEpochEchoMsg(source nodeID, msg *msgs.NewEpochConfig) *ActionList {
 	var msgEchos map[nodeID]struct{}
 
 	for config, echos := range et.echos {
@@ -565,8 +559,8 @@ func (et *epochTarget) applyNewEpochEchoMsg(source nodeID, msg *msgs.NewEpochCon
 	return et.advanceState()
 }
 
-func (et *epochTarget) checkNewEpochEchoQuorum() *actionSet {
-	actions := &actionSet{}
+func (et *epochTarget) checkNewEpochEchoQuorum() *ActionList {
+	actions := &ActionList{}
 	for config, msgEchos := range et.echos {
 		if len(msgEchos) < intersectionQuorum(et.networkConfig) {
 			continue
@@ -595,10 +589,10 @@ func (et *epochTarget) checkNewEpochEchoQuorum() *actionSet {
 	return actions
 }
 
-func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochConfig) *actionSet {
+func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochConfig) *ActionList {
 	if et.state > etReadying {
 		// We've already accepted the epoch config, move along
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	var msgReadies map[nodeID]struct{}
@@ -618,7 +612,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochCo
 	msgReadies[source] = struct{}{}
 
 	if len(msgReadies) < someCorrectQuorum(et.networkConfig) {
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	if et.state < etEchoing {
@@ -629,7 +623,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochCo
 		et.logger.Log(LevelDebug, "epoch transitioning from echoing to ready", "epoch_no", et.number)
 		et.state = etReadying
 
-		actions := (&actionSet{}).send(
+		actions := (&ActionList{}).send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
 				Type: &msgs.Msg_NewEpochReady{
@@ -695,8 +689,8 @@ func (et *epochTarget) checkEpochResumed() {
 
 }
 
-func (et *epochTarget) advanceState() *actionSet {
-	actions := &actionSet{}
+func (et *epochTarget) advanceState() *ActionList {
+	actions := &ActionList{}
 	for {
 		oldState := et.state
 		switch et.state {
@@ -751,9 +745,9 @@ func (et *epochTarget) advanceState() *actionSet {
 	}
 }
 
-func (et *epochTarget) moveLowWatermark(seqNo uint64) *actionSet {
+func (et *epochTarget) moveLowWatermark(seqNo uint64) *ActionList {
 	if et.state != etInProgress {
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	actions, done := et.activeEpoch.moveLowWatermark(seqNo)

@@ -41,7 +41,7 @@ func (bt *batchTracker) reinitialize() {
 	})
 }
 
-func (bt *batchTracker) step(source nodeID, msg *msgs.Msg) *actionSet {
+func (bt *batchTracker) step(source nodeID, msg *msgs.Msg) *ActionList {
 	switch innerMsg := msg.Type.(type) {
 	case *msgs.Msg_FetchBatch:
 		msg := innerMsg.FetchBatch
@@ -88,7 +88,7 @@ func (bt *batchTracker) addBatch(seqNo uint64, digest []byte, requestAcks []*msg
 	b.observedSequences[seqNo] = struct{}{}
 }
 
-func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte, sources []uint64) *actionSet {
+func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte, sources []uint64) *ActionList {
 	inFlight, ok := bt.fetchInFlight[string(digest)]
 	if ok {
 		// It's a weird, but possible case, that two batches have
@@ -96,14 +96,14 @@ func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte, sources []uint64
 		// to track them separately.
 		for _, ifSeqNo := range inFlight {
 			if ifSeqNo == seqNo {
-				return &actionSet{}
+				return &ActionList{}
 			}
 		}
 	}
 	inFlight = append(inFlight, seqNo)
 	bt.fetchInFlight[string(digest)] = inFlight
 
-	return (&actionSet{}).send(
+	return (&ActionList{}).send(
 		sources,
 		&msgs.Msg{
 			Type: &msgs.Msg_FetchBatch{
@@ -116,14 +116,14 @@ func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte, sources []uint64
 	)
 }
 
-func (bt *batchTracker) replyFetchBatch(source uint64, seqNo uint64, digest []byte) *actionSet {
+func (bt *batchTracker) replyFetchBatch(source uint64, seqNo uint64, digest []byte) *ActionList {
 	batch, ok := bt.getBatch(digest)
 	if !ok {
 		// TODO, is this worth logging, or just ignore? (It's not necessarily byzantine)
-		return &actionSet{}
+		return &ActionList{}
 	}
 
-	return (&actionSet{}).send(
+	return (&ActionList{}).send(
 		[]uint64{source},
 		&msgs.Msg{
 			Type: &msgs.Msg_ForwardBatch{
@@ -137,37 +137,28 @@ func (bt *batchTracker) replyFetchBatch(source uint64, seqNo uint64, digest []by
 	)
 }
 
-func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest []byte, requestAcks []*msgs.RequestAck) *actionSet {
+func (bt *batchTracker) applyForwardBatchMsg(source nodeID, seqNo uint64, digest []byte, requestAcks []*msgs.RequestAck) *ActionList {
 	_, ok := bt.fetchInFlight[string(digest)]
 	if !ok {
 		// We did not request this batch digest, so we don't know if we can trust it, discard
 		// TODO, maybe log? Maybe not though, since we delete from the map when we get it.
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	data := make([][]byte, len(requestAcks))
 	for i, requestAck := range requestAcks {
 		data[i] = requestAck.Digest
 	}
-	return &actionSet{
-		Actions: state.Actions{
-			Hash: []*state.ActionHashRequest{
-				{
-					Data: data,
-					Origin: &state.HashResult{
-						Type: &state.HashResult_VerifyBatch_{
-							VerifyBatch: &state.HashResult_VerifyBatch{
-								Source:         uint64(source),
-								SeqNo:          seqNo,
-								RequestAcks:    requestAcks,
-								ExpectedDigest: digest,
-							},
-						},
-					},
-				},
+	return (&ActionList{}).hash(data, &state.HashResult{
+		Type: &state.HashResult_VerifyBatch_{
+			VerifyBatch: &state.HashResult_VerifyBatch{
+				Source:         uint64(source),
+				SeqNo:          seqNo,
+				RequestAcks:    requestAcks,
+				ExpectedDigest: digest,
 			},
 		},
-	}
+	})
 }
 
 func (bt *batchTracker) applyVerifyBatchHashResult(digest []byte, verifyBatch *state.HashResult_VerifyBatch) {

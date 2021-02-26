@@ -24,10 +24,10 @@ type EventSource interface {
 type PlaybackNode struct {
 	ID               uint64
 	StateMachine     *statemachine.StateMachine
-	Processing       *state.Actions
-	Actions          *state.Actions
-	ClientProcessing *state.Actions
-	ClientActions    *state.Actions
+	Processing       *statemachine.ActionList
+	Actions          *statemachine.ActionList
+	ClientProcessing *statemachine.ActionList
+	ClientActions    *statemachine.ActionList
 	Status           *status.StateMachine
 }
 
@@ -54,8 +54,8 @@ func (p *Player) Node(id uint64) *PlaybackNode {
 
 	node = &PlaybackNode{
 		ID:            id,
-		Actions:       &state.Actions{},
-		ClientActions: &state.Actions{},
+		Actions:       &statemachine.ActionList{},
+		ClientActions: &statemachine.ActionList{},
 		Status: &status.StateMachine{
 			NodeID: id,
 		},
@@ -115,55 +115,22 @@ func (p *Player) Step() error {
 			},
 		}
 		node.StateMachine = sm
-		node.Actions = &state.Actions{}
+		node.Actions = &statemachine.ActionList{}
 		node.Status = sm.Status()
 		node.Processing = nil
 	case *state.Event_Transfer:
 	case *state.Event_AddResults:
-		if node.Processing == nil {
-			return errors.Errorf("node %d is not currently processing but got an apply event", event.NodeId)
-		}
-
 		node.Processing = nil
-	case *state.Event_AddClientResults:
-		// TODO, as a hacky way to do req forwarding, we allow multiply applys, revisit
-		// if node.ClientProcessing == nil {
-		// return errors.Errorf("node %d is not currently client processing but got a client apply event", event.NodeId)
-		// }
-
-		node.ClientProcessing = nil
-	case *state.Event_ClientActionsReceived:
-		if node.ClientProcessing != nil {
-			return errors.Errorf("node %d is currently client processing but got a second client process event", event.NodeId)
-		}
-
-		node.ClientProcessing = node.ClientActions
-		node.ClientActions = &state.Actions{}
 	case *state.Event_ActionsReceived:
 		if node.Processing != nil {
 			return errors.Errorf("node %d is currently processing but got a second process event", event.NodeId)
 		}
 
 		node.Processing = node.Actions
-		node.Actions = &state.Actions{}
+		node.Actions = &statemachine.ActionList{}
 	}
 
-	newActions := node.StateMachine.ApplyEvent(event.StateEvent)
-	node.Actions.Send = append(node.Actions.Send, newActions.Send...)
-	node.Actions.Hash = append(node.Actions.Hash, newActions.Hash...)
-	node.Actions.Commits = append(node.Actions.Commits, newActions.Commits...)
-	node.Actions.WriteAhead = append(node.Actions.WriteAhead, newActions.WriteAhead...)
-	node.ClientActions.AllocatedRequests = append(node.ClientActions.AllocatedRequests, newActions.AllocatedRequests...)
-	node.ClientActions.CorrectRequests = append(node.ClientActions.CorrectRequests, newActions.CorrectRequests...)
-	node.ClientActions.ForwardRequests = append(node.ClientActions.ForwardRequests, newActions.ForwardRequests...)
-	if newActions.StateTransfer != nil {
-		if node.Actions.StateTransfer != nil {
-			return errors.Errorf("node %d has requested state transfer twice without resolution", event.NodeId)
-		}
-
-		node.Actions.StateTransfer = newActions.StateTransfer
-	}
-
+	node.Actions.PushBackList(node.StateMachine.ApplyEvent(event.StateEvent))
 	node.Status = node.StateMachine.Status()
 
 	return nil

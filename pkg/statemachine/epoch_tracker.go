@@ -60,7 +60,7 @@ func newEpochTracker(
 	}
 }
 
-func (et *epochTracker) reinitialize() *actionSet {
+func (et *epochTracker) reinitialize() *ActionList {
 	et.networkConfig = et.commitState.activeState.Config
 
 	newFutureMsgs := map[nodeID]*msgBuffer{}
@@ -76,7 +76,7 @@ func (et *epochTracker) reinitialize() *actionSet {
 	}
 	et.futureMsgs = newFutureMsgs
 
-	actions := &actionSet{}
+	actions := &ActionList{}
 	var lastNEntry *msgs.NEntry
 	var lastECEntry *msgs.ECEntry
 	var lastFEntry *msgs.FEntry
@@ -220,7 +220,7 @@ func (et *epochTracker) reinitialize() *actionSet {
 	return actions
 }
 
-func (et *epochTracker) advanceState() *actionSet {
+func (et *epochTracker) advanceState() *ActionList {
 	if et.currentEpoch.state < etDone {
 		return et.currentEpoch.advanceState()
 	}
@@ -228,7 +228,7 @@ func (et *epochTracker) advanceState() *actionSet {
 	if et.commitState.checkpointPending {
 		// It simplifies our lives considerably to wait for checkpoints
 		// before initiating epoch change.
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	newEpochNumber := et.currentEpoch.number + 1
@@ -313,13 +313,13 @@ func (et *epochTracker) filter(_ nodeID, msg *msgs.Msg) applyable {
 	}
 }
 
-func (et *epochTracker) step(source nodeID, msg *msgs.Msg) *actionSet {
+func (et *epochTracker) step(source nodeID, msg *msgs.Msg) *ActionList {
 	epochNumber := epochForMsg(msg)
 
 	switch {
 	case epochNumber < et.currentEpoch.number:
 		// past
-		return &actionSet{}
+		return &ActionList{}
 	case epochNumber > et.currentEpoch.number:
 		// future
 		maxEpoch := et.maxEpochs[source]
@@ -327,14 +327,14 @@ func (et *epochTracker) step(source nodeID, msg *msgs.Msg) *actionSet {
 			et.maxEpochs[source] = epochNumber
 		}
 		et.futureMsgs[source].store(msg)
-		return &actionSet{}
+		return &ActionList{}
 	default:
 		// current
 		return et.applyMsg(source, msg)
 	}
 }
 
-func (et *epochTracker) applyMsg(source nodeID, msg *msgs.Msg) *actionSet {
+func (et *epochTracker) applyMsg(source nodeID, msg *msgs.Msg) *ActionList {
 	target := et.currentEpoch
 
 	switch innerMsg := msg.Type.(type) {
@@ -346,7 +346,7 @@ func (et *epochTracker) applyMsg(source nodeID, msg *msgs.Msg) *actionSet {
 		return target.step(source, msg)
 	case *msgs.Msg_Suspect:
 		target.applySuspectMsg(source)
-		return &actionSet{}
+		return &ActionList{}
 	case *msgs.Msg_EpochChange:
 		return target.applyEpochChangeMsg(source, innerMsg.EpochChange)
 	case *msgs.Msg_EpochChangeAck:
@@ -354,7 +354,7 @@ func (et *epochTracker) applyMsg(source nodeID, msg *msgs.Msg) *actionSet {
 	case *msgs.Msg_NewEpoch:
 		if innerMsg.NewEpoch.NewConfig.Config.Number%uint64(len(et.networkConfig.Nodes)) != uint64(source) {
 			// TODO, log oddity
-			return &actionSet{}
+			return &ActionList{}
 		}
 		return target.applyNewEpochMsg(innerMsg.NewEpoch)
 	case *msgs.Msg_NewEpochEcho:
@@ -366,16 +366,16 @@ func (et *epochTracker) applyMsg(source nodeID, msg *msgs.Msg) *actionSet {
 	}
 }
 
-func (et *epochTracker) applyBatchHashResult(epoch, seqNo uint64, digest []byte) *actionSet {
+func (et *epochTracker) applyBatchHashResult(epoch, seqNo uint64, digest []byte) *ActionList {
 	if epoch != et.currentEpoch.number || et.currentEpoch.state != etInProgress {
 		// TODO, should we try to see if it applies to the current epoch?
-		return &actionSet{}
+		return &ActionList{}
 	}
 
 	return et.currentEpoch.activeEpoch.applyBatchHashResult(seqNo, digest)
 }
 
-func (et *epochTracker) tick() *actionSet {
+func (et *epochTracker) tick() *ActionList {
 	for _, maxEpoch := range et.maxEpochs {
 		if maxEpoch <= et.maxCorrectEpoch {
 			continue
@@ -407,16 +407,16 @@ func (et *epochTracker) tick() *actionSet {
 	return et.currentEpoch.tick()
 }
 
-func (et *epochTracker) moveLowWatermark(seqNo uint64) *actionSet {
+func (et *epochTracker) moveLowWatermark(seqNo uint64) *ActionList {
 	return et.currentEpoch.moveLowWatermark(seqNo)
 }
 
-func (et *epochTracker) applyEpochChangeDigest(hashResult *state.HashResult_EpochChange, digest []byte) *actionSet {
+func (et *epochTracker) applyEpochChangeDigest(hashResult *state.HashResult_EpochChange, digest []byte) *ActionList {
 	targetNumber := hashResult.EpochChange.NewEpoch
 	switch {
 	case targetNumber < et.currentEpoch.number:
 		// This is for an old epoch we no long care about
-		return &actionSet{}
+		return &ActionList{}
 	case targetNumber > et.currentEpoch.number:
 		assertFailed("", "got an epoch change digest for epoch %d we are processing %d", targetNumber, et.currentEpoch.number)
 

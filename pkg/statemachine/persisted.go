@@ -10,7 +10,6 @@ import (
 	"fmt"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 type logIterator struct {
@@ -67,18 +66,18 @@ func (p *persisted) appendInitialLoad(index uint64, data *msgs.Persistent) {
 	p.nextIndex = index + 1
 }
 
-func (p *persisted) appendLogEntry(entry *msgs.Persistent) *actionSet {
+func (p *persisted) appendLogEntry(entry *msgs.Persistent) *ActionList {
 	p.logTail.next = &logEntry{
 		index: p.nextIndex,
 		entry: entry,
 	}
 	p.logTail = p.logTail.next
-	result := (&actionSet{}).persist(p.nextIndex, entry)
+	result := (&ActionList{}).persist(p.nextIndex, entry)
 	p.nextIndex++
 	return result
 }
 
-func (p *persisted) addPEntry(pEntry *msgs.PEntry) *actionSet {
+func (p *persisted) addPEntry(pEntry *msgs.PEntry) *ActionList {
 	d := &msgs.Persistent{
 		Type: &msgs.Persistent_PEntry{
 			PEntry: pEntry,
@@ -88,7 +87,7 @@ func (p *persisted) addPEntry(pEntry *msgs.PEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addQEntry(qEntry *msgs.QEntry) *actionSet {
+func (p *persisted) addQEntry(qEntry *msgs.QEntry) *ActionList {
 	d := &msgs.Persistent{
 		Type: &msgs.Persistent_QEntry{
 			QEntry: qEntry,
@@ -98,7 +97,7 @@ func (p *persisted) addQEntry(qEntry *msgs.QEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addNEntry(nEntry *msgs.NEntry) *actionSet {
+func (p *persisted) addNEntry(nEntry *msgs.NEntry) *ActionList {
 	d := &msgs.Persistent{
 		Type: &msgs.Persistent_NEntry{
 			NEntry: nEntry,
@@ -108,7 +107,7 @@ func (p *persisted) addNEntry(nEntry *msgs.NEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addCEntry(cEntry *msgs.CEntry) *actionSet {
+func (p *persisted) addCEntry(cEntry *msgs.CEntry) *ActionList {
 	assertNotEqual(cEntry.NetworkState, nil, "network config must be set")
 
 	d := &msgs.Persistent{
@@ -120,7 +119,7 @@ func (p *persisted) addCEntry(cEntry *msgs.CEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addSuspect(suspect *msgs.Suspect) *actionSet {
+func (p *persisted) addSuspect(suspect *msgs.Suspect) *ActionList {
 	d := &msgs.Persistent{
 		Type: &msgs.Persistent_Suspect{
 			Suspect: suspect,
@@ -130,7 +129,7 @@ func (p *persisted) addSuspect(suspect *msgs.Suspect) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addECEntry(ecEntry *msgs.ECEntry) *actionSet {
+func (p *persisted) addECEntry(ecEntry *msgs.ECEntry) *ActionList {
 	d := &msgs.Persistent{
 		Type: &msgs.Persistent_ECEntry{
 			ECEntry: ecEntry,
@@ -140,7 +139,7 @@ func (p *persisted) addECEntry(ecEntry *msgs.ECEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) addTEntry(tEntry *msgs.TEntry) *actionSet {
+func (p *persisted) addTEntry(tEntry *msgs.TEntry) *ActionList {
 	d := &msgs.Persistent{
 		Type: &msgs.Persistent_TEntry{
 			TEntry: tEntry,
@@ -150,7 +149,7 @@ func (p *persisted) addTEntry(tEntry *msgs.TEntry) *actionSet {
 	return p.appendLogEntry(d)
 }
 
-func (p *persisted) truncate(lowWatermark uint64) *actionSet {
+func (p *persisted) truncate(lowWatermark uint64) *ActionList {
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
 		switch d := logEntry.entry.Type.(type) {
 		case *msgs.Persistent_CEntry:
@@ -172,18 +171,10 @@ func (p *persisted) truncate(lowWatermark uint64) *actionSet {
 		}
 
 		p.logHead = logEntry
-		return &actionSet{
-			Actions: state.Actions{
-				WriteAhead: []*state.ActionWrite{
-					{
-						Truncate: logEntry.index,
-					},
-				},
-			},
-		}
+		return (&ActionList{}).truncate(logEntry.index)
 	}
 
-	return &actionSet{}
+	return &ActionList{}
 }
 
 // staticcheck hack

@@ -55,39 +55,35 @@ var _ = XDescribe("sequence", func() {
 				nil,
 			)
 
-			Expect(actions).To(Equal(&actionSet{
-				Actions: state.Actions{
-					Hash: []*state.ActionHashRequest{
-						{
-							Origin: &state.HashResult{
-								Type: &state.HashResult_Batch_{
-									Batch: &state.HashResult_Batch{
-										Source: 0,
-										SeqNo:  5,
-										Epoch:  4,
-										RequestAcks: []*msgs.RequestAck{
-											{
-												ClientId: 9,
-												ReqNo:    7,
-												Digest:   []byte("msg1-digest"),
-											},
-											{
-												ClientId: 9,
-												ReqNo:    8,
-												Digest:   []byte("msg2-digest"),
-											},
-										},
-									},
+			Expect(actions).To(Equal((&ActionList{}).hash(
+				[][]byte{
+					[]byte("msg1-digest"),
+					[]byte("msg2-digest"),
+				},
+
+				&state.HashResult{
+					Type: &state.HashResult_Batch_{
+						Batch: &state.HashResult_Batch{
+							Source: 0,
+							SeqNo:  5,
+							Epoch:  4,
+							RequestAcks: []*msgs.RequestAck{
+								{
+									ClientId: 9,
+									ReqNo:    7,
+									Digest:   []byte("msg1-digest"),
 								},
-							},
-							Data: [][]byte{
-								[]byte("msg1-digest"),
-								[]byte("msg2-digest"),
+								{
+									ClientId: 9,
+									ReqNo:    8,
+									Digest:   []byte("msg2-digest"),
+								},
 							},
 						},
 					},
 				},
-			}))
+			),
+			))
 
 			Expect(s.state).To(Equal(sequenceAllocated))
 			Expect(s.batch).To(Equal(
@@ -158,48 +154,40 @@ var _ = XDescribe("sequence", func() {
 
 		It("transitions from Allocated to Preprepared", func() {
 			actions := s.applyBatchHashResult([]byte("digest"))
-			Expect(actions).To(Equal(&actionSet{
-				Actions: state.Actions{
-					Send: []*state.ActionSend{
-						{
-							Targets: []uint64{0, 1, 2, 3},
-							Msg: &msgs.Msg{
-								Type: &msgs.Msg_Prepare{
-									Prepare: &msgs.Prepare{
-										SeqNo:  5,
-										Epoch:  4,
-										Digest: []byte("digest"),
-									},
+			Expect(actions).To(Equal((&ActionList{}).persist(
+				0,
+				&msgs.Persistent{
+					Type: &msgs.Persistent_QEntry{
+						QEntry: &msgs.QEntry{
+							SeqNo:  5,
+							Digest: []byte("digest"),
+							Requests: []*msgs.RequestAck{
+								{
+									ClientId: 9,
+									ReqNo:    7,
+									Digest:   []byte("msg1-digest"),
 								},
-							},
-						},
-					},
-					WriteAhead: []*state.ActionWrite{
-						{
-							Data: &msgs.Persistent{
-								Type: &msgs.Persistent_QEntry{
-									QEntry: &msgs.QEntry{
-										SeqNo:  5,
-										Digest: []byte("digest"),
-										Requests: []*msgs.RequestAck{
-											{
-												ClientId: 9,
-												ReqNo:    7,
-												Digest:   []byte("msg1-digest"),
-											},
-											{
-												ClientId: 9,
-												ReqNo:    8,
-												Digest:   []byte("msg2-digest"),
-											},
-										},
-									},
+								{
+									ClientId: 9,
+									ReqNo:    8,
+									Digest:   []byte("msg2-digest"),
 								},
 							},
 						},
 					},
 				},
-			}))
+			).send(
+				[]uint64{0, 1, 2, 3},
+				&msgs.Msg{
+					Type: &msgs.Msg_Prepare{
+						Prepare: &msgs.Prepare{
+							SeqNo:  5,
+							Epoch:  4,
+							Digest: []byte("digest"),
+						},
+					},
+				},
+			)))
 			Expect(s.digest).To(Equal([]byte("digest")))
 			Expect(s.state).To(Equal(sequencePreprepared))
 			Expect(s.qEntry).To(Equal(&msgs.QEntry{
@@ -250,36 +238,28 @@ var _ = XDescribe("sequence", func() {
 		It("transitions from Preprepared to Prepared", func() {
 			s.applyPrepareMsg(0, []byte("digest"))
 			actions := s.advanceState()
-			Expect(actions).To(Equal(&actionSet{
-				Actions: state.Actions{
-					Send: []*state.ActionSend{
-						{
-							Targets: []uint64{0, 1, 2, 3},
-							Msg: &msgs.Msg{
-								Type: &msgs.Msg_Commit{
-									Commit: &msgs.Commit{
-										SeqNo:  5,
-										Epoch:  4,
-										Digest: []byte("digest"),
-									},
-								},
-							},
-						},
-					},
-					WriteAhead: []*state.ActionWrite{
-						{
-							Data: &msgs.Persistent{
-								Type: &msgs.Persistent_PEntry{
-									PEntry: &msgs.PEntry{
-										SeqNo:  5,
-										Digest: []byte("digest"),
-									},
-								},
-							},
+			Expect(actions).To(Equal((&ActionList{}).persist(
+				0,
+				&msgs.Persistent{
+					Type: &msgs.Persistent_PEntry{
+						PEntry: &msgs.PEntry{
+							SeqNo:  5,
+							Digest: []byte("digest"),
 						},
 					},
 				},
-			}))
+			).send(
+				[]uint64{0, 1, 2, 3},
+				&msgs.Msg{
+					Type: &msgs.Msg_Commit{
+						Commit: &msgs.Commit{
+							SeqNo:  5,
+							Epoch:  4,
+							Digest: []byte("digest"),
+						},
+					},
+				},
+			)))
 		})
 	})
 })

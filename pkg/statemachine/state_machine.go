@@ -154,7 +154,7 @@ func (sm *StateMachine) applyPersisted(index uint64, data *msgs.Persistent) {
 	sm.persisted.appendInitialLoad(index, data)
 }
 
-func (sm *StateMachine) completeInitialization() *actionSet {
+func (sm *StateMachine) completeInitialization() *ActionList {
 	assertEqualf(sm.state, smLoadingPersisted, "state machine has already finished loading persisted data")
 
 	sm.state = smInitialized
@@ -162,24 +162,24 @@ func (sm *StateMachine) completeInitialization() *actionSet {
 	return sm.reinitialize()
 }
 
-func (sm *StateMachine) ApplyEvent(stateEvent *state.Event) *state.Actions {
-	return &(sm.applyEvent(stateEvent).Actions)
+func (sm *StateMachine) ApplyEvent(stateEvent *state.Event) *ActionList {
+	return sm.applyEvent(stateEvent)
 }
 
-func (sm *StateMachine) applyEvent(stateEvent *state.Event) *actionSet {
+func (sm *StateMachine) applyEvent(stateEvent *state.Event) *ActionList {
 	assertInitialized := func() {
 		assertEqualf(sm.state, smInitialized, "cannot apply events to an uninitialized state machine")
 	}
 
-	actions := &actionSet{}
+	actions := &ActionList{}
 
 	switch event := stateEvent.Type.(type) {
 	case *state.Event_Initialize:
 		sm.initialize(event.Initialize)
-		return &actionSet{}
+		return &ActionList{}
 	case *state.Event_LoadEntry:
 		sm.applyPersisted(event.LoadEntry.Index, event.LoadEntry.Data)
-		return &actionSet{}
+		return &ActionList{}
 	case *state.Event_CompleteInitialization:
 		return sm.completeInitialization()
 	case *state.Event_Tick:
@@ -213,10 +213,10 @@ func (sm *StateMachine) applyEvent(stateEvent *state.Event) *actionSet {
 		// This is a bit odd, in that it's a no-op, but it's harmless
 		// and allows for much more insightful playback events (allowing
 		// us to tie action results to a particular set of actions)
-		return &actionSet{}
+		return &ActionList{}
 	case *state.Event_ClientActionsReceived:
 		// This is exactly like ActionsReceived, a no-op for audit.
-		return &actionSet{}
+		return &ActionList{}
 	default:
 		panic(fmt.Sprintf("unknown state event type: %T", stateEvent.Type))
 	}
@@ -247,11 +247,7 @@ func (sm *StateMachine) applyEvent(stateEvent *state.Event) *actionSet {
 		// may continue to iterate the state machine, and do so, so long as
 		// attempting to advance the state causes new actions.
 
-		actions.concat(&actionSet{
-			Actions: state.Actions{
-				Commits: sm.commitState.drain(),
-			},
-		})
+		actions.concat(sm.commitState.drain())
 
 		loopActions := sm.epochTracker.advanceState()
 		if loopActions.isEmpty() {
@@ -268,7 +264,7 @@ func (sm *StateMachine) applyEvent(stateEvent *state.Event) *actionSet {
 // varying from component to component, useful state will be retained.  For instance,
 // the clientTracker retains in-window ACKs for still-extant clients.  The checkpointTracker
 // retains checkpoint messages sent by other replicas, etc.
-func (sm *StateMachine) reinitialize() *actionSet {
+func (sm *StateMachine) reinitialize() *ActionList {
 	defer sm.Logger.Log(LevelInfo, "state machine reinitialized (either due to start, state transfer, or reconfiguration)")
 
 	actions := sm.recoverLog()
@@ -281,10 +277,10 @@ func (sm *StateMachine) reinitialize() *actionSet {
 	return actions.concat(sm.epochTracker.reinitialize())
 }
 
-func (sm *StateMachine) recoverLog() *actionSet {
+func (sm *StateMachine) recoverLog() *ActionList {
 	var lastCEntry *msgs.CEntry
 
-	actions := &actionSet{}
+	actions := &ActionList{}
 
 	sm.persisted.iterate(logIterator{
 		onCEntry: func(cEntry *msgs.CEntry) {
@@ -301,8 +297,8 @@ func (sm *StateMachine) recoverLog() *actionSet {
 	return actions
 }
 
-func (sm *StateMachine) step(source nodeID, msg *msgs.Msg) *actionSet {
-	actions := &actionSet{}
+func (sm *StateMachine) step(source nodeID, msg *msgs.Msg) *ActionList {
+	actions := &ActionList{}
 	switch msg.Type.(type) {
 	case *msgs.Msg_RequestAck:
 		return actions.concat(sm.clientHashDisseminator.step(source, msg))
@@ -312,7 +308,7 @@ func (sm *StateMachine) step(source nodeID, msg *msgs.Msg) *actionSet {
 		return actions.concat(sm.clientHashDisseminator.step(source, msg))
 	case *msgs.Msg_Checkpoint:
 		sm.checkpointTracker.step(source, msg)
-		return &actionSet{}
+		return &ActionList{}
 	case *msgs.Msg_FetchBatch:
 		// TODO decide if we want some buffering?
 		return sm.batchTracker.step(source, msg)
@@ -342,8 +338,8 @@ func (sm *StateMachine) step(source nodeID, msg *msgs.Msg) *actionSet {
 	}
 }
 
-func (sm *StateMachine) processResults(results *state.EventActionResults) *actionSet {
-	actions := &actionSet{}
+func (sm *StateMachine) processResults(results *state.EventActionResults) *ActionList {
+	actions := &ActionList{}
 
 	for _, checkpointResult := range results.Checkpoints {
 		if checkpointResult.SeqNo < sm.commitState.lowWatermark {

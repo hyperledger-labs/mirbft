@@ -238,53 +238,45 @@ func (ns *NodeState) LastCheckpoint() *state.CheckpointResult {
 	return ns.Checkpoints.Back().Value.(*state.CheckpointResult)
 }
 
-func (ns *NodeState) Commit(commits []*state.ActionCommit, node uint64) []*state.CheckpointResult {
-	var results []*state.CheckpointResult
-	for _, commit := range commits {
-		if commit.Batch != nil {
-			ns.LastSeqNo++
-			if commit.Batch.SeqNo != ns.LastSeqNo {
-				panic(fmt.Sprintf("unexpected out of order commit sequence number, expected %d, got %d", ns.LastSeqNo, commit.Batch.SeqNo))
-			}
-
-			for _, request := range commit.Batch.Requests {
-				if !ns.ReqStore.Has(request) {
-					panic("reqstore should have request if we are committing it")
-				}
-
-				ns.ActiveHash.Write(request.Digest)
-
-				for _, reconfigPoint := range ns.ReconfigPoints {
-					if reconfigPoint.ClientID == request.ClientId &&
-						reconfigPoint.ReqNo == request.ReqNo {
-						ns.PendingReconfigurations = append(ns.PendingReconfigurations, reconfigPoint.Reconfiguration)
-					}
-				}
-			}
-
-			continue
+func (ns *NodeState) Commit(commit *state.ActionCommit) *state.CheckpointResult {
+	if commit.Batch != nil {
+		ns.LastSeqNo++
+		if commit.Batch.SeqNo != ns.LastSeqNo {
+			panic(fmt.Sprintf("unexpected out of order commit sequence number, expected %d, got %d", ns.LastSeqNo, commit.Batch.SeqNo))
 		}
 
-		// We must have a checkpoint
+		for _, request := range commit.Batch.Requests {
+			if !ns.ReqStore.Has(request) {
+				panic("reqstore should have request if we are committing it")
+			}
 
-		if commit.SeqNo != ns.LastSeqNo {
-			panic("asked to checkpoint for uncommitted sequence")
+			ns.ActiveHash.Write(request.Digest)
+
+			for _, reconfigPoint := range ns.ReconfigPoints {
+				if reconfigPoint.ClientID == request.ClientId &&
+					reconfigPoint.ReqNo == request.ReqNo {
+					ns.PendingReconfigurations = append(ns.PendingReconfigurations, reconfigPoint.Reconfiguration)
+				}
+			}
 		}
 
-		checkpoint := ns.Set(
-			commit.SeqNo,
-			ns.ActiveHash.Sum(nil),
-			&msgs.NetworkState{
-				Config:  commit.NetworkConfig,
-				Clients: commit.ClientStates,
-			},
-		)
-
-		results = append(results, checkpoint)
+		return nil
 	}
 
-	return results
+	// We must have a checkpoint
 
+	if commit.SeqNo != ns.LastSeqNo {
+		panic("asked to checkpoint for uncommitted sequence")
+	}
+
+	return ns.Set(
+		commit.SeqNo,
+		ns.ActiveHash.Sum(nil),
+		&msgs.NetworkState{
+			Config:  commit.NetworkConfig,
+			Clients: commit.ClientStates,
+		},
+	)
 }
 
 type ClientConfig struct {
@@ -428,30 +420,146 @@ func (r *Recording) Step() error {
 			node.ReqStore.Store(req)
 		}
 	case *state.Event_Step:
-	case *state.Event_ClientActionsReceived:
-		if !node.AwaitingClientProcessEvent {
-			return errors.Errorf("node %d was not awaiting a client processing message, but got one", lastEvent.NodeId)
+	case *state.Event_ActionsReceived:
+		if !node.AwaitingProcessEvent {
+			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.NodeId)
 		}
-		node.AwaitingClientProcessEvent = false
+		node.AwaitingProcessEvent = false
+		processing := playbackNode.Processing
+
 		clientActionResults := &state.EventClientActionResults{}
+		apply := &state.EventActionResults{}
 
-		processing := playbackNode.ClientProcessing
-		for _, reqSlot := range processing.AllocatedRequests {
-			client := r.Clients[int(reqSlot.ClientId)]
-			if client.Config.ID != reqSlot.ClientId {
-				panic("sanity check")
+		iter := processing.Iterator()
+		for action := iter.Next(); action != nil; action = iter.Next() {
+			switch t := action.Type.(type) {
+			case *state.Action_Send:
+				send := t.Send
+				for _, i := range send.Targets {
+					linkLatency := runtimeParms.LinkLatency
+					if i == lastEvent.NodeId {
+						// There's no latency to send to ourselves
+						linkLatency = 0
+					}
+					if n := r.Player.Node(i); n.StateMachine == nil {
+						continue
+					}
+					r.EventLog.InsertStepEvent(
+						i,
+						&state.EventInboundMsg{
+							Source: lastEvent.NodeId,
+							Msg:    send.Msg,
+						},
+						int64(linkLatency+runtimeParms.PersistLatency),
+					)
+				}
+			case *state.Action_Hash:
+				hashRequest := t.Hash
+				hasher := r.Hasher()
+				for _, data := range hashRequest.Data {
+					hasher.Write(data)
+				}
+
+				apply.Digests = append(apply.Digests, &state.HashResult{
+					Digest: hasher.Sum(nil),
+					Type:   hashRequest.Origin.Type,
+				})
+			case *state.Action_WriteAhead:
+				write := t.WriteAhead
+				switch {
+				case write.Append != 0:
+					node.WAL.Append(write.Append, write.Data)
+				case write.Truncate != 0:
+					node.WAL.Truncate(write.Truncate)
+				default:
+					panic("Append or Truncate must be set")
+				}
+			case *state.Action_AllocatedRequest:
+				reqSlot := t.AllocatedRequest
+				client := r.Clients[int(reqSlot.ClientId)]
+				if client.Config.ID != reqSlot.ClientId {
+					panic("sanity check")
+				}
+
+				if client.Config.shouldSkip(lastEvent.NodeId) {
+					continue
+				}
+
+				req := client.RequestByReqNo(reqSlot.ReqNo)
+				if req == nil {
+					continue
+				}
+
+				clientActionResults.Persisted = append(clientActionResults.Persisted, req)
+			case *state.Action_ForwardRequest:
+				forward := t.ForwardRequest
+				if !node.ReqStore.Has(forward.Ack) {
+					panic("we asked ourselves to forward an ack we do not have")
+				}
+
+				for _, dNodeID := range forward.Targets {
+
+					dNode := r.Nodes[int(dNodeID)]
+					if dNode.ReqStore.Has(forward.Ack) {
+						continue
+					}
+
+					if !dNode.ReqStore.HasCorrect(forward.Ack) {
+						// TODO, this is a bit crude, it assumes that
+						// if the request is not correct at this moment,
+						// there is no buffering, and that it will not become
+						// correct in the future
+						continue
+					}
+
+					r.EventLog.InsertStateEvent(
+						dNodeID,
+						&state.Event{
+							Type: &state.Event_AddClientResults{
+								AddClientResults: &state.EventClientActionResults{
+									Persisted: []*msgs.RequestAck{forward.Ack},
+								},
+							},
+						},
+						int64(runtimeParms.LinkLatency),
+					)
+				}
+			case *state.Action_CorrectRequest:
+				node.ReqStore.StoreCorrect(t.CorrectRequest)
+			case *state.Action_Commit:
+				checkpoint := nodeState.Commit(t.Commit)
+				if checkpoint != nil {
+					apply.Checkpoints = append(apply.Checkpoints, checkpoint)
+				}
+			case *state.Action_StateTransfer:
+				var networkState *msgs.NetworkState
+				for _, node := range r.Nodes {
+					el, ok := node.State.CheckpointsBySeqNo[t.StateTransfer.SeqNo]
+					if !ok {
+						// if no node has the state, networkState will be nil
+						// which signals to the state machine to try another target
+						continue
+					}
+
+					networkState = el.Value.(*state.CheckpointResult).NetworkState
+					break
+				}
+				r.EventLog.InsertStateEvent(
+					lastEvent.NodeId,
+					&state.Event{
+						Type: &state.Event_Transfer{
+							Transfer: &msgs.CEntry{
+								SeqNo:           t.StateTransfer.SeqNo,
+								CheckpointValue: t.StateTransfer.Value,
+								NetworkState:    networkState,
+							},
+						},
+					},
+					int64(runtimeParms.StateTransferLatency),
+				)
+			default:
+				panic(fmt.Sprintf("unhandled type: %T", t))
 			}
-
-			if client.Config.shouldSkip(lastEvent.NodeId) {
-				continue
-			}
-
-			req := client.RequestByReqNo(reqSlot.ReqNo)
-			if req == nil {
-				continue
-			}
-
-			clientActionResults.Persisted = append(clientActionResults.Persisted, req)
 		}
 
 		r.EventLog.InsertStateEvent(
@@ -464,100 +572,6 @@ func (r *Recording) Step() error {
 			0, // TODO, maybe have some additional reqstore latency here?
 		)
 
-		for _, ack := range processing.CorrectRequests {
-			node.ReqStore.StoreCorrect(ack)
-		}
-
-		for _, forward := range processing.ForwardRequests {
-			if !node.ReqStore.Has(forward.Ack) {
-				panic("we asked ourselves to forward an ack we do not have")
-			}
-
-			for _, dNodeID := range forward.Targets {
-
-				dNode := r.Nodes[int(dNodeID)]
-				if dNode.ReqStore.Has(forward.Ack) {
-					continue
-				}
-
-				if !dNode.ReqStore.HasCorrect(forward.Ack) {
-					// TODO, this is a bit crude, it assumes that
-					// if the request is not correct at this moment,
-					// there is no buffering, and that it will not become
-					// correct in the future
-					continue
-				}
-
-				r.EventLog.InsertStateEvent(
-					dNodeID,
-					&state.Event{
-						Type: &state.Event_AddClientResults{
-							AddClientResults: &state.EventClientActionResults{
-								Persisted: []*msgs.RequestAck{forward.Ack},
-							},
-						},
-					},
-					int64(runtimeParms.LinkLatency),
-				)
-			}
-		}
-	case *state.Event_ActionsReceived:
-		if !node.AwaitingProcessEvent {
-			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.NodeId)
-		}
-		node.AwaitingProcessEvent = false
-		processing := playbackNode.Processing
-
-		for _, write := range processing.WriteAhead {
-			switch {
-			case write.Append != 0:
-				node.WAL.Append(write.Append, write.Data)
-			case write.Truncate != 0:
-				node.WAL.Truncate(write.Truncate)
-			default:
-				panic("Append or Truncate must be set")
-			}
-		}
-
-		for _, send := range processing.Send {
-			for _, i := range send.Targets {
-				linkLatency := runtimeParms.LinkLatency
-				if i == lastEvent.NodeId {
-					// There's no latency to send to ourselves
-					linkLatency = 0
-				}
-				if n := r.Player.Node(i); n.StateMachine == nil {
-					continue
-				}
-				r.EventLog.InsertStepEvent(
-					i,
-					&state.EventInboundMsg{
-						Source: lastEvent.NodeId,
-						Msg:    send.Msg,
-					},
-					int64(linkLatency+runtimeParms.PersistLatency),
-				)
-			}
-		}
-
-		apply := &state.EventActionResults{
-			Digests: make([]*state.HashResult, len(processing.Hash)),
-		}
-
-		for i, hashRequest := range processing.Hash {
-			hasher := r.Hasher()
-			for _, data := range hashRequest.Data {
-				hasher.Write(data)
-			}
-
-			apply.Digests[i] = &state.HashResult{
-				Digest: hasher.Sum(nil),
-				Type:   hashRequest.Origin.Type,
-			}
-		}
-
-		apply.Checkpoints = nodeState.Commit(processing.Commits, lastEvent.NodeId)
-
 		r.EventLog.InsertStateEvent(
 			lastEvent.NodeId,
 			&state.Event{
@@ -567,34 +581,6 @@ func (r *Recording) Step() error {
 			},
 			int64(runtimeParms.ReadyLatency),
 		)
-
-		if processing.StateTransfer != nil {
-			var networkState *msgs.NetworkState
-			for _, node := range r.Nodes {
-				el, ok := node.State.CheckpointsBySeqNo[processing.StateTransfer.SeqNo]
-				if !ok {
-					// if no node has the state, networkState will be nil
-					// which signals to the state machine to try another target
-					continue
-				}
-
-				networkState = el.Value.(*state.CheckpointResult).NetworkState
-				break
-			}
-			r.EventLog.InsertStateEvent(
-				lastEvent.NodeId,
-				&state.Event{
-					Type: &state.Event_Transfer{
-						Transfer: &msgs.CEntry{
-							SeqNo:           processing.StateTransfer.SeqNo,
-							CheckpointValue: processing.StateTransfer.Value,
-							NetworkState:    networkState,
-						},
-					},
-				},
-				int64(runtimeParms.StateTransferLatency),
-			)
-		}
 	case *state.Event_Initialize:
 		// If this is an Initialize, it is either the first event for the node,
 		// and nothing else is in the log, or, it is a restart.  In the case of
@@ -655,31 +641,13 @@ func (r *Recording) Step() error {
 	}
 
 	if playbackNode.Processing == nil &&
-		!isEmpty(playbackNode.Actions) &&
+		playbackNode.Actions.Len() != 0 &&
 		!node.AwaitingProcessEvent {
 		r.EventLog.InsertProcess(lastEvent.NodeId, int64(runtimeParms.ProcessLatency))
 		node.AwaitingProcessEvent = true
 	}
 
-	if playbackNode.ClientProcessing == nil &&
-		!isEmpty(playbackNode.ClientActions) &&
-		!node.AwaitingClientProcessEvent {
-		r.EventLog.InsertClientProcess(lastEvent.NodeId, int64(runtimeParms.ClientProcessLatency))
-		node.AwaitingClientProcessEvent = true
-	}
-
 	return nil
-}
-
-func isEmpty(actions *state.Actions) bool {
-	return len(actions.Send) == 0 &&
-		len(actions.WriteAhead) == 0 &&
-		len(actions.Hash) == 0 &&
-		len(actions.AllocatedRequests) == 0 &&
-		len(actions.ForwardRequests) == 0 &&
-		len(actions.CorrectRequests) == 0 &&
-		len(actions.Commits) == 0 &&
-		actions.StateTransfer == nil
 }
 
 // DrainClients will execute the recording until all client requests have committed.
