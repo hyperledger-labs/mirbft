@@ -95,17 +95,6 @@ func (ca *ClientActions) concat(o *ClientActions) *ClientActions {
 	return ca
 }
 
-type ClientActionResults struct {
-	// PersistedRequests should be the set of new client requests that
-	// have been persisted (because they are are known to be correct).
-	PersistedRequests []*msgs.RequestAck
-}
-
-func (car *ClientActionResults) persisted(ack *msgs.RequestAck) *ClientActionResults {
-	car.PersistedRequests = append(car.PersistedRequests, ack)
-	return car
-}
-
 type RequestSlot struct {
 	ClientID uint64
 	ReqNo    uint64

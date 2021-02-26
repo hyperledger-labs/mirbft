@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
 var ErrClientNotExist error = errors.New("client does not exist")
@@ -39,13 +40,13 @@ type ClientProcessor struct {
 }
 
 type ClientWork struct {
-	mutex   sync.Mutex
-	readyC  chan struct{}
-	results *ClientActionResults
+	mutex  sync.Mutex
+	readyC chan struct{}
+	events *statemachine.EventList
 }
 
 // Ready return a channel which reads once there are
-// results ready to be read via Results().  Note, this
+// events ready to be read via Results().  Note, this
 // method must not be invoked concurrently by different
 // go routines.
 func (cw *ClientWork) Ready() <-chan struct{} {
@@ -53,7 +54,7 @@ func (cw *ClientWork) Ready() <-chan struct{} {
 	defer cw.mutex.Unlock()
 	if cw.readyC == nil {
 		cw.readyC = make(chan struct{})
-		if cw.results != nil {
+		if cw.events != nil {
 			close(cw.readyC)
 		}
 	}
@@ -63,25 +64,25 @@ func (cw *ClientWork) Ready() <-chan struct{} {
 // Results fetches and clears any outstanding results.  The caller
 // must have successfully read from the Ready() channel before calling
 // or the behavior is undefined.
-func (cw *ClientWork) Results() *ClientActionResults {
+func (cw *ClientWork) Results() *statemachine.EventList {
 	cw.mutex.Lock()
 	defer cw.mutex.Unlock()
 	cw.readyC = nil
-	results := cw.results
-	cw.results = nil
-	return results
+	events := cw.events
+	cw.events = nil
+	return events
 }
 
 func (cw *ClientWork) addPersistedReq(ack *msgs.RequestAck) {
 	cw.mutex.Lock()
 	defer cw.mutex.Unlock()
-	if cw.results == nil {
-		cw.results = &ClientActionResults{}
+	if cw.events == nil {
+		cw.events = &statemachine.EventList{}
 		if cw.readyC != nil {
 			close(cw.readyC)
 		}
 	}
-	cw.results.PersistedRequests = append(cw.results.PersistedRequests, ack)
+	cw.events.RequestPersisted(ack)
 }
 
 func (cp *ClientProcessor) Client(clientID uint64) *Client {
@@ -99,8 +100,8 @@ func (cp *ClientProcessor) Client(clientID uint64) *Client {
 	return c
 }
 
-func (cp *ClientProcessor) Process(ca *ClientActions) (*ClientActionResults, error) {
-	results := &ClientActionResults{}
+func (cp *ClientProcessor) Process(ca *ClientActions) (*statemachine.EventList, error) {
+	events := &statemachine.EventList{}
 
 	for _, r := range ca.AllocatedRequests {
 		client := cp.Client(r.ClientID)
@@ -110,7 +111,7 @@ func (cp *ClientProcessor) Process(ca *ClientActions) (*ClientActionResults, err
 		}
 
 		if digest != nil {
-			results.persisted(&msgs.RequestAck{
+			events.RequestPersisted(&msgs.RequestAck{
 				ClientId: r.ClientID,
 				ReqNo:    r.ReqNo,
 				Digest:   digest,
@@ -149,7 +150,7 @@ func (cp *ClientProcessor) Process(ca *ClientActions) (*ClientActionResults, err
 	   }
 	*/
 
-	return results, nil
+	return events, nil
 }
 
 type Client struct {

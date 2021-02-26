@@ -210,22 +210,3 @@ func (n *Node) InjectEvents(events *statemachine.EventList) error {
 		return n.s.getExitErr()
 	}
 }
-
-// AddClientResults is a callback from the client consumer to the state machine, informing the
-// state machine that ClientActions have been carried out, and the result of those
-// ClientActions is applicable.  In the case that the node is stopped, it returns
-// the exit error otherwise nil is returned.
-func (n *Node) AddClientResults(results ClientActionResults) error {
-	el := &statemachine.EventList{}
-
-	for _, persisted := range results.PersistedRequests {
-		el.RequestPersisted(persisted)
-	}
-
-	select {
-	case n.s.eventsC <- el:
-		return nil
-	case <-n.s.errC:
-		return n.s.getExitErr()
-	}
-}

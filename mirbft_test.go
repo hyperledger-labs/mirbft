@@ -465,14 +465,13 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			var err error
 			select {
 			case clientActions := <-node.ClientReady():
-				var clientResults *mirbft.ClientActionResults
-				clientResults, err = clientProcessor.Process(&clientActions)
+				newEvents, err := clientProcessor.Process(&clientActions)
 				if err != nil {
 					break
 				}
-				err = node.AddClientResults(*clientResults)
+				err = node.InjectEvents(newEvents)
 			case <-clientProcessor.ClientWork.Ready():
-				err = node.AddClientResults(*clientProcessor.ClientWork.Results())
+				err = node.InjectEvents(clientProcessor.ClientWork.Results())
 			case <-node.Err():
 				return
 			}
