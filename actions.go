@@ -14,35 +14,20 @@ import (
 	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
-func toActions(a *statemachine.ActionList) (*Actions, *ClientActions) {
+func toActions(a *statemachine.ActionList) (*statemachine.ActionList, *ClientActions) {
 	iter := a.Iterator()
-	aResult := &Actions{}
+	aResult := &statemachine.ActionList{}
 	caResult := &ClientActions{}
 	for action := iter.Next(); action != nil; action = iter.Next() {
 		switch t := action.Type.(type) {
 		case *state.Action_Send:
-			aResult.Send = append(aResult.Send, Send{
-				Targets: t.Send.Targets,
-				Msg:     t.Send.Msg,
-			})
+			aResult.PushBack(action)
 		case *state.Action_Hash:
-			aResult.Hash = append(aResult.Hash, &HashRequest{
-				Data:   t.Hash.Data,
-				Origin: t.Hash.Origin,
-			})
+			aResult.PushBack(action)
 		case *state.Action_TruncateWriteAhead:
-			write := &Write{
-				Truncate: &t.TruncateWriteAhead.Index,
-			}
-			aResult.WriteAhead = append(aResult.WriteAhead, write)
+			aResult.PushBack(action)
 		case *state.Action_AppendWriteAhead:
-			write := &Write{
-				Append: &WALEntry{
-					Index: t.AppendWriteAhead.Index,
-					Data:  t.AppendWriteAhead.Data,
-				},
-			}
-			aResult.WriteAhead = append(aResult.WriteAhead, write)
+			aResult.PushBack(action)
 		case *state.Action_AllocatedRequest:
 			caResult.AllocatedRequests = append(caResult.AllocatedRequests, RequestSlot{
 				ClientID: t.AllocatedRequest.ClientId,
@@ -56,24 +41,11 @@ func toActions(a *statemachine.ActionList) (*Actions, *ClientActions) {
 				RequestAck: t.ForwardRequest.Ack,
 			})
 		case *state.Action_Commit:
-			commit := &Commit{
-				Batch: t.Commit.Batch,
-			}
-			aResult.Commits = append(aResult.Commits, commit)
+			aResult.PushBack(action)
 		case *state.Action_Checkpoint:
-			commit := &Commit{
-				Checkpoint: &Checkpoint{
-					SeqNo:         t.Checkpoint.SeqNo,
-					NetworkConfig: t.Checkpoint.NetworkConfig,
-					ClientsState:  t.Checkpoint.ClientStates,
-				},
-			}
-			aResult.Commits = append(aResult.Commits, commit)
+			aResult.PushBack(action)
 		case *state.Action_StateTransfer:
-			aResult.StateTransfer = &StateTarget{
-				SeqNo: t.StateTransfer.SeqNo,
-				Value: t.StateTransfer.Value,
-			}
+			aResult.PushBack(action)
 		default:
 			panic(fmt.Sprintf("unhandled type: %T", t))
 		}

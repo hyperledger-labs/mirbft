@@ -20,9 +20,9 @@ import (
 // serializer provides a single threaded way to access the Mir state machine
 // and passes work to/from the state machine.
 type serializer struct {
-	actionsC       chan Actions
 	clientActionsC chan ClientActions
 	doneC          chan struct{}
+	actionsC       chan *statemachine.ActionList
 	eventsC        chan *statemachine.EventList
 	statusC        chan chan<- *status.StateMachine
 	errC           chan struct{}
@@ -38,7 +38,7 @@ type serializer struct {
 func newSerializer(myConfig *Config, walStorage WALStorage) (*serializer, error) {
 
 	s := &serializer{
-		actionsC:       make(chan Actions),
+		actionsC:       make(chan *statemachine.ActionList),
 		clientActionsC: make(chan ClientActions),
 		doneC:          make(chan struct{}),
 		eventsC:        make(chan *statemachine.EventList),
@@ -100,7 +100,7 @@ func (s *serializer) run() (exitErr error) {
 		s.exitStatus = sm.Status()
 	}()
 
-	actions := &Actions{}
+	actions := &statemachine.ActionList{}
 	clientActions := &ClientActions{}
 
 	applyEvent := func(stateEvent *state.Event) error {
@@ -113,7 +113,7 @@ func (s *serializer) run() (exitErr error) {
 
 		newActions, newClientActions := toActions(sm.ApplyEvent(stateEvent))
 
-		actions.concat(newActions)
+		actions.PushBackList(newActions)
 		clientActions.concat(newClientActions)
 		return nil
 	}
@@ -138,7 +138,7 @@ func (s *serializer) run() (exitErr error) {
 		if _, ok := s.walStorage.(*dummyWAL); ok {
 			// This was our own startup/bootstrap WAL,
 			// we need to get these entries persisted into the real one.
-			actions.persist(i, p)
+			actions.Persist(i, p)
 		}
 
 		applyEvent(&state.Event{
@@ -164,13 +164,13 @@ func (s *serializer) run() (exitErr error) {
 		return err
 	}
 
-	var actionsC chan<- Actions
+	var actionsC chan<- *statemachine.ActionList
 	var clientActionsC chan<- ClientActions
 	for {
 		var err error
 		select {
-		case actionsC <- *actions:
-			actions.clear()
+		case actionsC <- actions:
+			actions = &statemachine.ActionList{}
 			actionsC = nil
 			err = applyEvent(&state.Event{
 				Type: &state.Event_ActionsReceived{
@@ -201,7 +201,7 @@ func (s *serializer) run() (exitErr error) {
 			return err
 		}
 
-		if !actions.isEmpty() {
+		if actions.Len() > 0 {
 			actionsC = s.actionsC
 		}
 

@@ -27,6 +27,7 @@ import (
 	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/reqstore"
 	"github.com/IBM/mirbft/pkg/simplewal"
+	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 )
 
@@ -162,22 +163,28 @@ func (ft *FakeTransport) Stop() {
 	ft.WaitGroup.Wait()
 }
 
-type FakeLog struct {
+type FakeApp struct {
 	Entries []*msgs.QEntry
 	CommitC chan *msgs.QEntry
 }
 
-func (fl *FakeLog) Apply(entry *msgs.QEntry) {
+func (fl *FakeApp) Apply(entry *msgs.QEntry) error {
 	if len(entry.Requests) == 0 {
 		// this is a no-op batch from a tick, or catchup, ignore it
-		return
+		return nil
 	}
 	fl.Entries = append(fl.Entries, entry)
 	fl.CommitC <- entry
+	return nil
 }
 
-func (fl *FakeLog) Snap(*msgs.NetworkState_Config, []*msgs.NetworkState_Client) []byte {
-	return Uint64ToBytes(uint64(len(fl.Entries)))
+func (fl *FakeApp) Snap(*msgs.NetworkState_Config, []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error) {
+	return Uint64ToBytes(uint64(len(fl.Entries))), nil, nil
+}
+
+func (fl *FakeApp) TransferTo(seqNo uint64, snap []byte) (*msgs.NetworkState, error) {
+	return nil, fmt.Errorf("we don't support state transfer in this test (yet)")
+
 }
 
 type TestConfig struct {
@@ -256,10 +263,10 @@ var _ = Describe("StressyTest", func() {
 				fmt.Printf("%s\n", nodeStatus.Status.Pretty())
 			}
 
-			fmt.Printf("\nFakeLog has %d messages\n", len(replica.Log.Entries))
+			fmt.Printf("\nFakeApp has %d messages\n", len(replica.App.Entries))
 
-			if expectedProposalCount > len(replica.Log.Entries) {
-				fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(replica.Log.Entries))
+			if expectedProposalCount > len(replica.App.Entries) {
+				fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(replica.App.Entries))
 			}
 
 			fmt.Printf("\nLog available at %s\n", replica.EventLogPath())
@@ -279,7 +286,7 @@ var _ = Describe("StressyTest", func() {
 			By(fmt.Sprintf("checking for node %d that each message only commits once", j))
 			for len(observations) < testConfig.MsgCount {
 				entry := &msgs.QEntry{}
-				Eventually(replica.Log.CommitC, 10*time.Second).Should(Receive(&entry))
+				Eventually(replica.App.CommitC, 10*time.Second).Should(Receive(&entry))
 
 				for _, req := range entry.Requests {
 					Expect(req.ReqNo).To(BeNumerically("<", testConfig.MsgCount))
@@ -316,7 +323,7 @@ var _ = Describe("StressyTest", func() {
 			BatchSize:          10,
 			ClientWidth:        1000,
 			MsgCount:           10000,
-			ParallelProcess:    true,
+			// ParallelProcess:    true, // TODO, re-enable once parallel processing exists again
 		}),
 	)
 })
@@ -325,7 +332,7 @@ type TestReplica struct {
 	Config              *mirbft.Config
 	InitialNetworkState *msgs.NetworkState
 	TmpDir              string
-	Log                 *FakeLog
+	App                 *FakeApp
 	FakeTransport       *FakeTransport
 	FakeClient          *FakeClient
 	ParallelProcess     bool
@@ -402,10 +409,10 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	}()
 
 	processor := &mirbft.Processor{
-		Node:   node,
+		NodeID: node.Config.ID,
 		Link:   tr.FakeTransport.Link(node.Config.ID),
 		Hasher: crypto.SHA256,
-		Log:    tr.Log,
+		App:    tr.App,
 		WAL:    wal,
 	}
 
@@ -485,25 +492,17 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		}
 	}()
 
-	var process func(*mirbft.Actions) (*mirbft.ActionResults, error)
+	var process func(*statemachine.ActionList) (*statemachine.EventList, error)
 
-	if tr.ParallelProcess {
-		pwp := mirbft.NewProcessorWorkPool(processor, mirbft.ProcessorWorkPoolOpts{})
-		defer pwp.Stop()
-		process = pwp.Process
-	} else {
-		process = processor.Process
-	}
+	Expect(tr.ParallelProcess).To(BeFalse())
+	process = processor.Process
 
 	for {
 		select {
-		case actions := <-node.Ready():
-			results, err := process(&actions)
+		case actions := <-node.Actions():
+			events, err := process(actions)
 			Expect(err).NotTo(HaveOccurred())
-			node.AddResults(*results)
-			if actions.StateTransfer != nil {
-				panic("we need to implement state transfer for these tests")
-			}
+			node.InjectEvents(events)
 		case <-node.Err():
 			return node.Status(context.Background())
 		case <-ticker.C:
@@ -564,7 +563,7 @@ func CreateNetwork(testConfig *TestConfig, doneC <-chan struct{}) *Network {
 			config.BatchSize = testConfig.BatchSize
 		}
 
-		fakeLog := &FakeLog{
+		fakeApp := &FakeApp{
 			// We make the CommitC excessive, to prevent deadlock
 			// in case of bugs this test would otherwise catch.
 			CommitC: make(chan *msgs.QEntry, 5*testConfig.MsgCount),
@@ -574,7 +573,7 @@ func CreateNetwork(testConfig *TestConfig, doneC <-chan struct{}) *Network {
 			Config:              config,
 			InitialNetworkState: networkState,
 			TmpDir:              filepath.Join(tmpDir, fmt.Sprintf("node%d", i)),
-			Log:                 fakeLog,
+			App:                 fakeApp,
 			FakeTransport:       transport,
 			FakeClient: &FakeClient{
 				MsgCount: uint64(testConfig.MsgCount),

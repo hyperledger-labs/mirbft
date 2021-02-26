@@ -7,14 +7,13 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft
 
 import (
-	"context"
-	"github.com/pkg/errors"
 	"hash"
-	"runtime"
-	"sync"
+
+	"github.com/pkg/errors"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"golang.org/x/sync/errgroup"
+	"github.com/IBM/mirbft/pkg/pb/state"
+	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
 type Hasher interface {
@@ -25,10 +24,10 @@ type Link interface {
 	Send(dest uint64, msg *msgs.Msg)
 }
 
-// TODO allow these to return errors
-type Log interface {
-	Apply(*msgs.QEntry)
-	Snap(networkConfig *msgs.NetworkState_Config, clientsState []*msgs.NetworkState_Client) (id []byte)
+type App interface {
+	Apply(*msgs.QEntry) error
+	Snap(networkConfig *msgs.NetworkState_Config, clientsState []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error)
+	TransferTo(seqNo uint64, snap []byte) (*msgs.NetworkState, error)
 }
 
 type WAL interface {
@@ -37,325 +36,88 @@ type WAL interface {
 	Sync() error
 }
 
-// Processor provides an implementation of action processing for the
-// mirbft Actions returned from the Ready() channel.  It is an optional
-// component and provides an implementation only for common case usage,
-// but may instead be implemented with normal application code.  This base
-// processor operates in a serial fashion, first persisting requests,
-// then writing the WAL, then sending requests, then computing hashes, then
-// applying entries to the provided Log, and finally returning the requested
-// hash and checkpoint results.  Because these operations include IO and are
-// blocking, this base implementation is most suitable for test or resource
-// constrained environments.
 type Processor struct {
+	NodeID uint64
 	Link   Link
 	Hasher Hasher
-	Log    Log
+	App    App
 	WAL    WAL
-	Node   *Node
 }
 
-func (p *Processor) Process(actions *Actions) (*ActionResults, error) {
-	// Persist
-	for _, write := range actions.WriteAhead {
-		if write.Truncate != nil {
-			if err := p.WAL.Truncate(*write.Truncate); err != nil {
-				return nil, errors.WithMessage(err, "could not truncate WAL")
-			}
-		} else {
-			if err := p.WAL.Write(write.Append.Index, write.Append.Data); err != nil {
-				return nil, errors.WithMessage(err, "could not persist entry")
-			}
-		}
-	}
-
-	if err := p.WAL.Sync(); err != nil {
-		return nil, errors.WithMessage(err, "could not sync WAL")
-	}
-
-	// Transmit
-	for _, send := range actions.Send {
-		for _, replica := range send.Targets {
-			if replica == p.Node.Config.ID {
-				p.Node.Step(context.Background(), replica, send.Msg)
-			} else {
-				p.Link.Send(replica, send.Msg)
-			}
-		}
-	}
-
-	// Apply
-	actionResults := &ActionResults{
-		Digests: make([]*HashResult, len(actions.Hash)),
-	}
-
-	for i, req := range actions.Hash {
-		h := p.Hasher.New()
-		for _, data := range req.Data {
-			h.Write(data)
-		}
-
-		actionResults.Digests[i] = &HashResult{
-			Request: req,
-			Digest:  h.Sum(nil),
-		}
-	}
-
-	for _, commit := range actions.Commits {
-		if commit.Batch != nil {
-			p.Log.Apply(commit.Batch) // Apply the entry
-			continue
-		}
-
-		// Not a batch, so, must be a checkpoint
-
-		value := p.Log.Snap(commit.Checkpoint.NetworkConfig, commit.Checkpoint.ClientsState)
-		actionResults.Checkpoints = append(actionResults.Checkpoints, &CheckpointResult{
-			Checkpoint: commit.Checkpoint,
-			Value:      value,
-		})
-	}
-
-	return actionResults, nil
-}
-
-// ProcessorWorkPool is a work pool based version of the standard Processor.
-// It fulfills the same purpose as the base Processor, which is to provide an
-// implementation of processing logic suitable for most applications, but instead
-// of processing in a serial manner, the ProcessorWorkPool dispatches work to
-// different work pools, both for storage, network sends, as well as computations.
-// The parallelism occurs across three areas.  Request forwarding, hashing, committing, and
-// persistence/networking.  Since request forwarding, hashing, and committing all operate
-// without effect on state machine safety, these may safely be performed in parallel with
-// the persistence/networking which does impact state machine safety.  Further paralellism
-// is employed within each of these subactions where safe.
-type ProcessorWorkPool struct {
-	processor *Processor
-
-	waitGroup sync.WaitGroup
-	mutex     sync.Mutex
-
-	// these four channels are buffered and serviced
-	// by the worker pool routines
-	transmitC     chan Send
-	transmitDoneC chan struct{}
-	hashC         chan *HashRequest
-	hashDoneC     chan *HashResult
-
-	doneC chan struct{}
-}
-
-func (wp *ProcessorWorkPool) serviceSendPool() {
-	for {
-		select {
-		case send := <-wp.transmitC:
-			for _, replica := range send.Targets {
-				if replica == wp.processor.Node.Config.ID {
-					wp.processor.Node.Step(context.Background(), replica, send.Msg)
-				} else {
-					wp.processor.Link.Send(replica, send.Msg)
-				}
-			}
-			select {
-			case wp.transmitDoneC <- struct{}{}:
-			case <-wp.doneC:
-				return
-			}
-		case <-wp.doneC:
-			return
-		}
-	}
-}
-
-func (wp *ProcessorWorkPool) persistThenSend(writeAhead []*Write, sends []Send) error {
-	g := errgroup.Group{}
-
-	// Next, begin persisting the WAL, plus any pending requests, once done,
-	// send the other protocol messages
-	g.Go(func() error {
-		for _, write := range writeAhead {
-			if write.Truncate != nil {
-				if err := wp.processor.WAL.Truncate(*write.Truncate); err != nil {
-					return errors.WithMessage(err, "could not truncate WAL")
-				}
-			} else {
-				if err := wp.processor.WAL.Write(write.Append.Index, write.Append.Data); err != nil {
-					return errors.WithMessage(err, "could not persist entry")
-				}
-			}
-		}
-		if err := wp.processor.WAL.Sync(); err != nil {
-			return errors.WithMessage(err, "could not sync WAL")
-		}
-
-		for _, send := range sends {
-			select {
-			case wp.transmitC <- send:
-			case <-wp.doneC:
-				return nil
-			}
-		}
-
-		return nil
-	})
-
-	g.Go(func() error {
-		sent := 0
-		for sent < len(sends) { // +len(forwards) { // TODO, handle forwards again
-			select {
-			case <-wp.transmitDoneC:
-				sent++
-			case <-wp.doneC:
-				return nil
-			}
-		}
-		return nil
-	})
-
-	return g.Wait()
-}
-
-func (wp *ProcessorWorkPool) serviceHashPool() {
-	h := wp.processor.Hasher.New()
-	for {
-		select {
-		case hashReq := <-wp.hashC:
-			for _, data := range hashReq.Data {
+func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.EventList, error) {
+	events := &statemachine.EventList{}
+	// First we'll handle everything that's not a network send
+	iter := actions.Iterator()
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_Send:
+			// Skip in the first round
+		case *state.Action_Hash:
+			h := p.Hasher.New()
+			for _, data := range t.Hash.Data {
 				h.Write(data)
 			}
 
-			result := &HashResult{
-				Request: hashReq,
-				Digest:  h.Sum(nil),
+			events.HashResult(h.Sum(nil), t.Hash.Origin)
+		case *state.Action_AppendWriteAhead:
+			write := t.AppendWriteAhead
+			if err := p.WAL.Write(write.Index, write.Data); err != nil {
+				return nil, errors.WithMessagef(err, "failed to write entry to WAL at index %d", write.Index)
 			}
-			h.Reset()
-			select {
-			case wp.hashDoneC <- result:
-			case <-wp.doneC:
-				return
+		case *state.Action_TruncateWriteAhead:
+			truncate := t.TruncateWriteAhead
+			if err := p.WAL.Truncate(truncate.Index); err != nil {
+				return nil, errors.WithMessagef(err, "failed to truncate WAL to index %d", truncate.Index)
 			}
-		case <-wp.doneC:
-			return
-		}
-	}
-}
-
-func (wp *ProcessorWorkPool) hash(hashReqs []*HashRequest) []*HashResult {
-	go func() {
-		for _, hashReq := range hashReqs {
-			select {
-			case wp.hashC <- hashReq:
-			case <-wp.doneC:
-				return
+		case *state.Action_Commit:
+			if err := p.App.Apply(t.Commit.Batch); err != nil {
+				return nil, errors.WithMessage(err, "app failed to commit")
+			}
+		case *state.Action_Checkpoint:
+			cp := t.Checkpoint
+			value, pendingReconf, err := p.App.Snap(cp.NetworkConfig, cp.ClientStates)
+			if err != nil {
+				return nil, errors.WithMessage(err, "app failed to generate snapshot")
+			}
+			events.CheckpointResult(value, pendingReconf, cp)
+		case *state.Action_AllocatedRequest:
+			// We handle this in the client processor... for now
+		case *state.Action_CorrectRequest:
+			// We handle this in the client processor... for now
+		case *state.Action_ForwardRequest:
+			// We handle this in the client processor... for now
+		case *state.Action_StateTransfer:
+			stateTarget := t.StateTransfer
+			state, err := p.App.TransferTo(stateTarget.SeqNo, stateTarget.Value)
+			if err != nil {
+				events.StateTransferFailed(stateTarget)
+			} else {
+				events.StateTransferComplete(state, stateTarget)
 			}
 		}
-	}()
+	}
 
-	hashResults := make([]*HashResult, 0, len(hashReqs))
-	for len(hashResults) < len(hashReqs) {
-		select {
-		case hashResult := <-wp.hashDoneC:
-			hashResults = append(hashResults, hashResult)
-		case <-wp.doneC:
-			return nil
+	// Then we sync the WAL
+	if err := p.WAL.Sync(); err != nil {
+		return nil, errors.WithMessage(err, "failted to sync WAL")
+	}
+
+	// Now we transmit
+	iter = actions.Iterator()
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_Send:
+			for _, replica := range t.Send.Targets {
+				if replica == p.NodeID {
+					events.Step(replica, t.Send.Msg)
+				} else {
+					p.Link.Send(replica, t.Send.Msg)
+				}
+			}
+		default:
+			// We've handled the other types already
 		}
 	}
 
-	return hashResults
-}
-
-func (wp *ProcessorWorkPool) commit(commits []*Commit) []*CheckpointResult {
-	var checkpoints []*CheckpointResult
-
-	for _, commit := range commits {
-		if commit.Batch != nil {
-			wp.processor.Log.Apply(commit.Batch) // Apply the entry
-			continue
-		}
-
-		// Not a batch, so, must be a checkpoint
-
-		value := wp.processor.Log.Snap(commit.Checkpoint.NetworkConfig, commit.Checkpoint.ClientsState)
-		checkpoints = append(checkpoints, &CheckpointResult{
-			Checkpoint: commit.Checkpoint,
-			Value:      value,
-		})
-	}
-
-	return checkpoints
-}
-
-type ProcessorWorkPoolOpts struct {
-	TransmitWorkers int
-	HashWorkers     int
-}
-
-func NewProcessorWorkPool(p *Processor, opts ProcessorWorkPoolOpts) *ProcessorWorkPool {
-	if opts.TransmitWorkers == 0 {
-		opts.TransmitWorkers = runtime.NumCPU()
-	}
-
-	if opts.HashWorkers == 0 {
-		opts.HashWorkers = runtime.NumCPU()
-	}
-
-	wp := &ProcessorWorkPool{
-		processor: p,
-
-		doneC: make(chan struct{}),
-
-		transmitC:     make(chan Send, opts.TransmitWorkers),
-		transmitDoneC: make(chan struct{}, opts.TransmitWorkers),
-		hashC:         make(chan *HashRequest, opts.HashWorkers),
-		hashDoneC:     make(chan *HashResult, opts.HashWorkers),
-	}
-
-	wp.waitGroup.Add(opts.TransmitWorkers + opts.HashWorkers)
-
-	for i := 0; i < opts.TransmitWorkers; i++ {
-		go func() {
-			wp.serviceSendPool()
-			wp.waitGroup.Done()
-		}()
-	}
-
-	for i := 0; i < opts.HashWorkers; i++ {
-		go func() {
-			wp.serviceHashPool()
-			wp.waitGroup.Done()
-		}()
-	}
-
-	return wp
-}
-
-func (wp *ProcessorWorkPool) Stop() {
-	wp.mutex.Lock()
-	defer wp.mutex.Unlock()
-	close(wp.doneC)
-	wp.waitGroup.Wait()
-}
-
-func (wp *ProcessorWorkPool) Process(actions *Actions) (*ActionResults, error) {
-	wp.mutex.Lock()
-	defer wp.mutex.Unlock()
-
-	results := &ActionResults{}
-	g := errgroup.Group{}
-
-	g.Go(func() error {
-		return wp.persistThenSend(actions.WriteAhead, actions.Send)
-	})
-
-	g.Go(func() error {
-		results.Digests = wp.hash(actions.Hash)
-		return nil
-	})
-
-	g.Go(func() error {
-		results.Checkpoints = wp.commit(actions.Commits)
-		return nil
-	})
-
-	return results, g.Wait()
+	return events, nil
 }

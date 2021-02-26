@@ -202,7 +202,7 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 // Ready returns a channel which will deliver Actions for the user to perform.
 // See the documentation for Actions regarding the detailed responsibilities
 // of the caller.
-func (n *Node) Ready() <-chan Actions {
+func (n *Node) Actions() <-chan *statemachine.ActionList {
 	return n.s.actionsC
 }
 
@@ -237,27 +237,12 @@ func (n *Node) Tick() error {
 	}
 }
 
-// AddResults is a callback from the consumer to the state machine, informing the
-// state machine that Actions have been carried out, and the result of those
-// Actions is applicable.  In the case that the node is stopped, it returns
-// the exit error otherwise nil is returned.
-func (n *Node) AddResults(results ActionResults) error {
-	el := &statemachine.EventList{}
-
-	for _, hashResult := range results.Digests {
-		el.HashResult(hashResult.Digest, hashResult.Request.Origin)
-	}
-
-	for _, cr := range results.Checkpoints {
-		el.CheckpointResult(cr.Value, cr.Reconfigurations, &state.ActionCheckpoint{
-			SeqNo:         cr.Checkpoint.SeqNo,
-			NetworkConfig: cr.Checkpoint.NetworkConfig,
-			ClientStates:  cr.Checkpoint.ClientsState,
-		})
-	}
-
+// InjectEvents is called by the consumer after processing actions, or because
+// events such as network sends or client requests have occurred.
+// If the node is stopped, it returns the exit error otherwise nil is returned.
+func (n *Node) InjectEvents(events *statemachine.EventList) error {
 	select {
-	case n.s.eventsC <- el:
+	case n.s.eventsC <- events:
 		return nil
 	case <-n.s.errC:
 		return n.s.getExitErr()
