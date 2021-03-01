@@ -32,12 +32,16 @@ type RequestStore interface {
 // It accepts client related actions from the state machine and injects
 // new client requests.
 type ClientProcessor struct {
-	mutex        sync.Mutex
 	NodeID       uint64
 	RequestStore RequestStore
 	Hasher       Hasher
-	clients      map[uint64]*Client
 	ClientWork   ClientWork
+	Clients      Clients
+}
+
+type Clients struct {
+	mutex   sync.Mutex
+	clients map[uint64]*Client
 }
 
 type ClientWork struct {
@@ -86,19 +90,25 @@ func (cw *ClientWork) addPersistedReq(ack *msgs.RequestAck) {
 	cw.events.RequestPersisted(ack)
 }
 
-func (cp *ClientProcessor) Client(clientID uint64) *Client {
-	cp.mutex.Lock()
-	defer cp.mutex.Unlock()
-	if cp.clients == nil {
-		cp.clients = map[uint64]*Client{}
+func (cs *Clients) client(clientID uint64, newClient func() *Client) *Client {
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	if cs.clients == nil {
+		cs.clients = map[uint64]*Client{}
 	}
 
-	c, ok := cp.clients[clientID]
+	c, ok := cs.clients[clientID]
 	if !ok {
-		c = newClient(clientID, cp.Hasher, cp.RequestStore, &cp.ClientWork)
-		cp.clients[clientID] = c
+		c = newClient()
+		cs.clients[clientID] = c
 	}
 	return c
+}
+
+func (cp *ClientProcessor) Client(clientID uint64) *Client {
+	return cp.Clients.client(clientID, func() *Client {
+		return newClient(clientID, cp.Hasher, cp.RequestStore, &cp.ClientWork)
+	})
 }
 
 func (cp *ClientProcessor) Process(actions *statemachine.ActionList) (*statemachine.EventList, error) {
