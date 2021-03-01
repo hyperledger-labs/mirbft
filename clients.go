@@ -14,30 +14,10 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
 var ErrClientNotExist error = errors.New("client does not exist")
-
-type RequestStore interface {
-	GetAllocation(clientID, reqNo uint64) ([]byte, error)
-	PutAllocation(clientID, reqNo uint64, digest []byte) error
-	GetRequest(requestAck *msgs.RequestAck) ([]byte, error)
-	PutRequest(requestAck *msgs.RequestAck, data []byte) error
-	Sync() error
-}
-
-// ClientProcessor is the client half of the processor components.
-// It accepts client related actions from the state machine and injects
-// new client requests.
-type ClientProcessor struct {
-	NodeID       uint64
-	RequestStore RequestStore
-	Hasher       Hasher
-	ClientWork   ClientWork
-	Clients      Clients
-}
 
 type Clients struct {
 	mutex   sync.Mutex
@@ -103,72 +83,6 @@ func (cs *Clients) client(clientID uint64, newClient func() *Client) *Client {
 		cs.clients[clientID] = c
 	}
 	return c
-}
-
-func (cp *ClientProcessor) Client(clientID uint64) *Client {
-	return cp.Clients.client(clientID, func() *Client {
-		return newClient(clientID, cp.Hasher, cp.RequestStore, &cp.ClientWork)
-	})
-}
-
-func (cp *ClientProcessor) Process(actions *statemachine.ActionList) (*statemachine.EventList, error) {
-	events := &statemachine.EventList{}
-
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_AllocatedRequest:
-			r := t.AllocatedRequest
-			client := cp.Client(r.ClientId)
-			digest, err := client.allocate(r.ReqNo)
-			if err != nil {
-				return nil, err
-			}
-
-			if digest == nil {
-				continue
-			}
-
-			events.RequestPersisted(&msgs.RequestAck{
-				ClientId: r.ClientId,
-				ReqNo:    r.ReqNo,
-				Digest:   digest,
-			})
-		case *state.Action_ForwardRequest:
-		// XXX address
-		/*
-		   requestData, err := p.RequestStore.Get(r.RequestAck)
-		   if err != nil {
-		           panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
-		   }
-
-		   fr := &msgs.Msg{
-		           Type: &msgs.Msg_ForwardRequest{
-		                   &msgs.ForwardRequest{
-		                           RequestAck:  r.RequestAck,
-		                           RequestData: requestData,
-		                   },
-		           },
-		   }
-		   for _, replica := range r.Targets {
-		           if replica == p.Node.Config.ID {
-		                   p.Node.Step(context.Background(), replica, fr)
-		           } else {
-		                   p.Link.Send(replica, fr)
-		           }
-		   }
-		*/
-		case *state.Action_CorrectRequest:
-		default:
-			// Handled elsewhere... for now
-		}
-	}
-
-	if err := cp.RequestStore.Sync(); err != nil {
-		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
-	}
-
-	return events, nil
 }
 
 type Client struct {

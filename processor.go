@@ -30,6 +30,14 @@ type App interface {
 	TransferTo(seqNo uint64, snap []byte) (*msgs.NetworkState, error)
 }
 
+type RequestStore interface {
+	GetAllocation(clientID, reqNo uint64) ([]byte, error)
+	PutAllocation(clientID, reqNo uint64, digest []byte) error
+	GetRequest(requestAck *msgs.RequestAck) ([]byte, error)
+	PutRequest(requestAck *msgs.RequestAck, data []byte) error
+	Sync() error
+}
+
 type WAL interface {
 	Write(index uint64, entry *msgs.Persistent) error
 	Truncate(index uint64) error
@@ -37,11 +45,14 @@ type WAL interface {
 }
 
 type Processor struct {
-	NodeID uint64
-	Link   Link
-	Hasher Hasher
-	App    App
-	WAL    WAL
+	NodeID       uint64
+	Link         Link
+	Hasher       Hasher
+	App          App
+	WAL          WAL
+	RequestStore RequestStore
+	ClientWork   ClientWork
+	clients      Clients
 }
 
 func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.EventList, error) {
@@ -81,11 +92,48 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 			}
 			events.CheckpointResult(value, pendingReconf, cp)
 		case *state.Action_AllocatedRequest:
-			// We handle this in the client processor... for now
+			r := t.AllocatedRequest
+			client := p.Client(r.ClientId)
+			digest, err := client.allocate(r.ReqNo)
+			if err != nil {
+				return nil, err
+			}
+
+			if digest == nil {
+				continue
+			}
+
+			events.RequestPersisted(&msgs.RequestAck{
+				ClientId: r.ClientId,
+				ReqNo:    r.ReqNo,
+				Digest:   digest,
+			})
 		case *state.Action_CorrectRequest:
 			// We handle this in the client processor... for now
 		case *state.Action_ForwardRequest:
-			// We handle this in the client processor... for now
+			// XXX address
+			/*
+			   requestData, err := p.RequestStore.Get(r.RequestAck)
+			   if err != nil {
+			           panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
+			   }
+
+			   fr := &msgs.Msg{
+			           Type: &msgs.Msg_ForwardRequest{
+			                   &msgs.ForwardRequest{
+			                           RequestAck:  r.RequestAck,
+			                           RequestData: requestData,
+			                   },
+			           },
+			   }
+			   for _, replica := range r.Targets {
+			           if replica == p.Node.Config.ID {
+			                   p.Node.Step(context.Background(), replica, fr)
+			           } else {
+			                   p.Link.Send(replica, fr)
+			           }
+			   }
+			*/
 		case *state.Action_StateTransfer:
 			stateTarget := t.StateTransfer
 			state, err := p.App.TransferTo(stateTarget.SeqNo, stateTarget.Value)
@@ -100,6 +148,11 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 	// Then we sync the WAL
 	if err := p.WAL.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "failted to sync WAL")
+	}
+
+	// Then we sync the request store
+	if err := p.RequestStore.Sync(); err != nil {
+		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
 	}
 
 	// Now we transmit
@@ -120,4 +173,10 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 	}
 
 	return events, nil
+}
+
+func (p *Processor) Client(clientID uint64) *Client {
+	return p.clients.client(clientID, func() *Client {
+		return newClient(clientID, p.Hasher, p.RequestStore, &p.ClientWork)
+	})
 }

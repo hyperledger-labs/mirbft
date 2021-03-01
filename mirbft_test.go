@@ -390,6 +390,15 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	Expect(err).NotTo(HaveOccurred())
 	defer node.Stop()
 
+	processor := &mirbft.Processor{
+		NodeID:       node.Config.ID,
+		Link:         tr.FakeTransport.Link(node.Config.ID),
+		Hasher:       crypto.SHA256,
+		RequestStore: reqStore,
+		App:          tr.App,
+		WAL:          wal,
+	}
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -412,19 +421,13 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		}
 	}()
 
-	clientProcessor := &mirbft.ClientProcessor{
-		NodeID:       node.Config.ID,
-		RequestStore: reqStore,
-		Hasher:       crypto.SHA256,
-	}
-
 	expectedProposalCount := tr.FakeClient.MsgCount
 	Expect(expectedProposalCount).NotTo(Equal(0))
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		client := clientProcessor.Client(0)
+		client := processor.Client(0)
 		for {
 			select {
 			case <-node.Err():
@@ -462,14 +465,6 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	go func() {
 		defer wg.Done()
 		defer GinkgoRecover()
-		processor := &mirbft.Processor{
-			NodeID: node.Config.ID,
-			Link:   tr.FakeTransport.Link(node.Config.ID),
-			Hasher: crypto.SHA256,
-			App:    tr.App,
-			WAL:    wal,
-		}
-
 		events := &statemachine.EventList{}
 		var eC chan *statemachine.EventList
 		for {
@@ -482,14 +477,8 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 					break
 				}
 				events.PushBackList(newEvents)
-
-				newEvents, err = clientProcessor.Process(actions)
-				if err != nil {
-					break
-				}
-				events.PushBackList(newEvents)
-			case <-clientProcessor.ClientWork.Ready():
-				events.PushBackList(clientProcessor.ClientWork.Results())
+			case <-processor.ClientWork.Ready():
+				events.PushBackList(processor.ClientWork.Results())
 			case eC <- events:
 				events = &statemachine.EventList{}
 				eC = nil
