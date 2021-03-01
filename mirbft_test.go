@@ -485,7 +485,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		}
 	}()
 
-	var process func(*mirbft.Actions) *mirbft.ActionResults
+	var process func(*mirbft.Actions) (*mirbft.ActionResults, error)
 
 	if tr.ParallelProcess {
 		pwp := mirbft.NewProcessorWorkPool(processor, mirbft.ProcessorWorkPoolOpts{})
@@ -498,7 +498,8 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	for {
 		select {
 		case actions := <-node.Ready():
-			results := process(&actions)
+			results, err := process(&actions)
+			Expect(err).NotTo(HaveOccurred())
 			node.AddResults(*results)
 			if actions.StateTransfer != nil {
 				panic("we need to implement state transfer for these tests")
