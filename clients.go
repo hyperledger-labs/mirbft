@@ -138,6 +138,33 @@ func (c *Client) allocate(reqNo uint64) ([]byte, error) {
 	return digest, nil
 }
 
+func (c *Client) addCorrectDigest(reqNo uint64, digest []byte) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.requests.Len() == 0 {
+		return ErrClientNotExist
+	}
+
+	el, ok := c.reqNoMap[reqNo]
+	if !ok {
+		if reqNo < c.requests.Front().Value.(*clientRequest).reqNo {
+			return nil
+		}
+		return errors.Errorf("unallocated client request for req_no=%d marked correct", reqNo)
+	}
+
+	clientReq := el.Value.(*clientRequest)
+	for _, otherDigest := range clientReq.remoteCorrectDigests {
+		if bytes.Equal(digest, otherDigest) {
+			return nil
+		}
+	}
+
+	clientReq.remoteCorrectDigests = append(clientReq.remoteCorrectDigests, digest)
+
+	return nil
+}
+
 func (c *Client) NextReqNo() (uint64, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()

@@ -109,7 +109,11 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 				Digest:   digest,
 			})
 		case *state.Action_CorrectRequest:
-			// We handle this in the client processor... for now
+			client := p.Client(t.CorrectRequest.ClientId)
+			err := client.addCorrectDigest(t.CorrectRequest.ReqNo, t.CorrectRequest.Digest)
+			if err != nil {
+				return nil, err
+			}
 		case *state.Action_ForwardRequest:
 			// XXX address
 			/*
