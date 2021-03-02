@@ -8,15 +8,14 @@ package mirbft
 
 import (
 	"context"
-	"fmt"
+	"github.com/pkg/errors"
 	"hash"
 	"runtime"
 	"sync"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"golang.org/x/sync/errgroup"
 )
-
-// TODO, convert panics into errors
 
 type Hasher interface {
 	New() hash.Hash
@@ -56,22 +55,22 @@ type Processor struct {
 	Node   *Node
 }
 
-func (p *Processor) Process(actions *Actions) *ActionResults {
+func (p *Processor) Process(actions *Actions) (*ActionResults, error) {
 	// Persist
 	for _, write := range actions.WriteAhead {
 		if write.Truncate != nil {
 			if err := p.WAL.Truncate(*write.Truncate); err != nil {
-				panic(fmt.Sprintf("could truncate WAL, not safe to continue: %s", err))
+				return nil, errors.WithMessage(err, "could not truncate WAL")
 			}
 		} else {
 			if err := p.WAL.Write(write.Append.Index, write.Append.Data); err != nil {
-				panic(fmt.Sprintf("could not persist entry, not safe to continue: %s", err))
+				return nil, errors.WithMessage(err, "could not persist entry")
 			}
 		}
 	}
 
 	if err := p.WAL.Sync(); err != nil {
-		panic(fmt.Sprintf("could not sync WAL, not safe to continue: %s", err))
+		return nil, errors.WithMessage(err, "could not sync WAL")
 	}
 
 	// Transmit
@@ -117,7 +116,7 @@ func (p *Processor) Process(actions *Actions) *ActionResults {
 		})
 	}
 
-	return actionResults
+	return actionResults, nil
 }
 
 // ProcessorWorkPool is a work pool based version of the standard Processor.
@@ -168,51 +167,52 @@ func (wp *ProcessorWorkPool) serviceSendPool() {
 	}
 }
 
-func (wp *ProcessorWorkPool) persistThenSendInParallel(
-	writeAhead []*Write,
-	sends []Send,
-	sendDoneC chan<- struct{},
-) {
+func (wp *ProcessorWorkPool) persistThenSend(writeAhead []*Write, sends []Send) error {
+	g := errgroup.Group{}
+
 	// Next, begin persisting the WAL, plus any pending requests, once done,
 	// send the other protocol messages
-	go func() {
+	g.Go(func() error {
 		for _, write := range writeAhead {
 			if write.Truncate != nil {
 				if err := wp.processor.WAL.Truncate(*write.Truncate); err != nil {
-					panic(fmt.Sprintf("could truncate WAL, not safe to continue: %s", err))
+					return errors.WithMessage(err, "could not truncate WAL")
 				}
 			} else {
 				if err := wp.processor.WAL.Write(write.Append.Index, write.Append.Data); err != nil {
-					panic(fmt.Sprintf("could not persist entry, not safe to continue: %s", err))
+					return errors.WithMessage(err, "could not persist entry")
 				}
 			}
 		}
 		if err := wp.processor.WAL.Sync(); err != nil {
-			panic(fmt.Sprintf("could not sync WAL: %s", err))
+			return errors.WithMessage(err, "could not sync WAL")
 		}
 
 		for _, send := range sends {
 			select {
 			case wp.transmitC <- send:
 			case <-wp.doneC:
-				return
+				return nil
 			}
 		}
-	}()
 
-	go func() {
+		return nil
+	})
+
+	g.Go(func() error {
 		sent := 0
 		for sent < len(sends) { // +len(forwards) { // TODO, handle forwards again
 			select {
 			case <-wp.transmitDoneC:
 				sent++
 			case <-wp.doneC:
-				return
+				return nil
 			}
 		}
+		return nil
+	})
 
-		sendDoneC <- struct{}{}
-	}()
+	return g.Wait()
 }
 
 func (wp *ProcessorWorkPool) serviceHashPool() {
@@ -240,7 +240,7 @@ func (wp *ProcessorWorkPool) serviceHashPool() {
 	}
 }
 
-func (wp *ProcessorWorkPool) hashInParallel(hashReqs []*HashRequest, hashBatchDoneC chan<- []*HashResult) {
+func (wp *ProcessorWorkPool) hash(hashReqs []*HashRequest) []*HashResult {
 	go func() {
 		for _, hashReq := range hashReqs {
 			select {
@@ -251,42 +251,38 @@ func (wp *ProcessorWorkPool) hashInParallel(hashReqs []*HashRequest, hashBatchDo
 		}
 	}()
 
-	go func() {
-		hashResults := make([]*HashResult, 0, len(hashReqs))
-		for len(hashResults) < len(hashReqs) {
-			select {
-			case hashResult := <-wp.hashDoneC:
-				hashResults = append(hashResults, hashResult)
-			case <-wp.doneC:
-				return
-			}
+	hashResults := make([]*HashResult, 0, len(hashReqs))
+	for len(hashResults) < len(hashReqs) {
+		select {
+		case hashResult := <-wp.hashDoneC:
+			hashResults = append(hashResults, hashResult)
+		case <-wp.doneC:
+			return nil
 		}
+	}
 
-		hashBatchDoneC <- hashResults
-	}()
+	return hashResults
 }
 
-func (wp *ProcessorWorkPool) commitInParallel(commits []*Commit, commitBatchDoneC chan<- []*CheckpointResult) {
-	go func() {
-		var checkpoints []*CheckpointResult
+func (wp *ProcessorWorkPool) commit(commits []*Commit) []*CheckpointResult {
+	var checkpoints []*CheckpointResult
 
-		for _, commit := range commits {
-			if commit.Batch != nil {
-				wp.processor.Log.Apply(commit.Batch) // Apply the entry
-				continue
-			}
-
-			// Not a batch, so, must be a checkpoint
-
-			value := wp.processor.Log.Snap(commit.Checkpoint.NetworkConfig, commit.Checkpoint.ClientsState)
-			checkpoints = append(checkpoints, &CheckpointResult{
-				Checkpoint: commit.Checkpoint,
-				Value:      value,
-			})
+	for _, commit := range commits {
+		if commit.Batch != nil {
+			wp.processor.Log.Apply(commit.Batch) // Apply the entry
+			continue
 		}
 
-		commitBatchDoneC <- checkpoints
-	}()
+		// Not a batch, so, must be a checkpoint
+
+		value := wp.processor.Log.Snap(commit.Checkpoint.NetworkConfig, commit.Checkpoint.ClientsState)
+		checkpoints = append(checkpoints, &CheckpointResult{
+			Checkpoint: commit.Checkpoint,
+			Value:      value,
+		})
+	}
+
+	return checkpoints
 }
 
 type ProcessorWorkPoolOpts struct {
@@ -340,25 +336,26 @@ func (wp *ProcessorWorkPool) Stop() {
 	wp.waitGroup.Wait()
 }
 
-func (wp *ProcessorWorkPool) Process(actions *Actions) *ActionResults {
+func (wp *ProcessorWorkPool) Process(actions *Actions) (*ActionResults, error) {
 	wp.mutex.Lock()
 	defer wp.mutex.Unlock()
-	sendBatchDoneC := make(chan struct{}, 1)
-	hashBatchDoneC := make(chan []*HashResult, 1)
-	commitBatchDoneC := make(chan []*CheckpointResult, 1)
 
-	wp.persistThenSendInParallel(
-		actions.WriteAhead,
-		actions.Send,
-		sendBatchDoneC,
-	)
-	wp.hashInParallel(actions.Hash, hashBatchDoneC)
-	wp.commitInParallel(actions.Commits, commitBatchDoneC)
+	results := &ActionResults{}
+	g := errgroup.Group{}
 
-	<-sendBatchDoneC
+	g.Go(func() error {
+		return wp.persistThenSend(actions.WriteAhead, actions.Send)
+	})
 
-	return &ActionResults{
-		Digests:     <-hashBatchDoneC,
-		Checkpoints: <-commitBatchDoneC,
-	}
+	g.Go(func() error {
+		results.Digests = wp.hash(actions.Hash)
+		return nil
+	})
+
+	g.Go(func() error {
+		results.Checkpoints = wp.commit(actions.Commits)
+		return nil
+	})
+
+	return results, g.Wait()
 }
