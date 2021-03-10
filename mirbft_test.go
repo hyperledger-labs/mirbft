@@ -25,6 +25,7 @@ import (
 	"github.com/IBM/mirbft"
 	"github.com/IBM/mirbft/pkg/eventlog"
 	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/processor"
 	"github.com/IBM/mirbft/pkg/reqstore"
 	"github.com/IBM/mirbft/pkg/simplewal"
 	"github.com/IBM/mirbft/pkg/statemachine"
@@ -390,7 +391,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	Expect(err).NotTo(HaveOccurred())
 	defer node.Stop()
 
-	processor := &mirbft.Processor{
+	p := &processor.Processor{
 		NodeID:       node.Config.ID,
 		Link:         tr.FakeTransport.Link(node.Config.ID),
 		Hasher:       crypto.SHA256,
@@ -427,7 +428,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		client := processor.Client(0)
+		client := p.Client(0)
 		for {
 			select {
 			case <-node.Err():
@@ -436,7 +437,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			}
 
 			nextReqNo, err := client.NextReqNo()
-			if err == mirbft.ErrClientNotExist {
+			if err == processor.ErrClientNotExist {
 				time.Sleep(20 * time.Millisecond)
 				continue
 			}
@@ -472,13 +473,13 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			select {
 			case actions := <-node.Actions():
 				var newEvents *statemachine.EventList
-				newEvents, err = processor.Process(actions)
+				newEvents, err = p.Process(actions)
 				if err != nil {
 					break
 				}
 				events.PushBackList(newEvents)
-			case <-processor.ClientWork.Ready():
-				events.PushBackList(processor.ClientWork.Results())
+			case <-p.ClientWork.Ready():
+				events.PushBackList(p.ClientWork.Results())
 			case eC <- events:
 				events = &statemachine.EventList{}
 				eC = nil
