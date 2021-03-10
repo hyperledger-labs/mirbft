@@ -400,22 +400,18 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		WAL:          wal,
 	}
 
+	crs := &processor.ConcurrentReplicas{
+		EventC: eventsC,
+	}
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		recvC := tr.FakeTransport.RecvC(node.Config.ID)
-		events := &statemachine.EventList{}
-		var eC chan *statemachine.EventList
 		for {
 			select {
 			case sourceMsg := <-recvC:
-				events.Step(sourceMsg.Source, sourceMsg.Msg)
-				if eC == nil {
-					eC = eventsC
-				}
-			case eC <- events:
-				events = &statemachine.EventList{}
-				eC = nil
+				crs.Replica(sourceMsg.Source).Step(context.Background(), sourceMsg.Msg)
 			case <-node.Err():
 				return
 			}

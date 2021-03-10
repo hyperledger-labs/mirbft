@@ -204,3 +204,7 @@ func (n *Node) InjectEvents(events *statemachine.EventList) error {
 		return n.s.getExitErr()
 	}
 }
+
+func (n *Node) EventsC() chan<- *statemachine.EventList {
+	return n.s.eventsC
+}

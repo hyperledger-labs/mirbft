@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package mirbft
+package processor
 
 import (
 	"github.com/IBM/mirbft/pkg/pb/msgs"
@@ -14,8 +14,6 @@ import (
 
 // TODO, we probably can/should add some more basic error checking here.  Particularly
 // identifying pointer fields which must be set.
-
-var _ = preProcess // XXX temporary hack to make staticccheck not made
 
 func preProcess(outerMsg *msgs.Msg) error {
 	switch innerMsg := outerMsg.Type.(type) {
