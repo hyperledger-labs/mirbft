@@ -9,7 +9,7 @@ require (
 	github.com/golang/protobuf v1.4.1
 	github.com/onsi/ginkgo v1.8.0
 	github.com/onsi/gomega v1.5.0
-	github.com/pkg/errors v0.8.1
+	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/tidwall/wal v0.1.3
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
