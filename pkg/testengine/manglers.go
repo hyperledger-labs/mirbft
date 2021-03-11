@@ -11,18 +11,15 @@ import (
 	"reflect"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/recording"
 	"github.com/IBM/mirbft/pkg/pb/state"
-
-	"google.golang.org/protobuf/proto"
 )
 
 type Mangler interface {
-	Mangle(random int, event *recording.Event) []MangleResult
+	Mangle(random int, event *Event) []MangleResult
 }
 
 type MangleResult struct {
-	Event    *recording.Event
+	Event    *Event
 	Remangle bool
 }
 
@@ -37,7 +34,7 @@ type MangleResult struct {
 // if they are from nodes 1 and 3, they will be dropped.
 
 type MangleMatcher interface {
-	Matches(random int, event *recording.Event) bool
+	Matches(random int, event *Event) bool
 }
 
 // Until is useful to perform a mangling until some condition is complete.  This is useful
@@ -46,7 +43,7 @@ type MangleMatcher interface {
 func Until(matcher MangleMatcher) *Mangling {
 	matched := false
 	return &Mangling{
-		Filter: InlineMatcher(func(random int, event *recording.Event) bool {
+		Filter: InlineMatcher(func(random int, event *Event) bool {
 			if matched || matcher.Matches(random, event) {
 				matched = true
 				return false
@@ -62,7 +59,7 @@ func Until(matcher MangleMatcher) *Mangling {
 func After(matcher MangleMatcher) *Mangling {
 	matched := false
 	return &Mangling{
-		Filter: InlineMatcher(func(random int, event *recording.Event) bool {
+		Filter: InlineMatcher(func(random int, event *Event) bool {
 			if matched || matcher.Matches(random, event) {
 				matched = true
 				return true
@@ -87,7 +84,7 @@ type Mangling struct {
 }
 
 func (m *Mangling) Do(mangler Mangler) Mangler {
-	return InlineMangler(func(random int, event *recording.Event) []MangleResult {
+	return InlineMangler(func(random int, event *Event) []MangleResult {
 		if !m.Filter.Matches(random, event) {
 			return []MangleResult{
 				{
@@ -136,9 +133,8 @@ func MatchClientProposal() *ClientMatching {
 
 	cm.Filters = []mangleFilter{
 		{
-			stateEvent: func(event *state.Event) bool {
-				_, ok := event.Type.(*state.Event_RequestPersisted)
-				return ok
+			eventType: func(event *Event) bool {
+				return event.ClientProposal != nil
 			},
 		},
 	}
@@ -147,15 +143,15 @@ func MatchClientProposal() *ClientMatching {
 	return cm
 }
 
-type InlineMatcher func(random int, event *recording.Event) bool
+type InlineMatcher func(random int, event *Event) bool
 
-func (im InlineMatcher) Matches(random int, event *recording.Event) bool {
+func (im InlineMatcher) Matches(random int, event *Event) bool {
 	return im(random, event)
 }
 
-type InlineMangler func(random int, event *recording.Event) []MangleResult
+type InlineMangler func(random int, event *Event) []MangleResult
 
-func (im InlineMangler) Mangle(random int, event *recording.Event) []MangleResult {
+func (im InlineMangler) Mangle(random int, event *Event) []MangleResult {
 	return im(random, event)
 }
 
@@ -164,18 +160,18 @@ type mangleFilter struct {
 	msgSeqNo    func(seqNo uint64) bool
 	msgEpoch    func(seqNo uint64) bool
 	msgSource   func(target, source uint64) bool
-	stateEvent  func(event *state.Event) bool
+	eventType   func(event *Event) bool
 	target      func(target uint64) bool
 	blind       func(random int) bool
 }
 
-func (mf mangleFilter) apply(random int, event *recording.Event) bool {
+func (mf mangleFilter) apply(random int, event *Event) bool {
 	switch {
 	case mf.msgContents != nil:
-		return mf.msgContents(event.StateEvent.Type.(*state.Event_Step).Step.Msg)
+		return mf.msgContents(event.MsgReceived.Msg)
 	case mf.msgEpoch != nil:
 		var epoch uint64
-		switch c := event.StateEvent.Type.(*state.Event_Step).Step.Msg.Type.(type) {
+		switch c := event.MsgReceived.Msg.Type.(type) {
 		case *msgs.Msg_Preprepare:
 			epoch = c.Preprepare.Epoch
 		case *msgs.Msg_Prepare:
@@ -201,7 +197,7 @@ func (mf mangleFilter) apply(random int, event *recording.Event) bool {
 		return mf.msgEpoch(epoch)
 	case mf.msgSeqNo != nil:
 		var seqNo uint64
-		switch c := event.StateEvent.Type.(*state.Event_Step).Step.Msg.Type.(type) {
+		switch c := event.MsgReceived.Msg.Type.(type) {
 		case *msgs.Msg_Preprepare:
 			seqNo = c.Preprepare.SeqNo
 		case *msgs.Msg_Prepare:
@@ -220,11 +216,11 @@ func (mf mangleFilter) apply(random int, event *recording.Event) bool {
 
 		return mf.msgSeqNo(seqNo)
 	case mf.msgSource != nil:
-		return mf.msgSource(event.NodeId, event.StateEvent.Type.(*state.Event_Step).Step.Source)
-	case mf.stateEvent != nil:
-		return mf.stateEvent(event.StateEvent)
+		return mf.msgSource(event.Target, event.MsgReceived.Source)
 	case mf.target != nil:
-		return mf.target(event.NodeId)
+		return mf.target(event.Target)
+	case mf.eventType != nil:
+		return mf.eventType(event)
 	case mf.blind != nil:
 		return mf.blind(random)
 	default:
@@ -346,9 +342,8 @@ func newMsgMatching() *MsgMatching {
 
 	mm.Filters = []mangleFilter{
 		{
-			stateEvent: func(event *state.Event) bool {
-				_, ok := event.Type.(*state.Event_Step)
-				return ok
+			eventType: func(event *Event) bool {
+				return event.MsgReceived != nil
 			},
 		},
 	}
@@ -369,9 +364,8 @@ func newStartupMatching() *StartupMatching {
 
 	sm.Filters = []mangleFilter{
 		{
-			stateEvent: func(event *state.Event) bool {
-				_, ok := event.Type.(*state.Event_Initialize)
-				return ok
+			eventType: func(event *Event) bool {
+				return event.Initialize != nil
 			},
 		},
 	}
@@ -393,7 +387,7 @@ type matching struct {
 	Filters []mangleFilter
 }
 
-func (m matching) Matches(random int, event *recording.Event) bool {
+func (m matching) Matches(random int, event *Event) bool {
 	for _, filter := range m.Filters {
 		if !filter.apply(random, event) {
 			return false
@@ -610,7 +604,7 @@ func (baseMangling) OfTypeRequestAck() mangleFilter {
 
 type DropMangler struct{}
 
-func (DropMangler) Mangle(random int, event *recording.Event) []MangleResult {
+func (DropMangler) Mangle(random int, event *Event) []MangleResult {
 	return nil
 }
 
@@ -618,8 +612,8 @@ type DuplicateMangler struct {
 	MaxDelay int
 }
 
-func (dm *DuplicateMangler) Mangle(random int, event *recording.Event) []MangleResult {
-	clone := proto.Clone(event).(*recording.Event)
+func (dm *DuplicateMangler) Mangle(random int, event *Event) []MangleResult {
+	clone := *event // TODO, this is a shallow clone, probably want deep
 	delay := int64(random % dm.MaxDelay)
 	clone.Time += delay
 	return []MangleResult{
@@ -627,7 +621,7 @@ func (dm *DuplicateMangler) Mangle(random int, event *recording.Event) []MangleR
 			Event: event,
 		},
 		{
-			Event: clone,
+			Event: &clone,
 		},
 	}
 }
@@ -637,7 +631,7 @@ type JitterMangler struct {
 	MaxDelay int
 }
 
-func (jm *JitterMangler) Mangle(random int, event *recording.Event) []MangleResult {
+func (jm *JitterMangler) Mangle(random int, event *Event) []MangleResult {
 	delay := int64(random % jm.MaxDelay)
 	event.Time += delay
 	return []MangleResult{
@@ -652,7 +646,7 @@ type DelayMangler struct {
 	Delay int
 }
 
-func (dm *DelayMangler) Mangle(random int, event *recording.Event) []MangleResult {
+func (dm *DelayMangler) Mangle(random int, event *Event) []MangleResult {
 	event.Time += int64(dm.Delay)
 	return []MangleResult{
 		{
@@ -667,19 +661,17 @@ type CrashAndRestartAfterMangler struct {
 	Delay     int64
 }
 
-func (cm CrashAndRestartAfterMangler) Mangle(random int, event *recording.Event) []MangleResult {
+func (cm CrashAndRestartAfterMangler) Mangle(random int, event *Event) []MangleResult {
 	return []MangleResult{
 		{
 			Event: event,
 		},
 		{
-			Event: &recording.Event{
+			Event: &Event{
 				Time:   event.Time + cm.Delay,
-				NodeId: cm.InitParms.Id,
-				StateEvent: &state.Event{
-					Type: &state.Event_Initialize{
-						Initialize: cm.InitParms,
-					},
+				Target: cm.InitParms.Id,
+				Initialize: &EventInitialize{
+					InitParms: cm.InitParms,
 				},
 			},
 		},

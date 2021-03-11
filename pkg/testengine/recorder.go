@@ -41,13 +41,13 @@ func uint64ToBytes(value uint64) []byte {
 }
 
 type Link struct {
-	Source   uint64
-	EventLog *EventLog
-	Delay    int64
+	Source     uint64
+	EventQueue *EventQueue
+	Delay      int64
 }
 
 func (l *Link) Send(dest uint64, msg *msgs.Msg) {
-	l.EventLog.InsertMsgReceived(dest, l.Source, msg, l.Delay)
+	l.EventQueue.InsertMsgReceived(dest, l.Source, msg, l.Delay)
 }
 
 type NodeConfig struct {
@@ -404,7 +404,7 @@ type Recorder struct {
 }
 
 func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
-	eventLog := &EventLog{
+	eventLog := &EventQueue{
 		List: list.New(),
 	}
 
@@ -434,9 +434,9 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 			WAL:      wal,
 			ReqStore: reqStore,
 			Link: &Link{
-				EventLog: eventLog,
-				Source:   nodeID,
-				Delay:    int64(recorderNodeConfig.RuntimeParms.LinkLatency),
+				EventQueue: eventLog,
+				Source:     nodeID,
+				Delay:      int64(recorderNodeConfig.RuntimeParms.LinkLatency),
 			},
 			Config:             recorderNodeConfig,
 			PendingStateEvents: &statemachine.EventList{},
@@ -456,34 +456,34 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	}
 
 	return &Recording{
-		Hasher:   r.Hasher,
-		EventLog: eventLog,
-		Nodes:    nodes,
-		Clients:  clients,
-		Rand:     rand.New(rand.NewSource(r.RandomSeed)),
-		// TODO incorporate these
-		EventLogOutput: output,
-		// Mangler: r.Mangler,
-		LogOutput: r.LogOutput,
+		Hasher:           r.Hasher,
+		EventQueue:       eventLog,
+		Nodes:            nodes,
+		Clients:          clients,
+		Rand:             rand.New(rand.NewSource(r.RandomSeed)),
+		EventQueueOutput: output,
+		Mangler:          r.Mangler,
+		LogOutput:        r.LogOutput,
 	}, nil
 }
 
 type Recording struct {
-	Hasher         Hasher
-	EventLog       *EventLog
-	Nodes          []*Node
-	Clients        []*RecorderClient
-	Rand           *rand.Rand
-	LogOutput      io.Writer
-	EventLogOutput *gzip.Writer
+	Hasher           Hasher
+	EventQueue       *EventQueue
+	Nodes            []*Node
+	Clients          []*RecorderClient
+	Rand             *rand.Rand
+	LogOutput        io.Writer
+	EventQueueOutput *gzip.Writer
+	Mangler          Mangler
 }
 
 func (r *Recording) Step() error {
-	if r.EventLog.List.Len() == 0 {
+	if r.EventQueue.List.Len() == 0 {
 		return errors.Errorf("event log is empty, nothing to do")
 	}
 
-	event := r.EventLog.ConsumeEvent()
+	event := r.EventQueue.ConsumeEvent()
 	nodeID := event.Target
 	node := r.Nodes[int(nodeID)]
 	runtimeParms := node.Config.RuntimeParms
@@ -496,12 +496,12 @@ func (r *Recording) Step() error {
 		// a restart, we clear any outstanding events associated to this NodeID from
 		// the log.  This is especially important for things like pending actions,
 		// but also makes sense for things like in flight messages.
-		el := r.EventLog.List.Front()
+		el := r.EventQueue.List.Front()
 		for el != nil {
 			x := el
 			el = el.Next()
 			if x.Value.(*Event).Target == nodeID {
-				r.EventLog.List.Remove(x)
+				r.EventQueue.List.Remove(x)
 			}
 		}
 
@@ -517,7 +517,7 @@ func (r *Recording) Step() error {
 			return errors.WithMessage(err, "unexpected error initializing node")
 		}
 
-		r.EventLog.InsertTickEvent(nodeID, int64(runtimeParms.TickInterval))
+		r.EventQueue.InsertTickEvent(nodeID, int64(runtimeParms.TickInterval))
 
 		for _, clientState := range networkState.Clients {
 			client := r.Clients[int(clientState.Id)]
@@ -526,7 +526,7 @@ func (r *Recording) Step() error {
 			}
 			data := client.RequestByReqNo(clientState.LowWatermark)
 			if data != nil {
-				r.EventLog.InsertClientProposal(nodeID, clientState.Id, clientState.LowWatermark, data, int64(runtimeParms.ClientProcessLatency))
+				r.EventQueue.InsertClientProposal(nodeID, clientState.Id, clientState.LowWatermark, data, int64(runtimeParms.ClientProcessLatency))
 			}
 		}
 	case event.MsgReceived != nil:
@@ -536,7 +536,7 @@ func (r *Recording) Step() error {
 		client := node.Processor.Client(prop.ClientID)
 		reqNo, err := client.NextReqNo()
 		if errors.Is(err, processor.ErrClientNotExist) {
-			r.EventLog.InsertClientProposal(nodeID, prop.ClientID, prop.ReqNo, prop.Data, int64(runtimeParms.ClientProcessLatency*100))
+			r.EventQueue.InsertClientProposal(nodeID, prop.ClientID, prop.ReqNo, prop.Data, int64(runtimeParms.ClientProcessLatency*100))
 			break
 		}
 
@@ -549,7 +549,7 @@ func (r *Recording) Step() error {
 		if reqNo != prop.ReqNo {
 			data := tClient.RequestByReqNo(reqNo)
 			if data != nil {
-				r.EventLog.InsertClientProposal(nodeID, prop.ClientID, reqNo, data, int64(runtimeParms.ClientProcessLatency))
+				r.EventQueue.InsertClientProposal(nodeID, prop.ClientID, reqNo, data, int64(runtimeParms.ClientProcessLatency))
 			}
 			break
 		}
@@ -561,17 +561,17 @@ func (r *Recording) Step() error {
 
 		data := tClient.RequestByReqNo(reqNo + 1)
 		if data != nil {
-			r.EventLog.InsertClientProposal(nodeID, prop.ClientID, reqNo+1, data, int64(runtimeParms.ClientProcessLatency))
+			r.EventQueue.InsertClientProposal(nodeID, prop.ClientID, reqNo+1, data, int64(runtimeParms.ClientProcessLatency))
 		}
 	case event.Tick != nil:
 		node.PendingStateEvents.TickElapsed()
-		r.EventLog.InsertTickEvent(nodeID, int64(runtimeParms.TickInterval))
+		r.EventQueue.InsertTickEvent(nodeID, int64(runtimeParms.TickInterval))
 	case event.ProcessEvents != nil:
 		node.PendingStateEvents.ActionsReceived()
 		iter := node.PendingStateEvents.Iterator()
 		for stateEvent := iter.Next(); stateEvent != nil; stateEvent = iter.Next() {
-			if r.EventLogOutput != nil {
-				err := eventlog.WriteRecordedEvent(r.EventLogOutput, &recording.Event{
+			if r.EventQueueOutput != nil {
+				err := eventlog.WriteRecordedEvent(r.EventQueueOutput, &recording.Event{
 					NodeId:     nodeID,
 					Time:       event.Time,
 					StateEvent: stateEvent,
@@ -581,7 +581,6 @@ func (r *Recording) Step() error {
 				}
 			}
 
-			// TODO, persist to the log first
 			node.PendingStateActions.PushBackList(node.StateMachine.ApplyEvent(stateEvent))
 		}
 		node.PendingStateEvents = &statemachine.EventList{}
@@ -604,14 +603,14 @@ func (r *Recording) Step() error {
 	}
 
 	if node.PendingStateEvents.Len() > 0 && !node.ProcessEventsPending {
-		r.EventLog.InsertProcessEvents(nodeID, int64(runtimeParms.ProcessLatency))
+		r.EventQueue.InsertProcessEvents(nodeID, int64(runtimeParms.ProcessLatency))
 		node.ProcessEventsPending = true
 	}
 
 	// TODO ProcessLatency is a cludge, fix it in the processor
 
 	if node.PendingStateActions.Len() > 0 && !node.ProcessActionsPending {
-		r.EventLog.InsertProcessActions(nodeID, int64(runtimeParms.ProcessLatency))
+		r.EventQueue.InsertProcessActions(nodeID, int64(runtimeParms.ProcessLatency))
 		node.ProcessActionsPending = true
 	}
 

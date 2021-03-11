@@ -51,8 +51,7 @@ var _ = Describe("Recorder", func() {
 			fmt.Printf("EventLog available at '%s'\n", recordingFile.Name())
 
 			fmt.Printf("\nTest event queue looks like:\n")
-			fmt.Println(recording.EventLog.Status())
-			fmt.Printf("\nHmm\n")
+			fmt.Println(recording.EventQueue.Status())
 		} else {
 			err := os.Remove(recordingFile.Name())
 			Expect(err).NotTo(HaveOccurred())
@@ -69,7 +68,7 @@ var _ = Describe("Recorder", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		FIt("Executes and produces a log", func() {
+		It("Executes and produces a log", func() {
 			count, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(count).To(Equal(35156))

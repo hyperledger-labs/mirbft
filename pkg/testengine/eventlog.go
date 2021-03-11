@@ -48,7 +48,7 @@ type EventProcessEvents struct{}
 
 type EventTick struct{}
 
-type EventLog struct {
+type EventQueue struct {
 	// List is a list of *Event messages, in order of time.
 	List *list.List
 
@@ -59,13 +59,13 @@ type EventLog struct {
 	Rand *rand.Rand
 }
 
-func (l *EventLog) ConsumeEvent() *Event {
+func (l *EventQueue) ConsumeEvent() *Event {
 	event := l.List.Remove(l.List.Front()).(*Event)
 	l.FakeTime = event.Time
 	return event
 }
 
-func (l *EventLog) InsertInitialize(target uint64, initParms *state.EventInitialParameters, fromNow int64) {
+func (l *EventQueue) InsertInitialize(target uint64, initParms *state.EventInitialParameters, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target: target,
@@ -77,7 +77,7 @@ func (l *EventLog) InsertInitialize(target uint64, initParms *state.EventInitial
 	)
 }
 
-func (l *EventLog) InsertTickEvent(target uint64, fromNow int64) {
+func (l *EventQueue) InsertTickEvent(target uint64, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target: target,
@@ -87,7 +87,7 @@ func (l *EventLog) InsertTickEvent(target uint64, fromNow int64) {
 	)
 }
 
-func (l *EventLog) InsertMsgReceived(target, source uint64, msg *msgs.Msg, fromNow int64) {
+func (l *EventQueue) InsertMsgReceived(target, source uint64, msg *msgs.Msg, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target: target,
@@ -100,7 +100,7 @@ func (l *EventLog) InsertMsgReceived(target, source uint64, msg *msgs.Msg, fromN
 	)
 }
 
-func (l *EventLog) InsertClientProposal(target, clientID, reqNo uint64, data []byte, fromNow int64) {
+func (l *EventQueue) InsertClientProposal(target, clientID, reqNo uint64, data []byte, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target: target,
@@ -114,7 +114,7 @@ func (l *EventLog) InsertClientProposal(target, clientID, reqNo uint64, data []b
 	)
 }
 
-func (l *EventLog) InsertProcessEvents(target uint64, fromNow int64) {
+func (l *EventQueue) InsertProcessEvents(target uint64, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target:        target,
@@ -124,7 +124,7 @@ func (l *EventLog) InsertProcessEvents(target uint64, fromNow int64) {
 	)
 }
 
-func (l *EventLog) InsertProcessActions(target uint64, fromNow int64) {
+func (l *EventQueue) InsertProcessActions(target uint64, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target:         target,
@@ -134,7 +134,7 @@ func (l *EventLog) InsertProcessActions(target uint64, fromNow int64) {
 	)
 }
 
-func (l *EventLog) InsertEvent(event *Event) {
+func (l *EventQueue) InsertEvent(event *Event) {
 	if event.Time < l.FakeTime {
 		panic("attempted to modify the past")
 	}
@@ -149,10 +149,10 @@ func (l *EventLog) InsertEvent(event *Event) {
 	l.List.PushBack(event)
 }
 
-func (l *EventLog) Status() string {
+func (l *EventQueue) Status() string {
 	count := l.List.Len()
 	if count == 0 {
-		return "Empty EventLog"
+		return "Empty EventQueue"
 	}
 
 	el := l.List.Back()

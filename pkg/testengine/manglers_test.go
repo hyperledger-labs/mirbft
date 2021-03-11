@@ -5,8 +5,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/recording"
-	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
 var _ = Describe("Matchers", func() {
@@ -26,11 +24,11 @@ var _ = Describe("Matchers", func() {
 
 			nmm = nmm.ToNodes(3, 5)
 			Expect(nmm.Filters).To(HaveLen(2))
-			Expect(nmm.Filters[1].apply(0, &recording.Event{
-				NodeId: 2,
+			Expect(nmm.Filters[1].apply(0, &Event{
+				Target: 2,
 			})).To(BeFalse())
-			Expect(nmm.Filters[1].apply(0, &recording.Event{
-				NodeId: 3,
+			Expect(nmm.Filters[1].apply(0, &Event{
+				Target: 3,
 			})).To(BeTrue())
 		})
 	})
@@ -39,15 +37,11 @@ var _ = Describe("Matchers", func() {
 		It("matches the message type", func() {
 			mtm := MatchMsgs().OfTypePreprepare()
 			Expect(mtm.Filters).To(HaveLen(2))
-			Expect(mtm.Filters[1].apply(0, &recording.Event{
-				StateEvent: &state.Event{
-					Type: &state.Event_Step{
-						Step: &state.EventStep{
-							Msg: &msgs.Msg{
-								Type: &msgs.Msg_Preprepare{
-									Preprepare: &msgs.Preprepare{},
-								},
-							},
+			Expect(mtm.Filters[1].apply(0, &Event{
+				MsgReceived: &EventMsgReceived{
+					Msg: &msgs.Msg{
+						Type: &msgs.Msg_Preprepare{
+							Preprepare: &msgs.Preprepare{},
 						},
 					},
 				},
@@ -58,15 +52,11 @@ var _ = Describe("Matchers", func() {
 		It("does not match the wrong message type", func() {
 			mtm := MatchMsgs().OfTypePreprepare()
 			Expect(mtm.Filters).To(HaveLen(2))
-			Expect(mtm.Filters[1].apply(0, &recording.Event{
-				StateEvent: &state.Event{
-					Type: &state.Event_Step{
-						Step: &state.EventStep{
-							Msg: &msgs.Msg{
-								Type: &msgs.Msg_Commit{
-									Commit: &msgs.Commit{},
-								},
-							},
+			Expect(mtm.Filters[1].apply(0, &Event{
+				MsgReceived: &EventMsgReceived{
+					Msg: &msgs.Msg{
+						Type: &msgs.Msg_Commit{
+							Commit: &msgs.Commit{},
 						},
 					},
 				},
