@@ -44,11 +44,15 @@ var _ = Describe("Recorder", func() {
 			Expect(recording).NotTo(BeNil())
 
 			for nodeIndex, node := range recording.Nodes {
-				status := node.PlaybackNode.StateMachine.Status()
+				status := node.StateMachine.Status()
 				fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
 			}
 
 			fmt.Printf("EventLog available at '%s'\n", recordingFile.Name())
+
+			fmt.Printf("\nTest event queue looks like:\n")
+			fmt.Println(recording.EventLog.Status())
+			fmt.Printf("\nHmm\n")
 		} else {
 			err := os.Remove(recordingFile.Name())
 			Expect(err).NotTo(HaveOccurred())
@@ -65,21 +69,21 @@ var _ = Describe("Recorder", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		It("Executes and produces a log", func() {
+		FIt("Executes and produces a log", func() {
 			count, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(46785))
+			Expect(count).To(Equal(35156))
 
 			fmt.Printf("Executing test required a log of %d events\n", count)
 
 			for _, node := range recording.Nodes {
-				status := node.PlaybackNode.StateMachine.Status()
+				status := node.StateMachine.Status()
 				Expect(status.EpochTracker.LastActiveEpoch).To(Equal(uint64(1)))
 				Expect(status.EpochTracker.EpochTargets).To(HaveLen(0))
 				//Expect(status.EpochTracker.EpochTargets[0].Suspicions).To(BeEmpty())
 
 				// Expect(fmt.Sprintf("%x", node.State.ActiveHash.Sum(nil))).To(BeEmpty())
-				Expect(fmt.Sprintf("%x", node.State.ActiveHash.Sum(nil))).To(Equal("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"))
+				Expect(fmt.Sprintf("%x", node.State.ActiveHash.Sum(nil))).To(Equal("cb81c7299ad4019baca241f267d570f1b451b751717ce18bb8efc16ae8a555c4"))
 			}
 		})
 	})

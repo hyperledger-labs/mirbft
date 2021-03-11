@@ -119,10 +119,7 @@ var _ = Describe("Execution", func() {
 	It("reads from the source", func() {
 		err := args.execute(output)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(output.String()).To(ContainSubstring(
-			"     1 [node_id=0 time=0 state_event=[initialize=[id=0 batch_size=1 heartbeat_ticks=2 suspect_ticks=4 new_epoch_timeout_ticks=8 buffer_size=5242880]]]\n" +
-				"     3 [node_id=2 time=0 state_event=[initialize=[id=2 batch_size=1 heartbeat_ticks=2 suspect_ticks=4 new_epoch_timeout_ticks=8 buffer_size=5242880]]]\n" +
-				"     7 [node_id=0 time=0 state_event=[complete_initialization=[]]]\n",
-		))
+		Expect(output.String()).To(ContainSubstring("1 [node_id=0 time=10 state_event=[initialize=[id=0 batch_size=1 heartbeat_ticks=2 suspect_ticks=4 new_epoch_timeout_ticks=8 buffer_size=5242880]]]"))
+		Expect(output.String()).To(ContainSubstring("4 [node_id=0 time=10 state_event=[complete_initialization=[]]]"))
 	})
 })

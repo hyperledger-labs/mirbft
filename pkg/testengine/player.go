@@ -10,61 +10,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/IBM/mirbft/pkg/pb/recording"
-	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/statemachine"
-	"github.com/IBM/mirbft/pkg/status"
-	"github.com/pkg/errors"
 )
-
-type EventSource interface {
-	ReadEvent() (*recording.Event, error)
-}
-
-type PlaybackNode struct {
-	ID               uint64
-	StateMachine     *statemachine.StateMachine
-	Processing       *statemachine.ActionList
-	Actions          *statemachine.ActionList
-	ClientProcessing *statemachine.ActionList
-	ClientActions    *statemachine.ActionList
-	Status           *status.StateMachine
-}
-
-type Player struct {
-	LastEvent   *recording.Event
-	EventSource EventSource
-	LogOutput   io.Writer
-	Nodes       map[uint64]*PlaybackNode
-}
-
-func NewPlayer(es EventSource, logOutput io.Writer) (*Player, error) {
-	return &Player{
-		EventSource: es,
-		LogOutput:   logOutput,
-		Nodes:       map[uint64]*PlaybackNode{},
-	}, nil
-}
-
-func (p *Player) Node(id uint64) *PlaybackNode {
-	node, ok := p.Nodes[id]
-	if ok {
-		return node
-	}
-
-	node = &PlaybackNode{
-		ID:            id,
-		Actions:       &statemachine.ActionList{},
-		ClientActions: &statemachine.ActionList{},
-		Status: &status.StateMachine{
-			NodeID: id,
-		},
-	}
-
-	p.Nodes[id] = node
-
-	return node
-}
 
 type NamedLogger struct {
 	Level  statemachine.LogLevel
@@ -94,46 +41,4 @@ func (nl NamedLogger) Log(level statemachine.LogLevel, msg string, args ...inter
 		}
 	}
 	fmt.Fprintf(nl.Output, "\n")
-}
-
-func (p *Player) Step() error {
-	event, err := p.EventSource.ReadEvent()
-	if event == nil || err != nil {
-		return errors.WithMessage(err, "event log has no more events")
-	}
-	p.LastEvent = event
-
-	node := p.Node(event.NodeId)
-
-	switch event.StateEvent.Type.(type) {
-	case *state.Event_Initialize:
-		sm := &statemachine.StateMachine{
-			Logger: NamedLogger{
-				Output: p.LogOutput,
-				Level:  statemachine.LevelInfo,
-				Name:   fmt.Sprintf("node%d", node.ID),
-			},
-		}
-		node.StateMachine = sm
-		node.Actions = &statemachine.ActionList{}
-		node.Status = sm.Status()
-		node.Processing = nil
-	case *state.Event_StateTransferComplete:
-	case *state.Event_StateTransferFailed:
-	case *state.Event_HashResult:
-	case *state.Event_CheckpointResult:
-	case *state.Event_RequestPersisted:
-	case *state.Event_ActionsReceived:
-		node.Processing = node.Actions
-		node.Actions = &statemachine.ActionList{}
-	}
-
-	node.Actions.PushBackList(node.StateMachine.ApplyEvent(event.StateEvent))
-
-	// Note, we don't strictly need to poll status after each event, as
-	// we never consume it.  It's a nice test that status works, but,
-	// it adds 60% or more to the execution time.
-	node.Status = node.StateMachine.Status()
-
-	return nil
 }

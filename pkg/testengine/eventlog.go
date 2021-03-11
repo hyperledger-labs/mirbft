@@ -7,20 +7,49 @@ SPDX-License-Identifier: Apache-2.0
 package testengine
 
 import (
-	"compress/gzip"
+	"bytes"
 	"container/list"
-	"io"
+	"fmt"
 	"math/rand"
 
-	"github.com/pkg/errors"
-
-	"github.com/IBM/mirbft/pkg/eventlog"
-	"github.com/IBM/mirbft/pkg/pb/recording"
+	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/pb/state"
 )
 
+type Event struct {
+	Target         uint64
+	Time           int64
+	Initialize     *EventInitialize
+	MsgReceived    *EventMsgReceived
+	ClientProposal *EventClientProposal
+	ProcessActions *EventProcessActions
+	ProcessEvents  *EventProcessEvents
+	Tick           *EventTick
+}
+
+type EventInitialize struct {
+	InitParms *state.EventInitialParameters
+}
+
+type EventMsgReceived struct {
+	Source uint64
+	Msg    *msgs.Msg
+}
+
+type EventClientProposal struct {
+	ClientID uint64
+	ReqNo    uint64
+	Data     []byte
+}
+
+type EventProcessActions struct{}
+
+type EventProcessEvents struct{}
+
+type EventTick struct{}
+
 type EventLog struct {
-	// List is a list of *recording.Event messages, in order of time.
+	// List is a list of *Event messages, in order of time.
 	List *list.List
 
 	// FakeTime is the current 'time' according to this log.
@@ -28,132 +57,134 @@ type EventLog struct {
 
 	// Rand is a source of randomness for the manglers
 	Rand *rand.Rand
-
-	// Mangler give the ability to filter / managle events as they are inserted
-	Mangler Mangler
-
-	// Mangled tracks which events have already been mangled and need not be reprocessed
-	Mangled map[*recording.Event]struct{}
-
-	// Output is optionally a place to serialize RecordedEvents when consumed.
-	Output *gzip.Writer
 }
 
-func ReadEventLog(source io.Reader) (el *EventLog, err error) {
-	reader, err := eventlog.NewReader(source)
-	if err != nil {
-		return nil, err
-	}
-	eventLog := &EventLog{
-		List: list.New(),
-	}
-
-	for {
-		event, err := reader.ReadEvent()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		eventLog.List.PushBack(event)
-	}
-
-	return eventLog, nil
+func (l *EventLog) ConsumeEvent() *Event {
+	event := l.List.Remove(l.List.Front()).(*Event)
+	l.FakeTime = event.Time
+	return event
 }
 
-func (l *EventLog) ReadEvent() (*recording.Event, error) {
-	if l.Mangled == nil {
-		l.Mangled = map[*recording.Event]struct{}{}
-	}
-
-	for {
-		nele := l.List.Front()
-		if nele == nil {
-			return nil, io.EOF
-		}
-
-		event := l.List.Remove(nele).(*recording.Event)
-		_, ok := l.Mangled[event]
-		if ok || l.Mangler == nil {
-			delete(l.Mangled, event)
-			l.FakeTime = event.Time
-			if l.Output != nil {
-				err := eventlog.WriteRecordedEvent(l.Output, event)
-				if err != nil {
-					return nil, errors.WithMessage(err, "could not write event before processing")
-				}
-			}
-			return event, nil
-		}
-
-		mangleResults := l.Mangler.Mangle(l.Rand.Int(), event)
-		for _, result := range mangleResults {
-			if !result.Remangle {
-				l.Mangled[result.Event] = struct{}{}
-			}
-
-			l.Insert(result.Event)
-		}
-	}
+func (l *EventLog) InsertInitialize(target uint64, initParms *state.EventInitialParameters, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target: target,
+			Initialize: &EventInitialize{
+				InitParms: initParms,
+			},
+			Time: l.FakeTime + fromNow,
+		},
+	)
 }
 
 func (l *EventLog) InsertTickEvent(target uint64, fromNow int64) {
-	l.InsertStateEvent(
-		target,
-		&state.Event{
-			Type: &state.Event_TickElapsed{
-				TickElapsed: &state.EventTickElapsed{},
-			},
+	l.InsertEvent(
+		&Event{
+			Target: target,
+			Tick:   &EventTick{},
+			Time:   l.FakeTime + fromNow,
 		},
-		fromNow,
 	)
 }
 
-func (l *EventLog) InsertStepEvent(target uint64, stepEvent *state.EventStep, fromNow int64) {
-	l.InsertStateEvent(
-		target,
-		&state.Event{
-			Type: &state.Event_Step{
-				Step: stepEvent,
+func (l *EventLog) InsertMsgReceived(target, source uint64, msg *msgs.Msg, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target: target,
+			MsgReceived: &EventMsgReceived{
+				Source: source,
+				Msg:    msg,
 			},
+			Time: l.FakeTime + fromNow,
 		},
-		fromNow,
 	)
 }
 
-func (l *EventLog) InsertStateEvent(target uint64, stateEvent *state.Event, fromNow int64) {
-	l.Insert(&recording.Event{
-		NodeId:     target,
-		Time:       l.FakeTime + fromNow,
-		StateEvent: stateEvent,
-	})
-}
-
-func (l *EventLog) InsertProcess(target uint64, fromNow int64) {
-	l.InsertStateEvent(
-		target,
-		&state.Event{
-			Type: &state.Event_ActionsReceived{
-				ActionsReceived: &state.EventActionsReceived{},
+func (l *EventLog) InsertClientProposal(target, clientID, reqNo uint64, data []byte, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target: target,
+			ClientProposal: &EventClientProposal{
+				ClientID: clientID,
+				ReqNo:    reqNo,
+				Data:     data,
 			},
+			Time: l.FakeTime + fromNow,
 		},
-		fromNow,
 	)
 }
 
-func (l *EventLog) Insert(event *recording.Event) {
+func (l *EventLog) InsertProcessEvents(target uint64, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target:        target,
+			ProcessEvents: &EventProcessEvents{},
+			Time:          l.FakeTime + fromNow,
+		},
+	)
+}
+
+func (l *EventLog) InsertProcessActions(target uint64, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target:         target,
+			ProcessActions: &EventProcessActions{},
+			Time:           l.FakeTime + fromNow,
+		},
+	)
+}
+
+func (l *EventLog) InsertEvent(event *Event) {
 	if event.Time < l.FakeTime {
 		panic("attempted to modify the past")
 	}
 
 	for el := l.List.Front(); el != nil; el = el.Next() {
-		if el.Value.(*recording.Event).Time > event.Time {
+		if el.Value.(*Event).Time > event.Time {
 			l.List.InsertBefore(event, el)
 			return
 		}
 	}
 
 	l.List.PushBack(event)
+}
+
+func (l *EventLog) Status() string {
+	count := l.List.Len()
+	if count == 0 {
+		return "Empty EventLog"
+	}
+
+	el := l.List.Back()
+	var buf bytes.Buffer
+	for i := 0; i < 50; i++ {
+		event := el.Value.(*Event)
+		var subEvent interface{}
+		switch {
+		case event.Initialize != nil:
+			subEvent = event.Initialize
+		case event.MsgReceived != nil:
+			subEvent = event.MsgReceived
+		case event.ClientProposal != nil:
+			subEvent = event.ClientProposal
+		case event.ProcessActions != nil:
+			subEvent = event.ProcessActions
+		case event.ProcessEvents != nil:
+			subEvent = event.ProcessEvents
+		case event.Tick != nil:
+			subEvent = event.Tick
+		default:
+			panic("unexpected event type")
+		}
+
+		fmt.Fprintf(&buf, "[node=%d, event_type=%T time=%d] %+v\n", event.Target, subEvent, event.Time, subEvent)
+		el = el.Prev()
+		if i >= count || el == nil {
+			fmt.Fprintf(&buf, "\nCompleted eventlog summary of %d events\n", count)
+			return buf.String()
+		}
+	}
+
+	fmt.Fprintf(&buf, "\n ... skipping %d entries ... \n", count-50)
+	return buf.String()
 }

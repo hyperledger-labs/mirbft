@@ -7,9 +7,10 @@ SPDX-License-Identifier: Apache-2.0
 package testengine
 
 import (
+	"bytes"
 	"compress/gzip"
 	"container/list"
-	"crypto/sha256"
+	"crypto"
 	"encoding/binary"
 	"fmt"
 	"hash"
@@ -17,15 +18,21 @@ import (
 	"math/rand"
 	"os"
 
+	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/IBM/mirbft"
+	"github.com/IBM/mirbft/pkg/eventlog"
 	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/pb/recording"
 	"github.com/IBM/mirbft/pkg/pb/state"
-
-	"github.com/pkg/errors"
+	"github.com/IBM/mirbft/pkg/processor"
+	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
-type Hasher func() hash.Hash
+type Hasher interface {
+	New() hash.Hash
+}
 
 func uint64ToBytes(value uint64) []byte {
 	byteValue := make([]byte, 8)
@@ -33,7 +40,17 @@ func uint64ToBytes(value uint64) []byte {
 	return byteValue
 }
 
-type RecorderNodeConfig struct {
+type Link struct {
+	Source   uint64
+	EventLog *EventLog
+	Delay    int64
+}
+
+func (l *Link) Send(dest uint64, msg *msgs.Msg) {
+	l.EventLog.InsertMsgReceived(dest, l.Source, msg, l.Delay)
+}
+
+type NodeConfig struct {
 	InitParms    *state.EventInitialParameters
 	RuntimeParms *RuntimeParameters
 }
@@ -48,6 +65,11 @@ type RuntimeParameters struct {
 	WALReadDelay         int
 	ReqReadDelay         int
 	StateTransferLatency int
+}
+
+type clientReq struct {
+	clientID uint64
+	reqNo    uint64
 }
 
 // ackHelper is a map-key usable version of the msgs.RequestAck
@@ -66,38 +88,42 @@ func newAckHelper(ack *msgs.RequestAck) ackHelper {
 }
 
 type ReqStore struct {
-	storedAcks  map[ackHelper]struct{}
-	correctAcks map[ackHelper]struct{}
+	requests    map[ackHelper][]byte
+	allocations map[clientReq][]byte
 }
 
 func NewReqStore() *ReqStore {
 	return &ReqStore{
-		storedAcks:  map[ackHelper]struct{}{},
-		correctAcks: map[ackHelper]struct{}{},
+		requests:    map[ackHelper][]byte{},
+		allocations: map[clientReq][]byte{},
 	}
 }
 
-func (rs *ReqStore) Store(ack *msgs.RequestAck) {
+func (rs *ReqStore) PutRequest(ack *msgs.RequestAck, data []byte) error {
 	helper := newAckHelper(ack)
-	rs.storedAcks[helper] = struct{}{}
+	rs.requests[helper] = data
 	// TODO, deal with free-ing
+	return nil
 }
 
-func (rs *ReqStore) Has(ack *msgs.RequestAck) bool {
+func (rs *ReqStore) GetRequest(ack *msgs.RequestAck) ([]byte, error) {
 	helper := newAckHelper(ack)
-	_, ok := rs.storedAcks[helper]
-	return ok
+	data := rs.requests[helper]
+	return data, nil
 }
 
-func (rs *ReqStore) StoreCorrect(ack *msgs.RequestAck) {
-	helper := newAckHelper(ack)
-	rs.correctAcks[helper] = struct{}{}
+func (rs *ReqStore) PutAllocation(clientID, reqNo uint64, digest []byte) error {
+	rs.allocations[clientReq{clientID: clientID, reqNo: reqNo}] = digest
+	return nil
 }
 
-func (rs *ReqStore) HasCorrect(ack *msgs.RequestAck) bool {
-	helper := newAckHelper(ack)
-	_, ok := rs.correctAcks[helper]
-	return ok
+func (rs *ReqStore) GetAllocation(clientID, reqNo uint64) ([]byte, error) {
+	digest := rs.allocations[clientReq{clientID: clientID, reqNo: reqNo}]
+	return digest, nil
+}
+
+func (rs *ReqStore) Sync() error {
+	return nil
 }
 
 type WAL struct {
@@ -115,7 +141,7 @@ func NewWAL(initialState *msgs.NetworkState, initialCP []byte) *WAL {
 		Type: &msgs.Persistent_CEntry{
 			CEntry: &msgs.CEntry{
 				SeqNo:           0,
-				CheckpointValue: []byte("fake-initial-value"),
+				CheckpointValue: initialCP,
 				NetworkState:    initialState,
 			},
 		},
@@ -135,30 +161,35 @@ func NewWAL(initialState *msgs.NetworkState, initialCP []byte) *WAL {
 	return wal
 }
 
-func (wal *WAL) Append(index uint64, p *msgs.Persistent) {
+func (wal *WAL) Write(index uint64, p *msgs.Persistent) error {
 	if index != wal.LowIndex+uint64(wal.List.Len()) {
-		panic(fmt.Sprintf("WAL out of order: expect next index %d, but got %d", wal.LowIndex+uint64(wal.List.Len()), index))
+		return errors.Errorf("WAL out of order: expect next index %d, but got %d", wal.LowIndex+uint64(wal.List.Len()), index)
 	}
 
 	wal.List.PushBack(p)
+
+	return nil
 }
 
-func (wal *WAL) Truncate(index uint64) {
+func (wal *WAL) Truncate(index uint64) error {
 	if index < wal.LowIndex {
-		panic(fmt.Sprintf("asked to truncated to index %d, but lowIndex is %d", index, wal.LowIndex))
+		return errors.Errorf("asked to truncated to index %d, but lowIndex is %d", index, wal.LowIndex)
 	}
 
 	toRemove := int(index - wal.LowIndex)
 	if toRemove >= wal.List.Len() {
-		panic(fmt.Sprintf("asked to truncate to index %d, but highest index is %d", index, wal.LowIndex+uint64(wal.List.Len())))
+		return errors.Errorf("asked to truncate to index %d, but highest index is %d", index, wal.LowIndex+uint64(wal.List.Len()))
 	}
 
 	for ; toRemove > 0; toRemove-- {
 		wal.List.Remove(wal.List.Front())
 		wal.LowIndex++
 	}
+
+	return nil
 }
 
+// TODO, deal with this in the processor
 func (wal *WAL) LoadAll(iter func(index uint64, p *msgs.Persistent)) {
 	i := uint64(0)
 	for el := wal.List.Front(); el != nil; el = el.Next() {
@@ -167,14 +198,68 @@ func (wal *WAL) LoadAll(iter func(index uint64, p *msgs.Persistent)) {
 	}
 }
 
-type RecorderNode struct {
-	PlaybackNode               *PlaybackNode
-	State                      *NodeState
-	WAL                        *WAL
-	ReqStore                   *ReqStore
-	Config                     *RecorderNodeConfig
-	AwaitingProcessEvent       bool
-	AwaitingClientProcessEvent bool
+func (wal *WAL) Sync() error {
+	return nil
+}
+
+type Node struct {
+	ID                    uint64
+	Config                *NodeConfig
+	WAL                   *WAL
+	Link                  *Link
+	Hasher                Hasher
+	ReqStore              *ReqStore
+	State                 *NodeState
+	Processor             *processor.Processor
+	PendingStateEvents    *statemachine.EventList
+	PendingStateActions   *statemachine.ActionList
+	ProcessEventsPending  bool
+	ProcessActionsPending bool
+	StateMachine          *statemachine.StateMachine
+}
+
+func (n *Node) Initialize(initParms *state.EventInitialParameters, logger statemachine.Logger) (*msgs.NetworkState, error) {
+	nodeID := n.Config.InitParms.Id
+
+	n.Processor = &processor.Processor{
+		NodeID:       nodeID,
+		Link:         n.Link,
+		Hasher:       n.Hasher,
+		App:          n.State,
+		WAL:          n.WAL,
+		RequestStore: n.ReqStore,
+	}
+
+	n.StateMachine = &statemachine.StateMachine{
+		Logger: logger,
+	}
+	n.PendingStateActions = &statemachine.ActionList{}
+	n.ProcessActionsPending = false
+	n.PendingStateEvents = &statemachine.EventList{}
+	n.ProcessEventsPending = false
+	n.PendingStateEvents.Initialize(initParms)
+
+	var maxCEntry *msgs.CEntry
+
+	n.WAL.LoadAll(func(index uint64, p *msgs.Persistent) {
+		n.PendingStateEvents.LoadPersistedEntry(index, p)
+
+		if cEntryT, ok := p.Type.(*msgs.Persistent_CEntry); ok {
+			maxCEntry = cEntryT.CEntry
+		}
+	})
+
+	if maxCEntry.SeqNo != n.State.CheckpointSeqNo {
+		return nil, errors.Errorf("expected last CEntry in the WAL to match our state")
+	}
+
+	if _, err := n.State.TransferTo(maxCEntry.SeqNo, maxCEntry.CheckpointValue); err != nil {
+		return nil, errors.WithMessage(err, "error in mock transfer to intiialize")
+	}
+
+	n.PendingStateEvents.CompleteInitialization()
+
+	return maxCEntry.NetworkState, nil
 }
 
 type RecorderClient struct {
@@ -182,22 +267,18 @@ type RecorderClient struct {
 	Hasher Hasher
 }
 
-func (rc *RecorderClient) RequestByReqNo(reqNo uint64) *msgs.RequestAck {
+func (rc *RecorderClient) RequestByReqNo(reqNo uint64) []byte {
 	if reqNo >= rc.Config.Total {
 		// We've sent all we should
 		return nil
 	}
 
-	h := rc.Hasher()
-	h.Write(uint64ToBytes(rc.Config.ID))
-	h.Write([]byte("-"))
-	h.Write(uint64ToBytes(reqNo))
+	var buf bytes.Buffer
+	buf.Write(uint64ToBytes(rc.Config.ID))
+	buf.Write([]byte("-"))
+	buf.Write(uint64ToBytes(reqNo))
 
-	return &msgs.RequestAck{
-		ClientId: rc.Config.ID,
-		ReqNo:    reqNo,
-		Digest:   h.Sum(nil),
-	}
+	return buf.Bytes()
 }
 
 type NodeState struct {
@@ -206,47 +287,69 @@ type NodeState struct {
 	LastSeqNo               uint64
 	ReconfigPoints          []*ReconfigPoint
 	PendingReconfigurations []*msgs.Reconfiguration
-	Checkpoints             *list.List
-	CheckpointsBySeqNo      map[uint64]*list.Element
 	ReqStore                *ReqStore
+	CheckpointSeqNo         uint64
+	CheckpointHash          []byte
+	CheckpointState         *msgs.NetworkState
 }
 
-func (ns *NodeState) Set(seqNo uint64, value []byte, networkState *msgs.NetworkState) *state.EventCheckpointResult {
-	ns.ActiveHash = ns.Hasher()
+func (ns *NodeState) Snap(networkConfig *msgs.NetworkState_Config, clientsState []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error) {
+	pr := ns.PendingReconfigurations
+	ns.PendingReconfigurations = nil
 
-	checkpoint := &state.EventCheckpointResult{
-		SeqNo:        seqNo,
-		NetworkState: networkState,
-		Value:        value,
+	ns.CheckpointSeqNo = ns.LastSeqNo
+	ns.CheckpointState = &msgs.NetworkState{
+		Config:                  networkConfig,
+		Clients:                 clientsState,
+		PendingReconfigurations: pr,
+	}
+	ns.CheckpointHash = ns.ActiveHash.Sum(nil)
+	ns.ActiveHash = ns.Hasher.New()
+	ns.ActiveHash.Write(ns.CheckpointHash)
+
+	nsBytes, err := proto.Marshal(ns.CheckpointState)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Note, this is a test hack, balooning the checkpoint size, but it
+	// simplifies having to go look up the checkpoint data on another node.
+	// TODO, fetch it properly?
+	value := append([]byte{}, ns.CheckpointHash...)
+	value = append(value, nsBytes...)
+
+	return value, pr, nil
+}
+
+func (ns *NodeState) TransferTo(seqNo uint64, snap []byte) (*msgs.NetworkState, error) {
+	networkState := &msgs.NetworkState{}
+	if err := proto.Unmarshal(snap[32:], networkState); err != nil {
+		return nil, err
 	}
 
 	ns.LastSeqNo = seqNo
+	ns.CheckpointSeqNo = seqNo
+	ns.CheckpointState = networkState
+	ns.CheckpointHash = snap[:32]
+	ns.ActiveHash = ns.Hasher.New()
+	ns.ActiveHash.Write(ns.CheckpointHash)
 
-	el := ns.Checkpoints.PushBack(checkpoint)
-	ns.CheckpointsBySeqNo[seqNo] = el
-	if ns.Checkpoints.Len() > 100 {
-		// prevent the size of the storage from growing indefinitely,
-		// keep only the last 100 checkpoints.
-		del := ns.Checkpoints.Remove(ns.Checkpoints.Front())
-		delete(ns.CheckpointsBySeqNo, del.(*state.EventCheckpointResult).SeqNo)
-	}
-
-	return checkpoint
+	return networkState, nil
 }
 
-func (ns *NodeState) LastCheckpoint() *state.EventCheckpointResult {
-	return ns.Checkpoints.Back().Value.(*state.EventCheckpointResult)
-}
-
-func (ns *NodeState) Commit(commit *state.ActionCommit) {
+func (ns *NodeState) Apply(batch *msgs.QEntry) error {
 	ns.LastSeqNo++
-	if commit.Batch.SeqNo != ns.LastSeqNo {
-		panic(fmt.Sprintf("unexpected out of order commit sequence number, expected %d, got %d", ns.LastSeqNo, commit.Batch.SeqNo))
+	if batch.SeqNo != ns.LastSeqNo {
+		return errors.Errorf("unexpected out of order commit sequence number, expected %d, got %d", ns.LastSeqNo, batch.SeqNo)
 	}
 
-	for _, request := range commit.Batch.Requests {
-		if !ns.ReqStore.Has(request) {
-			panic("reqstore should have request if we are committing it")
+	for _, request := range batch.Requests {
+		req, err := ns.ReqStore.GetRequest(request)
+		if err != nil {
+			return errors.WithMessage(err, "unexpected reqstore error")
+		}
+		if req == nil {
+			return errors.Errorf("reqstore should have request if we are committing it")
 		}
 
 		ns.ActiveHash.Write(request.Digest)
@@ -258,22 +361,8 @@ func (ns *NodeState) Commit(commit *state.ActionCommit) {
 			}
 		}
 	}
-}
-func (ns *NodeState) Checkpoint(checkpoint *state.ActionCheckpoint) *state.EventCheckpointResult {
-	// We must have a checkpoint
 
-	if checkpoint.SeqNo != ns.LastSeqNo {
-		panic("asked to checkpoint for uncommitted sequence")
-	}
-
-	return ns.Set(
-		checkpoint.SeqNo,
-		ns.ActiveHash.Sum(nil),
-		&msgs.NetworkState{
-			Config:  checkpoint.NetworkConfig,
-			Clients: checkpoint.ClientStates,
-		},
-	)
+	return nil
 }
 
 type ClientConfig struct {
@@ -304,64 +393,56 @@ type ReconfigPoint struct {
 }
 
 type Recorder struct {
-	NetworkState        *msgs.NetworkState
-	RecorderNodeConfigs []*RecorderNodeConfig
-	ClientConfigs       []*ClientConfig
-	ReconfigPoints      []*ReconfigPoint
-	Mangler             Mangler
-	LogOutput           io.Writer
-	Hasher              Hasher
-	RandomSeed          int64
+	NetworkState   *msgs.NetworkState
+	NodeConfigs    []*NodeConfig
+	ClientConfigs  []*ClientConfig
+	ReconfigPoints []*ReconfigPoint
+	Mangler        Mangler
+	LogOutput      io.Writer
+	Hasher         Hasher
+	RandomSeed     int64
 }
 
 func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	eventLog := &EventLog{
-		List:    list.New(),
-		Output:  output,
-		Mangler: r.Mangler,
-		Rand:    rand.New(rand.NewSource(r.RandomSeed)),
+		List: list.New(),
 	}
 
-	player, err := NewPlayer(eventLog, r.LogOutput)
-	if err != nil {
-		return nil, errors.WithMessage(err, "could not construct player")
-	}
-
-	nodes := make([]*RecorderNode, len(r.RecorderNodeConfigs))
-	for i, recorderNodeConfig := range r.RecorderNodeConfigs {
+	nodes := make([]*Node, len(r.NodeConfigs))
+	for i, recorderNodeConfig := range r.NodeConfigs {
 		nodeID := uint64(i)
-
-		checkpointValue := []byte("fake-initial-value")
-
-		wal := NewWAL(r.NetworkState, checkpointValue)
-
-		eventLog.InsertStateEvent(
-			nodeID,
-			&state.Event{
-				Type: &state.Event_Initialize{
-					Initialize: recorderNodeConfig.InitParms,
-				},
-			},
-			0,
-		)
 
 		reqStore := NewReqStore()
 
 		nodeState := &NodeState{
-			Hasher:             r.Hasher,
-			ReconfigPoints:     r.ReconfigPoints,
-			Checkpoints:        list.New(),
-			CheckpointsBySeqNo: map[uint64]*list.Element{},
-			ReqStore:           reqStore,
+			Hasher:         r.Hasher,
+			ActiveHash:     r.Hasher.New(),
+			ReconfigPoints: r.ReconfigPoints,
+			ReqStore:       reqStore,
 		}
 
-		nodes[i] = &RecorderNode{
-			State:        nodeState,
-			WAL:          wal,
-			ReqStore:     reqStore,
-			PlaybackNode: player.Node(uint64(i)),
-			Config:       recorderNodeConfig,
+		checkpointValue, _, err := nodeState.Snap(r.NetworkState.Config, r.NetworkState.Clients)
+		if err != nil {
+			return nil, errors.WithMessage(err, "could not generate initial checkpoint")
 		}
+
+		wal := NewWAL(r.NetworkState, checkpointValue)
+
+		nodes[i] = &Node{
+			Hasher:   r.Hasher,
+			State:    nodeState,
+			WAL:      wal,
+			ReqStore: reqStore,
+			Link: &Link{
+				EventLog: eventLog,
+				Source:   nodeID,
+				Delay:    int64(recorderNodeConfig.RuntimeParms.LinkLatency),
+			},
+			Config:             recorderNodeConfig,
+			PendingStateEvents: &statemachine.EventList{},
+		}
+
+		eventLog.InsertInitialize(nodeID, recorderNodeConfig.InitParms, 0)
 	}
 
 	clients := make([]*RecorderClient, len(r.ClientConfigs))
@@ -377,18 +458,24 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	return &Recording{
 		Hasher:   r.Hasher,
 		EventLog: eventLog,
-		Player:   player,
 		Nodes:    nodes,
 		Clients:  clients,
+		Rand:     rand.New(rand.NewSource(r.RandomSeed)),
+		// TODO incorporate these
+		EventLogOutput: output,
+		// Mangler: r.Mangler,
+		LogOutput: r.LogOutput,
 	}, nil
 }
 
 type Recording struct {
-	Hasher   Hasher
-	EventLog *EventLog
-	Player   *Player
-	Nodes    []*RecorderNode
-	Clients  []*RecorderClient
+	Hasher         Hasher
+	EventLog       *EventLog
+	Nodes          []*Node
+	Clients        []*RecorderClient
+	Rand           *rand.Rand
+	LogOutput      io.Writer
+	EventLogOutput *gzip.Writer
 }
 
 func (r *Recording) Step() error {
@@ -396,187 +483,13 @@ func (r *Recording) Step() error {
 		return errors.Errorf("event log is empty, nothing to do")
 	}
 
-	err := r.Player.Step()
-	if err != nil {
-		return errors.WithMessagef(err, "could not step recorder's underlying player")
-	}
-
-	lastEvent := r.Player.LastEvent
-
-	node := r.Nodes[int(lastEvent.NodeId)]
+	event := r.EventLog.ConsumeEvent()
+	nodeID := event.Target
+	node := r.Nodes[int(nodeID)]
 	runtimeParms := node.Config.RuntimeParms
-	playbackNode := node.PlaybackNode
-	nodeState := node.State
 
-	switch stateEvent := lastEvent.StateEvent.Type.(type) {
-	case *state.Event_TickElapsed:
-		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
-	case *state.Event_HashResult:
-	case *state.Event_CheckpointResult:
-	case *state.Event_RequestPersisted:
-		node.ReqStore.Store(stateEvent.RequestPersisted.RequestAck)
-	case *state.Event_Step:
-	case *state.Event_ActionsReceived:
-		if !node.AwaitingProcessEvent {
-			return errors.Errorf("node %d was not awaiting a processing message, but got one", lastEvent.NodeId)
-		}
-		node.AwaitingProcessEvent = false
-		processing := playbackNode.Processing
-
-		iter := processing.Iterator()
-		for action := iter.Next(); action != nil; action = iter.Next() {
-			switch t := action.Type.(type) {
-			case *state.Action_Send:
-				send := t.Send
-				for _, i := range send.Targets {
-					linkLatency := runtimeParms.LinkLatency
-					if i == lastEvent.NodeId {
-						// There's no latency to send to ourselves
-						linkLatency = 0
-					}
-					if n := r.Player.Node(i); n.StateMachine == nil {
-						continue
-					}
-					r.EventLog.InsertStepEvent(
-						i,
-						&state.EventStep{
-							Source: lastEvent.NodeId,
-							Msg:    send.Msg,
-						},
-						int64(linkLatency+runtimeParms.PersistLatency),
-					)
-				}
-			case *state.Action_Hash:
-				hashRequest := t.Hash
-				hasher := r.Hasher()
-				for _, data := range hashRequest.Data {
-					hasher.Write(data)
-				}
-
-				r.EventLog.InsertStateEvent(
-					lastEvent.NodeId,
-					&state.Event{
-						Type: &state.Event_HashResult{
-							HashResult: &state.EventHashResult{
-								Digest: hasher.Sum(nil),
-								Origin: hashRequest.Origin,
-							},
-						},
-					},
-					int64(runtimeParms.ReadyLatency),
-				)
-			case *state.Action_TruncateWriteAhead:
-				node.WAL.Truncate(t.TruncateWriteAhead.Index)
-			case *state.Action_AppendWriteAhead:
-				node.WAL.Append(t.AppendWriteAhead.Index, t.AppendWriteAhead.Data)
-			case *state.Action_AllocatedRequest:
-				reqSlot := t.AllocatedRequest
-				client := r.Clients[int(reqSlot.ClientId)]
-				if client.Config.ID != reqSlot.ClientId {
-					panic("sanity check")
-				}
-
-				if client.Config.shouldSkip(lastEvent.NodeId) {
-					continue
-				}
-
-				req := client.RequestByReqNo(reqSlot.ReqNo)
-				if req == nil {
-					continue
-				}
-
-				r.EventLog.InsertStateEvent(
-					lastEvent.NodeId,
-					&state.Event{
-						Type: &state.Event_RequestPersisted{
-							RequestPersisted: &state.EventRequestPersisted{
-								RequestAck: req,
-							},
-						},
-					},
-					int64(runtimeParms.ClientProcessLatency),
-				)
-			case *state.Action_ForwardRequest:
-				forward := t.ForwardRequest
-				if !node.ReqStore.Has(forward.Ack) {
-					panic("we asked ourselves to forward an ack we do not have")
-				}
-
-				for _, dNodeID := range forward.Targets {
-
-					dNode := r.Nodes[int(dNodeID)]
-					if dNode.ReqStore.Has(forward.Ack) {
-						continue
-					}
-
-					if !dNode.ReqStore.HasCorrect(forward.Ack) {
-						// TODO, this is a bit crude, it assumes that
-						// if the request is not correct at this moment,
-						// there is no buffering, and that it will not become
-						// correct in the future
-						continue
-					}
-
-					r.EventLog.InsertStateEvent(
-						dNodeID,
-						&state.Event{
-							Type: &state.Event_RequestPersisted{
-								RequestPersisted: &state.EventRequestPersisted{
-									RequestAck: forward.Ack,
-								},
-							},
-						},
-						int64(runtimeParms.LinkLatency),
-					)
-				}
-			case *state.Action_CorrectRequest:
-				node.ReqStore.StoreCorrect(t.CorrectRequest)
-			case *state.Action_Commit:
-				nodeState.Commit(t.Commit)
-			case *state.Action_Checkpoint:
-				r.EventLog.InsertStateEvent(
-					lastEvent.NodeId,
-					&state.Event{
-						Type: &state.Event_CheckpointResult{
-							CheckpointResult: nodeState.Checkpoint(t.Checkpoint),
-						},
-					},
-					int64(runtimeParms.ProcessLatency),
-				)
-			case *state.Action_StateTransfer:
-				var networkState *msgs.NetworkState
-				for _, node := range r.Nodes {
-					el, ok := node.State.CheckpointsBySeqNo[t.StateTransfer.SeqNo]
-					if !ok {
-						// if no node has the state, networkState will be nil
-						// which signals to the state machine to try another target
-						continue
-					}
-
-					networkState = el.Value.(*state.EventCheckpointResult).NetworkState
-					break
-				}
-				r.EventLog.InsertStateEvent(
-					lastEvent.NodeId,
-					&state.Event{
-						Type: &state.Event_StateTransferComplete{
-							StateTransferComplete: &state.EventStateTransferComplete{
-								SeqNo:           t.StateTransfer.SeqNo,
-								CheckpointValue: t.StateTransfer.Value,
-								NetworkState:    networkState,
-							},
-						},
-					},
-					int64(runtimeParms.StateTransferLatency),
-				)
-			default:
-				panic(fmt.Sprintf("unhandled type: %T", t))
-			}
-
-			playbackNode.Processing = nil
-		}
-	case *state.Event_Initialize:
-		node.AwaitingProcessEvent = false
+	switch {
+	case event.Initialize != nil:
 
 		// If this is an Initialize, it is either the first event for the node,
 		// and nothing else is in the log, or, it is a restart.  In the case of
@@ -587,65 +500,119 @@ func (r *Recording) Step() error {
 		for el != nil {
 			x := el
 			el = el.Next()
-			if x.Value.(*recording.Event).NodeId == lastEvent.NodeId {
+			if x.Value.(*Event).Target == nodeID {
 				r.EventLog.List.Remove(x)
 			}
 		}
 
-		delay := int64(0)
-
-		var maxCEntry *msgs.CEntry
-
-		node.WAL.LoadAll(func(index uint64, p *msgs.Persistent) {
-			delay += int64(runtimeParms.WALReadDelay)
-			r.EventLog.InsertStateEvent(
-				lastEvent.NodeId,
-				&state.Event{
-					Type: &state.Event_LoadPersistedEntry{
-						LoadPersistedEntry: &state.EventLoadPersistedEntry{
-							Index: index,
-							Entry: p,
-						},
-					},
-				},
-				delay,
-			)
-
-			if cEntryT, ok := p.Type.(*msgs.Persistent_CEntry); ok {
-				maxCEntry = cEntryT.CEntry
-			}
-		})
-
-		nodeState.Set(maxCEntry.SeqNo, maxCEntry.CheckpointValue, maxCEntry.NetworkState)
-
-		r.EventLog.InsertStateEvent(
-			lastEvent.NodeId,
-			&state.Event{
-				Type: &state.Event_CompleteInitialization{
-					CompleteInitialization: &state.EventLoadCompleted{},
-				},
+		networkState, err := node.Initialize(
+			event.Initialize.InitParms,
+			NamedLogger{
+				Output: r.LogOutput,
+				Level:  statemachine.LevelInfo,
+				Name:   fmt.Sprintf("node%d", nodeID),
 			},
-			delay,
 		)
-	case *state.Event_LoadPersistedEntry:
-	case *state.Event_StateTransferComplete:
-		node.State.Set(
-			stateEvent.StateTransferComplete.SeqNo,
-			stateEvent.StateTransferComplete.CheckpointValue,
-			stateEvent.StateTransferComplete.NetworkState,
-		)
-	case *state.Event_StateTransferFailed:
-	case *state.Event_CompleteInitialization:
-		r.EventLog.InsertTickEvent(lastEvent.NodeId, int64(runtimeParms.TickInterval))
+		if err != nil {
+			return errors.WithMessage(err, "unexpected error initializing node")
+		}
+
+		r.EventLog.InsertTickEvent(nodeID, int64(runtimeParms.TickInterval))
+
+		for _, clientState := range networkState.Clients {
+			client := r.Clients[int(clientState.Id)]
+			if client.Config.shouldSkip(nodeID) {
+				continue
+			}
+			data := client.RequestByReqNo(clientState.LowWatermark)
+			if data != nil {
+				r.EventLog.InsertClientProposal(nodeID, clientState.Id, clientState.LowWatermark, data, int64(runtimeParms.ClientProcessLatency))
+			}
+		}
+	case event.MsgReceived != nil:
+		node.PendingStateEvents.Step(event.MsgReceived.Source, event.MsgReceived.Msg)
+	case event.ClientProposal != nil:
+		prop := event.ClientProposal
+		client := node.Processor.Client(prop.ClientID)
+		reqNo, err := client.NextReqNo()
+		if errors.Is(err, processor.ErrClientNotExist) {
+			r.EventLog.InsertClientProposal(nodeID, prop.ClientID, prop.ReqNo, prop.Data, int64(runtimeParms.ClientProcessLatency*100))
+			break
+		}
+
+		if err != nil {
+			return errors.WithMessage(err, "unanticipated client error")
+		}
+
+		tClient := r.Clients[int(prop.ClientID)]
+
+		if reqNo != prop.ReqNo {
+			data := tClient.RequestByReqNo(reqNo)
+			if data != nil {
+				r.EventLog.InsertClientProposal(nodeID, prop.ClientID, reqNo, data, int64(runtimeParms.ClientProcessLatency))
+			}
+			break
+		}
+
+		err = client.Propose(prop.ReqNo, prop.Data)
+		if err != nil {
+			return errors.WithMessage(err, "unanticipated client propose error")
+		}
+
+		data := tClient.RequestByReqNo(reqNo + 1)
+		if data != nil {
+			r.EventLog.InsertClientProposal(nodeID, prop.ClientID, reqNo+1, data, int64(runtimeParms.ClientProcessLatency))
+		}
+	case event.Tick != nil:
+		node.PendingStateEvents.TickElapsed()
+		r.EventLog.InsertTickEvent(nodeID, int64(runtimeParms.TickInterval))
+	case event.ProcessEvents != nil:
+		node.PendingStateEvents.ActionsReceived()
+		iter := node.PendingStateEvents.Iterator()
+		for stateEvent := iter.Next(); stateEvent != nil; stateEvent = iter.Next() {
+			if r.EventLogOutput != nil {
+				err := eventlog.WriteRecordedEvent(r.EventLogOutput, &recording.Event{
+					NodeId:     nodeID,
+					Time:       event.Time,
+					StateEvent: stateEvent,
+				})
+				if err != nil {
+					return errors.WithMessage(err, "could not write event before processing")
+				}
+			}
+
+			// TODO, persist to the log first
+			node.PendingStateActions.PushBackList(node.StateMachine.ApplyEvent(stateEvent))
+		}
+		node.PendingStateEvents = &statemachine.EventList{}
+		node.ProcessEventsPending = false
+	case event.ProcessActions != nil:
+		events, err := node.Processor.Process(node.PendingStateActions)
+		if err != nil {
+			return errors.WithMessage(err, "error during processing")
+		}
+		node.PendingStateEvents.PushBackList(events)
+		node.PendingStateActions = &statemachine.ActionList{}
+		node.ProcessActionsPending = false
 	default:
-		panic(fmt.Sprintf("unhandled state event type: %T", lastEvent.StateEvent.Type))
+		return errors.Errorf("unknown event type")
 	}
 
-	if playbackNode.Processing == nil &&
-		playbackNode.Actions.Len() > 0 &&
-		!node.AwaitingProcessEvent {
-		r.EventLog.InsertProcess(lastEvent.NodeId, int64(runtimeParms.ProcessLatency))
-		node.AwaitingProcessEvent = true
+	cEvents := node.Processor.ClientWork.Results()
+	if cEvents != nil && cEvents.Len() > 0 {
+		node.PendingStateEvents.PushBackList(cEvents)
+	}
+
+	if node.PendingStateEvents.Len() > 0 && !node.ProcessEventsPending {
+		r.EventLog.InsertProcessEvents(nodeID, int64(runtimeParms.ProcessLatency))
+		node.ProcessEventsPending = true
+	}
+
+	// TODO ProcessLatency is a cludge, fix it in the processor
+
+	if node.PendingStateActions.Len() > 0 && !node.ProcessActionsPending {
+		r.EventLog.InsertProcessActions(nodeID, int64(runtimeParms.ProcessLatency))
+		node.ProcessActionsPending = true
 	}
 
 	return nil
@@ -671,7 +638,7 @@ func (r *Recording) DrainClients(timeout int) (count int, err error) {
 		allDone := true
 	outer:
 		for _, node := range r.Nodes {
-			for _, client := range node.State.LastCheckpoint().NetworkState.Clients {
+			for _, client := range node.State.CheckpointState.Clients {
 				if targetReqs[client.Id] != client.LowWatermark {
 					allDone = false
 					break outer
@@ -686,7 +653,7 @@ func (r *Recording) DrainClients(timeout int) (count int, err error) {
 		if count > timeout {
 			var errText string
 			for _, node := range r.Nodes {
-				for _, client := range node.State.LastCheckpoint().NetworkState.Clients {
+				for _, client := range node.State.CheckpointState.Clients {
 					if targetReqs[client.Id] != client.LowWatermark {
 						errText = fmt.Sprintf("(at least) node%d failed with client %d committing only through %d when expected %d", node.Config.InitParms.Id, client.Id, client.LowWatermark, targetReqs[client.Id])
 					}
@@ -698,9 +665,9 @@ func (r *Recording) DrainClients(timeout int) (count int, err error) {
 }
 
 func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
-	var recorderNodeConfigs []*RecorderNodeConfig
+	var recorderNodeConfigs []*NodeConfig
 	for i := 0; i < nodeCount; i++ {
-		recorderNodeConfigs = append(recorderNodeConfigs, &RecorderNodeConfig{
+		recorderNodeConfigs = append(recorderNodeConfigs, &NodeConfig{
 			InitParms: &state.EventInitialParameters{
 				Id:                   uint64(i),
 				HeartbeatTicks:       2,
@@ -733,10 +700,10 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 	}
 
 	return &Recorder{
-		NetworkState:        networkState,
-		RecorderNodeConfigs: recorderNodeConfigs,
-		LogOutput:           os.Stdout,
-		Hasher:              sha256.New,
-		ClientConfigs:       clientConfigs,
+		NetworkState:  networkState,
+		NodeConfigs:   recorderNodeConfigs,
+		LogOutput:     os.Stdout,
+		Hasher:        crypto.SHA256,
+		ClientConfigs: clientConfigs,
 	}
 }

@@ -60,7 +60,7 @@ var _ = Describe("Mirbft", func() {
 			Expect(recording).NotTo(BeNil())
 
 			for nodeIndex, node := range recording.Nodes {
-				status := node.PlaybackNode.StateMachine.Status()
+				status := node.StateMachine.Status()
 				fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
 			}
 
@@ -78,7 +78,7 @@ var _ = Describe("Mirbft", func() {
 
 	When("a larger batch size is used", func() {
 		BeforeEach(func() {
-			for _, nodeConfig := range recorder.RecorderNodeConfigs {
+			for _, nodeConfig := range recorder.NodeConfigs {
 				nodeConfig.InitParms.BatchSize = 20
 			}
 		})
@@ -126,7 +126,7 @@ var _ = Describe("Mirbft", func() {
 
 		When("the node crashes in the middle", func() {
 			BeforeEach(func() {
-				recorder.Mangler = For(MatchMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5)).CrashAndRestartAfter(10, recorder.RecorderNodeConfigs[0].InitParms)
+				recorder.Mangler = For(MatchMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5)).CrashAndRestartAfter(10, recorder.NodeConfigs[0].InitParms)
 			})
 
 			It("still delivers all requests", func() {
