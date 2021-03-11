@@ -548,6 +548,9 @@ func (r *Recording) Step() error {
 		}
 
 		tClient := r.Clients[int(prop.ClientID)]
+		if tClient.Config.shouldSkip(nodeID) {
+			return errors.Errorf("node %d was supposed to be skipped by client %d, but got event anyway", nodeID, prop.ClientID)
+		}
 
 		if reqNo != prop.ReqNo {
 			data := tClient.RequestByReqNo(reqNo)
@@ -672,9 +675,23 @@ func (r *Recording) DrainClients(timeout int) (count int, err error) {
 	}
 }
 
-func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
+type Spec struct {
+	NodeCount     int
+	ClientCount   int
+	ReqsPerClient uint64
+	BatchSize     uint32
+	ClientsIgnore []uint64
+	TweakRecorder func(r *Recorder)
+}
+
+func (s *Spec) Recorder() *Recorder {
+	batchSize := uint32(1)
+	if s.BatchSize != 0 {
+		batchSize = s.BatchSize
+	}
+
 	var recorderNodeConfigs []*NodeConfig
-	for i := 0; i < nodeCount; i++ {
+	for i := 0; i < s.NodeCount; i++ {
 		recorderNodeConfigs = append(recorderNodeConfigs, &NodeConfig{
 			InitParms: &state.EventInitialParameters{
 				Id:                   uint64(i),
@@ -682,7 +699,7 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 				SuspectTicks:         4,
 				NewEpochTimeoutTicks: 8,
 				BufferSize:           5 * 1024 * 1024,
-				BatchSize:            1,
+				BatchSize:            batchSize,
 			},
 			RuntimeParms: &RuntimeParameters{
 				TickInterval:         500,
@@ -696,22 +713,29 @@ func BasicRecorder(nodeCount, clientCount int, reqsPerClient uint64) *Recorder {
 		})
 	}
 
-	networkState := mirbft.StandardInitialNetworkState(nodeCount, clientCount)
+	networkState := mirbft.StandardInitialNetworkState(s.NodeCount, s.ClientCount)
 
-	clientConfigs := make([]*ClientConfig, clientCount)
+	clientConfigs := make([]*ClientConfig, s.ClientCount)
 	for i, cl := range networkState.Clients {
 		clientConfigs[i] = &ClientConfig{
 			ID:          cl.Id,
 			MaxInFlight: int(networkState.Config.CheckpointInterval / 2),
-			Total:       reqsPerClient,
+			Total:       s.ReqsPerClient,
+			IgnoreNodes: s.ClientsIgnore,
 		}
 	}
 
-	return &Recorder{
+	r := &Recorder{
 		NetworkState:  networkState,
 		NodeConfigs:   recorderNodeConfigs,
 		LogOutput:     os.Stdout,
 		Hasher:        crypto.SHA256,
 		ClientConfigs: clientConfigs,
 	}
+
+	if s.TweakRecorder != nil {
+		s.TweakRecorder(r)
+	}
+
+	return r
 }

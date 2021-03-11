@@ -21,8 +21,11 @@ var _ = Describe("Parsing", func() {
 		gzWriter := gzip.NewWriter(logBytes)
 		defer gzWriter.Close()
 
-		recorder := testengine.BasicRecorder(4, 4, 20)
-		recorder.NetworkState.Config.MaxEpochLength = 200000 // XXX this works around a bug in the library for now
+		recorder := (&testengine.Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 20,
+		}).Recorder()
 
 		recording, err := recorder.Recording(gzWriter)
 		Expect(err).NotTo(HaveOccurred())
@@ -98,8 +101,11 @@ var _ = Describe("Execution", func() {
 		gzWriter := gzip.NewWriter(logBytes)
 		defer gzWriter.Close()
 
-		recorder := testengine.BasicRecorder(4, 4, 20)
-		recorder.NetworkState.Config.MaxEpochLength = 200000 // XXX this works around a bug in the library for now
+		recorder := (&testengine.Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 20,
+		}).Recorder()
 
 		recording, err := recorder.Recording(gzWriter)
 		Expect(err).NotTo(HaveOccurred())

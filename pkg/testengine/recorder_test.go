@@ -60,8 +60,11 @@ var _ = Describe("Recorder", func() {
 
 	When("There is a four node network", func() {
 		BeforeEach(func() {
-			recorder = testengine.BasicRecorder(4, 4, 200)
-			recorder.NetworkState.Config.MaxEpochLength = 100000 // XXX this works around a bug in the library for now
+			recorder = (&testengine.Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 200,
+			}).Recorder()
 
 			var err error
 			recording, err = recorder.Recording(gzWriter)
@@ -71,13 +74,13 @@ var _ = Describe("Recorder", func() {
 		It("Executes and produces a log", func() {
 			count, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(35156))
+			Expect(count).To(Equal(35489))
 
 			fmt.Printf("Executing test required a log of %d events\n", count)
 
 			for _, node := range recording.Nodes {
 				status := node.StateMachine.Status()
-				Expect(status.EpochTracker.LastActiveEpoch).To(Equal(uint64(1)))
+				Expect(status.EpochTracker.LastActiveEpoch).To(Equal(uint64(4)))
 				Expect(status.EpochTracker.EpochTargets).To(HaveLen(0))
 				//Expect(status.EpochTracker.EpochTargets[0].Suspicions).To(BeEmpty())
 
@@ -89,7 +92,11 @@ var _ = Describe("Recorder", func() {
 
 	When("A single-node network is selected", func() {
 		BeforeEach(func() {
-			recorder = testengine.BasicRecorder(1, 1, 3)
+			recorder = (&testengine.Spec{
+				NodeCount:     1,
+				ClientCount:   1,
+				ReqsPerClient: 3,
+			}).Recorder()
 
 			var err error
 			recording, err = recorder.Recording(gzWriter)

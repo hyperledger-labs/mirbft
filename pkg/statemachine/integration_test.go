@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 
 	. "github.com/IBM/mirbft/pkg/testengine"
@@ -21,28 +22,18 @@ import (
 
 var _ = Describe("Mirbft", func() {
 	var (
-		recorder      *Recorder
 		recording     *Recording
 		recordingFile *os.File
 		gzWriter      *gzip.Writer
 	)
 
 	BeforeEach(func() {
-		recorder = BasicRecorder(4, 4, 100)
-		Expect(recorder.NetworkState.Config.MaxEpochLength).To(Equal(uint64(200)))
-
 		tDesc := CurrentGinkgoTestDescription()
 		var err error
 		recordingFile, err = ioutil.TempFile("", fmt.Sprintf("%s.%d-*.eventlog", filepath.Base(tDesc.FileName), tDesc.LineNumber))
 		Expect(err).NotTo(HaveOccurred())
 
 		gzWriter = gzip.NewWriter(recordingFile)
-	})
-
-	JustBeforeEach(func() {
-		var err error
-		recording, err = recorder.Recording(gzWriter)
-		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
@@ -75,169 +66,125 @@ var _ = Describe("Mirbft", func() {
 		}
 	})
 
-	It("delivers all requests", func() {
-		_, err := recording.DrainClients(50000)
+	DescribeTable("delivers all requests", func(spec Spec) {
+		recorder := spec.Recorder()
+
+		var err error
+		recording, err = recorder.Recording(gzWriter)
 		Expect(err).NotTo(HaveOccurred())
-	})
 
-	When("a larger batch size is used", func() {
-		BeforeEach(func() {
-			for _, nodeConfig := range recorder.NodeConfigs {
-				nodeConfig.InitParms.BatchSize = 20
-			}
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	When("the network has just one client", func() {
-		BeforeEach(func() {
-			recorder = BasicRecorder(4, 1, 200)
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		When("that client ignores one of the nodes", func() {
-			BeforeEach(func() {
-				recorder.ClientConfigs[0].IgnoreNodes = []uint64{0}
-			})
-
-			It("still delivers all requests", func() {
-				_, err := recording.DrainClients(50000)
-				Expect(err).NotTo(HaveOccurred())
-			})
-		})
-	})
-
-	When("the network is comprised of just one node", func() {
-		BeforeEach(func() {
-			recorder = BasicRecorder(1, 1, 20)
-			for _, clientConfig := range recorder.ClientConfigs {
-				clientConfig.Total = 20
-			}
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(500)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		When("the node crashes in the middle", func() {
-			BeforeEach(func() {
-				recorder.Mangler = For(MatchMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5)).CrashAndRestartAfter(10, recorder.NodeConfigs[0].InitParms)
-			})
-
-			It("still delivers all requests", func() {
-				_, err := recording.DrainClients(5000)
-				Expect(err).NotTo(HaveOccurred())
-			})
-		})
-	})
-
-	When("the first node is silenced", func() {
-		BeforeEach(func() {
-			recorder.Mangler = For(MatchMsgs().FromNodes(0)).Drop()
-			for _, clientConfig := range recorder.ClientConfigs {
-				clientConfig.Total = 20
-			}
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	When("the third node is silenced", func() {
-		BeforeEach(func() {
-			recorder.Mangler = For(MatchMsgs().FromNodes(3)).Drop()
-			for _, clientConfig := range recorder.ClientConfigs {
-				clientConfig.Total = 20
-			}
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	When("the third node starts late", func() {
-		BeforeEach(func() {
-			recorder.Mangler = Until(MatchMsgs().FromNode(1).OfTypeCheckpoint().WithSequence(20)).Do(For(MatchNodeStartup().ForNode(3)).Delay(500))
-			for _, clientConfig := range recorder.ClientConfigs {
-				clientConfig.Total = 20
-			}
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	When("the network loses 2 percent of messages", func() {
-		BeforeEach(func() {
-			recorder.Mangler = For(MatchMsgs().AtPercent(2)).Drop()
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	When("the network loses many acks", func() {
-		BeforeEach(func() {
-			recorder.Mangler = For(MatchMsgs().FromNodes(0, 1).OfTypeRequestAck().AtPercent(70)).Drop()
-			for _, clientConfig := range recorder.ClientConfigs {
-				clientConfig.Total = 20
-			}
-			// TODO, we need to configure a very short ack re-transmit interval
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	When("the network messages have up to a 30ms jittery delay", func() {
-		BeforeEach(func() {
-			recorder.Mangler = For(MatchMsgs()).Jitter(30)
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	When("the network messages have up to a 1000ms jittery delay", func() {
-		BeforeEach(func() {
-			recorder.Mangler = For(MatchMsgs()).Jitter(1000)
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
-	When("the network duplicates messages 75 percent of the time", func() {
-		BeforeEach(func() {
-			recorder.Mangler = For(MatchMsgs().AtPercent(75)).Duplicate(300)
-		})
-
-		It("still delivers all requests", func() {
-			_, err := recording.DrainClients(50000)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
+		_, err = recording.DrainClients(50000)
+		Expect(err).NotTo(HaveOccurred())
+	},
+		Entry("one-node-one-client-green", Spec{
+			NodeCount:     1,
+			ClientCount:   1,
+			ReqsPerClient: 100,
+		}),
+		Entry("one-node-one-client-large-batch-green", Spec{
+			NodeCount:     1,
+			ClientCount:   1,
+			ReqsPerClient: 100,
+			BatchSize:     20,
+		}),
+		Entry("one-node-four-client-green", Spec{
+			NodeCount:     1,
+			ClientCount:   4,
+			ReqsPerClient: 100,
+		}),
+		Entry("four-node-one-client-green", Spec{
+			NodeCount:     4,
+			ClientCount:   1,
+			ReqsPerClient: 100,
+		}),
+		Entry("four-node-four-client-green", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 100,
+		}),
+		Entry("four-node-four-client-large-batch-green", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 100,
+			BatchSize:     20,
+		}),
+		Entry("a client ignores node 0", Spec{
+			NodeCount:     4,
+			ClientCount:   1,
+			ReqsPerClient: 100,
+			ClientsIgnore: []uint64{0},
+		}),
+		Entry("node0 crashes in the middle", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 100,
+			TweakRecorder: func(r *Recorder) {
+				r.Mangler = For(MatchMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5)).CrashAndRestartAfter(10, r.NodeConfigs[0].InitParms)
+			},
+		}),
+		Entry("node0 is silenced", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 20,
+			TweakRecorder: func(r *Recorder) {
+				r.Mangler = For(MatchMsgs().FromNodes(0)).Drop()
+			},
+		}),
+		Entry("node3 is silenced", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 20,
+			TweakRecorder: func(r *Recorder) {
+				r.Mangler = For(MatchMsgs().FromNodes(3)).Drop()
+			},
+		}),
+		Entry("node3 starts late", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 20,
+			TweakRecorder: func(r *Recorder) {
+				r.Mangler = Until(MatchMsgs().FromNode(1).OfTypeCheckpoint().WithSequence(20)).Do(For(MatchNodeStartup().ForNode(3)).Delay(500))
+			},
+		}),
+		Entry("network drops 2 percent of messages", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 100,
+			TweakRecorder: func(r *Recorder) {
+				r.Mangler = For(MatchMsgs().AtPercent(2)).Drop()
+			},
+		}),
+		Entry("network drops almost all acks from node0 and node1", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 20,
+			TweakRecorder: func(r *Recorder) {
+				r.Mangler = For(MatchMsgs().FromNodes(0, 1).OfTypeRequestAck().AtPercent(70)).Drop()
+			},
+		}),
+		Entry("network messages have a small 30ms jittery delay", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 20,
+			TweakRecorder: func(r *Recorder) {
+				r.Mangler = For(MatchMsgs()).Jitter(30)
+			},
+		}),
+		Entry("network messages have a large 1000ms jittery delay", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 20,
+			TweakRecorder: func(r *Recorder) {
+				r.Mangler = For(MatchMsgs()).Jitter(1000)
+			},
+		}),
+		Entry("network messages are duplicated most of the time", Spec{
+			NodeCount:     4,
+			ClientCount:   4,
+			ReqsPerClient: 20,
+			TweakRecorder: func(r *Recorder) {
+				r.Mangler = For(MatchMsgs().AtPercent(75)).Duplicate(300)
+			},
+		}),
+	)
 })

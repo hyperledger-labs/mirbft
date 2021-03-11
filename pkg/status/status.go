@@ -297,5 +297,7 @@ func (s *StateMachine) Pretty() string {
 		}
 	}
 
+	buffer.WriteString("\n\nDone\n")
+
 	return buffer.String()
 }
