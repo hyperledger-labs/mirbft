@@ -20,13 +20,22 @@ import (
 	. "github.com/IBM/mirbft/pkg/testengine"
 )
 
+type Occurred int
+
+const (
+	No Occurred = iota
+	Yes
+	Maybe
+)
+
 type TestConf struct {
 	Spec       Spec
 	Assertions Assertions
 }
 
 type Assertions struct {
-	CompletesInSteps int
+	CompletesInSteps      int
+	StateTransferOccurred map[uint64]Occurred
 }
 
 var _ = Describe("Mirbft", func() {
@@ -87,6 +96,18 @@ var _ = Describe("Mirbft", func() {
 		// This assertion is to ensure that we have our step expectations reasonably tight,
 		// as drastically increasing or decreasing the number of steps is a red flag.
 		Expect(steps).To(BeNumerically(">=", testConf.Assertions.CompletesInSteps/2))
+
+		for _, node := range recording.Nodes {
+			nodeID := node.Config.InitParms.Id
+			stExpected := testConf.Assertions.StateTransferOccurred[nodeID]
+			switch {
+			case stExpected == Yes && len(node.State.StateTransfers) == 0:
+				Fail(fmt.Sprintf("expected state transfers, but at least node %d did not", nodeID))
+			case stExpected == No && len(node.State.StateTransfers) > 0:
+				Fail(fmt.Sprintf("expected no state transfers, but at least node %d did", nodeID))
+			default:
+			}
+		}
 	},
 		Entry("one-node-one-client-green", TestConf{
 			Spec: Spec{
@@ -159,6 +180,9 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 20000,
+				StateTransferOccurred: map[uint64]Occurred{
+					0: Yes, // XXX this should be false once forwarding is working again
+				},
 			},
 		}),
 		Entry("node0 crashes in the middle", TestConf{
@@ -211,6 +235,9 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 10000,
+				StateTransferOccurred: map[uint64]Occurred{
+					3: Yes,
+				},
 			},
 		}),
 		Entry("network drops 2 percent of messages", TestConf{
@@ -224,6 +251,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 30000,
+				StateTransferOccurred: map[uint64]Occurred{
+					0: Maybe,
+					1: Maybe,
+					2: Maybe,
+					3: Maybe,
+				},
 			},
 		}),
 		Entry("network drops almost all acks from node0 and node1", TestConf{
@@ -263,6 +296,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 10000,
+				StateTransferOccurred: map[uint64]Occurred{
+					0: Maybe,
+					1: Maybe,
+					2: Maybe,
+					3: Maybe,
+				},
 			},
 		}),
 		Entry("network messages are duplicated most of the time", TestConf{

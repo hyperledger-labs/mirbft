@@ -256,6 +256,8 @@ func (n *Node) Initialize(initParms *state.EventInitialParameters, logger statem
 	if _, err := n.State.TransferTo(maxCEntry.SeqNo, maxCEntry.CheckpointValue); err != nil {
 		return nil, errors.WithMessage(err, "error in mock transfer to intiialize")
 	}
+	// A bit hacky, but undo recording this as a state transfer.
+	n.State.StateTransfers = n.State.StateTransfers[:len(n.State.StateTransfers)-1]
 
 	n.PendingStateEvents.CompleteInitialization()
 
@@ -291,6 +293,10 @@ type NodeState struct {
 	CheckpointSeqNo         uint64
 	CheckpointHash          []byte
 	CheckpointState         *msgs.NetworkState
+
+	// The below vars are used for assertions on results,
+	// but are not used directly in execution.
+	StateTransfers []uint64
 }
 
 func (ns *NodeState) Snap(networkConfig *msgs.NetworkState_Config, clientsState []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error) {
@@ -322,6 +328,7 @@ func (ns *NodeState) Snap(networkConfig *msgs.NetworkState_Config, clientsState 
 }
 
 func (ns *NodeState) TransferTo(seqNo uint64, snap []byte) (*msgs.NetworkState, error) {
+	ns.StateTransfers = append(ns.StateTransfers, seqNo)
 	networkState := &msgs.NetworkState{}
 	if err := proto.Unmarshal(snap[32:], networkState); err != nil {
 		return nil, err
