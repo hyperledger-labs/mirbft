@@ -88,7 +88,7 @@ func (cs *commitState) reinitialize() *ActionList {
 	if lastTEntry == nil || lastCEntry.SeqNo >= lastTEntry.SeqNo {
 		cs.logger.Log(LevelDebug, "reinitialized commit-state", "low_watermark", cs.lowWatermark, "stop_at_seq_no", cs.stopAtSeqNo, "len(pending_reconfigurations)", len(cs.activeState.PendingReconfigurations), "last_checkpoint_seq_no", lastCEntry.SeqNo)
 		cs.transferring = false
-		return &ActionList{}
+		return (&ActionList{}).StateApplied(cs.lowWatermark, cs.activeState)
 	}
 
 	cs.logger.Log(LevelInfo, "reinitialized commit-state detected crash during state transfer", "target_seq_no", lastTEntry.SeqNo, "target_value", lastTEntry.Value)
@@ -146,7 +146,7 @@ func (cs *commitState) applyCheckpointResult(epochConfig *msgs.EpochConfig, resu
 				},
 			},
 		},
-	)
+	).StateApplied(result.SeqNo, result.NetworkState)
 }
 
 func (cs *commitState) commit(qEntry *msgs.QEntry) {

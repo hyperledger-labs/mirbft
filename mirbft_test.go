@@ -391,14 +391,14 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	Expect(err).NotTo(HaveOccurred())
 	defer node.Stop()
 
-	p := &processor.Processor{
+	p := (&processor.Config{
 		NodeID:       node.Config.ID,
 		Link:         tr.FakeTransport.Link(node.Config.ID),
 		Hasher:       crypto.SHA256,
 		RequestStore: reqStore,
 		App:          tr.App,
 		WAL:          wal,
-	}
+	}).Serial()
 
 	crs := &processor.ConcurrentReplicas{
 		EventC: eventsC,
@@ -474,8 +474,8 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 					break
 				}
 				events.PushBackList(newEvents)
-			case <-p.ClientWork.Ready():
-				events.PushBackList(p.ClientWork.Results())
+			case <-p.State.ClientWork.Ready():
+				events.PushBackList(p.State.ClientWork.Results())
 			case eC <- events:
 				events = &statemachine.EventList{}
 				eC = nil

@@ -150,6 +150,19 @@ func (al *ActionList) Hash(data [][]byte, origin *state.HashOrigin) *ActionList 
 	return al
 }
 
+func (al *ActionList) StateApplied(seqNo uint64, ns *msgs.NetworkState) *ActionList {
+	al.PushBack(&state.Action{
+		Type: &state.Action_StateApplied{
+			StateApplied: &state.ActionStateApplied{
+				SeqNo:        seqNo,
+				NetworkState: ns,
+			},
+		},
+	})
+
+	return al
+}
+
 func (al *ActionList) StateTransfer(seqNo uint64, value []byte) *ActionList {
 	al.PushBack(&state.Action{
 		Type: &state.Action_StateTransfer{

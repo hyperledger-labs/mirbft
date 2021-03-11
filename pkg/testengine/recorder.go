@@ -210,7 +210,7 @@ type Node struct {
 	Hasher                Hasher
 	ReqStore              *ReqStore
 	State                 *NodeState
-	Processor             *processor.Processor
+	Processor             *processor.Serial
 	PendingStateEvents    *statemachine.EventList
 	PendingStateActions   *statemachine.ActionList
 	ProcessEventsPending  bool
@@ -221,14 +221,14 @@ type Node struct {
 func (n *Node) Initialize(initParms *state.EventInitialParameters, logger statemachine.Logger) (*msgs.NetworkState, error) {
 	nodeID := n.Config.InitParms.Id
 
-	n.Processor = &processor.Processor{
+	n.Processor = (&processor.Config{
 		NodeID:       nodeID,
 		Link:         n.Link,
 		Hasher:       n.Hasher,
 		App:          n.State,
 		WAL:          n.WAL,
 		RequestStore: n.ReqStore,
-	}
+	}).Serial()
 
 	n.StateMachine = &statemachine.StateMachine{
 		Logger: logger,
@@ -611,7 +611,7 @@ func (r *Recording) Step() error {
 	}
 
 	if node.Processor != nil {
-		cEvents := node.Processor.ClientWork.Results()
+		cEvents := node.Processor.State.ClientWork.Results()
 		if cEvents != nil && cEvents.Len() > 0 {
 			node.PendingStateEvents.PushBackList(cEvents)
 		}

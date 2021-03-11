@@ -43,7 +43,7 @@ type NetworkState struct {
 	Config                  *NetworkState_Config   `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
 	Clients                 []*NetworkState_Client `protobuf:"bytes,2,rep,name=clients,proto3" json:"clients,omitempty"`
 	PendingReconfigurations []*Reconfiguration     `protobuf:"bytes,3,rep,name=pending_reconfigurations,json=pendingReconfigurations,proto3" json:"pending_reconfigurations,omitempty"`
-	Reconfigured            bool                   `protobuf:"varint,4,opt,name=reconfigured,proto3" json:"reconfigured,omitempty"`
+	Reconfigured            bool                   `protobuf:"varint,4,opt,name=reconfigured,proto3" json:"reconfigured,omitempty"` // TODO, do we need this?
 }
 
 func (x *NetworkState) Reset() {

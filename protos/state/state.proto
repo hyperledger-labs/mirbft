@@ -122,6 +122,7 @@ message Action {
        msgs.RequestAck correct_request = 8;
        ActionForward forward_request = 9;
        ActionStateTarget state_transfer = 10;
+       ActionStateApplied state_applied = 11;
     }
 }
 
@@ -157,6 +158,11 @@ message ActionRequestSlot {
 message ActionForward {
     repeated uint64 targets = 1;
     msgs.RequestAck ack = 2;
+}
+
+message ActionStateApplied {
+    uint64 seq_no = 1;
+    msgs.NetworkState network_state = 2;
 }
 
 message ActionHashRequest {

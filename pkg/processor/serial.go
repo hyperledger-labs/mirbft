@@ -44,18 +44,78 @@ type WAL interface {
 	Sync() error
 }
 
-type Processor struct {
+type processor interface {
+	queueStateEvents(events *statemachine.EventList)
+}
+
+type callbackHasher interface {
+	data() [][]byte
+	onHashResult(digest []byte)
+}
+
+type serialHasher struct {
+	hasher Hasher
+}
+
+type eventHash struct {
+	action    *state.ActionHashRequest
+	processor processor
+}
+
+func (eh *eventHash) data() [][]byte {
+	return eh.action.Data
+}
+
+func (eh *eventHash) onHashResult(digest []byte) {
+	eh.processor.queueStateEvents(
+		(&statemachine.EventList{}).HashResult(digest, eh.action.Origin),
+	)
+}
+
+type State struct {
+	clients       Clients
+	ClientWork    ClientWork
+	pendingEvents *statemachine.EventList
+}
+
+type Config struct {
 	NodeID       uint64
 	Link         Link
 	Hasher       Hasher
 	App          App
 	WAL          WAL
 	RequestStore RequestStore
-	ClientWork   ClientWork
-	clients      Clients
 }
 
-func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.EventList, error) {
+func (c *Config) Serial() *Serial {
+	return &Serial{
+		Config: c,
+	}
+}
+
+type Serial struct {
+	State  State
+	Config *Config
+}
+
+func (s *Serial) queueStateEvents(events *statemachine.EventList) {
+	if s.State.pendingEvents == nil {
+		s.State.pendingEvents = events
+		return
+	}
+	s.State.pendingEvents.PushBackList(events)
+}
+
+func (s *Serial) hash(ch callbackHasher) {
+	h := s.Config.Hasher.New()
+	for _, data := range ch.data() {
+		h.Write(data)
+	}
+
+	ch.onHashResult(h.Sum(nil))
+}
+
+func (s *Serial) Process(actions *statemachine.ActionList) (*statemachine.EventList, error) {
 	events := &statemachine.EventList{}
 	// First we'll handle everything that's not a network send
 	iter := actions.Iterator()
@@ -64,36 +124,34 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 		case *state.Action_Send:
 			// Skip in the first round
 		case *state.Action_Hash:
-			h := p.Hasher.New()
-			for _, data := range t.Hash.Data {
-				h.Write(data)
-			}
-
-			events.HashResult(h.Sum(nil), t.Hash.Origin)
+			s.hash(&eventHash{
+				action:    t.Hash,
+				processor: s,
+			})
 		case *state.Action_AppendWriteAhead:
 			write := t.AppendWriteAhead
-			if err := p.WAL.Write(write.Index, write.Data); err != nil {
+			if err := s.Config.WAL.Write(write.Index, write.Data); err != nil {
 				return nil, errors.WithMessagef(err, "failed to write entry to WAL at index %d", write.Index)
 			}
 		case *state.Action_TruncateWriteAhead:
 			truncate := t.TruncateWriteAhead
-			if err := p.WAL.Truncate(truncate.Index); err != nil {
+			if err := s.Config.WAL.Truncate(truncate.Index); err != nil {
 				return nil, errors.WithMessagef(err, "failed to truncate WAL to index %d", truncate.Index)
 			}
 		case *state.Action_Commit:
-			if err := p.App.Apply(t.Commit.Batch); err != nil {
+			if err := s.Config.App.Apply(t.Commit.Batch); err != nil {
 				return nil, errors.WithMessage(err, "app failed to commit")
 			}
 		case *state.Action_Checkpoint:
 			cp := t.Checkpoint
-			value, pendingReconf, err := p.App.Snap(cp.NetworkConfig, cp.ClientStates)
+			value, pendingReconf, err := s.Config.App.Snap(cp.NetworkConfig, cp.ClientStates)
 			if err != nil {
 				return nil, errors.WithMessage(err, "app failed to generate snapshot")
 			}
 			events.CheckpointResult(value, pendingReconf, cp)
 		case *state.Action_AllocatedRequest:
 			r := t.AllocatedRequest
-			client := p.Client(r.ClientId)
+			client := s.Client(r.ClientId)
 			digest, err := client.allocate(r.ReqNo)
 			if err != nil {
 				return nil, err
@@ -109,11 +167,13 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 				Digest:   digest,
 			})
 		case *state.Action_CorrectRequest:
-			client := p.Client(t.CorrectRequest.ClientId)
+			client := s.Client(t.CorrectRequest.ClientId)
 			err := client.addCorrectDigest(t.CorrectRequest.ReqNo, t.CorrectRequest.Digest)
 			if err != nil {
 				return nil, err
 			}
+		case *state.Action_StateApplied:
+			// TODO, handle
 		case *state.Action_ForwardRequest:
 			// XXX address
 			/*
@@ -140,7 +200,7 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 			*/
 		case *state.Action_StateTransfer:
 			stateTarget := t.StateTransfer
-			state, err := p.App.TransferTo(stateTarget.SeqNo, stateTarget.Value)
+			state, err := s.Config.App.TransferTo(stateTarget.SeqNo, stateTarget.Value)
 			if err != nil {
 				events.StateTransferFailed(stateTarget)
 			} else {
@@ -150,12 +210,12 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 	}
 
 	// Then we sync the WAL
-	if err := p.WAL.Sync(); err != nil {
+	if err := s.Config.WAL.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "failted to sync WAL")
 	}
 
 	// Then we sync the request store
-	if err := p.RequestStore.Sync(); err != nil {
+	if err := s.Config.RequestStore.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
 	}
 
@@ -165,10 +225,10 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 		switch t := action.Type.(type) {
 		case *state.Action_Send:
 			for _, replica := range t.Send.Targets {
-				if replica == p.NodeID {
+				if replica == s.Config.NodeID {
 					events.Step(replica, t.Send.Msg)
 				} else {
-					p.Link.Send(replica, t.Send.Msg)
+					s.Config.Link.Send(replica, t.Send.Msg)
 				}
 			}
 		default:
@@ -176,11 +236,16 @@ func (p *Processor) Process(actions *statemachine.ActionList) (*statemachine.Eve
 		}
 	}
 
+	if s.State.pendingEvents != nil {
+		events.PushBackList(s.State.pendingEvents)
+		s.State.pendingEvents = &statemachine.EventList{}
+	}
+
 	return events, nil
 }
 
-func (p *Processor) Client(clientID uint64) *Client {
-	return p.clients.client(clientID, func() *Client {
-		return newClient(clientID, p.Hasher, p.RequestStore, &p.ClientWork)
+func (s *Serial) Client(clientID uint64) *Client {
+	return s.State.clients.client(clientID, func() *Client {
+		return newClient(clientID, s.Config.Hasher, s.Config.RequestStore, &s.State.ClientWork)
 	})
 }
