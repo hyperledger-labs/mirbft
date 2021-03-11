@@ -405,7 +405,9 @@ type Recorder struct {
 
 func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 	eventLog := &EventQueue{
-		List: list.New(),
+		List:    list.New(),
+		Rand:    rand.New(rand.NewSource(r.RandomSeed)),
+		Mangler: r.Mangler,
 	}
 
 	nodes := make([]*Node, len(r.NodeConfigs))
@@ -460,9 +462,7 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 		EventQueue:       eventLog,
 		Nodes:            nodes,
 		Clients:          clients,
-		Rand:             rand.New(rand.NewSource(r.RandomSeed)),
 		EventQueueOutput: output,
-		Mangler:          r.Mangler,
 		LogOutput:        r.LogOutput,
 	}, nil
 }
@@ -472,10 +472,8 @@ type Recording struct {
 	EventQueue       *EventQueue
 	Nodes            []*Node
 	Clients          []*RecorderClient
-	Rand             *rand.Rand
 	LogOutput        io.Writer
 	EventQueueOutput *gzip.Writer
-	Mangler          Mangler
 }
 
 func (r *Recording) Step() error {
@@ -530,6 +528,11 @@ func (r *Recording) Step() error {
 			}
 		}
 	case event.MsgReceived != nil:
+		if node.StateMachine == nil {
+			// TODO, is this the best option? In many ways it would be better
+			// to prevent the receive from going into the eventqueue
+			break
+		}
 		node.PendingStateEvents.Step(event.MsgReceived.Source, event.MsgReceived.Msg)
 	case event.ClientProposal != nil:
 		prop := event.ClientProposal
@@ -597,19 +600,25 @@ func (r *Recording) Step() error {
 		return errors.Errorf("unknown event type")
 	}
 
-	cEvents := node.Processor.ClientWork.Results()
-	if cEvents != nil && cEvents.Len() > 0 {
-		node.PendingStateEvents.PushBackList(cEvents)
+	if node.Processor != nil {
+		cEvents := node.Processor.ClientWork.Results()
+		if cEvents != nil && cEvents.Len() > 0 {
+			node.PendingStateEvents.PushBackList(cEvents)
+		}
 	}
 
-	if node.PendingStateEvents.Len() > 0 && !node.ProcessEventsPending {
+	if node.PendingStateEvents != nil &&
+		node.PendingStateEvents.Len() > 0 &&
+		!node.ProcessEventsPending {
 		r.EventQueue.InsertProcessEvents(nodeID, int64(runtimeParms.ProcessLatency))
 		node.ProcessEventsPending = true
 	}
 
 	// TODO ProcessLatency is a cludge, fix it in the processor
 
-	if node.PendingStateActions.Len() > 0 && !node.ProcessActionsPending {
+	if node.PendingStateActions != nil &&
+		node.PendingStateActions.Len() > 0 &&
+		!node.ProcessActionsPending {
 		r.EventQueue.InsertProcessActions(nodeID, int64(runtimeParms.ProcessLatency))
 		node.ProcessActionsPending = true
 	}

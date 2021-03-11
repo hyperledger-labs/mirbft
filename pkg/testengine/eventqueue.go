@@ -57,12 +57,39 @@ type EventQueue struct {
 
 	// Rand is a source of randomness for the manglers
 	Rand *rand.Rand
+
+	// Mangler is invoked on each event when it is first inserted
+	Mangler Mangler
+
+	// Mangled tracks which events have already been mangled to prevent loops
+	Mangled map[*Event]struct{}
 }
 
 func (l *EventQueue) ConsumeEvent() *Event {
-	event := l.List.Remove(l.List.Front()).(*Event)
-	l.FakeTime = event.Time
-	return event
+	for {
+		event := l.List.Remove(l.List.Front()).(*Event)
+
+		_, ok := l.Mangled[event]
+		if ok || l.Mangler == nil {
+			delete(l.Mangled, event)
+			l.FakeTime = event.Time
+			return event
+		}
+
+		mangleResults := l.Mangler.Mangle(l.Rand.Int(), event)
+		for _, result := range mangleResults {
+			if l.Mangled == nil {
+				l.Mangled = map[*Event]struct{}{}
+			}
+
+			if !result.Remangle {
+				l.Mangled[result.Event] = struct{}{}
+			}
+
+			l.InsertEvent(result.Event)
+		}
+
+	}
 }
 
 func (l *EventQueue) InsertInitialize(target uint64, initParms *state.EventInitialParameters, fromNow int64) {

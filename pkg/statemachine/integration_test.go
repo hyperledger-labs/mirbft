@@ -60,6 +60,10 @@ var _ = Describe("Mirbft", func() {
 			Expect(recording).NotTo(BeNil())
 
 			for nodeIndex, node := range recording.Nodes {
+				if node.StateMachine == nil {
+					fmt.Printf("\nStatus for node %d unavailable as it is nto started\n\n", nodeIndex)
+					continue
+				}
 				status := node.StateMachine.Status()
 				fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
 			}
