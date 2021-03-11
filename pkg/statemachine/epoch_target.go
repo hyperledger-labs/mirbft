@@ -852,6 +852,8 @@ func (et *epochTarget) bucketStatus() (lowWatermark, highWatermark uint64, bucke
 
 func (et *epochTarget) status() *status.EpochTarget {
 	result := &status.EpochTarget{
+		Number:       et.number,
+		State:        status.EpochTargetState(et.state),
 		EpochChanges: make([]*status.EpochChange, 0, len(et.changes)),
 		Echos:        make([]uint64, 0, len(et.echos)),
 		Readies:      make([]uint64, 0, len(et.readies)),
@@ -890,6 +892,10 @@ func (et *epochTarget) status() *status.EpochTarget {
 	sort.Slice(result.Suspicions, func(i, j int) bool {
 		return result.Suspicions[i] < result.Suspicions[j]
 	})
+
+	if et.leaderNewEpoch != nil {
+		result.Leaders = et.leaderNewEpoch.NewConfig.Config.Leaders
+	}
 
 	return result
 }

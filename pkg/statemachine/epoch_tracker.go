@@ -8,7 +8,6 @@ package statemachine
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/pb/state"
@@ -27,7 +26,6 @@ type epochTracker struct {
 	clientTracker          *clientTracker
 	clientHashDisseminator *clientHashDisseminator
 	futureMsgs             map[nodeID]*msgBuffer
-	targets                map[uint64]*epochTarget
 	needsStateTransfer     bool
 
 	maxEpochs              map[nodeID]uint64
@@ -55,7 +53,6 @@ func newEpochTracker(
 		batchTracker:           batchTracker,
 		clientTracker:          clientTracker,
 		clientHashDisseminator: clientHashDisseminator,
-		targets:                map[uint64]*epochTarget{},
 		maxEpochs:              map[nodeID]uint64{},
 	}
 }
@@ -425,19 +422,7 @@ func (et *epochTracker) applyEpochChangeDigest(origin *state.HashOrigin_EpochCha
 }
 
 func (et *epochTracker) status() *status.EpochTracker {
-	targets := make([]*status.EpochTarget, 0, len(et.targets))
-	for number, target := range et.targets {
-		ts := target.status()
-		ts.Number = number
-		targets = append(targets, ts)
-	}
-	sort.Slice(targets, func(i, j int) bool {
-		return targets[i].Number < targets[j].Number
-	})
-
 	return &status.EpochTracker{
-		LastActiveEpoch: et.currentEpoch.number,
-		State:           status.EpochTargetState(et.currentEpoch.state),
-		EpochTargets:    targets,
+		ActiveEpoch: et.currentEpoch.status(),
 	}
 }

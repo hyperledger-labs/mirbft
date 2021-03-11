@@ -36,6 +36,7 @@ type TestConf struct {
 type Assertions struct {
 	CompletesInSteps      int
 	StateTransferOccurred map[uint64]Occurred
+	IsNotLeader           map[uint64]Occurred
 }
 
 var _ = Describe("Mirbft", func() {
@@ -100,11 +101,37 @@ var _ = Describe("Mirbft", func() {
 		for _, node := range recording.Nodes {
 			nodeID := node.Config.InitParms.Id
 			stExpected := testConf.Assertions.StateTransferOccurred[nodeID]
-			switch {
-			case stExpected == Yes && len(node.State.StateTransfers) == 0:
-				Fail(fmt.Sprintf("expected state transfers, but at least node %d did not", nodeID))
-			case stExpected == No && len(node.State.StateTransfers) > 0:
-				Fail(fmt.Sprintf("expected no state transfers, but at least node %d did", nodeID))
+			switch stExpected {
+			case Yes:
+				if len(node.State.StateTransfers) == 0 {
+					Fail(fmt.Sprintf("expected state transfers, but at least node %d did not", nodeID))
+				}
+			case No:
+				if len(node.State.StateTransfers) > 0 {
+					Fail(fmt.Sprintf("expected no state transfers, but at least node %d did", nodeID))
+				}
+			default:
+			}
+
+			status := node.StateMachine.Status()
+			isLeader := false
+			for _, leader := range status.EpochTracker.ActiveEpoch.Leaders {
+				if leader == nodeID {
+					isLeader = true
+					break
+				}
+			}
+
+			leaderNotExpected := testConf.Assertions.IsNotLeader[nodeID]
+			switch leaderNotExpected {
+			case Yes:
+				if isLeader {
+					Fail(fmt.Sprintf("expected node %d not to be a leader but is not", nodeID))
+				}
+			case No:
+				if !isLeader {
+					Fail(fmt.Sprintf("expected node %d to be a leader but is", nodeID))
+				}
 			default:
 			}
 		}
@@ -148,6 +175,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 5000,
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe, // TODO No
+					1: Maybe, // TODO No
+					2: Maybe, // TODO No
+					3: Maybe, // TODO No
+				},
 			},
 		}),
 		Entry("four-node-four-client-green", TestConf{
@@ -158,6 +191,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 20000,
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe, // TODO No
+					1: Maybe, // TODO No
+					2: Maybe, // TODO No
+					3: Maybe, // TODO No
+				},
 			},
 		}),
 		Entry("four-node-four-client-large-batch-green", TestConf{
@@ -169,6 +208,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 10000,
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe, // TODO No
+					1: Maybe, // TODO No
+					2: Maybe, // TODO No
+					3: Maybe, // TODO No
+				},
 			},
 		}),
 		Entry("a client ignores node 0", TestConf{
@@ -183,6 +228,12 @@ var _ = Describe("Mirbft", func() {
 				StateTransferOccurred: map[uint64]Occurred{
 					0: Yes, // XXX this should be false once forwarding is working again
 				},
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe, // TODO No
+					1: Maybe, // TODO No
+					2: Maybe, // TODO No
+					3: Maybe, // TODO No
+				},
 			},
 		}),
 		Entry("node0 crashes in the middle", TestConf{
@@ -196,6 +247,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 20000,
+				IsNotLeader: map[uint64]Occurred{
+					0: Yes,
+					1: Maybe, // TODO No
+					2: Maybe, // TODO No
+					3: Maybe, // TODO No
+				},
 			},
 		}),
 		Entry("node0 is silenced", TestConf{
@@ -209,6 +266,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 5000,
+				IsNotLeader: map[uint64]Occurred{
+					0: Yes,
+					1: Maybe, // TODO No
+					2: Maybe, // TODO No
+					3: Maybe, // TODO No
+				},
 			},
 		}),
 		Entry("node3 is silenced", TestConf{
@@ -222,6 +285,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 5000,
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe, // TODO No
+					1: Maybe, // TODO No
+					2: Maybe, // TODO No
+					3: Yes,
+				},
 			},
 		}),
 		Entry("node3 starts late", TestConf{
@@ -237,6 +306,12 @@ var _ = Describe("Mirbft", func() {
 				CompletesInSteps: 10000,
 				StateTransferOccurred: map[uint64]Occurred{
 					3: Yes,
+				},
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe,
+					1: Maybe,
+					2: Maybe,
+					3: Maybe,
 				},
 			},
 		}),
@@ -257,6 +332,12 @@ var _ = Describe("Mirbft", func() {
 					2: Maybe,
 					3: Maybe,
 				},
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe,
+					1: Maybe,
+					2: Maybe,
+					3: Maybe,
+				},
 			},
 		}),
 		Entry("network drops almost all acks from node0 and node1", TestConf{
@@ -270,6 +351,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 20000,
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe,
+					1: Maybe,
+					2: Maybe,
+					3: Maybe,
+				},
 			},
 		}),
 		Entry("network messages have a small 30ms jittery delay", TestConf{
@@ -283,6 +370,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 5000,
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe,
+					1: Maybe,
+					2: Maybe,
+					3: Maybe,
+				},
 			},
 		}),
 		Entry("network messages have a large 1000ms jittery delay", TestConf{
@@ -302,6 +395,12 @@ var _ = Describe("Mirbft", func() {
 					2: Maybe,
 					3: Maybe,
 				},
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe,
+					1: Maybe,
+					2: Maybe,
+					3: Maybe,
+				},
 			},
 		}),
 		Entry("network messages are duplicated most of the time", TestConf{
@@ -315,6 +414,12 @@ var _ = Describe("Mirbft", func() {
 			},
 			Assertions: Assertions{
 				CompletesInSteps: 8000,
+				IsNotLeader: map[uint64]Occurred{
+					0: Maybe,
+					1: Maybe,
+					2: Maybe,
+					3: Maybe,
+				},
 			},
 		}),
 	)

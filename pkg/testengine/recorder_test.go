@@ -80,8 +80,8 @@ var _ = Describe("Recorder", func() {
 
 			for _, node := range recording.Nodes {
 				status := node.StateMachine.Status()
-				Expect(status.EpochTracker.LastActiveEpoch).To(Equal(uint64(4)))
-				Expect(status.EpochTracker.EpochTargets).To(HaveLen(0))
+				Expect(status.EpochTracker.ActiveEpoch.Number).To(Equal(uint64(4)))
+				Expect(status.EpochTracker.ActiveEpoch.Suspicions).To(HaveLen(0))
 				//Expect(status.EpochTracker.EpochTargets[0].Suspicions).To(BeEmpty())
 
 				// Expect(fmt.Sprintf("%x", node.State.ActiveHash.Sum(nil))).To(BeEmpty())

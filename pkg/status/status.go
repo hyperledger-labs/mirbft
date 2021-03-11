@@ -96,17 +96,17 @@ type Checkpoint struct {
 }
 
 type EpochTracker struct {
-	State           EpochTargetState `json:"state"` // TODO, move into epoch target
-	LastActiveEpoch uint64           `json:"last_active_epoch"`
-	EpochTargets    []*EpochTarget   `json:"epoch_targets"`
+	ActiveEpoch *EpochTarget `json:"last_active_epoch"`
 }
 
 type EpochTarget struct {
-	Number       uint64         `json:"number"`
-	EpochChanges []*EpochChange `json:"epoch_changes"`
-	Echos        []uint64       `json:"echos"`
-	Readies      []uint64       `json:"readies"`
-	Suspicions   []uint64       `json:"suspicions"`
+	Number       uint64           `json:"number"`
+	State        EpochTargetState `json:"state"`
+	EpochChanges []*EpochChange   `json:"epoch_changes"`
+	Echos        []uint64         `json:"echos"`
+	Readies      []uint64         `json:"readies"`
+	Suspicions   []uint64         `json:"suspicions"`
+	Leaders      []uint64         `json:"leaders"`
 }
 
 type EpochChange struct {
@@ -164,94 +164,94 @@ type ClientTracker struct {
 
 func (s *StateMachine) Pretty() string {
 	var buffer bytes.Buffer
-	buffer.WriteString("===========================================\n")
-	buffer.WriteString(fmt.Sprintf("NodeID=%d, LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.NodeID, s.LowWatermark, s.HighWatermark, s.EpochTracker.LastActiveEpoch))
-	buffer.WriteString("===========================================\n\n")
+	fmt.Fprintf(&buffer, "===========================================\n")
+	fmt.Fprintf(&buffer, "NodeID=%d, LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.NodeID, s.LowWatermark, s.HighWatermark, s.EpochTracker.ActiveEpoch.Number)
+	fmt.Fprintf(&buffer, "===========================================\n\n")
 
-	buffer.WriteString("=== Epoch Changer ===\n")
-	buffer.WriteString(fmt.Sprintf("Change is in state: %d, last active epoch %d\n", s.EpochTracker.State, s.EpochTracker.LastActiveEpoch))
-	for _, et := range s.EpochTracker.EpochTargets {
-		buffer.WriteString(fmt.Sprintf("Target Epoch %d:\n", et.Number))
-		buffer.WriteString("  EpochChanges:\n")
-		for _, ec := range et.EpochChanges {
-			for _, ecm := range ec.Msgs {
-				buffer.WriteString(fmt.Sprintf("    Source=%d Digest=%.4x Acks=%v\n", ec.Source, ecm.Digest, ecm.Acks))
-			}
+	fmt.Fprintf(&buffer, "=== Epoch Number %d ===\n")
+	fmt.Fprintf(&buffer, "Change is in state: %d, last active epoch %d\n", s.EpochTracker.ActiveEpoch.State, s.EpochTracker.ActiveEpoch.Number)
+
+	et := s.EpochTracker.ActiveEpoch
+	fmt.Fprintf(&buffer, "  EpochChanges:\n")
+	for _, ec := range et.EpochChanges {
+		for _, ecm := range ec.Msgs {
+			fmt.Fprintf(&buffer, "    Source=%d Digest=%.4x Acks=%v\n", ec.Source, ecm.Digest, ecm.Acks)
 		}
-		buffer.WriteString(fmt.Sprintf("  Echos: %v\n", et.Echos))
-		buffer.WriteString(fmt.Sprintf("  Readies: %v\n", et.Readies))
-		buffer.WriteString(fmt.Sprintf("  Suspicions: %v\n", et.Suspicions))
 	}
-	buffer.WriteString("\n")
-	buffer.WriteString("=====================\n")
-	buffer.WriteString("\n")
+	fmt.Fprintf(&buffer, "  Echos: %v\n", et.Echos)
+	fmt.Fprintf(&buffer, "  Readies: %v\n", et.Readies)
+	fmt.Fprintf(&buffer, "  Suspicions: %v\n", et.Suspicions)
+	fmt.Fprintf(&buffer, "  Leaders: %v\n", et.Leaders)
+	fmt.Fprintf(&buffer, "\n")
+	fmt.Fprintf(&buffer, "=====================\n")
+	fmt.Fprintf(&buffer, "\n")
 
 	hRule := func() {
 		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
-			buffer.WriteString("--")
+			fmt.Fprintf(&buffer, "--")
 		}
 	}
 
 	if s.LowWatermark == s.HighWatermark {
-		buffer.WriteString("=== Empty Watermarks ===\n")
+		fmt.Fprintf(&buffer, "=== Empty Watermarks ===\n")
 	} else {
 		if s.HighWatermark-s.LowWatermark > 10000 {
-			buffer.WriteString(fmt.Sprintf("=== Suspiciously wide watermarks [%d, %d] ===\n", s.LowWatermark, s.HighWatermark))
+			fmt.Fprintf(&buffer, "=== Suspiciously wide watermarks [%d, %d] ===\n", s.LowWatermark, s.HighWatermark)
 			return buffer.String()
 		}
 
 		for i := len(fmt.Sprintf("%d", s.HighWatermark)); i > 0; i-- {
 			magnitude := math.Pow10(i - 1)
 			for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
-				buffer.WriteString(fmt.Sprintf(" %d", seqNo/uint64(magnitude)%10))
+				fmt.Fprintf(&buffer, " %d", seqNo/uint64(magnitude)%10)
 			}
-			buffer.WriteString("\n")
+			fmt.Fprintf(&buffer, "\n")
 		}
 
 		hRule()
-		buffer.WriteString("- === Buckets ===\n")
+		fmt.Fprintf(&buffer, "- === Buckets ===\n")
 
 		for _, bucketBuffer := range s.Buckets {
 			for _, state := range bucketBuffer.Sequences {
 				switch state {
 				case SequenceUninitialized:
-					buffer.WriteString("| ")
+					fmt.Fprintf(&buffer, "| ")
 				case SequenceAllocated:
-					buffer.WriteString("|A")
+					fmt.Fprintf(&buffer, "|A")
 				case SequencePendingRequests:
-					buffer.WriteString("|F")
+					fmt.Fprintf(&buffer, "|F")
 				case SequenceReady:
-					buffer.WriteString("|R")
+					fmt.Fprintf(&buffer, "|R")
 				case SequencePreprepared:
-					buffer.WriteString("|Q")
+					fmt.Fprintf(&buffer, "|Q")
 				case SequencePrepared:
-					buffer.WriteString("|P")
+					fmt.Fprintf(&buffer, "|P")
 				case SequenceCommitted:
-					buffer.WriteString("|C")
+					fmt.Fprintf(&buffer, "|C")
 				}
 			}
 			if bucketBuffer.Leader {
-				buffer.WriteString(fmt.Sprintf("| Bucket=%d (LocalLeader)\n", bucketBuffer.ID))
+				fmt.Fprintf(&buffer, fmt.Sprintf("| Bucket=%d (LocalLeader)\n", bucketBuffer.ID))
 			} else {
-				buffer.WriteString(fmt.Sprintf("| Bucket=%d\n", bucketBuffer.ID))
+				fmt.Fprintf(&buffer, fmt.Sprintf("| Bucket=%d\n", bucketBuffer.ID))
 			}
 		}
 
 		hRule()
-		buffer.WriteString("- === Checkpoints ===\n")
+		fmt.Fprintf(&buffer, "- === Checkpoints ===\n")
 		i := 0
 		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
 			if len(s.Checkpoints) > i {
 				checkpoint := s.Checkpoints[i]
 				if seqNo == checkpoint.SeqNo {
-					buffer.WriteString(fmt.Sprintf("|%d", checkpoint.MaxAgreements))
+					fmt.Fprintf(&buffer, fmt.Sprintf("|%d", checkpoint.MaxAgreements))
 					i++
 					continue
 				}
 			}
-			buffer.WriteString("| ")
+			fmt.Fprintf(&buffer, "| ")
 		}
-		buffer.WriteString("| Max Agreements\n")
+		fmt.Fprintf(&buffer, "| Max Agreements\n")
 		i = 0
 		for seqNo := s.LowWatermark; seqNo <= s.HighWatermark; seqNo += uint64(len(s.Buckets)) {
 			if len(s.Checkpoints) > i {
@@ -259,45 +259,45 @@ func (s *StateMachine) Pretty() string {
 				if seqNo == s.Checkpoints[i].SeqNo/uint64(len(s.Buckets)) {
 					switch {
 					case checkpoint.NetQuorum && !checkpoint.LocalDecision:
-						buffer.WriteString("|N")
+						fmt.Fprintf(&buffer, "|N")
 					case checkpoint.NetQuorum && checkpoint.LocalDecision:
-						buffer.WriteString("|G")
+						fmt.Fprintf(&buffer, "|G")
 					case !checkpoint.NetQuorum && checkpoint.LocalDecision:
-						buffer.WriteString("|M")
+						fmt.Fprintf(&buffer, "|M")
 					default:
-						buffer.WriteString("|P")
+						fmt.Fprintf(&buffer, "|P")
 					}
 					i++
 					continue
 				}
 			}
-			buffer.WriteString("| ")
+			fmt.Fprintf(&buffer, "| ")
 		}
-		buffer.WriteString("| Status\n")
+		fmt.Fprintf(&buffer, "| Status\n")
 	}
 
 	hRule()
-	buffer.WriteString("-\n")
+	fmt.Fprintf(&buffer, "-\n")
 
-	buffer.WriteString("\n\n Request Windows\n")
+	fmt.Fprintf(&buffer, "\n\n Request Windows\n")
 	hRule()
 	for _, rws := range s.ClientWindows {
-		buffer.WriteString(fmt.Sprintf("\nClient %x L/H %d/%d : %v\n", rws.ClientID, rws.LowWatermark, rws.HighWatermark, rws.Allocated))
+		fmt.Fprintf(&buffer, fmt.Sprintf("\nClient %x L/H %d/%d : %v\n", rws.ClientID, rws.LowWatermark, rws.HighWatermark, rws.Allocated))
 		hRule()
 	}
 
-	buffer.WriteString("\n\n Message Buffers\n")
+	fmt.Fprintf(&buffer, "\n\n Message Buffers\n")
 	hRule()
 
 	for _, nodeBuffer := range s.NodeBuffers {
-		buffer.WriteString(fmt.Sprintf("- === Node %3d buffers === \n", nodeBuffer.ID))
-		buffer.WriteString(fmt.Sprintf("  Bytes=%-8d, Messages=%-5d\n", nodeBuffer.Size, nodeBuffer.Msgs))
+		fmt.Fprintf(&buffer, fmt.Sprintf("- === Node %3d buffers === \n", nodeBuffer.ID))
+		fmt.Fprintf(&buffer, fmt.Sprintf("  Bytes=%-8d, Messages=%-5d\n", nodeBuffer.Size, nodeBuffer.Msgs))
 		for _, msgBuf := range nodeBuffer.MsgBuffers {
-			buffer.WriteString(fmt.Sprintf("  -  Bytes=%-8d Messages=%-5d Component=%s", msgBuf.Size, msgBuf.Msgs, msgBuf.Component))
+			fmt.Fprintf(&buffer, fmt.Sprintf("  -  Bytes=%-8d Messages=%-5d Component=%s", msgBuf.Size, msgBuf.Msgs, msgBuf.Component))
 		}
 	}
 
-	buffer.WriteString("\n\nDone\n")
+	fmt.Fprintf(&buffer, "\n\nDone\n")
 
 	return buffer.String()
 }
