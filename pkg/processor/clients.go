@@ -85,12 +85,6 @@ func (cs *Clients) client(clientID uint64, newClient func() *Client) *Client {
 	return c
 }
 
-func (cs *Clients) existingClient(clientID uint64) *Client {
-	cs.mutex.Lock()
-	defer cs.mutex.Unlock()
-	return cs.clients[clientID]
-}
-
 type Client struct {
 	mutex        sync.Mutex
 	clientWork   *ClientWork
@@ -117,7 +111,6 @@ type clientRequest struct {
 	reqNo                 uint64
 	localAllocationDigest []byte
 	remoteCorrectDigests  [][]byte
-	localPersistedDigest  [][]byte
 }
 
 func (c *Client) allocate(reqNo uint64) ([]byte, error) {

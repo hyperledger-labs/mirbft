@@ -168,8 +168,8 @@ func (s *StateMachine) Pretty() string {
 	fmt.Fprintf(&buffer, "NodeID=%d, LowWatermark=%d, HighWatermark=%d, Epoch=%d\n", s.NodeID, s.LowWatermark, s.HighWatermark, s.EpochTracker.ActiveEpoch.Number)
 	fmt.Fprintf(&buffer, "===========================================\n\n")
 
-	fmt.Fprintf(&buffer, "=== Epoch Number %d ===\n")
-	fmt.Fprintf(&buffer, "Change is in state: %d, last active epoch %d\n", s.EpochTracker.ActiveEpoch.State, s.EpochTracker.ActiveEpoch.Number)
+	fmt.Fprintf(&buffer, "=== Epoch Number %d ===\n", s.EpochTracker.ActiveEpoch.Number)
+	fmt.Fprintf(&buffer, "Epoch is in state: %d\n", s.EpochTracker.ActiveEpoch.State)
 
 	et := s.EpochTracker.ActiveEpoch
 	fmt.Fprintf(&buffer, "  EpochChanges:\n")
@@ -231,9 +231,9 @@ func (s *StateMachine) Pretty() string {
 				}
 			}
 			if bucketBuffer.Leader {
-				fmt.Fprintf(&buffer, fmt.Sprintf("| Bucket=%d (LocalLeader)\n", bucketBuffer.ID))
+				fmt.Fprintf(&buffer, "| Bucket=%d (LocalLeader)\n", bucketBuffer.ID)
 			} else {
-				fmt.Fprintf(&buffer, fmt.Sprintf("| Bucket=%d\n", bucketBuffer.ID))
+				fmt.Fprintf(&buffer, "| Bucket=%d\n", bucketBuffer.ID)
 			}
 		}
 
@@ -244,7 +244,7 @@ func (s *StateMachine) Pretty() string {
 			if len(s.Checkpoints) > i {
 				checkpoint := s.Checkpoints[i]
 				if seqNo == checkpoint.SeqNo {
-					fmt.Fprintf(&buffer, fmt.Sprintf("|%d", checkpoint.MaxAgreements))
+					fmt.Fprintf(&buffer, "|%d", checkpoint.MaxAgreements)
 					i++
 					continue
 				}
@@ -282,7 +282,7 @@ func (s *StateMachine) Pretty() string {
 	fmt.Fprintf(&buffer, "\n\n Request Windows\n")
 	hRule()
 	for _, rws := range s.ClientWindows {
-		fmt.Fprintf(&buffer, fmt.Sprintf("\nClient %x L/H %d/%d : %v\n", rws.ClientID, rws.LowWatermark, rws.HighWatermark, rws.Allocated))
+		fmt.Fprintf(&buffer, "\nClient %x L/H %d/%d : %v\n", rws.ClientID, rws.LowWatermark, rws.HighWatermark, rws.Allocated)
 		hRule()
 	}
 
@@ -290,10 +290,10 @@ func (s *StateMachine) Pretty() string {
 	hRule()
 
 	for _, nodeBuffer := range s.NodeBuffers {
-		fmt.Fprintf(&buffer, fmt.Sprintf("- === Node %3d buffers === \n", nodeBuffer.ID))
-		fmt.Fprintf(&buffer, fmt.Sprintf("  Bytes=%-8d, Messages=%-5d\n", nodeBuffer.Size, nodeBuffer.Msgs))
+		fmt.Fprintf(&buffer, "- === Node %3d buffers === \n", nodeBuffer.ID)
+		fmt.Fprintf(&buffer, "  Bytes=%-8d, Messages=%-5d\n", nodeBuffer.Size, nodeBuffer.Msgs)
 		for _, msgBuf := range nodeBuffer.MsgBuffers {
-			fmt.Fprintf(&buffer, fmt.Sprintf("  -  Bytes=%-8d Messages=%-5d Component=%s", msgBuf.Size, msgBuf.Msgs, msgBuf.Component))
+			fmt.Fprintf(&buffer, "  -  Bytes=%-8d Messages=%-5d Component=%s", msgBuf.Size, msgBuf.Msgs, msgBuf.Component)
 		}
 	}
 

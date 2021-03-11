@@ -50,7 +50,6 @@ func (cr *ConcurrentReplica) Step(ctx context.Context, msg *msgs.Msg) error {
 
 type Replicas struct {
 	replicas map[uint64]*Replica
-	eventsC  chan *statemachine.EventList
 	Clients  *Clients
 }
 
