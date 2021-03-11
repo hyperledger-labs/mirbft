@@ -20,6 +20,15 @@ import (
 	. "github.com/IBM/mirbft/pkg/testengine"
 )
 
+type TestConf struct {
+	Spec       Spec
+	Assertions Assertions
+}
+
+type Assertions struct {
+	CompletesInSteps int
+}
+
 var _ = Describe("Mirbft", func() {
 	var (
 		recording     *Recording
@@ -66,124 +75,207 @@ var _ = Describe("Mirbft", func() {
 		}
 	})
 
-	DescribeTable("delivers all requests", func(spec Spec) {
-		recorder := spec.Recorder()
+	DescribeTable("delivers all requests", func(testConf TestConf) {
+		recorder := testConf.Spec.Recorder()
 
 		var err error
 		recording, err = recorder.Recording(gzWriter)
 		Expect(err).NotTo(HaveOccurred())
 
-		_, err = recording.DrainClients(50000)
+		steps, err := recording.DrainClients(testConf.Assertions.CompletesInSteps)
 		Expect(err).NotTo(HaveOccurred())
+		// This assertion is to ensure that we have our step expectations reasonably tight,
+		// as drastically increasing or decreasing the number of steps is a red flag.
+		Expect(steps).To(BeNumerically(">=", testConf.Assertions.CompletesInSteps/2))
 	},
-		Entry("one-node-one-client-green", Spec{
-			NodeCount:     1,
-			ClientCount:   1,
-			ReqsPerClient: 100,
-		}),
-		Entry("one-node-one-client-large-batch-green", Spec{
-			NodeCount:     1,
-			ClientCount:   1,
-			ReqsPerClient: 100,
-			BatchSize:     20,
-		}),
-		Entry("one-node-four-client-green", Spec{
-			NodeCount:     1,
-			ClientCount:   4,
-			ReqsPerClient: 100,
-		}),
-		Entry("four-node-one-client-green", Spec{
-			NodeCount:     4,
-			ClientCount:   1,
-			ReqsPerClient: 100,
-		}),
-		Entry("four-node-four-client-green", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 100,
-		}),
-		Entry("four-node-four-client-large-batch-green", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 100,
-			BatchSize:     20,
-		}),
-		Entry("a client ignores node 0", Spec{
-			NodeCount:     4,
-			ClientCount:   1,
-			ReqsPerClient: 100,
-			ClientsIgnore: []uint64{0},
-		}),
-		Entry("node0 crashes in the middle", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 100,
-			TweakRecorder: func(r *Recorder) {
-				r.Mangler = For(MatchMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5)).CrashAndRestartAfter(10, r.NodeConfigs[0].InitParms)
+		Entry("one-node-one-client-green", TestConf{
+			Spec: Spec{
+				NodeCount:     1,
+				ClientCount:   1,
+				ReqsPerClient: 100,
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 500,
 			},
 		}),
-		Entry("node0 is silenced", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 20,
-			TweakRecorder: func(r *Recorder) {
-				r.Mangler = For(MatchMsgs().FromNodes(0)).Drop()
+		Entry("one-node-one-client-large-batch-green", TestConf{
+			Spec: Spec{
+				NodeCount:     1,
+				ClientCount:   1,
+				ReqsPerClient: 100,
+				BatchSize:     20,
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 300,
 			},
 		}),
-		Entry("node3 is silenced", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 20,
-			TweakRecorder: func(r *Recorder) {
-				r.Mangler = For(MatchMsgs().FromNodes(3)).Drop()
+		Entry("one-node-four-client-green", TestConf{
+			Spec: Spec{
+				NodeCount:     1,
+				ClientCount:   4,
+				ReqsPerClient: 100,
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 1000,
 			},
 		}),
-		Entry("node3 starts late", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 20,
-			TweakRecorder: func(r *Recorder) {
-				r.Mangler = Until(MatchMsgs().FromNode(1).OfTypeCheckpoint().WithSequence(20)).Do(For(MatchNodeStartup().ForNode(3)).Delay(500))
+		Entry("four-node-one-client-green", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   1,
+				ReqsPerClient: 100,
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 5000,
 			},
 		}),
-		Entry("network drops 2 percent of messages", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 100,
-			TweakRecorder: func(r *Recorder) {
-				r.Mangler = For(MatchMsgs().AtPercent(2)).Drop()
+		Entry("four-node-four-client-green", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 100,
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 20000,
 			},
 		}),
-		Entry("network drops almost all acks from node0 and node1", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 20,
-			TweakRecorder: func(r *Recorder) {
-				r.Mangler = For(MatchMsgs().FromNodes(0, 1).OfTypeRequestAck().AtPercent(70)).Drop()
+		Entry("four-node-four-client-large-batch-green", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 100,
+				BatchSize:     20,
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 10000,
 			},
 		}),
-		Entry("network messages have a small 30ms jittery delay", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 20,
-			TweakRecorder: func(r *Recorder) {
-				r.Mangler = For(MatchMsgs()).Jitter(30)
+		Entry("a client ignores node 0", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   1,
+				ReqsPerClient: 100,
+				ClientsIgnore: []uint64{0},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 20000,
 			},
 		}),
-		Entry("network messages have a large 1000ms jittery delay", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 20,
-			TweakRecorder: func(r *Recorder) {
-				r.Mangler = For(MatchMsgs()).Jitter(1000)
+		Entry("node0 crashes in the middle", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 100,
+				TweakRecorder: func(r *Recorder) {
+					r.Mangler = For(MatchMsgs().FromSelf().OfTypeCheckpoint().WithSequence(5)).CrashAndRestartAfter(10, r.NodeConfigs[0].InitParms)
+				},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 20000,
 			},
 		}),
-		Entry("network messages are duplicated most of the time", Spec{
-			NodeCount:     4,
-			ClientCount:   4,
-			ReqsPerClient: 20,
-			TweakRecorder: func(r *Recorder) {
-				r.Mangler = For(MatchMsgs().AtPercent(75)).Duplicate(300)
+		Entry("node0 is silenced", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 20,
+				TweakRecorder: func(r *Recorder) {
+					r.Mangler = For(MatchMsgs().FromNodes(0)).Drop()
+				},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 5000,
+			},
+		}),
+		Entry("node3 is silenced", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 20,
+				TweakRecorder: func(r *Recorder) {
+					r.Mangler = For(MatchMsgs().FromNodes(3)).Drop()
+				},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 5000,
+			},
+		}),
+		Entry("node3 starts late", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 20,
+				TweakRecorder: func(r *Recorder) {
+					r.Mangler = Until(MatchMsgs().FromNode(1).OfTypeCheckpoint().WithSequence(20)).Do(For(MatchNodeStartup().ForNode(3)).Delay(500))
+				},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 10000,
+			},
+		}),
+		Entry("network drops 2 percent of messages", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 100,
+				TweakRecorder: func(r *Recorder) {
+					r.Mangler = For(MatchMsgs().AtPercent(2)).Drop()
+				},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 30000,
+			},
+		}),
+		Entry("network drops almost all acks from node0 and node1", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 20,
+				TweakRecorder: func(r *Recorder) {
+					r.Mangler = For(MatchMsgs().FromNodes(0, 1).OfTypeRequestAck().AtPercent(70)).Drop()
+				},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 20000,
+			},
+		}),
+		Entry("network messages have a small 30ms jittery delay", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 20,
+				TweakRecorder: func(r *Recorder) {
+					r.Mangler = For(MatchMsgs()).Jitter(30)
+				},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 5000,
+			},
+		}),
+		Entry("network messages have a large 1000ms jittery delay", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 20,
+				TweakRecorder: func(r *Recorder) {
+					r.Mangler = For(MatchMsgs()).Jitter(1000)
+				},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 10000,
+			},
+		}),
+		Entry("network messages are duplicated most of the time", TestConf{
+			Spec: Spec{
+				NodeCount:     4,
+				ClientCount:   4,
+				ReqsPerClient: 20,
+				TweakRecorder: func(r *Recorder) {
+					r.Mangler = For(MatchMsgs().AtPercent(75)).Duplicate(300)
+				},
+			},
+			Assertions: Assertions{
+				CompletesInSteps: 8000,
 			},
 		}),
 	)
