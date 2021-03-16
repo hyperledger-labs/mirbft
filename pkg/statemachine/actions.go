@@ -47,77 +47,106 @@ func (al *ActionList) Len() int {
 }
 
 func (al *ActionList) Send(targets []uint64, msg *msgs.Msg) *ActionList {
-	al.PushBack(&state.Action{
+	al.PushBack(ActionSend(targets, msg))
+	return al
+}
+
+func ActionSend(targets []uint64, msg *msgs.Msg) *state.Action {
+	return &state.Action{
 		Type: &state.Action_Send{
 			Send: &state.ActionSend{
 				Targets: targets,
 				Msg:     msg,
 			},
 		},
-	})
-
-	return al
+	}
 }
 
 func (al *ActionList) AllocateRequest(clientID, reqNo uint64) *ActionList {
-	al.PushBack(&state.Action{
+	al.PushBack(ActionAllocateRequest(clientID, reqNo))
+	return al
+}
+
+func ActionAllocateRequest(clientID, reqNo uint64) *state.Action {
+	return &state.Action{
 		Type: &state.Action_AllocatedRequest{
 			AllocatedRequest: &state.ActionRequestSlot{
 				ClientId: clientID,
 				ReqNo:    reqNo,
 			},
 		},
-	})
-	return al
+	}
 }
 
 func (al *ActionList) ForwardRequest(targets []uint64, requestAck *msgs.RequestAck) *ActionList {
-	al.PushBack(&state.Action{
+	al.PushBack(ActionForwardRequest(targets, requestAck))
+	return al
+}
+
+func ActionForwardRequest(targets []uint64, requestAck *msgs.RequestAck) *state.Action {
+	return &state.Action{
 		Type: &state.Action_ForwardRequest{
 			ForwardRequest: &state.ActionForward{
 				Targets: targets,
 				Ack:     requestAck,
 			},
 		},
-	})
-	return al
+	}
 }
 
 func (al *ActionList) Truncate(index uint64) *ActionList {
-	al.PushBack(&state.Action{
+	al.PushBack(ActionTruncate(index))
+	return al
+}
+
+func ActionTruncate(index uint64) *state.Action {
+	return &state.Action{
 		Type: &state.Action_TruncateWriteAhead{
 			TruncateWriteAhead: &state.ActionTruncate{
 				Index: index,
 			},
 		},
-	})
-	return al
+	}
 }
 
 func (al *ActionList) Persist(index uint64, p *msgs.Persistent) *ActionList {
-	al.PushBack(&state.Action{
+	al.PushBack(ActionPersist(index, p))
+	return al
+}
+
+func ActionPersist(index uint64, p *msgs.Persistent) *state.Action {
+	return &state.Action{
 		Type: &state.Action_AppendWriteAhead{
 			AppendWriteAhead: &state.ActionWrite{
 				Index: index,
 				Data:  p,
 			},
 		},
-	})
-	return al
+	}
 }
 
 func (al *ActionList) Commit(qEntry *msgs.QEntry) *ActionList {
-	al.PushBack(&state.Action{
+	al.PushBack(ActionCommit(qEntry))
+	return al
+}
+
+func ActionCommit(qEntry *msgs.QEntry) *state.Action {
+	return &state.Action{
 		Type: &state.Action_Commit{
 			Commit: &state.ActionCommit{
 				Batch: qEntry,
 			},
 		},
-	})
+	}
+}
+
+func (al *ActionList) Checkpoint(seqNo uint64, networkConfig *msgs.NetworkState_Config, clientStates []*msgs.NetworkState_Client) *ActionList {
+	al.PushBack(ActionCheckpoint(seqNo, networkConfig, clientStates))
 	return al
 }
-func (al *ActionList) Checkpoint(seqNo uint64, networkConfig *msgs.NetworkState_Config, clientStates []*msgs.NetworkState_Client) *ActionList {
-	al.PushBack(&state.Action{
+
+func ActionCheckpoint(seqNo uint64, networkConfig *msgs.NetworkState_Config, clientStates []*msgs.NetworkState_Client) *state.Action {
+	return &state.Action{
 		Type: &state.Action_Checkpoint{
 			Checkpoint: &state.ActionCheckpoint{
 				SeqNo:         seqNo,
@@ -125,55 +154,68 @@ func (al *ActionList) Checkpoint(seqNo uint64, networkConfig *msgs.NetworkState_
 				ClientStates:  clientStates,
 			},
 		},
-	})
-	return al
+	}
 }
 
 func (al *ActionList) CorrectRequest(ack *msgs.RequestAck) *ActionList {
-	al.PushBack(&state.Action{
-		Type: &state.Action_CorrectRequest{
-			CorrectRequest: ack,
-		},
-	})
+	al.PushBack(ActionCorrectRequest(ack))
 	return al
 }
 
+func ActionCorrectRequest(ack *msgs.RequestAck) *state.Action {
+	return &state.Action{
+		Type: &state.Action_CorrectRequest{
+			CorrectRequest: ack,
+		},
+	}
+}
+
 func (al *ActionList) Hash(data [][]byte, origin *state.HashOrigin) *ActionList {
-	al.PushBack(&state.Action{
+	al.PushBack(ActionHash(data, origin))
+	return al
+}
+
+func ActionHash(data [][]byte, origin *state.HashOrigin) *state.Action {
+	return &state.Action{
 		Type: &state.Action_Hash{
 			Hash: &state.ActionHashRequest{
 				Data:   data,
 				Origin: origin,
 			},
 		},
-	})
-	return al
+	}
 }
 
 func (al *ActionList) StateApplied(seqNo uint64, ns *msgs.NetworkState) *ActionList {
-	al.PushBack(&state.Action{
+	al.PushBack(ActionStateApplied(seqNo, ns))
+	return al
+}
+
+func ActionStateApplied(seqNo uint64, ns *msgs.NetworkState) *state.Action {
+	return &state.Action{
 		Type: &state.Action_StateApplied{
 			StateApplied: &state.ActionStateApplied{
 				SeqNo:        seqNo,
 				NetworkState: ns,
 			},
 		},
-	})
-
-	return al
+	}
 }
 
 func (al *ActionList) StateTransfer(seqNo uint64, value []byte) *ActionList {
-	al.PushBack(&state.Action{
+	al.PushBack(ActionStateTransfer(seqNo, value))
+	return al
+}
+
+func ActionStateTransfer(seqNo uint64, value []byte) *state.Action {
+	return &state.Action{
 		Type: &state.Action_StateTransfer{
 			StateTransfer: &state.ActionStateTarget{
 				SeqNo: seqNo,
 				Value: value,
 			},
 		},
-	})
-
-	return al
+	}
 }
 
 func (al *ActionList) isEmpty() bool {
