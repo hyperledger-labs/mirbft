@@ -44,38 +44,117 @@ type WAL interface {
 	Sync() error
 }
 
-type processor interface {
-	queueStateEvents(events *statemachine.EventList)
+func ProcessWALActions(wal WAL, actions *statemachine.ActionList) (*statemachine.ActionList, error) {
+	netActions := &statemachine.ActionList{}
+	// First we'll handle everything that's not a network send
+	iter := actions.Iterator()
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_Send:
+			netActions.PushBack(action)
+		case *state.Action_AppendWriteAhead:
+			write := t.AppendWriteAhead
+			if err := wal.Write(write.Index, write.Data); err != nil {
+				return nil, errors.WithMessagef(err, "failed to write entry to WAL at index %d", write.Index)
+			}
+		case *state.Action_TruncateWriteAhead:
+			truncate := t.TruncateWriteAhead
+			if err := wal.Truncate(truncate.Index); err != nil {
+				return nil, errors.WithMessagef(err, "failed to truncate WAL to index %d", truncate.Index)
+			}
+		default:
+			return nil, errors.Errorf("unexpected type for WAL action: %T", action.Type)
+		}
+	}
+
+	// Then we sync the WAL
+	if err := wal.Sync(); err != nil {
+		return nil, errors.WithMessage(err, "failted to sync WAL")
+	}
+
+	return netActions, nil
 }
 
-type callbackHasher interface {
-	data() [][]byte
-	onHashResult(digest []byte)
+func ProcessNetActions(selfID uint64, link Link, actions *statemachine.ActionList) (*statemachine.EventList, error) {
+	events := &statemachine.EventList{}
+
+	iter := actions.Iterator()
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_Send:
+			for _, replica := range t.Send.Targets {
+				if replica == selfID {
+					events.Step(replica, t.Send.Msg)
+				} else {
+					link.Send(replica, t.Send.Msg)
+				}
+			}
+		default:
+			return nil, errors.Errorf("unexpected type for Net action: %T", action.Type)
+		}
+	}
+
+	return events, nil
 }
 
-type serialHasher struct {
-	hasher Hasher
+func ProcessHashActions(hasher Hasher, actions *statemachine.ActionList) (*statemachine.EventList, error) {
+	events := &statemachine.EventList{}
+	// First we'll handle everything that's not a network send
+	iter := actions.Iterator()
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_Hash:
+			h := hasher.New()
+			for _, data := range t.Hash.Data {
+				h.Write(data)
+			}
+
+			events.HashResult(h.Sum(nil), t.Hash.Origin)
+		default:
+			return nil, errors.Errorf("unexpected type for Hash action: %T", action.Type)
+		}
+	}
+
+	return events, nil
 }
 
-type eventHash struct {
-	action    *state.ActionHashRequest
-	processor processor
-}
+func ProcessAppActions(app App, actions *statemachine.ActionList) (*statemachine.EventList, error) {
+	events := &statemachine.EventList{}
+	// First we'll handle everything that's not a network send
+	iter := actions.Iterator()
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_Commit:
+			if err := app.Apply(t.Commit.Batch); err != nil {
+				return nil, errors.WithMessage(err, "app failed to commit")
+			}
+		case *state.Action_Checkpoint:
+			cp := t.Checkpoint
+			value, pendingReconf, err := app.Snap(cp.NetworkConfig, cp.ClientStates)
+			if err != nil {
+				return nil, errors.WithMessage(err, "app failed to generate snapshot")
+			}
+			events.CheckpointResult(value, pendingReconf, cp)
+		case *state.Action_StateTransfer:
+			stateTarget := t.StateTransfer
+			state, err := app.TransferTo(stateTarget.SeqNo, stateTarget.Value)
+			if err != nil {
+				events.StateTransferFailed(stateTarget)
+			} else {
+				events.StateTransferComplete(state, stateTarget)
+			}
+		default:
+			return nil, errors.Errorf("unexpected type for Hash action: %T", action.Type)
+		}
+	}
 
-func (eh *eventHash) data() [][]byte {
-	return eh.action.Data
-}
-
-func (eh *eventHash) onHashResult(digest []byte) {
-	eh.processor.queueStateEvents(
-		(&statemachine.EventList{}).HashResult(digest, eh.action.Origin),
-	)
+	return events, nil
 }
 
 type State struct {
 	clients       Clients
-	ClientWork    ClientWork
 	pendingEvents *statemachine.EventList
+	WorkItems     *WorkItems
 }
 
 type Config struct {
@@ -90,6 +169,13 @@ type Config struct {
 func (c *Config) Serial() *Serial {
 	return &Serial{
 		Config: c,
+		State: State{
+			WorkItems: NewWorkItems(),
+			clients: Clients{
+				RequestStore: c.RequestStore,
+				Hasher:       c.Hasher,
+			},
+		},
 	}
 }
 
@@ -98,154 +184,58 @@ type Serial struct {
 	Config *Config
 }
 
-func (s *Serial) queueStateEvents(events *statemachine.EventList) {
-	if s.State.pendingEvents == nil {
-		s.State.pendingEvents = events
-		return
-	}
-	s.State.pendingEvents.PushBackList(events)
-}
-
-func (s *Serial) hash(ch callbackHasher) {
-	h := s.Config.Hasher.New()
-	for _, data := range ch.data() {
-		h.Write(data)
-	}
-
-	ch.onHashResult(h.Sum(nil))
-}
-
 func (s *Serial) Process(actions *statemachine.ActionList) (*statemachine.EventList, error) {
-	events := &statemachine.EventList{}
-	// First we'll handle everything that's not a network send
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_Send:
-			// Skip in the first round
-		case *state.Action_Hash:
-			s.hash(&eventHash{
-				action:    t.Hash,
-				processor: s,
-			})
-		case *state.Action_AppendWriteAhead:
-			write := t.AppendWriteAhead
-			if err := s.Config.WAL.Write(write.Index, write.Data); err != nil {
-				return nil, errors.WithMessagef(err, "failed to write entry to WAL at index %d", write.Index)
-			}
-		case *state.Action_TruncateWriteAhead:
-			truncate := t.TruncateWriteAhead
-			if err := s.Config.WAL.Truncate(truncate.Index); err != nil {
-				return nil, errors.WithMessagef(err, "failed to truncate WAL to index %d", truncate.Index)
-			}
-		case *state.Action_Commit:
-			if err := s.Config.App.Apply(t.Commit.Batch); err != nil {
-				return nil, errors.WithMessage(err, "app failed to commit")
-			}
-		case *state.Action_Checkpoint:
-			cp := t.Checkpoint
-			value, pendingReconf, err := s.Config.App.Snap(cp.NetworkConfig, cp.ClientStates)
-			if err != nil {
-				return nil, errors.WithMessage(err, "app failed to generate snapshot")
-			}
-			events.CheckpointResult(value, pendingReconf, cp)
-		case *state.Action_AllocatedRequest:
-			r := t.AllocatedRequest
-			client := s.Client(r.ClientId)
-			digest, err := client.allocate(r.ReqNo)
-			if err != nil {
-				return nil, err
-			}
+	s.State.WorkItems.AddStateMachineActions(actions)
 
-			if digest == nil {
-				continue
-			}
-
-			events.RequestPersisted(&msgs.RequestAck{
-				ClientId: r.ClientId,
-				ReqNo:    r.ReqNo,
-				Digest:   digest,
-			})
-		case *state.Action_CorrectRequest:
-			client := s.Client(t.CorrectRequest.ClientId)
-			err := client.addCorrectDigest(t.CorrectRequest.ReqNo, t.CorrectRequest.Digest)
-			if err != nil {
-				return nil, err
-			}
-		case *state.Action_StateApplied:
-			// TODO, handle
-		case *state.Action_ForwardRequest:
-			// XXX address
-			/*
-			   requestData, err := p.RequestStore.Get(r.RequestAck)
-			   if err != nil {
-			           panic(fmt.Sprintf("could not store request, unsafe to continue: %s\n", err))
-			   }
-
-			   fr := &msgs.Msg{
-			           Type: &msgs.Msg_ForwardRequest{
-			                   &msgs.ForwardRequest{
-			                           RequestAck:  r.RequestAck,
-			                           RequestData: requestData,
-			                   },
-			           },
-			   }
-			   for _, replica := range r.Targets {
-			           if replica == p.Node.Config.ID {
-			                   p.Node.Step(context.Background(), replica, fr)
-			           } else {
-			                   p.Link.Send(replica, fr)
-			           }
-			   }
-			*/
-		case *state.Action_StateTransfer:
-			stateTarget := t.StateTransfer
-			state, err := s.Config.App.TransferTo(stateTarget.SeqNo, stateTarget.Value)
-			if err != nil {
-				events.StateTransferFailed(stateTarget)
-			} else {
-				events.StateTransferComplete(state, stateTarget)
-			}
-		}
+	netActions, err := ProcessWALActions(s.Config.WAL, s.State.WorkItems.WALActions)
+	if err != nil {
+		return nil, errors.WithMessage(err, "could not perform WAL actions")
 	}
+	s.State.WorkItems.WALActions = &statemachine.ActionList{}
+	s.State.WorkItems.AddWALActions(netActions)
 
-	// Then we sync the WAL
-	if err := s.Config.WAL.Sync(); err != nil {
-		return nil, errors.WithMessage(err, "failted to sync WAL")
+	clientEvents, err := s.State.clients.ProcessClientActions(s.State.WorkItems.ClientActions)
+	if err != nil {
+		return nil, errors.WithMessage(err, "could not perform client actions")
 	}
+	s.State.WorkItems.ClientActions = &statemachine.ActionList{}
+	s.State.WorkItems.AddReqStoreEvents(clientEvents)
+
+	hashEvents, err := ProcessHashActions(s.Config.Hasher, s.State.WorkItems.HashActions)
+	if err != nil {
+		return nil, errors.WithMessage(err, "could not perform hash actions")
+	}
+	s.State.WorkItems.HashActions = &statemachine.ActionList{}
+	s.State.WorkItems.ResultEvents.PushBackList(hashEvents)
+
+	netEvents, err := ProcessNetActions(s.Config.NodeID, s.Config.Link, s.State.WorkItems.NetActions)
+	if err != nil {
+		return nil, errors.WithMessage(err, "could not perform net actions")
+	}
+	s.State.WorkItems.NetActions = &statemachine.ActionList{}
+	s.State.WorkItems.ResultEvents.PushBackList(netEvents)
+
+	appEvents, err := ProcessAppActions(s.Config.App, s.State.WorkItems.AppActions)
+	if err != nil {
+		return nil, errors.WithMessage(err, "could not perform hash actions")
+	}
+	s.State.WorkItems.AppActions = &statemachine.ActionList{}
+	s.State.WorkItems.ResultEvents.PushBackList(appEvents)
 
 	// Then we sync the request store
 	if err := s.Config.RequestStore.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
 	}
 
-	// Now we transmit
-	iter = actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_Send:
-			for _, replica := range t.Send.Targets {
-				if replica == s.Config.NodeID {
-					events.Step(replica, t.Send.Msg)
-				} else {
-					s.Config.Link.Send(replica, t.Send.Msg)
-				}
-			}
-		default:
-			// We've handled the other types already
-		}
-	}
+	s.State.WorkItems.ResultEvents.PushBackList(s.State.WorkItems.ReqStoreEvents)
+	s.State.WorkItems.ReqStoreEvents = &statemachine.EventList{}
 
-	if s.State.pendingEvents != nil {
-		events.PushBackList(s.State.pendingEvents)
-		s.State.pendingEvents = &statemachine.EventList{}
-	}
+	result := s.State.WorkItems.ResultEvents
+	s.State.WorkItems.ResultEvents = &statemachine.EventList{}
 
-	return events, nil
+	return result, nil
 }
 
 func (s *Serial) Client(clientID uint64) *Client {
-	return s.State.clients.client(clientID, func() *Client {
-		return newClient(clientID, s.Config.Hasher, s.Config.RequestStore, &s.State.ClientWork)
-	})
+	return s.State.clients.client(clientID)
 }

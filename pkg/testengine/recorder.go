@@ -567,10 +567,11 @@ func (r *Recording) Step() error {
 			break
 		}
 
-		err = client.Propose(prop.ReqNo, prop.Data)
+		events, err := client.Propose(prop.ReqNo, prop.Data)
 		if err != nil {
 			return errors.WithMessage(err, "unanticipated client propose error")
 		}
+		node.PendingStateEvents.PushBackList(events)
 
 		data := tClient.RequestByReqNo(reqNo + 1)
 		if data != nil {
@@ -608,13 +609,6 @@ func (r *Recording) Step() error {
 		node.ProcessActionsPending = false
 	default:
 		return errors.Errorf("unknown event type")
-	}
-
-	if node.Processor != nil {
-		cEvents := node.Processor.State.ClientWork.Results()
-		if cEvents != nil && cEvents.Len() > 0 {
-			node.PendingStateEvents.PushBackList(cEvents)
-		}
 	}
 
 	if node.PendingStateEvents != nil &&

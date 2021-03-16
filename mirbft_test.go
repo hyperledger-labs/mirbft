@@ -446,12 +446,13 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 
 			// Batch them in, 50 at a time
 			for i := nextReqNo; i < tr.FakeClient.MsgCount && i < nextReqNo+50; i++ {
-				err := client.Propose(i, clientReq(0, i))
+				events, err := client.Propose(i, clientReq(0, i))
 				if err != nil {
 					// TODO, failing on err causes flakes in the teardown,
 					// so just returning for now, we should address later
 					break
 				}
+				eventsC <- events
 			}
 
 			time.Sleep(10 * time.Millisecond)
@@ -474,8 +475,8 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 					break
 				}
 				events.PushBackList(newEvents)
-			case <-p.State.ClientWork.Ready():
-				events.PushBackList(p.State.ClientWork.Results())
+			// case <-p.State.ClientWork.Ready():
+			// events.PushBackList(p.State.ClientWork.Results())
 			case eC <- events:
 				events = &statemachine.EventList{}
 				eC = nil

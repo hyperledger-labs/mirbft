@@ -14,63 +14,13 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
 var ErrClientNotExist error = errors.New("client does not exist")
 
-type Clients struct {
-	mutex   sync.Mutex
-	clients map[uint64]*Client
-}
-
-type ClientWork struct {
-	mutex  sync.Mutex
-	readyC chan struct{}
-	events *statemachine.EventList
-}
-
-// Ready return a channel which reads once there are
-// events ready to be read via Results().  Note, this
-// method must not be invoked concurrently by different
-// go routines.
-func (cw *ClientWork) Ready() <-chan struct{} {
-	cw.mutex.Lock()
-	defer cw.mutex.Unlock()
-	if cw.readyC == nil {
-		cw.readyC = make(chan struct{})
-		if cw.events != nil {
-			close(cw.readyC)
-		}
-	}
-	return cw.readyC
-}
-
-// Results fetches and clears any outstanding results.  The caller
-// must have successfully read from the Ready() channel before calling
-// or the behavior is undefined.
-func (cw *ClientWork) Results() *statemachine.EventList {
-	cw.mutex.Lock()
-	defer cw.mutex.Unlock()
-	cw.readyC = nil
-	events := cw.events
-	cw.events = nil
-	return events
-}
-
-func (cw *ClientWork) addPersistedReq(ack *msgs.RequestAck) {
-	cw.mutex.Lock()
-	defer cw.mutex.Unlock()
-	if cw.events == nil {
-		cw.events = &statemachine.EventList{}
-		if cw.readyC != nil {
-			close(cw.readyC)
-		}
-	}
-	cw.events.RequestPersisted(ack)
-}
-
-func (cs *Clients) client(clientID uint64, newClient func() *Client) *Client {
+func (cs *Clients) client(clientID uint64) *Client {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 	if cs.clients == nil {
@@ -79,15 +29,57 @@ func (cs *Clients) client(clientID uint64, newClient func() *Client) *Client {
 
 	c, ok := cs.clients[clientID]
 	if !ok {
-		c = newClient()
+		c = newClient(clientID, cs.Hasher, cs.RequestStore)
 		cs.clients[clientID] = c
 	}
 	return c
 }
 
+type Clients struct {
+	Hasher       Hasher
+	RequestStore RequestStore
+
+	mutex   sync.Mutex
+	clients map[uint64]*Client
+}
+
+func (c *Clients) ProcessClientActions(actions *statemachine.ActionList) (*statemachine.EventList, error) {
+	events := &statemachine.EventList{}
+	iter := actions.Iterator()
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_AllocatedRequest:
+			r := t.AllocatedRequest
+			client := c.client(r.ClientId)
+			digest, err := client.allocate(r.ReqNo)
+			if err != nil {
+				return nil, err
+			}
+
+			if digest == nil {
+				continue
+			}
+
+			events.RequestPersisted(&msgs.RequestAck{
+				ClientId: r.ClientId,
+				ReqNo:    r.ReqNo,
+				Digest:   digest,
+			})
+		case *state.Action_CorrectRequest:
+			client := c.client(t.CorrectRequest.ClientId)
+			err := client.addCorrectDigest(t.CorrectRequest.ReqNo, t.CorrectRequest.Digest)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, errors.Errorf("unexpected type for client action: %T", action.Type)
+		}
+	}
+	return events, nil
+}
+
 type Client struct {
 	mutex        sync.Mutex
-	clientWork   *ClientWork
 	hasher       Hasher
 	clientID     uint64
 	requestStore RequestStore
@@ -96,10 +88,9 @@ type Client struct {
 	nextReqNo    uint64
 }
 
-func newClient(clientID uint64, hasher Hasher, reqStore RequestStore, clientWork *ClientWork) *Client {
+func newClient(clientID uint64, hasher Hasher, reqStore RequestStore) *Client {
 	return &Client{
 		clientID:     clientID,
-		clientWork:   clientWork,
 		hasher:       hasher,
 		requestStore: reqStore,
 		requests:     list.New(),
@@ -175,7 +166,7 @@ func (c *Client) NextReqNo() (uint64, error) {
 	return c.nextReqNo, nil
 }
 
-func (c *Client) Propose(reqNo uint64, data []byte) error {
+func (c *Client) Propose(reqNo uint64, data []byte) (*statemachine.EventList, error) {
 	h := c.hasher.New()
 	h.Write(data)
 	digest := h.Sum(nil)
@@ -183,15 +174,15 @@ func (c *Client) Propose(reqNo uint64, data []byte) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if c.requests.Len() == 0 {
-		return ErrClientNotExist
+		return nil, ErrClientNotExist
 	}
 
 	if reqNo < c.nextReqNo {
-		return nil
+		return &statemachine.EventList{}, nil
 	}
 
 	if reqNo > c.nextReqNo {
-		return errors.Errorf("client must submit req_no %d next", c.nextReqNo)
+		return nil, errors.Errorf("client must submit req_no %d next", c.nextReqNo)
 	}
 
 	c.nextReqNo++
@@ -210,10 +201,10 @@ func (c *Client) Propose(reqNo uint64, data []byte) error {
 
 	if cr.localAllocationDigest != nil {
 		if bytes.Equal(cr.localAllocationDigest, digest) {
-			return nil
+			return &statemachine.EventList{}, nil
 		}
 
-		return errors.Errorf("cannot store request with digest %x, already stored request with different digest %x", digest, cr.localAllocationDigest)
+		return nil, errors.Errorf("cannot store request with digest %x, already stored request with different digest %x", digest, cr.localAllocationDigest)
 	}
 
 	if len(cr.remoteCorrectDigests) > 0 {
@@ -226,7 +217,7 @@ func (c *Client) Propose(reqNo uint64, data []byte) error {
 		}
 
 		if !found {
-			return errors.New("other known correct digest exist for reqno")
+			return nil, errors.New("other known correct digest exist for reqno")
 		}
 	}
 
@@ -238,18 +229,18 @@ func (c *Client) Propose(reqNo uint64, data []byte) error {
 
 	err := c.requestStore.PutRequest(ack, data)
 	if err != nil {
-		return errors.WithMessage(err, "could not store requests")
+		return nil, errors.WithMessage(err, "could not store requests")
 	}
 
 	err = c.requestStore.PutAllocation(c.clientID, reqNo, digest)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cr.localAllocationDigest = digest
 
 	if previouslyAllocated {
-		c.clientWork.addPersistedReq(ack)
+		return (&statemachine.EventList{}).RequestPersisted(ack), nil
 	}
 
-	return nil
+	return &statemachine.EventList{}, nil
 }
