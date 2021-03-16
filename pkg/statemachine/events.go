@@ -52,50 +52,70 @@ func (el *EventList) Len() int {
 }
 
 func (el *EventList) Initialize(initialParms *state.EventInitialParameters) *EventList {
-	el.PushBack(&state.Event{
-		Type: &state.Event_Initialize{
-			Initialize: initialParms,
-		},
-	})
-
+	el.PushBack(EventInitialize(initialParms))
 	return el
 }
 
-func (el *EventList) LoadPersistedEntry(index uint64, entry *msgs.Persistent) *EventList {
-	el.PushBack(&state.Event{
+func EventInitialize(initialParms *state.EventInitialParameters) *state.Event {
+	return &state.Event{
+		Type: &state.Event_Initialize{
+			Initialize: initialParms,
+		},
+	}
+}
+
+func (el *EventList) EventLoadPersistedEntry(index uint64, entry *msgs.Persistent) *EventList {
+	el.PushBack(EventLoadPersistedEntry(index, entry))
+	return el
+}
+
+func EventLoadPersistedEntry(index uint64, entry *msgs.Persistent) *state.Event {
+	return &state.Event{
 		Type: &state.Event_LoadPersistedEntry{
 			LoadPersistedEntry: &state.EventLoadPersistedEntry{
 				Index: index,
 				Entry: entry,
 			},
 		},
-	})
-	return el
+	}
 }
 
 func (el *EventList) CompleteInitialization() *EventList {
-	el.PushBack(&state.Event{
-		Type: &state.Event_CompleteInitialization{
-			CompleteInitialization: &state.EventLoadCompleted{},
-		},
-	})
+	el.PushBack(EventCompleteInitialization())
 	return el
 }
 
+func EventCompleteInitialization() *state.Event {
+	return &state.Event{
+		Type: &state.Event_CompleteInitialization{
+			CompleteInitialization: &state.EventLoadCompleted{},
+		},
+	}
+}
+
 func (el *EventList) HashResult(digest []byte, origin *state.HashOrigin) *EventList {
-	el.PushBack(&state.Event{
+	el.PushBack(EventHashResult(digest, origin))
+	return el
+}
+
+func EventHashResult(digest []byte, origin *state.HashOrigin) *state.Event {
+	return &state.Event{
 		Type: &state.Event_HashResult{
 			HashResult: &state.EventHashResult{
 				Digest: digest,
 				Origin: origin,
 			},
 		},
-	})
-	return el
+	}
 }
 
 func (el *EventList) CheckpointResult(value []byte, pendingReconfigurations []*msgs.Reconfiguration, actionCheckpoint *state.ActionCheckpoint) *EventList {
-	el.PushBack(&state.Event{
+	el.PushBack(EventCheckpointResult(value, pendingReconfigurations, actionCheckpoint))
+	return el
+}
+
+func EventCheckpointResult(value []byte, pendingReconfigurations []*msgs.Reconfiguration, actionCheckpoint *state.ActionCheckpoint) *state.Event {
+	return &state.Event{
 		Type: &state.Event_CheckpointResult{
 			CheckpointResult: &state.EventCheckpointResult{
 				SeqNo: actionCheckpoint.SeqNo,
@@ -107,22 +127,31 @@ func (el *EventList) CheckpointResult(value []byte, pendingReconfigurations []*m
 				},
 			},
 		},
-	})
-	return el
+	}
 }
 
 func (el *EventList) RequestPersisted(ack *msgs.RequestAck) *EventList {
-	el.PushBack(&state.Event{
+	el.PushBack(EventRequestPersisted(ack))
+	return el
+}
+
+func EventRequestPersisted(ack *msgs.RequestAck) *state.Event {
+	return &state.Event{
 		Type: &state.Event_RequestPersisted{
 			RequestPersisted: &state.EventRequestPersisted{
 				RequestAck: ack,
 			},
 		},
-	})
+	}
+}
+
+func (el *EventList) StateTransferComplete(networkState *msgs.NetworkState, actionStateTransfer *state.ActionStateTarget) *EventList {
+	el.PushBack(EventStateTransferComplete(networkState, actionStateTransfer))
 	return el
 }
-func (el *EventList) StateTransferComplete(networkState *msgs.NetworkState, actionStateTransfer *state.ActionStateTarget) *EventList {
-	el.PushBack(&state.Event{
+
+func EventStateTransferComplete(networkState *msgs.NetworkState, actionStateTransfer *state.ActionStateTarget) *state.Event {
+	return &state.Event{
 		Type: &state.Event_StateTransferComplete{
 			StateTransferComplete: &state.EventStateTransferComplete{
 				SeqNo:           actionStateTransfer.SeqNo,
@@ -130,52 +159,65 @@ func (el *EventList) StateTransferComplete(networkState *msgs.NetworkState, acti
 				NetworkState:    networkState,
 			},
 		},
-	})
-	return el
+	}
 }
 
 func (el *EventList) StateTransferFailed(actionStateTransfer *state.ActionStateTarget) *EventList {
-	el.PushBack(&state.Event{
+	el.PushBack(EventStateTransferFailed(actionStateTransfer))
+	return el
+}
+
+func EventStateTransferFailed(actionStateTransfer *state.ActionStateTarget) *state.Event {
+	return &state.Event{
 		Type: &state.Event_StateTransferFailed{
 			StateTransferFailed: &state.EventStateTransferFailed{
 				SeqNo:           actionStateTransfer.SeqNo,
 				CheckpointValue: actionStateTransfer.Value,
 			},
 		},
-	})
-	return el
+	}
 }
 
 func (el *EventList) Step(source uint64, msg *msgs.Msg) *EventList {
-	el.PushBack(&state.Event{
+	el.PushBack(EventStep(source, msg))
+	return el
+}
+
+func EventStep(source uint64, msg *msgs.Msg) *state.Event {
+	return &state.Event{
 		Type: &state.Event_Step{
 			Step: &state.EventStep{
 				Source: source,
 				Msg:    msg,
 			},
 		},
-	})
-	return el
+	}
 }
 
 func (el *EventList) TickElapsed() *EventList {
-	el.PushBack(&state.Event{
-		Type: &state.Event_TickElapsed{
-			TickElapsed: &state.EventTickElapsed{},
-		},
-	})
-
+	el.PushBack(EventTickElapsed())
 	return el
 }
 
+func EventTickElapsed() *state.Event {
+	return &state.Event{
+		Type: &state.Event_TickElapsed{
+			TickElapsed: &state.EventTickElapsed{},
+		},
+	}
+}
+
 func (el *EventList) ActionsReceived() *EventList {
-	el.PushBack(&state.Event{
+	el.PushBack(EventActionsReceived())
+	return el
+}
+
+func EventActionsReceived() *state.Event {
+	return &state.Event{
 		Type: &state.Event_ActionsReceived{
 			ActionsReceived: &state.EventActionsReceived{},
 		},
-	})
-
-	return el
+	}
 }
 
 type EventListIterator struct {
