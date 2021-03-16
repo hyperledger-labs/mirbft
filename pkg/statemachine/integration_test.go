@@ -164,7 +164,7 @@ var _ = Describe("Mirbft", func() {
 				ReqsPerClient: 100,
 			},
 			Assertions: Assertions{
-				CompletesInSteps: 1000,
+				CompletesInSteps: 2000,
 			},
 		}),
 		Entry("four-node-one-client-green", TestConf{
@@ -174,7 +174,7 @@ var _ = Describe("Mirbft", func() {
 				ReqsPerClient: 100,
 			},
 			Assertions: Assertions{
-				CompletesInSteps: 5000,
+				CompletesInSteps: 9000,
 				IsNotLeader: map[uint64]Occurred{
 					0: Maybe, // TODO No
 					1: Maybe, // TODO No
@@ -190,7 +190,7 @@ var _ = Describe("Mirbft", func() {
 				ReqsPerClient: 100,
 			},
 			Assertions: Assertions{
-				CompletesInSteps: 20000,
+				CompletesInSteps: 30000,
 				IsNotLeader: map[uint64]Occurred{
 					0: Maybe, // TODO No
 					1: Maybe, // TODO No
@@ -224,7 +224,7 @@ var _ = Describe("Mirbft", func() {
 				ClientsIgnore: []uint64{0},
 			},
 			Assertions: Assertions{
-				CompletesInSteps: 20000,
+				CompletesInSteps: 30000,
 				StateTransferOccurred: map[uint64]Occurred{
 					0: Yes, // XXX this should be false once forwarding is working again
 				},
@@ -246,7 +246,7 @@ var _ = Describe("Mirbft", func() {
 				},
 			},
 			Assertions: Assertions{
-				CompletesInSteps: 20000,
+				CompletesInSteps: 30000,
 				IsNotLeader: map[uint64]Occurred{
 					0: Yes,
 					1: Maybe, // TODO No
@@ -265,7 +265,7 @@ var _ = Describe("Mirbft", func() {
 				},
 			},
 			Assertions: Assertions{
-				CompletesInSteps: 5000,
+				CompletesInSteps: 9000,
 				IsNotLeader: map[uint64]Occurred{
 					0: Yes,
 					1: Maybe, // TODO No
@@ -284,7 +284,7 @@ var _ = Describe("Mirbft", func() {
 				},
 			},
 			Assertions: Assertions{
-				CompletesInSteps: 5000,
+				CompletesInSteps: 9000,
 				IsNotLeader: map[uint64]Occurred{
 					0: Maybe, // TODO No
 					1: Maybe, // TODO No
@@ -303,7 +303,7 @@ var _ = Describe("Mirbft", func() {
 				},
 			},
 			Assertions: Assertions{
-				CompletesInSteps: 10000,
+				CompletesInSteps: 20000,
 				StateTransferOccurred: map[uint64]Occurred{
 					3: Yes,
 				},
@@ -325,7 +325,7 @@ var _ = Describe("Mirbft", func() {
 				},
 			},
 			Assertions: Assertions{
-				CompletesInSteps: 30000,
+				CompletesInSteps: 40000,
 				StateTransferOccurred: map[uint64]Occurred{
 					0: Maybe,
 					1: Maybe,

@@ -40,12 +40,24 @@ var _ = Describe("Recorder", func() {
 		}
 
 		if CurrentGinkgoTestDescription().Failed {
-			fmt.Printf("Printing state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
+			fmt.Printf("Printing state machine status because of failed test in %q\n", CurrentGinkgoTestDescription().TestText)
 			Expect(recording).NotTo(BeNil())
 
 			for nodeIndex, node := range recording.Nodes {
-				status := node.StateMachine.Status()
-				fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
+				fmt.Printf("\nStatus for node %d\n", nodeIndex)
+				if node.StateMachine == nil {
+					fmt.Printf("  Uninitialized\n")
+					continue
+				}
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							fmt.Printf("  Panic-ed!\n")
+						}
+					}()
+					status := node.StateMachine.Status()
+					fmt.Printf("%s\n", status.Pretty())
+				}()
 			}
 
 			fmt.Printf("EventLog available at '%s'\n", recordingFile.Name())
@@ -74,7 +86,7 @@ var _ = Describe("Recorder", func() {
 		It("Executes and produces a log", func() {
 			count, err := recording.DrainClients(50000)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(35489))
+			Expect(count).To(Equal(44338))
 
 			fmt.Printf("Executing test required a log of %d events\n", count)
 
@@ -106,7 +118,7 @@ var _ = Describe("Recorder", func() {
 		It("still executes and produces a log", func() {
 			count, err := recording.DrainClients(100)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(52))
+			Expect(count).To(Equal(67))
 		})
 	})
 })

@@ -14,17 +14,23 @@ import (
 
 	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/pb/state"
+	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
 type Event struct {
-	Target         uint64
-	Time           int64
-	Initialize     *EventInitialize
-	MsgReceived    *EventMsgReceived
-	ClientProposal *EventClientProposal
-	ProcessActions *EventProcessActions
-	ProcessEvents  *EventProcessEvents
-	Tick           *EventTick
+	Target                uint64
+	Time                  int64
+	Initialize            *EventInitialize
+	MsgReceived           *EventMsgReceived
+	ClientProposal        *EventClientProposal
+	ProcessWALActions     *statemachine.ActionList
+	ProcessNetActions     *statemachine.ActionList
+	ProcessHashActions    *statemachine.ActionList
+	ProcessClientActions  *statemachine.ActionList
+	ProcessAppActions     *statemachine.ActionList
+	ProcessReqStoreEvents *statemachine.EventList
+	ProcessResultEvents   *statemachine.EventList
+	Tick                  *EventTick
 }
 
 type EventInitialize struct {
@@ -42,9 +48,9 @@ type EventClientProposal struct {
 	Data     []byte
 }
 
-type EventProcessActions struct{}
+type EventProcessActions statemachine.ActionList
 
-type EventProcessEvents struct{}
+type EventProcessEvents statemachine.EventList
 
 type EventTick struct{}
 
@@ -141,22 +147,72 @@ func (l *EventQueue) InsertClientProposal(target, clientID, reqNo uint64, data [
 	)
 }
 
-func (l *EventQueue) InsertProcessEvents(target uint64, fromNow int64) {
+func (l *EventQueue) InsertProcessReqStoreEvents(target uint64, events *statemachine.EventList, fromNow int64) {
 	l.InsertEvent(
 		&Event{
-			Target:        target,
-			ProcessEvents: &EventProcessEvents{},
-			Time:          l.FakeTime + fromNow,
+			Target:                target,
+			ProcessReqStoreEvents: events,
+			Time:                  l.FakeTime + fromNow,
 		},
 	)
 }
 
-func (l *EventQueue) InsertProcessActions(target uint64, fromNow int64) {
+func (l *EventQueue) InsertProcessResultEvents(target uint64, events *statemachine.EventList, fromNow int64) {
 	l.InsertEvent(
 		&Event{
-			Target:         target,
-			ProcessActions: &EventProcessActions{},
-			Time:           l.FakeTime + fromNow,
+			Target:              target,
+			ProcessResultEvents: events,
+			Time:                l.FakeTime + fromNow,
+		},
+	)
+}
+
+func (l *EventQueue) InsertProcessWALActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target:            target,
+			ProcessWALActions: actions,
+			Time:              l.FakeTime + fromNow,
+		},
+	)
+}
+
+func (l *EventQueue) InsertProcessNetActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target:            target,
+			ProcessNetActions: actions,
+			Time:              l.FakeTime + fromNow,
+		},
+	)
+}
+
+func (l *EventQueue) InsertProcessClientActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target:               target,
+			ProcessClientActions: actions,
+			Time:                 l.FakeTime + fromNow,
+		},
+	)
+}
+
+func (l *EventQueue) InsertProcessHashActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target:             target,
+			ProcessHashActions: actions,
+			Time:               l.FakeTime + fromNow,
+		},
+	)
+}
+
+func (l *EventQueue) InsertProcessAppActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+	l.InsertEvent(
+		&Event{
+			Target:            target,
+			ProcessAppActions: actions,
+			Time:              l.FakeTime + fromNow,
 		},
 	)
 }
@@ -186,25 +242,35 @@ func (l *EventQueue) Status() string {
 	var buf bytes.Buffer
 	for i := 0; i < 50; i++ {
 		event := el.Value.(*Event)
-		var subEvent interface{}
+		var subEvent string
 		switch {
 		case event.Initialize != nil:
-			subEvent = event.Initialize
+			subEvent = "Initialize"
 		case event.MsgReceived != nil:
-			subEvent = event.MsgReceived
+			subEvent = "MsgReceived"
 		case event.ClientProposal != nil:
-			subEvent = event.ClientProposal
-		case event.ProcessActions != nil:
-			subEvent = event.ProcessActions
-		case event.ProcessEvents != nil:
-			subEvent = event.ProcessEvents
+			subEvent = "ClientProposal"
+		case event.ProcessWALActions != nil:
+			subEvent = "ProcessWALActions"
+		case event.ProcessNetActions != nil:
+			subEvent = "ProcessNetActions"
+		case event.ProcessHashActions != nil:
+			subEvent = "ProcessHashActions"
+		case event.ProcessClientActions != nil:
+			subEvent = "ProcessClientActions"
+		case event.ProcessAppActions != nil:
+			subEvent = "ProcessAppActions"
+		case event.ProcessReqStoreEvents != nil:
+			subEvent = "ProcessReqStoreEvents"
+		case event.ProcessResultEvents != nil:
+			subEvent = "ProcessResultEvents"
 		case event.Tick != nil:
-			subEvent = event.Tick
+			subEvent = "Tick"
 		default:
 			panic("unexpected event type")
 		}
 
-		fmt.Fprintf(&buf, "[node=%d, event_type=%T time=%d] %+v\n", event.Target, subEvent, event.Time, subEvent)
+		fmt.Fprintf(&buf, "[node=%d, event_type=%s time=%d] %+v\n", event.Target, subEvent, event.Time, subEvent)
 		el = el.Prev()
 		if i >= count || el == nil {
 			fmt.Fprintf(&buf, "\nCompleted eventlog summary of %d events\n", count)

@@ -20,7 +20,7 @@ import (
 
 var ErrClientNotExist error = errors.New("client does not exist")
 
-func (cs *Clients) client(clientID uint64) *Client {
+func (cs *Clients) Client(clientID uint64) *Client {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 	if cs.clients == nil {
@@ -50,7 +50,7 @@ func (c *Clients) ProcessClientActions(actions *statemachine.ActionList) (*state
 		switch t := action.Type.(type) {
 		case *state.Action_AllocatedRequest:
 			r := t.AllocatedRequest
-			client := c.client(r.ClientId)
+			client := c.Client(r.ClientId)
 			digest, err := client.allocate(r.ReqNo)
 			if err != nil {
 				return nil, err
@@ -66,7 +66,7 @@ func (c *Clients) ProcessClientActions(actions *statemachine.ActionList) (*state
 				Digest:   digest,
 			})
 		case *state.Action_CorrectRequest:
-			client := c.client(t.CorrectRequest.ClientId)
+			client := c.Client(t.CorrectRequest.ClientId)
 			err := client.addCorrectDigest(t.CorrectRequest.ReqNo, t.CorrectRequest.Digest)
 			if err != nil {
 				return nil, err

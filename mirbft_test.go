@@ -424,7 +424,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		client := p.Client(0)
+		client := p.State.Clients.Client(0)
 		for {
 			select {
 			case <-node.Err():
@@ -459,58 +459,33 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		}
 	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer GinkgoRecover()
-		events := &statemachine.EventList{}
-		var eC chan *statemachine.EventList
-		for {
-			var err error
-			select {
-			case actions := <-node.Actions():
-				var newEvents *statemachine.EventList
-				newEvents, err = p.Process(actions)
-				if err != nil {
-					break
-				}
-				events.PushBackList(newEvents)
-			// case <-p.State.ClientWork.Ready():
-			// events.PushBackList(p.State.ClientWork.Results())
-			case eC <- events:
-				events = &statemachine.EventList{}
-				eC = nil
-			case <-ticker.C:
-				events.TickElapsed()
-			case <-node.Err():
-				return
-			}
-
-			if err == mirbft.ErrStopped {
-				return
-			}
-			Expect(err).NotTo(HaveOccurred())
-
-			if events.Len() > 0 {
-				eC = eventsC
-			}
-		}
-	}()
-
 	for {
 		select {
+		case actions := <-node.Actions():
+			p.State.WorkItems.AddStateMachineActions(actions)
 		case events := <-eventsC:
-			err := node.InjectEvents(events)
-			if err == mirbft.ErrStopped {
-				return node.Status(context.Background())
-			}
-			Expect(err).NotTo(HaveOccurred())
+			p.State.WorkItems.AddResultEvents(events)
+		case <-ticker.C:
+			p.State.WorkItems.AddResultEvent(statemachine.EventTickElapsed())
 		case <-node.Err():
 			return node.Status(context.Background())
 		case <-tr.DoneC:
 			node.Stop()
 			return node.Status(context.Background())
 		}
+
+		err := p.Process()
+		Expect(err).NotTo(HaveOccurred())
+
+		if !p.State.WorkItems.HasResultEvents() {
+			continue
+		}
+
+		err = node.InjectEvents(p.State.WorkItems.ResultEvents())
+		if err == mirbft.ErrStopped {
+			return node.Status(context.Background())
+		}
+		Expect(err).NotTo(HaveOccurred())
 	}
 }
 

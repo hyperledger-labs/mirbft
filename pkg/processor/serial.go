@@ -152,9 +152,8 @@ func ProcessAppActions(app App, actions *statemachine.ActionList) (*statemachine
 }
 
 type State struct {
-	clients       Clients
-	pendingEvents *statemachine.EventList
-	WorkItems     *WorkItems
+	Clients   Clients
+	WorkItems *WorkItems
 }
 
 type Config struct {
@@ -170,11 +169,11 @@ func (c *Config) Serial() *Serial {
 	return &Serial{
 		Config: c,
 		State: State{
-			WorkItems: NewWorkItems(),
-			clients: Clients{
+			Clients: Clients{
 				RequestStore: c.RequestStore,
 				Hasher:       c.Hasher,
 			},
+			WorkItems: NewWorkItems(),
 		},
 	}
 }
@@ -184,58 +183,43 @@ type Serial struct {
 	Config *Config
 }
 
-func (s *Serial) Process(actions *statemachine.ActionList) (*statemachine.EventList, error) {
-	s.State.WorkItems.AddStateMachineActions(actions)
-
-	netActions, err := ProcessWALActions(s.Config.WAL, s.State.WorkItems.WALActions)
+func (s *Serial) Process() error {
+	netActions, err := ProcessWALActions(s.Config.WAL, s.State.WorkItems.WALActions())
 	if err != nil {
-		return nil, errors.WithMessage(err, "could not perform WAL actions")
+		return errors.WithMessage(err, "could not perform WAL actions")
 	}
-	s.State.WorkItems.WALActions = &statemachine.ActionList{}
-	s.State.WorkItems.AddWALActions(netActions)
+	s.State.WorkItems.AddNetActions(netActions)
 
-	clientEvents, err := s.State.clients.ProcessClientActions(s.State.WorkItems.ClientActions)
+	clientEvents, err := s.State.Clients.ProcessClientActions(s.State.WorkItems.ClientActions())
 	if err != nil {
-		return nil, errors.WithMessage(err, "could not perform client actions")
+		return errors.WithMessage(err, "could not perform client actions")
 	}
-	s.State.WorkItems.ClientActions = &statemachine.ActionList{}
 	s.State.WorkItems.AddReqStoreEvents(clientEvents)
 
-	hashEvents, err := ProcessHashActions(s.Config.Hasher, s.State.WorkItems.HashActions)
+	hashEvents, err := ProcessHashActions(s.Config.Hasher, s.State.WorkItems.HashActions())
 	if err != nil {
-		return nil, errors.WithMessage(err, "could not perform hash actions")
+		return errors.WithMessage(err, "could not perform hash actions")
 	}
-	s.State.WorkItems.HashActions = &statemachine.ActionList{}
-	s.State.WorkItems.ResultEvents.PushBackList(hashEvents)
+	s.State.WorkItems.AddResultEvents(hashEvents)
 
-	netEvents, err := ProcessNetActions(s.Config.NodeID, s.Config.Link, s.State.WorkItems.NetActions)
+	netEvents, err := ProcessNetActions(s.Config.NodeID, s.Config.Link, s.State.WorkItems.NetActions())
 	if err != nil {
-		return nil, errors.WithMessage(err, "could not perform net actions")
+		return errors.WithMessage(err, "could not perform net actions")
 	}
-	s.State.WorkItems.NetActions = &statemachine.ActionList{}
-	s.State.WorkItems.ResultEvents.PushBackList(netEvents)
+	s.State.WorkItems.AddResultEvents(netEvents)
 
-	appEvents, err := ProcessAppActions(s.Config.App, s.State.WorkItems.AppActions)
+	appEvents, err := ProcessAppActions(s.Config.App, s.State.WorkItems.AppActions())
 	if err != nil {
-		return nil, errors.WithMessage(err, "could not perform hash actions")
+		return errors.WithMessage(err, "could not perform hash actions")
 	}
-	s.State.WorkItems.AppActions = &statemachine.ActionList{}
-	s.State.WorkItems.ResultEvents.PushBackList(appEvents)
+	s.State.WorkItems.AddResultEvents(appEvents)
 
 	// Then we sync the request store
 	if err := s.Config.RequestStore.Sync(); err != nil {
-		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
+		return errors.WithMessage(err, "could not sync request store, unsafe to continue")
 	}
 
-	s.State.WorkItems.ResultEvents.PushBackList(s.State.WorkItems.ReqStoreEvents)
-	s.State.WorkItems.ReqStoreEvents = &statemachine.EventList{}
+	s.State.WorkItems.AddResultEvents(s.State.WorkItems.ReqStoreEvents())
 
-	result := s.State.WorkItems.ResultEvents
-	s.State.WorkItems.ResultEvents = &statemachine.EventList{}
-
-	return result, nil
-}
-
-func (s *Serial) Client(clientID uint64) *Client {
-	return s.State.clients.client(clientID)
+	return nil
 }
