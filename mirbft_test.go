@@ -352,7 +352,7 @@ func clientReq(clientID, reqNo uint64) []byte {
 }
 
 func (tr *TestReplica) Run() (*status.StateMachine, error) {
-	eventsC := make(chan *statemachine.EventList)
+	defer GinkgoRecover()
 
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
@@ -400,8 +400,10 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		WAL:          wal,
 	}).Serial()
 
+	netEventsC := make(chan *statemachine.EventList, 1000)
+
 	crs := &processor.ConcurrentReplicas{
-		EventC: eventsC,
+		EventC: netEventsC,
 	}
 
 	wg.Add(1)
@@ -420,6 +422,8 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 
 	expectedProposalCount := tr.FakeClient.MsgCount
 	Expect(expectedProposalCount).NotTo(Equal(0))
+
+	clientEventsC := make(chan *statemachine.EventList, 1000)
 
 	wg.Add(1)
 	go func() {
@@ -452,7 +456,12 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 					// so just returning for now, we should address later
 					break
 				}
-				eventsC <- events
+
+				select {
+				case <-node.Err():
+					return
+				case clientEventsC <- events:
+				}
 			}
 
 			time.Sleep(10 * time.Millisecond)
@@ -462,11 +471,13 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	for {
 		select {
 		case actions := <-node.Actions():
-			p.State.WorkItems.AddStateMachineActions(actions)
-		case events := <-eventsC:
-			p.State.WorkItems.AddResultEvents(events)
+			p.State.WorkItems.AddStateMachineResults(actions)
+		case events := <-netEventsC:
+			p.State.WorkItems.AddNetResults(events)
+		case events := <-clientEventsC:
+			p.State.WorkItems.AddClientResults(events)
 		case <-ticker.C:
-			p.State.WorkItems.AddResultEvent(statemachine.EventTickElapsed())
+			p.State.WorkItems.ResultEvents().TickElapsed()
 		case <-node.Err():
 			return node.Status(context.Background())
 		case <-tr.DoneC:
@@ -477,7 +488,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		err := p.Process()
 		Expect(err).NotTo(HaveOccurred())
 
-		if !p.State.WorkItems.HasResultEvents() {
+		if p.State.WorkItems.ResultEvents().Len() == 0 {
 			continue
 		}
 
@@ -486,6 +497,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			return node.Status(context.Background())
 		}
 		Expect(err).NotTo(HaveOccurred())
+		p.State.WorkItems.ClearResultEvents()
 	}
 }
 

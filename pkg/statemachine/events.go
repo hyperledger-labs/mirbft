@@ -64,7 +64,7 @@ func EventInitialize(initialParms *state.EventInitialParameters) *state.Event {
 	}
 }
 
-func (el *EventList) EventLoadPersistedEntry(index uint64, entry *msgs.Persistent) *EventList {
+func (el *EventList) LoadPersistedEntry(index uint64, entry *msgs.Persistent) *EventList {
 	el.PushBack(EventLoadPersistedEntry(index, entry))
 	return el
 }

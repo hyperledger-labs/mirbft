@@ -44,6 +44,15 @@ type WAL interface {
 	Sync() error
 }
 
+func ProcessReqStoreEvents(reqStore RequestStore, events *statemachine.EventList) (*statemachine.EventList, error) {
+	// Then we sync the request store
+	if err := reqStore.Sync(); err != nil {
+		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
+	}
+
+	return events, nil
+}
+
 func ProcessWALActions(wal WAL, actions *statemachine.ActionList) (*statemachine.ActionList, error) {
 	netActions := &statemachine.ActionList{}
 	// First we'll handle everything that's not a network send
@@ -178,48 +187,71 @@ func (c *Config) Serial() *Serial {
 	}
 }
 
+func (c *Config) Parallel() *Parallel {
+	return &Parallel{
+		Config: c,
+		State: State{
+			Clients: Clients{
+				RequestStore: c.RequestStore,
+				Hasher:       c.Hasher,
+			},
+			WorkItems: NewWorkItems(),
+		},
+	}
+}
+
 type Serial struct {
 	State  State
 	Config *Config
 }
 
 func (s *Serial) Process() error {
-	netActions, err := ProcessWALActions(s.Config.WAL, s.State.WorkItems.WALActions())
+	walResults, err := ProcessWALActions(s.Config.WAL, s.State.WorkItems.WALActions())
 	if err != nil {
 		return errors.WithMessage(err, "could not perform WAL actions")
 	}
-	s.State.WorkItems.AddNetActions(netActions)
+	s.State.WorkItems.ClearWALActions()
+	s.State.WorkItems.AddWALResults(walResults)
 
-	clientEvents, err := s.State.Clients.ProcessClientActions(s.State.WorkItems.ClientActions())
+	clientResults, err := s.State.Clients.ProcessClientActions(s.State.WorkItems.ClientActions())
 	if err != nil {
 		return errors.WithMessage(err, "could not perform client actions")
 	}
-	s.State.WorkItems.AddReqStoreEvents(clientEvents)
+	s.State.WorkItems.ClearClientActions()
+	s.State.WorkItems.AddClientResults(clientResults)
 
-	hashEvents, err := ProcessHashActions(s.Config.Hasher, s.State.WorkItems.HashActions())
+	hashResults, err := ProcessHashActions(s.Config.Hasher, s.State.WorkItems.HashActions())
 	if err != nil {
 		return errors.WithMessage(err, "could not perform hash actions")
 	}
-	s.State.WorkItems.AddResultEvents(hashEvents)
+	s.State.WorkItems.ClearHashActions()
+	s.State.WorkItems.AddHashResults(hashResults)
 
-	netEvents, err := ProcessNetActions(s.Config.NodeID, s.Config.Link, s.State.WorkItems.NetActions())
+	netResults, err := ProcessNetActions(s.Config.NodeID, s.Config.Link, s.State.WorkItems.NetActions())
 	if err != nil {
 		return errors.WithMessage(err, "could not perform net actions")
 	}
-	s.State.WorkItems.AddResultEvents(netEvents)
+	s.State.WorkItems.ClearNetActions()
+	s.State.WorkItems.AddNetResults(netResults)
 
-	appEvents, err := ProcessAppActions(s.Config.App, s.State.WorkItems.AppActions())
+	appResults, err := ProcessAppActions(s.Config.App, s.State.WorkItems.AppActions())
 	if err != nil {
-		return errors.WithMessage(err, "could not perform hash actions")
+		return errors.WithMessage(err, "could not perform app actions")
 	}
-	s.State.WorkItems.AddResultEvents(appEvents)
+	s.State.WorkItems.ClearAppActions()
+	s.State.WorkItems.AddAppResults(appResults)
 
-	// Then we sync the request store
-	if err := s.Config.RequestStore.Sync(); err != nil {
-		return errors.WithMessage(err, "could not sync request store, unsafe to continue")
+	reqStoreResults, err := ProcessReqStoreEvents(s.Config.RequestStore, s.State.WorkItems.ReqStoreEvents())
+	if err != nil {
+		return errors.WithMessage(err, "could not perform reqstore actions")
 	}
-
-	s.State.WorkItems.AddResultEvents(s.State.WorkItems.ReqStoreEvents())
+	s.State.WorkItems.ClearReqStoreEvents()
+	s.State.WorkItems.AddReqStoreResults(reqStoreResults)
 
 	return nil
+}
+
+type Parallel struct {
+	State  State
+	Config *Config
 }

@@ -246,12 +246,12 @@ func (n *Node) Initialize(initParms *state.EventInitialParameters, logger statem
 	n.ProcessAppActionsPending = false
 	n.ProcessClientActionsPending = false
 
-	n.Processor.State.WorkItems.AddResultEvent(statemachine.EventInitialize(initParms))
+	n.Processor.State.WorkItems.ResultEvents().Initialize(initParms)
 
 	var maxCEntry *msgs.CEntry
 
 	n.WAL.LoadAll(func(index uint64, p *msgs.Persistent) {
-		n.Processor.State.WorkItems.AddResultEvent(statemachine.EventLoadPersistedEntry(index, p))
+		n.Processor.State.WorkItems.ResultEvents().LoadPersistedEntry(index, p)
 
 		if cEntryT, ok := p.Type.(*msgs.Persistent_CEntry); ok {
 			maxCEntry = cEntryT.CEntry
@@ -268,7 +268,7 @@ func (n *Node) Initialize(initParms *state.EventInitialParameters, logger statem
 	// A bit hacky, but undo recording this as a state transfer.
 	n.State.StateTransfers = n.State.StateTransfers[:len(n.State.StateTransfers)-1]
 
-	n.Processor.State.WorkItems.AddResultEvent(statemachine.EventCompleteInitialization())
+	n.Processor.State.WorkItems.ResultEvents().CompleteInitialization()
 
 	return maxCEntry.NetworkState, nil
 }
@@ -547,7 +547,7 @@ func (r *Recording) Step() error {
 			// to prevent the receive from going into the eventqueue
 			break
 		}
-		node.Processor.State.WorkItems.AddResultEvent(statemachine.EventStep(event.MsgReceived.Source, event.MsgReceived.Msg))
+		node.Processor.State.WorkItems.ResultEvents().Step(event.MsgReceived.Source, event.MsgReceived.Msg)
 	case event.ClientProposal != nil:
 		prop := event.ClientProposal
 		client := node.Processor.State.Clients.Client(prop.ClientID)
@@ -578,17 +578,17 @@ func (r *Recording) Step() error {
 		if err != nil {
 			return errors.WithMessage(err, "unanticipated client propose error")
 		}
-		node.Processor.State.WorkItems.AddReqStoreEvents(events)
+		node.Processor.State.WorkItems.AddClientResults(events)
 
 		data := tClient.RequestByReqNo(reqNo + 1)
 		if data != nil {
 			r.EventQueue.InsertClientProposal(nodeID, prop.ClientID, reqNo+1, data, int64(runtimeParms.ProcessClientLatency))
 		}
 	case event.Tick != nil:
-		node.Processor.State.WorkItems.AddResultEvent(statemachine.EventTickElapsed())
+		node.Processor.State.WorkItems.ResultEvents().TickElapsed()
 		r.EventQueue.InsertTickEvent(nodeID, int64(runtimeParms.TickInterval))
 	case event.ProcessReqStoreEvents != nil:
-		node.Processor.State.WorkItems.AddResultEvents(event.ProcessReqStoreEvents)
+		node.Processor.State.WorkItems.AddReqStoreResults(event.ProcessReqStoreEvents)
 		node.ProcessReqStoreEventsPending = false
 	case event.ProcessResultEvents != nil:
 		events := event.ProcessResultEvents
@@ -605,7 +605,7 @@ func (r *Recording) Step() error {
 				}
 			}
 
-			node.Processor.State.WorkItems.AddStateMachineActions(node.StateMachine.ApplyEvent(stateEvent))
+			node.Processor.State.WorkItems.AddStateMachineResults(node.StateMachine.ApplyEvent(stateEvent))
 		}
 		node.ProcessResultEventsPending = false
 	case event.ProcessWALActions != nil:
@@ -613,35 +613,35 @@ func (r *Recording) Step() error {
 		if err != nil {
 			return errors.WithMessage(err, "could not process WAL actions")
 		}
-		node.Processor.State.WorkItems.AddNetActions(netActions)
+		node.Processor.State.WorkItems.AddWALResults(netActions)
 		node.ProcessWALActionsPending = false
 	case event.ProcessNetActions != nil:
 		netResults, err := processor.ProcessNetActions(nodeID, node.Link, event.ProcessNetActions)
 		if err != nil {
 			return errors.WithMessage(err, "could not process net actions")
 		}
-		node.Processor.State.WorkItems.AddResultEvents(netResults)
+		node.Processor.State.WorkItems.AddNetResults(netResults)
 		node.ProcessNetActionsPending = false
 	case event.ProcessHashActions != nil:
 		hashResults, err := processor.ProcessHashActions(node.Hasher, event.ProcessHashActions)
 		if err != nil {
 			return errors.WithMessage(err, "could not process hash actions")
 		}
-		node.Processor.State.WorkItems.AddResultEvents(hashResults)
+		node.Processor.State.WorkItems.AddHashResults(hashResults)
 		node.ProcessHashActionsPending = false
 	case event.ProcessClientActions != nil:
 		clientResults, err := node.Processor.State.Clients.ProcessClientActions(event.ProcessClientActions)
 		if err != nil {
 			return errors.WithMessage(err, "could not process client actions")
 		}
-		node.Processor.State.WorkItems.AddResultEvents(clientResults)
+		node.Processor.State.WorkItems.AddClientResults(clientResults)
 		node.ProcessClientActionsPending = false
 	case event.ProcessAppActions != nil:
 		appResults, err := processor.ProcessAppActions(node.State, event.ProcessAppActions)
 		if err != nil {
 			return errors.WithMessage(err, "could not process app actions")
 		}
-		node.Processor.State.WorkItems.AddResultEvents(appResults)
+		node.Processor.State.WorkItems.AddAppResults(appResults)
 		node.ProcessAppActionsPending = false
 	default:
 		return errors.Errorf("unknown event type")
@@ -651,40 +651,47 @@ func (r *Recording) Step() error {
 		return nil
 	}
 
-	if !node.ProcessWALActionsPending && node.Processor.State.WorkItems.HasWALActions() {
+	if !node.ProcessWALActionsPending && node.Processor.State.WorkItems.WALActions().Len() > 0 {
 		node.ProcessWALActionsPending = true
 		r.EventQueue.InsertProcessWALActions(nodeID, node.Processor.State.WorkItems.WALActions(), int64(runtimeParms.ProcessWALLatency))
+		node.Processor.State.WorkItems.ClearWALActions()
 	}
 
-	if !node.ProcessNetActionsPending && node.Processor.State.WorkItems.HasNetActions() {
+	if !node.ProcessNetActionsPending && node.Processor.State.WorkItems.NetActions().Len() > 0 {
 		node.ProcessNetActionsPending = true
 		r.EventQueue.InsertProcessNetActions(nodeID, node.Processor.State.WorkItems.NetActions(), int64(runtimeParms.ProcessNetLatency))
+		node.Processor.State.WorkItems.ClearNetActions()
 	}
 
-	if !node.ProcessClientActionsPending && node.Processor.State.WorkItems.HasClientActions() {
+	if !node.ProcessClientActionsPending && node.Processor.State.WorkItems.ClientActions().Len() > 0 {
 		node.ProcessClientActionsPending = true
 		r.EventQueue.InsertProcessClientActions(nodeID, node.Processor.State.WorkItems.ClientActions(), int64(runtimeParms.ProcessClientLatency))
+		node.Processor.State.WorkItems.ClearClientActions()
 	}
 
-	if !node.ProcessHashActionsPending && node.Processor.State.WorkItems.HasHashActions() {
+	if !node.ProcessHashActionsPending && node.Processor.State.WorkItems.HashActions().Len() > 0 {
 		node.ProcessHashActionsPending = true
 		r.EventQueue.InsertProcessHashActions(nodeID, node.Processor.State.WorkItems.HashActions(), int64(runtimeParms.ProcessHashLatency))
+		node.Processor.State.WorkItems.ClearHashActions()
 	}
 
-	if !node.ProcessAppActionsPending && node.Processor.State.WorkItems.HasAppActions() {
+	if !node.ProcessAppActionsPending && node.Processor.State.WorkItems.AppActions().Len() > 0 {
 		node.ProcessAppActionsPending = true
 		r.EventQueue.InsertProcessAppActions(nodeID, node.Processor.State.WorkItems.AppActions(), int64(runtimeParms.ProcessAppLatency))
+		node.Processor.State.WorkItems.ClearAppActions()
 	}
 
-	if !node.ProcessReqStoreEventsPending && node.Processor.State.WorkItems.HasReqStoreEvents() {
+	if !node.ProcessReqStoreEventsPending && node.Processor.State.WorkItems.ReqStoreEvents().Len() > 0 {
 		node.ProcessReqStoreEventsPending = true
 		r.EventQueue.InsertProcessReqStoreEvents(nodeID, node.Processor.State.WorkItems.ReqStoreEvents(), int64(runtimeParms.ProcessReqStoreLatency))
+		node.Processor.State.WorkItems.ClearReqStoreEvents()
 	}
 
-	if !node.ProcessResultEventsPending && node.Processor.State.WorkItems.HasResultEvents() {
+	if !node.ProcessResultEventsPending && node.Processor.State.WorkItems.ResultEvents().Len() > 0 {
 		events := node.Processor.State.WorkItems.ResultEvents()
 		node.ProcessResultEventsPending = true
 		r.EventQueue.InsertProcessResultEvents(nodeID, events, int64(runtimeParms.ProcessEventsLatency))
+		node.Processor.State.WorkItems.ClearResultEvents()
 	}
 
 	return nil
