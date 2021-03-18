@@ -398,12 +398,13 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		RequestStore: reqStore,
 		App:          tr.App,
 		WAL:          wal,
-	}).Serial()
+	}).Processor()
 
-	netEventsC := make(chan *statemachine.EventList, 1000)
+	p.Start()
+	defer p.Stop()
 
 	crs := &processor.ConcurrentReplicas{
-		EventC: netEventsC,
+		EventC: p.ResultEventsC,
 	}
 
 	wg.Add(1)
@@ -423,12 +424,10 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	expectedProposalCount := tr.FakeClient.MsgCount
 	Expect(expectedProposalCount).NotTo(Equal(0))
 
-	clientEventsC := make(chan *statemachine.EventList, 1000)
-
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		client := p.State.Clients.Client(0)
+		client := p.Clients.Client(0)
 		for {
 			select {
 			case <-node.Err():
@@ -460,7 +459,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 				select {
 				case <-node.Err():
 					return
-				case clientEventsC <- events:
+				case p.ResultEventsC <- events:
 				}
 			}
 
@@ -468,16 +467,26 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		}
 	}()
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		p.Process()
+	}()
+
+	var actionsC chan<- *statemachine.ActionList
+	actions := &statemachine.ActionList{}
+	events := &statemachine.EventList{}
 	for {
 		select {
-		case actions := <-node.Actions():
-			p.State.WorkItems.AddStateMachineResults(actions)
-		case events := <-netEventsC:
-			p.State.WorkItems.AddNetResults(events)
-		case events := <-clientEventsC:
-			p.State.WorkItems.AddClientResults(events)
+		case newActions := <-node.Actions():
+			actions.PushBackList(newActions)
+		case actionsC <- actions:
+			actions = &statemachine.ActionList{}
+			actionsC = nil
+		case newEvents := <-p.ResultEventsC:
+			events.PushBackList(newEvents)
 		case <-ticker.C:
-			p.State.WorkItems.ResultEvents().TickElapsed()
+			events.TickElapsed()
 		case <-node.Err():
 			return node.Status(context.Background())
 		case <-tr.DoneC:
@@ -485,19 +494,18 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			return node.Status(context.Background())
 		}
 
-		err := p.Process()
-		Expect(err).NotTo(HaveOccurred())
-
-		if p.State.WorkItems.ResultEvents().Len() == 0 {
-			continue
+		if actionsC == nil && actions.Len() > 0 {
+			actionsC = p.ResultResultsC
 		}
 
-		err = node.InjectEvents(p.State.WorkItems.ResultEvents())
-		if err == mirbft.ErrStopped {
-			return node.Status(context.Background())
+		if events.Len() > 0 {
+			err = node.InjectEvents(events)
+			if err == mirbft.ErrStopped {
+				return node.Status(context.Background())
+			}
+			Expect(err).NotTo(HaveOccurred())
+			events = &statemachine.EventList{}
 		}
-		Expect(err).NotTo(HaveOccurred())
-		p.State.WorkItems.ClearResultEvents()
 	}
 }
 
