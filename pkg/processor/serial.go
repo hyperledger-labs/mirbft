@@ -9,9 +9,11 @@ package processor
 import (
 	"hash"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 
+	"github.com/IBM/mirbft/pkg/eventlog"
 	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/statemachine"
@@ -45,6 +47,7 @@ type WAL interface {
 	Write(index uint64, entry *msgs.Persistent) error
 	Truncate(index uint64) error
 	Sync() error
+	LoadAll(forEach func(index uint64, p *msgs.Persistent)) error
 }
 
 func ProcessReqStoreEvents(reqStore RequestStore, events *statemachine.EventList) (*statemachine.EventList, error) {
@@ -56,13 +59,70 @@ func ProcessReqStoreEvents(reqStore RequestStore, events *statemachine.EventList
 	return events, nil
 }
 
+func IntializeWALForNewNode(
+	wal WAL,
+	runtimeParms *state.EventInitialParameters,
+	initialNetworkState *msgs.NetworkState,
+	initialCheckpointValue []byte,
+) (*statemachine.EventList, error) {
+	entries := []*msgs.Persistent{
+		{
+			Type: &msgs.Persistent_CEntry{
+				CEntry: &msgs.CEntry{
+					SeqNo:           0,
+					CheckpointValue: initialCheckpointValue,
+					NetworkState:    initialNetworkState,
+				},
+			},
+		},
+		{
+			Type: &msgs.Persistent_FEntry{
+				FEntry: &msgs.FEntry{
+					EndsEpochConfig: &msgs.EpochConfig{
+						Number:  0,
+						Leaders: initialNetworkState.Config.Nodes,
+					},
+				},
+			},
+		},
+	}
+
+	events := &statemachine.EventList{}
+	events.Initialize(runtimeParms)
+	for i, entry := range entries {
+		index := uint64(i + 1)
+		events.LoadPersistedEntry(index, entry)
+		if err := wal.Write(index, entry); err != nil {
+			return nil, errors.WithMessagef(err, "failed to write entry to WAL at index %d", index)
+		}
+	}
+	events.CompleteInitialization()
+
+	if err := wal.Sync(); err != nil {
+		return nil, errors.WithMessage(err, "failted to sync WAL")
+	}
+	return events, nil
+}
+
+func RecoverWALForExistingNode(wal WAL, runtimeParms *state.EventInitialParameters) (*statemachine.EventList, error) {
+	events := &statemachine.EventList{}
+	events.Initialize(runtimeParms)
+	if err := wal.LoadAll(func(index uint64, entry *msgs.Persistent) {
+		events.LoadPersistedEntry(index, entry)
+	}); err != nil {
+		return nil, err
+	}
+	events.CompleteInitialization()
+	return events, nil
+}
+
 func ProcessWALActions(wal WAL, actions *statemachine.ActionList) (*statemachine.ActionList, error) {
-	netActionsC := &statemachine.ActionList{}
+	netActions := &statemachine.ActionList{}
 	iter := actions.Iterator()
 	for action := iter.Next(); action != nil; action = iter.Next() {
 		switch t := action.Type.(type) {
 		case *state.Action_Send:
-			netActionsC.PushBack(action)
+			netActions.PushBack(action)
 		case *state.Action_AppendWriteAhead:
 			write := t.AppendWriteAhead
 			if err := wal.Write(write.Index, write.Data); err != nil {
@@ -83,7 +143,7 @@ func ProcessWALActions(wal WAL, actions *statemachine.ActionList) (*statemachine
 		return nil, errors.WithMessage(err, "failted to sync WAL")
 	}
 
-	return netActionsC, nil
+	return netActions, nil
 }
 
 func ProcessNetActions(selfID uint64, link Link, actions *statemachine.ActionList) (*statemachine.EventList, error) {
@@ -169,7 +229,7 @@ type Config struct {
 	RequestStore RequestStore
 }
 
-func (c *Config) Processor() *Processor {
+func (c *Config) Processor(interceptor *eventlog.Recorder, logger statemachine.Logger) *Processor {
 	return &Processor{
 		Config: c,
 		Clients: &Clients{
@@ -177,8 +237,12 @@ func (c *Config) Processor() *Processor {
 			Hasher:       c.Hasher,
 		},
 		WorkItems: NewWorkItems(),
+		StateMachine: &statemachine.StateMachine{
+			Logger: logger,
+		},
 
 		workErrNotifier: newWorkErrNotifier(),
+		interceptor:     interceptor,
 
 		walActionsC:      make(chan *statemachine.ActionList),
 		walResultsC:      make(chan *statemachine.ActionList),
@@ -230,11 +294,13 @@ func (wen *workErrNotifier) ExitC() <-chan struct{} {
 }
 
 type Processor struct {
-	Config    *Config
-	Clients   *Clients
-	WorkItems *WorkItems
+	Config       *Config
+	Clients      *Clients
+	WorkItems    *WorkItems
+	StateMachine *statemachine.StateMachine
 
 	workErrNotifier *workErrNotifier
+	interceptor     *eventlog.Recorder
 
 	walActionsC      chan *statemachine.ActionList
 	walResultsC      chan *statemachine.ActionList
@@ -252,6 +318,10 @@ type Processor struct {
 	// Exported as a temporary hack
 	ResultEventsC  chan *statemachine.EventList
 	ResultResultsC chan *statemachine.ActionList
+}
+
+func (p *Processor) Err() <-chan struct{} {
+	return p.workErrNotifier.ExitC()
 }
 
 func (p *Processor) doWALWork(exitC <-chan struct{}) error {
@@ -394,7 +464,49 @@ func (p *Processor) doReqStoreWork(exitC <-chan struct{}) error {
 	return nil
 }
 
-func (p *Processor) doUntilErr(work func(exitC <-chan struct{}) error) {
+func (p *Processor) doStateMachineWork(exitC <-chan struct{}) (err error) {
+	var events *statemachine.EventList
+	select {
+	case events = <-p.ResultEventsC:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	actions := &statemachine.ActionList{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				if rErr, ok := r.(error); ok {
+					err = errors.WithMessage(rErr, "panic in state machine")
+				} else {
+					err = errors.Errorf("panic in state machine: %v", r)
+				}
+			}
+		}()
+		iter := events.Iterator()
+		for event := iter.Next(); event != nil; event = iter.Next() {
+			p.interceptor.Intercept(event)
+			actions.PushBackList(p.StateMachine.ApplyEvent(event))
+		}
+	}()
+
+	if actions.Len() == 0 {
+		return nil
+	}
+
+	select {
+	case p.ResultResultsC <- actions:
+		p.interceptor.Intercept(statemachine.EventActionsReceived())
+	case <-exitC:
+		return ErrStopped
+	}
+
+	return nil
+}
+
+type workFunc func(exitC <-chan struct{}) error
+
+func (p *Processor) doUntilErr(work workFunc) {
 	for {
 		err := work(p.workErrNotifier.ExitC())
 		if err != nil {
@@ -404,20 +516,55 @@ func (p *Processor) doUntilErr(work func(exitC <-chan struct{}) error) {
 	}
 }
 
-func (p *Processor) Start() {
-	go p.doUntilErr(p.doWALWork)
-	go p.doUntilErr(p.doClientWork)
-	go p.doUntilErr(p.doHashWork) // TODO, start multiple of these, or otherwise parallelize
-	go p.doUntilErr(p.doNetWork)
-	go p.doUntilErr(p.doAppWork)
-	go p.doUntilErr(p.doReqStoreWork)
+func (p *Processor) ProcessAsNewNode(
+	exitC <-chan struct{},
+	tickC <-chan time.Time,
+	runtimeParms *state.EventInitialParameters,
+	initialNetworkState *msgs.NetworkState,
+	initialCheckpointValue []byte,
+) error {
+	events, err := IntializeWALForNewNode(p.Config.WAL, runtimeParms, initialNetworkState, initialCheckpointValue)
+	if err != nil {
+		return err
+	}
+
+	p.WorkItems.ResultEvents().PushBackList(events)
+	return p.process(exitC, tickC)
 }
 
-func (p *Processor) Stop() {
-	p.workErrNotifier.Fail(ErrStopped)
+func (p *Processor) RestartProcessing(
+	exitC <-chan struct{},
+	tickC <-chan time.Time,
+	runtimeParms *state.EventInitialParameters,
+) error {
+	events, err := RecoverWALForExistingNode(p.Config.WAL, runtimeParms)
+	if err != nil {
+		return err
+	}
+
+	p.WorkItems.ResultEvents().PushBackList(events)
+	return p.process(exitC, tickC)
 }
 
-func (p *Processor) Process() error {
+func (p *Processor) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
+	var wg sync.WaitGroup
+	for _, work := range []workFunc{
+		p.doWALWork,
+		p.doClientWork,
+		p.doHashWork,
+		p.doNetWork,
+		p.doAppWork,
+		p.doReqStoreWork,
+		p.doStateMachineWork,
+	} {
+		wg.Add(1)
+		go func(work workFunc) {
+			wg.Done()
+			p.doUntilErr(work)
+		}(work)
+	}
+	defer wg.Wait()
+
 	var walActionsC, clientActionsC, hashActionsC, netActionsC, appActionsC chan<- *statemachine.ActionList
 	var reqStoreEventsC, resultEventsC chan<- *statemachine.EventList
 
@@ -460,6 +607,10 @@ func (p *Processor) Process() error {
 			p.WorkItems.AddStateMachineResults(actions)
 		case <-p.workErrNotifier.ExitC():
 			return p.workErrNotifier.Err()
+		case <-tickC:
+			p.WorkItems.ResultEvents().TickElapsed()
+		case <-exitC:
+			p.workErrNotifier.Fail(ErrStopped)
 		}
 
 		if resultEventsC == nil && p.WorkItems.ResultEvents().Len() > 0 {

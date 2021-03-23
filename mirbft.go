@@ -17,8 +17,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/IBM/mirbft/pkg/eventlog"
 	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/statemachine"
+	"github.com/IBM/mirbft/pkg/processor"
 	"github.com/IBM/mirbft/pkg/status"
 	"github.com/pkg/errors"
 )
@@ -39,8 +40,8 @@ type WALStorage interface {
 // The methods exposed on Node are all thread safe, though typically, a single loop handles
 // reading Actions, writing results, and writing ticks, while other go routines Propose and Step.
 type Node struct {
-	Config *Config
-	s      *serializer
+	Config    *Config
+	Processor *processor.Processor
 }
 
 func StandardInitialNetworkState(nodeCount int, clientCount int) *msgs.NetworkState {
@@ -74,75 +75,19 @@ func StandardInitialNetworkState(nodeCount int, clientCount int) *msgs.NetworkSt
 	}
 }
 
-type dummyWAL struct {
-	initialNetworkState    *msgs.NetworkState
-	initialCheckpointValue []byte
-}
-
-func (dw *dummyWAL) LoadAll(forEach func(uint64, *msgs.Persistent)) error {
-	forEach(1, &msgs.Persistent{
-		Type: &msgs.Persistent_CEntry{
-			CEntry: &msgs.CEntry{
-				SeqNo:           0,
-				CheckpointValue: dw.initialCheckpointValue,
-				NetworkState:    dw.initialNetworkState,
-			},
-		},
-	})
-
-	forEach(2, &msgs.Persistent{
-		Type: &msgs.Persistent_FEntry{
-			FEntry: &msgs.FEntry{
-				EndsEpochConfig: &msgs.EpochConfig{
-					Number:  0,
-					Leaders: dw.initialNetworkState.Config.Nodes,
-				},
-			},
-		},
-	})
-
-	return nil
-}
-
-// StartNewNode creates a node to join a fresh network.  The first actions returned
-// by the node will be to persist the initial parameters to the WAL so that on subsequent
-// starts RestartNode should be invoked instead.  The initialCheckpointValue should reflect
-// any initial state of the application as well as the initialNetworkState passed to the start.
-func StartNewNode(
+// NewNode creates a new node.  The processor must be started either by invoking
+// node.Processor.StartNewNode with the initial state or by invoking node.Processor.RestartNode.
+func NewNode(
 	config *Config,
-	initialNetworkState *msgs.NetworkState,
-	initialCheckpointValue []byte,
+	processorConfig *processor.Config,
 ) (*Node, error) {
-	return RestartNode(
-		config,
-		&dummyWAL{
-			initialNetworkState:    initialNetworkState,
-			initialCheckpointValue: initialCheckpointValue,
-		},
-	)
-}
-
-// RestartNode should be invoked for any subsequent starts of the Node.  It reads
-// the supplied WAL and Request store to initialize the state machine and therefore
-// does not require network parameters as they are embedded into the WAL.
-func RestartNode(
-	config *Config,
-	walStorage WALStorage,
-) (*Node, error) {
-	serializer, err := newSerializer(config, walStorage)
-	if err != nil {
-		return nil, errors.Errorf("failed to start new node: %s", err)
-	}
-
 	return &Node{
 		Config: config,
-		s:      serializer,
+		Processor: processorConfig.Processor(
+			config.EventInterceptor.(*eventlog.Recorder), // XXX wrong
+			logAdapter{Logger: config.Logger},
+		),
 	}, nil
-}
-
-// Stop terminates the resources associated with the node
-func (n *Node) Stop() {
-	n.s.stop()
 }
 
 // Status returns a static snapshot in time of the internal state of the state machine.
@@ -153,33 +98,8 @@ func (n *Node) Stop() {
 // This final status may be relied upon if it is non-nil.  If the serializer exited at the user's
 // request (because the done channel was closed), then ErrStopped is returned.
 func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
-	statusC := make(chan *status.StateMachine, 1)
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case n.s.statusC <- statusC:
-		select {
-		case status := <-statusC:
-			return status, nil
-		case <-n.s.errC:
-		}
-	case <-n.s.errC:
-		// Note, we do not check the doneC, as if doneC closes, errC eventually closes
-	}
-
-	// The serializer has exited
-	n.s.exitMutex.Lock()
-	defer n.s.exitMutex.Unlock()
-
-	return n.s.exitStatus, n.s.exitErr
-}
-
-// Ready returns a channel which will deliver Actions for the user to perform.
-// See the documentation for Actions regarding the detailed responsibilities
-// of the caller.
-func (n *Node) Actions() <-chan *statemachine.ActionList {
-	return n.s.actionsC
+	// XXX Broken, fix me
+	return nil, errors.New("XXX FIXME")
 }
 
 // Err should never close unless the consumer has requested the library exit
@@ -190,21 +110,5 @@ func (n *Node) Actions() <-chan *statemachine.ActionList {
 // If the exit was caused gracefully (by closing the done channel), then ErrStopped
 // is returned.
 func (n *Node) Err() <-chan struct{} {
-	return n.s.errC
-}
-
-// InjectEvents is called by the consumer after processing actions, or because
-// events such as network sends or client requests have occurred.
-// If the node is stopped, it returns the exit error otherwise nil is returned.
-func (n *Node) InjectEvents(events *statemachine.EventList) error {
-	select {
-	case n.s.eventsC <- events:
-		return nil
-	case <-n.s.errC:
-		return n.s.getExitErr()
-	}
-}
-
-func (n *Node) EventsC() chan<- *statemachine.EventList {
-	return n.s.eventsC
+	return n.Processor.Err()
 }

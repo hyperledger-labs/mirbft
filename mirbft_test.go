@@ -25,10 +25,10 @@ import (
 	"github.com/IBM/mirbft"
 	"github.com/IBM/mirbft/pkg/eventlog"
 	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/processor"
 	"github.com/IBM/mirbft/pkg/reqstore"
 	"github.com/IBM/mirbft/pkg/simplewal"
-	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 )
 
@@ -387,24 +387,21 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
-	node, err := mirbft.StartNewNode(tr.Config, tr.InitialNetworkState, []byte("fake-application-state"))
+	node, err := mirbft.NewNode(
+		tr.Config,
+		&processor.Config{
+			NodeID:       tr.Config.ID,
+			Link:         tr.FakeTransport.Link(tr.Config.ID),
+			Hasher:       crypto.SHA256,
+			RequestStore: reqStore,
+			App:          tr.App,
+			WAL:          wal,
+		},
+	)
 	Expect(err).NotTo(HaveOccurred())
-	defer node.Stop()
-
-	p := (&processor.Config{
-		NodeID:       node.Config.ID,
-		Link:         tr.FakeTransport.Link(node.Config.ID),
-		Hasher:       crypto.SHA256,
-		RequestStore: reqStore,
-		App:          tr.App,
-		WAL:          wal,
-	}).Processor()
-
-	p.Start()
-	defer p.Stop()
 
 	crs := &processor.ConcurrentReplicas{
-		EventC: p.ResultEventsC,
+		EventC: node.Processor.ResultEventsC,
 	}
 
 	wg.Add(1)
@@ -427,7 +424,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		client := p.Clients.Client(0)
+		client := node.Processor.Clients.Client(0)
 		for {
 			select {
 			case <-node.Err():
@@ -459,7 +456,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 				select {
 				case <-node.Err():
 					return
-				case p.ResultEventsC <- events:
+				case node.Processor.ResultEventsC <- events:
 				}
 			}
 
@@ -467,46 +464,17 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		}
 	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		p.Process()
-	}()
-
-	var actionsC chan<- *statemachine.ActionList
-	actions := &statemachine.ActionList{}
-	events := &statemachine.EventList{}
-	for {
-		select {
-		case newActions := <-node.Actions():
-			actions.PushBackList(newActions)
-		case actionsC <- actions:
-			actions = &statemachine.ActionList{}
-			actionsC = nil
-		case newEvents := <-p.ResultEventsC:
-			events.PushBackList(newEvents)
-		case <-ticker.C:
-			events.TickElapsed()
-		case <-node.Err():
-			return node.Status(context.Background())
-		case <-tr.DoneC:
-			node.Stop()
-			return node.Status(context.Background())
-		}
-
-		if actionsC == nil && actions.Len() > 0 {
-			actionsC = p.ResultResultsC
-		}
-
-		if events.Len() > 0 {
-			err = node.InjectEvents(events)
-			if err == mirbft.ErrStopped {
-				return node.Status(context.Background())
-			}
-			Expect(err).NotTo(HaveOccurred())
-			events = &statemachine.EventList{}
-		}
+	initParms := &state.EventInitialParameters{
+		Id:                   tr.Config.ID,
+		BatchSize:            tr.Config.BatchSize,
+		HeartbeatTicks:       tr.Config.HeartbeatTicks,
+		SuspectTicks:         tr.Config.SuspectTicks,
+		NewEpochTimeoutTicks: tr.Config.NewEpochTimeoutTicks,
+		BufferSize:           tr.Config.BufferSize,
 	}
+
+	err = node.Processor.ProcessAsNewNode(tr.DoneC, ticker.C, initParms, tr.InitialNetworkState, []byte("fake"))
+	return nil, nil
 }
 
 type Network struct {
