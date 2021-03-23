@@ -148,6 +148,7 @@ type stateMachines struct {
 	output   io.Writer
 }
 
+// Wrapper for a state machine keeping track of pending actions and execution time.
 type stateMachine struct {
 	machine        *statemachine.StateMachine
 	pendingActions *statemachine.ActionList
@@ -162,10 +163,13 @@ func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMa
 	}
 }
 
+// Applies an event to the corresponding (according to the event's NodeId) state machine.
 func (s *stateMachines) apply(event *recording.Event) (result *statemachine.ActionList, err error) {
 	var node *stateMachine
 
+	// Select state machine to apply event to.
 	if _, ok := event.StateEvent.Type.(*state.Event_Initialize); ok {
+		// If the event is an initialization event, create a new state machine.
 		delete(s.nodes, event.NodeId)
 		node = &stateMachine{
 			machine: &statemachine.StateMachine{
@@ -179,6 +183,7 @@ func (s *stateMachines) apply(event *recording.Event) (result *statemachine.Acti
 		}
 		s.nodes[event.NodeId] = node
 	} else {
+		// For a non-initialization event, select the state machine by the event's NodeId.
 		var ok bool
 		node, ok = s.nodes[event.NodeId]
 		if !ok {
@@ -186,12 +191,15 @@ func (s *stateMachines) apply(event *recording.Event) (result *statemachine.Acti
 		}
 	}
 
+	// Catch errors resulting from applying event to state machine.
 	defer func() {
 		if r := recover(); r != nil {
 			err = errors.Errorf("node %d panic-ed while applying state event to state machine:\n\n%s\n\n%s", event.NodeId, r, debug.Stack())
 		}
 	}()
 
+	// Apply event to state machine and save resulting requested actions,
+	// while measuring time the application took.
 	start := time.Now()
 	actions := node.machine.ApplyEvent(event.StateEvent)
 	node.executionTime += time.Since(start)
@@ -200,6 +208,7 @@ func (s *stateMachines) apply(event *recording.Event) (result *statemachine.Acti
 		return nil, err
 	}
 
+	// If this was an event of receiving actions from the state machine, return those actions (nil otherwise).
 	switch event.StateEvent.Type.(type) {
 	case *state.Event_ActionsReceived:
 		result := node.pendingActions
