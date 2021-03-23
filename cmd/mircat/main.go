@@ -310,40 +310,45 @@ func (a *arguments) shouldPrint(event *recording.Event) bool {
 func (a *arguments) execute(output io.Writer) error {
 	defer a.input.Close()
 
+	// In case of "interactive" mode, events from the
+	// event log will be applied to these state machines.
 	s := newStateMachines(output, a.logLevel)
 
+	// Create log reader.
 	reader, err := eventlog.NewReader(a.input)
 	if err != nil {
 		return errors.WithMessage(err, "bad input file")
 	}
 
+	// Get log indices at which state machine status will be printed.
 	statusIndices := map[uint64]struct{}{}
 	for _, index := range a.statusIndices {
 		statusIndices[index] = struct{}{}
 	}
 
+	// The log itself does not explicitly keep track of indices,
+	// so we need to keep track of them here.
 	index := uint64(0)
-	for {
-		event, err := reader.ReadEvent()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
 
+	// Read events from log until the reader returns the io.EOF error.
+	for event, err := reader.ReadEvent(); err != io.EOF; event, err = reader.ReadEvent() {
+
+		if err != nil { // err must be different from io.EOF here, since that case is checked in the loop header
 			return errors.WithMessage(err, "failed reading input")
 		}
 
 		index++
 
+		// Skip event if produced by a node we're not looking at.
 		if excludedByNodeID(event, a.nodeIDs) {
 			continue
 		}
 
-		_, statusIndex := statusIndices[index]
-
+		// Print event if configured to do so.
 		// We always print the event if the status index matches,
-		// otherwise the output could be quite confusing
-		if statusIndex || a.shouldPrint(event) {
+		// otherwise the output could be quite confusing.
+		_, printStatus := statusIndices[index]
+		if printStatus || a.shouldPrint(event) {
 			text, err := textFormat(event, !a.verboseText)
 			if err != nil {
 				return errors.WithMessage(err, "could not marshal event")
@@ -352,12 +357,17 @@ func (a *arguments) execute(output io.Writer) error {
 			fmt.Fprintf(output, "% 6d %s\n", index, string(text))
 		}
 
+		// If we are in interactive mode, apply event to state machine
+		// and print resulting actions requested by the state machine.
 		if a.interactive {
+
+			// Apply event to SM.
 			actions, err := s.apply(event)
 			if err != nil {
 				return err
 			}
 
+			// Print requested actions.
 			if actions != nil {
 				iter := actions.Iterator()
 				for action := iter.Next(); action != nil; action = iter.Next() {
@@ -369,16 +379,20 @@ func (a *arguments) execute(output io.Writer) error {
 				}
 			}
 
-			// note, config options enforce that is statusIndex is set, so is interactive
-			if statusIndex {
+			// Print state machine status if requested for this index.
+			// Note that config options enforce that if printStatus is set, so is interactive
+			if printStatus {
 				fmt.Fprint(output, s.status(event).Pretty())
 				fmt.Fprint(output, "\n")
 			}
 		}
 	}
 
+	// In interactive mode, print execution times of the nodes.
 	if a.interactive {
 		nodeIDs := a.nodeIDs
+
+		// If no node IDs have been provided, default to all.
 		if nodeIDs == nil {
 			for id := range s.nodes {
 				nodeIDs = append(nodeIDs, id)
@@ -388,6 +402,7 @@ func (a *arguments) execute(output io.Writer) error {
 			})
 		}
 
+		// Print execution time for each node.
 		for _, nodeID := range nodeIDs {
 			fmt.Fprintf(output, "Node %d successfully completed execution in %v\n", nodeID, s.nodes[nodeID].executionTime)
 		}
