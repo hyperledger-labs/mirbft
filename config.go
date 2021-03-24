@@ -6,14 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
-import (
-	"github.com/IBM/mirbft/pkg/pb/state"
-)
-
 type Config struct {
-	// ID is the NodeID for this instance.
-	ID uint64
-
 	// Logger provides the logging functions.
 	Logger Logger
 
@@ -40,22 +33,4 @@ type Config struct {
 	// result is computed, watermarks cannot advance).  This should be set
 	// to a minimum of a few MB.
 	BufferSize uint32
-
-	// EventInterceptor, if set, has its Intercept method invoked each time the
-	// state machine undergoes some mutation.  This allows for additional
-	// external insight into the state machine, but comes at a performance cost
-	// and would generally not be enabled outside of a test or debug setting.
-	EventInterceptor EventInterceptor
-}
-
-// EventInterceptor provides a way for a consumer to gain insight into
-// the internal operation of the state machine.  And is usually not
-// interesting outside of debugging or testing scenarios.  Note, this
-// is applied inside the serializer, so any blocking will prevent the
-// event from arriving at the state machine until it returns.
-type EventInterceptor interface {
-	// Intercept is invoked prior to passing each state event to
-	// the state machine.  If Intercept returns an error, the
-	// state machine halts.
-	Intercept(s *state.Event) error
 }

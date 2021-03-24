@@ -226,7 +226,7 @@ func (s *stateMachines) apply(event *recording.Event) (result *statemachine.Acti
 	}
 }
 
-func (s *stateMachines) status(event *recording.Event) *status.StateMachine {
+func (s *stateMachines) status(event *recording.Event) (*status.StateMachine, error) {
 	node := s.nodes[event.NodeId]
 	return node.machine.Status()
 }
@@ -415,7 +415,11 @@ func (a *arguments) execute(output io.Writer) error {
 			// Print state machine status if requested for this index.
 			// Note that config options enforce that if printStatus is set, so is interactive
 			if printStatus {
-				fmt.Fprint(output, s.status(event).Pretty())
+				status, err := s.status(event)
+				if err != nil {
+					return errors.WithMessage(err, "could not retrieve status")
+				}
+				fmt.Fprint(output, status.Pretty())
 				fmt.Fprint(output, "\n")
 			}
 		}

@@ -9,6 +9,8 @@ package statemachine
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
+
 	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/status"
@@ -398,9 +400,19 @@ func (sm *StateMachine) processCheckpointResult(checkpointResult *state.EventChe
 	return actions
 }
 
-func (sm *StateMachine) Status() *status.StateMachine {
+func (sm *StateMachine) Status() (s *status.StateMachine, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if rErr, ok := r.(error); ok {
+				err = errors.WithMessage(rErr, "state machine corrupt and cannot return status")
+			} else {
+				err = errors.Errorf("state machine corrupt and cannot return status: %v", r)
+			}
+		}
+	}()
+
 	if sm.state != smInitialized {
-		return &status.StateMachine{}
+		return &status.StateMachine{}, nil
 	}
 
 	clientTrackerStatus := make([]*status.ClientTracker, len(sm.clientTracker.clientStates))
@@ -422,5 +434,5 @@ func (sm *StateMachine) Status() *status.StateMachine {
 		Buckets:       bucketStatus,
 		Checkpoints:   checkpoints,
 		NodeBuffers:   sm.nodeBuffers.status(),
-	}
+	}, nil
 }

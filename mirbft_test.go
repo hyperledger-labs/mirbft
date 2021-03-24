@@ -328,6 +328,7 @@ var _ = Describe("StressyTest", func() {
 })
 
 type TestReplica struct {
+	ID                  uint64
 	Config              *mirbft.Config
 	InitialNetworkState *msgs.NetworkState
 	TmpDir              string
@@ -367,12 +368,11 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	Expect(err).NotTo(HaveOccurred())
 	defer file.Close()
 
-	interceptor := eventlog.NewRecorder(tr.Config.ID, file)
+	interceptor := eventlog.NewRecorder(tr.ID, file)
 	defer func() {
 		err := interceptor.Stop()
 		Expect(err).NotTo(HaveOccurred())
 	}()
-	tr.Config.EventInterceptor = interceptor // XXX a hack, get rid of it
 
 	wal, err := simplewal.Open(walPath)
 	Expect(err).NotTo(HaveOccurred())
@@ -386,13 +386,15 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	defer wg.Wait()
 
 	node, err := mirbft.NewNode(
+		tr.ID,
 		tr.Config,
 		&mirbft.ProcessorConfig{
-			Link:         tr.FakeTransport.Link(tr.Config.ID),
+			Link:         tr.FakeTransport.Link(tr.ID),
 			Hasher:       crypto.SHA256,
 			RequestStore: reqStore,
 			App:          tr.App,
 			WAL:          wal,
+			Interceptor:  interceptor,
 		},
 	)
 	Expect(err).NotTo(HaveOccurred())
@@ -404,7 +406,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		recvC := tr.FakeTransport.RecvC(node.Config.ID)
+		recvC := tr.FakeTransport.RecvC(node.ID)
 		for {
 			select {
 			case sourceMsg := <-recvC:
@@ -503,7 +505,6 @@ func CreateNetwork(testConfig *TestConfig, doneC <-chan struct{}) *Network {
 
 	for i := range replicas {
 		config := &mirbft.Config{
-			ID:                   uint64(i),
 			BatchSize:            1,
 			SuspectTicks:         4,
 			HeartbeatTicks:       2,
@@ -523,6 +524,7 @@ func CreateNetwork(testConfig *TestConfig, doneC <-chan struct{}) *Network {
 		}
 
 		replicas[i] = &TestReplica{
+			ID:                  uint64(i),
 			Config:              config,
 			InitialNetworkState: networkState,
 			TmpDir:              filepath.Join(tmpDir, fmt.Sprintf("node%d", i)),

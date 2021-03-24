@@ -49,15 +49,12 @@ var _ = Describe("Recorder", func() {
 					fmt.Printf("  Uninitialized\n")
 					continue
 				}
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							fmt.Printf("  Panic-ed!\n")
-						}
-					}()
-					status := node.StateMachine.Status()
+				status, err := node.StateMachine.Status()
+				if err != nil {
+					fmt.Printf("error fetching status: %v\n", err)
+				} else {
 					fmt.Printf("%s\n", status.Pretty())
-				}()
+				}
 			}
 
 			fmt.Printf("EventLog available at '%s'\n", recordingFile.Name())
@@ -91,7 +88,8 @@ var _ = Describe("Recorder", func() {
 			fmt.Printf("Executing test required a log of %d events\n", count)
 
 			for _, node := range recording.Nodes {
-				status := node.StateMachine.Status()
+				status, err := node.StateMachine.Status()
+				Expect(err).NotTo(HaveOccurred())
 				Expect(status.EpochTracker.ActiveEpoch.Number).To(Equal(uint64(4)))
 				Expect(status.EpochTracker.ActiveEpoch.Suspicions).To(HaveLen(0))
 				//Expect(status.EpochTracker.EpochTargets[0].Suspicions).To(BeEmpty())

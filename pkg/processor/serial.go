@@ -47,6 +47,18 @@ type WAL interface {
 	LoadAll(forEach func(index uint64, p *msgs.Persistent)) error
 }
 
+// EventInterceptor provides a way for a consumer to gain insight into
+// the internal operation of the state machine.  And is usually not
+// interesting outside of debugging or testing scenarios.  Note, this
+// is applied inside the serializer, so any blocking will prevent the
+// event from arriving at the state machine until it returns.
+type EventInterceptor interface {
+	// Intercept is invoked prior to passing each state event to
+	// the state machine.  If Intercept returns an error, the
+	// state machine halts.
+	Intercept(s *state.Event) error
+}
+
 func ProcessReqStoreEvents(reqStore RequestStore, events *statemachine.EventList) (*statemachine.EventList, error) {
 	// Then we sync the request store
 	if err := reqStore.Sync(); err != nil {
@@ -215,4 +227,44 @@ func ProcessAppActions(app App, actions *statemachine.ActionList) (*statemachine
 	}
 
 	return events, nil
+}
+
+func safeApplyEvent(sm *statemachine.StateMachine, event *state.Event) (result *statemachine.ActionList, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if rErr, ok := r.(error); ok {
+				err = errors.WithMessage(rErr, "panic in state machine")
+			} else {
+				err = errors.Errorf("panic in state machine: %v", r)
+			}
+		}
+	}()
+
+	return sm.ApplyEvent(event), nil
+}
+
+func ProcessStateMachineEvents(sm *statemachine.StateMachine, i EventInterceptor, events *statemachine.EventList) (*statemachine.ActionList, error) {
+	actions := &statemachine.ActionList{}
+	iter := events.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
+		if i != nil {
+			err := i.Intercept(event)
+			if err != nil {
+				return nil, errors.WithMessage(err, "err intercepting event")
+			}
+		}
+		events, err := safeApplyEvent(sm, event)
+		if err != nil {
+			return nil, errors.WithMessage(err, "err applying state machine event")
+		}
+		actions.PushBackList(events)
+	}
+	if i != nil {
+		err := i.Intercept(statemachine.EventActionsReceived())
+		if err != nil {
+			return nil, errors.WithMessage(err, "err intercepting close event")
+		}
+	}
+
+	return actions, nil
 }

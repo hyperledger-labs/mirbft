@@ -74,8 +74,12 @@ var _ = Describe("Mirbft", func() {
 					fmt.Printf("\nStatus for node %d unavailable as it is nto started\n\n", nodeIndex)
 					continue
 				}
-				status := node.StateMachine.Status()
-				fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
+				status, err := node.StateMachine.Status()
+				if err != nil {
+					fmt.Printf("\nStatus for node %d resulted in err: %v\n", nodeIndex, err)
+				} else {
+					fmt.Printf("\nStatus for node %d\n%s\n", nodeIndex, status.Pretty())
+				}
 			}
 
 			fmt.Printf("EventLog available at '%s'\n", recordingFile.Name())
@@ -113,7 +117,8 @@ var _ = Describe("Mirbft", func() {
 			default:
 			}
 
-			status := node.StateMachine.Status()
+			status, err := node.StateMachine.Status()
+			Expect(err).NotTo(HaveOccurred())
 			isLeader := false
 			for _, leader := range status.EpochTracker.ActiveEpoch.Leaders {
 				if leader == nodeID {

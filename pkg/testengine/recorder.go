@@ -30,10 +30,6 @@ import (
 	"github.com/IBM/mirbft/pkg/statemachine"
 )
 
-type Hasher interface {
-	New() hash.Hash
-}
-
 func uint64ToBytes(value uint64) []byte {
 	byteValue := make([]byte, 8)
 	binary.LittleEndian.PutUint64(byteValue, value)
@@ -209,7 +205,8 @@ type Node struct {
 	Config                       *NodeConfig
 	WAL                          *WAL
 	Link                         *Link
-	Hasher                       Hasher
+	Hasher                       processor.Hasher
+	Interceptor                  processor.EventInterceptor
 	ReqStore                     *ReqStore
 	WorkItems                    *processor.WorkItems
 	Clients                      *processor.Clients
@@ -255,7 +252,7 @@ func (n *Node) Initialize(initParms *state.EventInitialParameters, logger statem
 
 type RecorderClient struct {
 	Config *ClientConfig
-	Hasher Hasher
+	Hasher processor.Hasher
 }
 
 func (rc *RecorderClient) RequestByReqNo(reqNo uint64) []byte {
@@ -273,7 +270,7 @@ func (rc *RecorderClient) RequestByReqNo(reqNo uint64) []byte {
 }
 
 type NodeState struct {
-	Hasher                  Hasher
+	Hasher                  processor.Hasher
 	ActiveHash              hash.Hash
 	LastSeqNo               uint64
 	ReconfigPoints          []*ReconfigPoint
@@ -395,12 +392,18 @@ type Recorder struct {
 	ReconfigPoints []*ReconfigPoint
 	Mangler        Mangler
 	LogOutput      io.Writer
-	Hasher         Hasher
+	Hasher         processor.Hasher
 	RandomSeed     int64
 }
 
+type interceptorFunc func(*state.Event) error
+
+func (icf interceptorFunc) Intercept(e *state.Event) error {
+	return icf(e)
+}
+
 func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
-	eventLog := &EventQueue{
+	eventQueue := &EventQueue{
 		List:    list.New(),
 		Rand:    rand.New(rand.NewSource(r.RandomSeed)),
 		Mangler: r.Mangler,
@@ -432,14 +435,21 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 			WAL:      wal,
 			ReqStore: reqStore,
 			Link: &Link{
-				EventQueue: eventLog,
+				EventQueue: eventQueue,
 				Source:     nodeID,
 				Delay:      int64(recorderNodeConfig.RuntimeParms.LinkLatency),
 			},
+			Interceptor: interceptorFunc(func(e *state.Event) error {
+				return eventlog.WriteRecordedEvent(output, &recording.Event{
+					NodeId:     nodeID,
+					Time:       eventQueue.FakeTime,
+					StateEvent: e,
+				})
+			}),
 			Config: recorderNodeConfig,
 		}
 
-		eventLog.InsertInitialize(nodeID, recorderNodeConfig.InitParms, 0)
+		eventQueue.InsertInitialize(nodeID, recorderNodeConfig.InitParms, 0)
 	}
 
 	clients := make([]*RecorderClient, len(r.ClientConfigs))
@@ -454,7 +464,7 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 
 	return &Recording{
 		Hasher:           r.Hasher,
-		EventQueue:       eventLog,
+		EventQueue:       eventQueue,
 		Nodes:            nodes,
 		Clients:          clients,
 		EventQueueOutput: output,
@@ -463,7 +473,7 @@ func (r *Recorder) Recording(output *gzip.Writer) (*Recording, error) {
 }
 
 type Recording struct {
-	Hasher           Hasher
+	Hasher           processor.Hasher
 	EventQueue       *EventQueue
 	Nodes            []*Node
 	Clients          []*RecorderClient
@@ -571,22 +581,11 @@ func (r *Recording) Step() error {
 		node.WorkItems.AddReqStoreResults(event.ProcessReqStoreEvents)
 		node.ProcessReqStoreEventsPending = false
 	case event.ProcessResultEvents != nil:
-		events := event.ProcessResultEvents
-		iter := events.Iterator()
-		for stateEvent := iter.Next(); stateEvent != nil; stateEvent = iter.Next() {
-			if r.EventQueueOutput != nil {
-				err := eventlog.WriteRecordedEvent(r.EventQueueOutput, &recording.Event{
-					NodeId:     nodeID,
-					Time:       event.Time,
-					StateEvent: stateEvent,
-				})
-				if err != nil {
-					return errors.WithMessage(err, "could not write event before processing")
-				}
-			}
-
-			node.WorkItems.AddStateMachineResults(node.StateMachine.ApplyEvent(stateEvent))
+		actions, err := processor.ProcessStateMachineEvents(node.StateMachine, node.Interceptor, event.ProcessResultEvents)
+		if err != nil {
+			return errors.WithMessage(err, "could not process state machine events")
 		}
+		node.WorkItems.AddStateMachineResults(actions)
 		node.ProcessResultEventsPending = false
 	case event.ProcessWALActions != nil:
 		netActions, err := processor.ProcessWALActions(node.WAL, event.ProcessWALActions)

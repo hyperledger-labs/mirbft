@@ -34,13 +34,13 @@ var ErrStopped = fmt.Errorf("stopped at caller request")
 // The methods exposed on Node are all thread safe, though typically, a single loop handles
 // reading Actions, writing results, and writing ticks, while other go routines Propose and Step.
 type Node struct {
+	ID              uint64
 	Config          *Config
 	processorConfig *ProcessorConfig
 
 	stateMachine    *statemachine.StateMachine
 	workItems       *processor.WorkItems
 	workErrNotifier *workErrNotifier
-	interceptor     EventInterceptor
 
 	statusC          chan chan *status.StateMachine
 	walActionsC      chan *statemachine.ActionList
@@ -95,10 +95,12 @@ func StandardInitialNetworkState(nodeCount int, clientCount int) *msgs.NetworkSt
 // NewNode creates a new node.  The processor must be started either by invoking
 // node.Processor.StartNewNode with the initial state or by invoking node.Processor.RestartNode.
 func NewNode(
+	id uint64,
 	config *Config,
 	processorConfig *ProcessorConfig,
 ) (*Node, error) {
 	return &Node{
+		ID:              id,
 		Config:          config,
 		processorConfig: processorConfig,
 
@@ -111,7 +113,6 @@ func NewNode(
 		},
 		workItems:       processor.NewWorkItems(),
 		workErrNotifier: newWorkErrNotifier(),
-		interceptor:     config.EventInterceptor,
 
 		statusC:          make(chan chan *status.StateMachine),
 		walActionsC:      make(chan *statemachine.ActionList),
@@ -239,7 +240,7 @@ func (n *Node) doNetWork(exitC <-chan struct{}) error {
 		return ErrStopped
 	}
 
-	netResults, err := processor.ProcessNetActions(n.Config.ID, n.processorConfig.Link, actions)
+	netResults, err := processor.ProcessNetActions(n.ID, n.processorConfig.Link, actions)
 	if err != nil {
 		return errors.WithMessage(err, "could not perform net actions")
 	}
@@ -297,40 +298,10 @@ func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
 	return nil
 }
 
-// safeApplyEvent catches any panic emitted by the state machine.  A panic is never expected,
-// but is conceivable and should not be allowed to propagate beyond the library boundary.
-func (n *Node) safeApplyEvent(event *state.Event) (result *statemachine.ActionList, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if rErr, ok := r.(error); ok {
-				err = errors.WithMessage(rErr, "panic in state machine")
-			} else {
-				err = errors.Errorf("panic in state machine: %v", r)
-			}
-		}
-	}()
-
-	return n.stateMachine.ApplyEvent(event), nil
-}
-
-func (n *Node) safeStatus() (status *status.StateMachine, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if rErr, ok := r.(error); ok {
-				err = errors.WithMessage(rErr, "panic in state machine status")
-			} else {
-				err = errors.Errorf("panic in state machine status: %v", r)
-			}
-		}
-	}()
-
-	return n.stateMachine.Status(), nil
-}
-
 func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 	defer func() {
 		if err != nil {
-			s, err := n.safeStatus()
+			s, err := n.stateMachine.Status()
 			n.workErrNotifier.SetExitStatus(s, err)
 		}
 	}()
@@ -342,15 +313,9 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 		return ErrStopped
 	}
 
-	actions := &statemachine.ActionList{}
-	iter := events.Iterator()
-	for event := iter.Next(); event != nil; event = iter.Next() {
-		n.interceptor.Intercept(event)
-		events, err := n.safeApplyEvent(event)
-		if err != nil {
-			return err
-		}
-		actions.PushBackList(events)
+	actions, err := processor.ProcessStateMachineEvents(n.stateMachine, n.processorConfig.Interceptor, events)
+	if err != nil {
+		return err
 	}
 
 	if actions.Len() == 0 {
@@ -359,7 +324,7 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 
 	select {
 	case n.ResultResultsC <- actions:
-		n.interceptor.Intercept(statemachine.EventActionsReceived())
+		n.processorConfig.Interceptor.Intercept(statemachine.EventActionsReceived())
 	case <-exitC:
 		return ErrStopped
 	}
@@ -385,11 +350,12 @@ type ProcessorConfig struct {
 	App          processor.App
 	WAL          processor.WAL
 	RequestStore processor.RequestStore
+	Interceptor  processor.EventInterceptor
 }
 
 func (n *Node) runtimeParms() *state.EventInitialParameters {
 	return &state.EventInitialParameters{
-		Id:                   n.Config.ID,
+		Id:                   n.ID,
 		BatchSize:            n.Config.BatchSize,
 		HeartbeatTicks:       n.Config.HeartbeatTicks,
 		SuspectTicks:         n.Config.SuspectTicks,
@@ -406,6 +372,7 @@ func (n *Node) ProcessAsNewNode(
 ) error {
 	events, err := processor.IntializeWALForNewNode(n.processorConfig.WAL, n.runtimeParms(), initialNetworkState, initialCheckpointValue)
 	if err != nil {
+		n.workErrNotifier.SetExitStatus(nil, errors.Errorf("state machine was not started"))
 		return err
 	}
 
@@ -419,6 +386,7 @@ func (n *Node) RestartProcessing(
 ) error {
 	events, err := processor.RecoverWALForExistingNode(n.processorConfig.WAL, n.runtimeParms())
 	if err != nil {
+		n.workErrNotifier.SetExitStatus(nil, errors.Errorf("state machine was not started"))
 		return err
 	}
 
@@ -430,7 +398,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 	for _, work := range []workFunc{
 		n.doWALWork,
 		n.doClientWork,
-		n.doHashWork,
+		n.doHashWork, // TODO, spawn more of these
 		n.doNetWork,
 		n.doAppWork,
 		n.doReqStoreWork,
