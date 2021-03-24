@@ -297,7 +297,6 @@ var _ = Describe("StressyTest", func() {
 				}
 			}
 		}
-
 	},
 		Entry("SingleNode greenpath", &TestConfig{
 			NodeCount: 1,
@@ -411,7 +410,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			select {
 			case sourceMsg := <-recvC:
 				crs.Replica(sourceMsg.Source).Step(context.Background(), sourceMsg.Msg)
-			case <-node.Err():
+			case <-tr.DoneC:
 				return
 			}
 		}
@@ -426,7 +425,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		client := node.Clients.Client(0)
 		for {
 			select {
-			case <-node.Err():
+			case <-tr.DoneC:
 				return
 			default:
 			}
@@ -453,7 +452,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 				}
 
 				select {
-				case <-node.Err():
+				case <-tr.DoneC:
 					return
 				case node.ResultEventsC <- events:
 				}
@@ -473,7 +472,9 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	}
 
 	err = node.ProcessAsNewNode(tr.DoneC, ticker.C, initParms, tr.InitialNetworkState, []byte("fake"))
-	return nil, nil
+	_ = err // XXX we need to rewire all of this
+
+	return node.Status(context.Background())
 }
 
 type Network struct {

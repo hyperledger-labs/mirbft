@@ -42,6 +42,7 @@ type Node struct {
 	workErrNotifier *workErrNotifier
 	interceptor     EventInterceptor
 
+	statusC          chan chan *status.StateMachine
 	walActionsC      chan *statemachine.ActionList
 	walResultsC      chan *statemachine.ActionList
 	clientActionsC   chan *statemachine.ActionList
@@ -112,6 +113,7 @@ func NewNode(
 		workErrNotifier: newWorkErrNotifier(),
 		interceptor:     config.EventInterceptor,
 
+		statusC:          make(chan chan *status.StateMachine),
 		walActionsC:      make(chan *statemachine.ActionList),
 		walResultsC:      make(chan *statemachine.ActionList),
 		clientActionsC:   make(chan *statemachine.ActionList),
@@ -137,19 +139,23 @@ func NewNode(
 // This final status may be relied upon if it is non-nil.  If the serializer exited at the user's
 // request (because the done channel was closed), then ErrStopped is returned.
 func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
-	// XXX Broken, fix me
-	return nil, errors.New("XXX FIXME")
-}
+	statusC := make(chan *status.StateMachine, 1)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-n.workErrNotifier.ExitStatusC():
+		return n.workErrNotifier.ExitStatus()
+	case n.statusC <- statusC:
+	}
 
-// Err should never close unless the consumer has requested the library exit
-// by closing the doneC supplied at construction time.  However, if unforeseen
-// programatic errors violate the safety of the state machine, rather than panic
-// the library will close this channel, and set an exit status.  The consumer may
-// wish to call Status() to get the cause of the exit, and a best effort exit status.
-// If the exit was caused gracefully (by closing the done channel), then ErrStopped
-// is returned.
-func (n *Node) Err() <-chan struct{} {
-	return n.workErrNotifier.ExitC()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-n.workErrNotifier.ExitStatusC():
+		return n.workErrNotifier.ExitStatus()
+	case s := <-statusC:
+		return s, nil
+	}
 }
 
 func (n *Node) doWALWork(exitC <-chan struct{}) error {
@@ -291,7 +297,44 @@ func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
 	return nil
 }
 
+// safeApplyEvent catches any panic emitted by the state machine.  A panic is never expected,
+// but is conceivable and should not be allowed to propagate beyond the library boundary.
+func (n *Node) safeApplyEvent(event *state.Event) (result *statemachine.ActionList, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if rErr, ok := r.(error); ok {
+				err = errors.WithMessage(rErr, "panic in state machine")
+			} else {
+				err = errors.Errorf("panic in state machine: %v", r)
+			}
+		}
+	}()
+
+	return n.stateMachine.ApplyEvent(event), nil
+}
+
+func (n *Node) safeStatus() (status *status.StateMachine, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if rErr, ok := r.(error); ok {
+				err = errors.WithMessage(rErr, "panic in state machine status")
+			} else {
+				err = errors.Errorf("panic in state machine status: %v", r)
+			}
+		}
+	}()
+
+	return n.stateMachine.Status(), nil
+}
+
 func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
+	defer func() {
+		if err != nil {
+			s, err := n.safeStatus()
+			n.workErrNotifier.SetExitStatus(s, err)
+		}
+	}()
+
 	var events *statemachine.EventList
 	select {
 	case events = <-n.ResultEventsC:
@@ -300,22 +343,15 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 	}
 
 	actions := &statemachine.ActionList{}
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				if rErr, ok := r.(error); ok {
-					err = errors.WithMessage(rErr, "panic in state machine")
-				} else {
-					err = errors.Errorf("panic in state machine: %v", r)
-				}
-			}
-		}()
-		iter := events.Iterator()
-		for event := iter.Next(); event != nil; event = iter.Next() {
-			n.interceptor.Intercept(event)
-			actions.PushBackList(n.stateMachine.ApplyEvent(event))
+	iter := events.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
+		n.interceptor.Intercept(event)
+		events, err := n.safeApplyEvent(event)
+		if err != nil {
+			return err
 		}
-	}()
+		actions.PushBackList(events)
+	}
 
 	if actions.Len() == 0 {
 		return nil
@@ -477,15 +513,24 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 	}
 }
 
+// workErrNotifier is used to synchronize the exit of the assorted worker
+// go routines.  The first worker to encounter an error should call Fail(err),
+// then the other workers will (eventually) read ExitC() to determine that they
+// should exit.  The worker thread responsible for the state machine _must_
+// call SetExitStatus(status, statusErr) before returning.
 type workErrNotifier struct {
-	mutex sync.Mutex
-	err   error
-	exitC chan struct{}
+	mutex         sync.Mutex
+	err           error
+	exitC         chan struct{}
+	exitStatus    *status.StateMachine
+	exitStatusErr error
+	exitStatusC   chan struct{}
 }
 
 func newWorkErrNotifier() *workErrNotifier {
 	return &workErrNotifier{
-		exitC: make(chan struct{}),
+		exitC:       make(chan struct{}),
+		exitStatusC: make(chan struct{}),
 	}
 }
 
@@ -505,6 +550,24 @@ func (wen *workErrNotifier) Fail(err error) {
 	close(wen.exitC)
 }
 
+func (wen *workErrNotifier) SetExitStatus(s *status.StateMachine, err error) {
+	wen.mutex.Lock()
+	defer wen.mutex.Unlock()
+	wen.exitStatus = s
+	wen.exitStatusErr = err
+	close(wen.exitStatusC)
+}
+
+func (wen *workErrNotifier) ExitStatus() (*status.StateMachine, error) {
+	wen.mutex.Lock()
+	defer wen.mutex.Unlock()
+	return wen.exitStatus, wen.exitStatusErr
+}
+
 func (wen *workErrNotifier) ExitC() <-chan struct{} {
 	return wen.exitC
+}
+
+func (wen *workErrNotifier) ExitStatusC() <-chan struct{} {
+	return wen.exitStatusC
 }
