@@ -25,7 +25,6 @@ import (
 	"github.com/IBM/mirbft"
 	"github.com/IBM/mirbft/pkg/eventlog"
 	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/processor"
 	"github.com/IBM/mirbft/pkg/reqstore"
 	"github.com/IBM/mirbft/pkg/simplewal"
@@ -462,16 +461,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		}
 	}()
 
-	initParms := &state.EventInitialParameters{
-		Id:                   tr.Config.ID,
-		BatchSize:            tr.Config.BatchSize,
-		HeartbeatTicks:       tr.Config.HeartbeatTicks,
-		SuspectTicks:         tr.Config.SuspectTicks,
-		NewEpochTimeoutTicks: tr.Config.NewEpochTimeoutTicks,
-		BufferSize:           tr.Config.BufferSize,
-	}
-
-	err = node.ProcessAsNewNode(tr.DoneC, ticker.C, initParms, tr.InitialNetworkState, []byte("fake"))
+	err = node.ProcessAsNewNode(tr.DoneC, ticker.C, tr.InitialNetworkState, []byte("fake"))
 	_ = err // XXX we need to rewire all of this
 
 	return node.Status(context.Background())

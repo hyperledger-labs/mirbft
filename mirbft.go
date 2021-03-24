@@ -387,14 +387,24 @@ type ProcessorConfig struct {
 	RequestStore processor.RequestStore
 }
 
+func (n *Node) runtimeParms() *state.EventInitialParameters {
+	return &state.EventInitialParameters{
+		Id:                   n.Config.ID,
+		BatchSize:            n.Config.BatchSize,
+		HeartbeatTicks:       n.Config.HeartbeatTicks,
+		SuspectTicks:         n.Config.SuspectTicks,
+		NewEpochTimeoutTicks: n.Config.NewEpochTimeoutTicks,
+		BufferSize:           n.Config.BufferSize,
+	}
+}
+
 func (n *Node) ProcessAsNewNode(
 	exitC <-chan struct{},
 	tickC <-chan time.Time,
-	runtimeParms *state.EventInitialParameters,
 	initialNetworkState *msgs.NetworkState,
 	initialCheckpointValue []byte,
 ) error {
-	events, err := processor.IntializeWALForNewNode(n.processorConfig.WAL, runtimeParms, initialNetworkState, initialCheckpointValue)
+	events, err := processor.IntializeWALForNewNode(n.processorConfig.WAL, n.runtimeParms(), initialNetworkState, initialCheckpointValue)
 	if err != nil {
 		return err
 	}
@@ -406,9 +416,8 @@ func (n *Node) ProcessAsNewNode(
 func (n *Node) RestartProcessing(
 	exitC <-chan struct{},
 	tickC <-chan time.Time,
-	runtimeParms *state.EventInitialParameters,
 ) error {
-	events, err := processor.RecoverWALForExistingNode(n.processorConfig.WAL, runtimeParms)
+	events, err := processor.RecoverWALForExistingNode(n.processorConfig.WAL, n.runtimeParms())
 	if err != nil {
 		return err
 	}
