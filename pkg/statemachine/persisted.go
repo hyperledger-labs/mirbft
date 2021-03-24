@@ -45,6 +45,9 @@ func newPersisted(logger Logger) *persisted {
 	}
 }
 
+// Appends an entry to the view WAL.
+// Unlike appendLogEntry, assumes the entry to be loaded from persistent storage
+// and there is thus no need to produce an persist action.
 func (p *persisted) appendInitialLoad(index uint64, data *msgs.Persistent) {
 	if p.logHead == nil {
 		p.nextIndex = index
@@ -66,6 +69,10 @@ func (p *persisted) appendInitialLoad(index uint64, data *msgs.Persistent) {
 	p.nextIndex = index + 1
 }
 
+// Appends an entry to the WAL and produces a Persist action for it.
+// The log must be non-empty when calling appendLogEntry. This is satisfied
+// by initializing the WAL (even for a fresh start of the state machine)
+// with separately persisted entries appended through appendInitialLoad.
 func (p *persisted) appendLogEntry(entry *msgs.Persistent) *ActionList {
 	p.logTail.next = &logEntry{
 		index: p.nextIndex,
