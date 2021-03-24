@@ -16,32 +16,48 @@ package mirbft
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
-	"github.com/IBM/mirbft/pkg/eventlog"
 	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/IBM/mirbft/pkg/pb/state"
 	"github.com/IBM/mirbft/pkg/processor"
+	"github.com/IBM/mirbft/pkg/statemachine"
 	"github.com/IBM/mirbft/pkg/status"
 	"github.com/pkg/errors"
 )
 
 var ErrStopped = fmt.Errorf("stopped at caller request")
 
-// WALStorage gives the state machine access to the most recently persisted state as
-// requested by a previous instance of the state machine.
-type WALStorage interface {
-	// LoadAll will invoke the given function with the the persisted entry
-	// iteratively, until the entire write-ahead-log has been loaded.
-	// If an error is encountered reading the log, it is returned and iteration stops.
-	LoadAll(forEach func(index uint64, p *msgs.Persistent)) error
-}
-
 // Node is the local instance of the MirBFT state machine through which the calling application
 // proposes new messages, receives delegated actions, and returns action results.
 // The methods exposed on Node are all thread safe, though typically, a single loop handles
 // reading Actions, writing results, and writing ticks, while other go routines Propose and Step.
 type Node struct {
-	Config    *Config
-	Processor *processor.Processor
+	Config          *Config
+	processorConfig *ProcessorConfig
+
+	stateMachine    *statemachine.StateMachine
+	workItems       *processor.WorkItems
+	workErrNotifier *workErrNotifier
+	interceptor     EventInterceptor
+
+	walActionsC      chan *statemachine.ActionList
+	walResultsC      chan *statemachine.ActionList
+	clientActionsC   chan *statemachine.ActionList
+	clientResultsC   chan *statemachine.EventList
+	hashActionsC     chan *statemachine.ActionList
+	hashResultsC     chan *statemachine.EventList
+	netActionsC      chan *statemachine.ActionList
+	netResultsC      chan *statemachine.EventList
+	appActionsC      chan *statemachine.ActionList
+	appResultsC      chan *statemachine.EventList
+	reqStoreEventsC  chan *statemachine.EventList
+	reqStoreResultsC chan *statemachine.EventList
+	// Exported as a temporary hack
+	ResultEventsC  chan *statemachine.EventList
+	ResultResultsC chan *statemachine.ActionList
+	Clients        *processor.Clients
 }
 
 func StandardInitialNetworkState(nodeCount int, clientCount int) *msgs.NetworkState {
@@ -79,14 +95,37 @@ func StandardInitialNetworkState(nodeCount int, clientCount int) *msgs.NetworkSt
 // node.Processor.StartNewNode with the initial state or by invoking node.Processor.RestartNode.
 func NewNode(
 	config *Config,
-	processorConfig *processor.Config,
+	processorConfig *ProcessorConfig,
 ) (*Node, error) {
 	return &Node{
-		Config: config,
-		Processor: processorConfig.Processor(
-			config.EventInterceptor.(*eventlog.Recorder), // XXX wrong
-			logAdapter{Logger: config.Logger},
-		),
+		Config:          config,
+		processorConfig: processorConfig,
+
+		stateMachine: &statemachine.StateMachine{
+			Logger: logAdapter{Logger: config.Logger},
+		},
+		Clients: &processor.Clients{
+			RequestStore: processorConfig.RequestStore,
+			Hasher:       processorConfig.Hasher,
+		},
+		workItems:       processor.NewWorkItems(),
+		workErrNotifier: newWorkErrNotifier(),
+		interceptor:     config.EventInterceptor,
+
+		walActionsC:      make(chan *statemachine.ActionList),
+		walResultsC:      make(chan *statemachine.ActionList),
+		clientActionsC:   make(chan *statemachine.ActionList),
+		clientResultsC:   make(chan *statemachine.EventList),
+		hashActionsC:     make(chan *statemachine.ActionList),
+		hashResultsC:     make(chan *statemachine.EventList),
+		netActionsC:      make(chan *statemachine.ActionList),
+		netResultsC:      make(chan *statemachine.EventList),
+		appActionsC:      make(chan *statemachine.ActionList),
+		appResultsC:      make(chan *statemachine.EventList),
+		reqStoreEventsC:  make(chan *statemachine.EventList),
+		reqStoreResultsC: make(chan *statemachine.EventList),
+		ResultEventsC:    make(chan *statemachine.EventList),
+		ResultResultsC:   make(chan *statemachine.ActionList),
 	}, nil
 }
 
@@ -110,5 +149,362 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 // If the exit was caused gracefully (by closing the done channel), then ErrStopped
 // is returned.
 func (n *Node) Err() <-chan struct{} {
-	return n.Processor.Err()
+	return n.workErrNotifier.ExitC()
+}
+
+func (n *Node) doWALWork(exitC <-chan struct{}) error {
+	var actions *statemachine.ActionList
+	select {
+	case actions = <-n.walActionsC:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	walResults, err := processor.ProcessWALActions(n.processorConfig.WAL, actions)
+	if err != nil {
+		return errors.WithMessage(err, "could not perform WAL actions")
+	}
+
+	if walResults.Len() == 0 {
+		return nil
+	}
+
+	select {
+	case n.walResultsC <- walResults:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	return nil
+}
+
+func (n *Node) doClientWork(exitC <-chan struct{}) error {
+	var actions *statemachine.ActionList
+	select {
+	case actions = <-n.clientActionsC:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	clientResults, err := n.Clients.ProcessClientActions(actions)
+	if err != nil {
+		return errors.WithMessage(err, "could not perform client actions")
+	}
+
+	if clientResults.Len() == 0 {
+		return nil
+	}
+
+	select {
+	case n.clientResultsC <- clientResults:
+	case <-exitC:
+		return ErrStopped
+	}
+	return nil
+}
+
+func (n *Node) doHashWork(exitC <-chan struct{}) error {
+	var actions *statemachine.ActionList
+	select {
+	case actions = <-n.hashActionsC:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	hashResults, err := processor.ProcessHashActions(n.processorConfig.Hasher, actions)
+	if err != nil {
+		return errors.WithMessage(err, "could not perform hash actions")
+	}
+
+	select {
+	case n.hashResultsC <- hashResults:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	return nil
+}
+
+func (n *Node) doNetWork(exitC <-chan struct{}) error {
+	var actions *statemachine.ActionList
+	select {
+	case actions = <-n.netActionsC:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	netResults, err := processor.ProcessNetActions(n.Config.ID, n.processorConfig.Link, actions)
+	if err != nil {
+		return errors.WithMessage(err, "could not perform net actions")
+	}
+
+	select {
+	case n.netResultsC <- netResults:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	return nil
+}
+
+func (n *Node) doAppWork(exitC <-chan struct{}) error {
+	var actions *statemachine.ActionList
+	select {
+	case actions = <-n.appActionsC:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	appResults, err := processor.ProcessAppActions(n.processorConfig.App, actions)
+	if err != nil {
+		return errors.WithMessage(err, "could not perform app actions")
+	}
+
+	select {
+	case n.appResultsC <- appResults:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	return nil
+}
+
+func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
+	var events *statemachine.EventList
+	select {
+	case events = <-n.reqStoreEventsC:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	reqStoreResults, err := processor.ProcessReqStoreEvents(n.processorConfig.RequestStore, events)
+	if err != nil {
+		return errors.WithMessage(err, "could not perform reqstore actions")
+	}
+
+	select {
+	case n.reqStoreResultsC <- reqStoreResults:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	return nil
+}
+
+func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
+	var events *statemachine.EventList
+	select {
+	case events = <-n.ResultEventsC:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	actions := &statemachine.ActionList{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				if rErr, ok := r.(error); ok {
+					err = errors.WithMessage(rErr, "panic in state machine")
+				} else {
+					err = errors.Errorf("panic in state machine: %v", r)
+				}
+			}
+		}()
+		iter := events.Iterator()
+		for event := iter.Next(); event != nil; event = iter.Next() {
+			n.interceptor.Intercept(event)
+			actions.PushBackList(n.stateMachine.ApplyEvent(event))
+		}
+	}()
+
+	if actions.Len() == 0 {
+		return nil
+	}
+
+	select {
+	case n.ResultResultsC <- actions:
+		n.interceptor.Intercept(statemachine.EventActionsReceived())
+	case <-exitC:
+		return ErrStopped
+	}
+
+	return nil
+}
+
+type workFunc func(exitC <-chan struct{}) error
+
+func (n *Node) doUntilErr(work workFunc) {
+	for {
+		err := work(n.workErrNotifier.ExitC())
+		if err != nil {
+			n.workErrNotifier.Fail(err)
+			return
+		}
+	}
+}
+
+type ProcessorConfig struct {
+	Link         processor.Link
+	Hasher       processor.Hasher
+	App          processor.App
+	WAL          processor.WAL
+	RequestStore processor.RequestStore
+}
+
+func (n *Node) ProcessAsNewNode(
+	exitC <-chan struct{},
+	tickC <-chan time.Time,
+	runtimeParms *state.EventInitialParameters,
+	initialNetworkState *msgs.NetworkState,
+	initialCheckpointValue []byte,
+) error {
+	events, err := processor.IntializeWALForNewNode(n.processorConfig.WAL, runtimeParms, initialNetworkState, initialCheckpointValue)
+	if err != nil {
+		return err
+	}
+
+	n.workItems.ResultEvents().PushBackList(events)
+	return n.process(exitC, tickC)
+}
+
+func (n *Node) RestartProcessing(
+	exitC <-chan struct{},
+	tickC <-chan time.Time,
+	runtimeParms *state.EventInitialParameters,
+) error {
+	events, err := processor.RecoverWALForExistingNode(n.processorConfig.WAL, runtimeParms)
+	if err != nil {
+		return err
+	}
+
+	n.workItems.ResultEvents().PushBackList(events)
+	return n.process(exitC, tickC)
+}
+func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
+	var wg sync.WaitGroup
+	for _, work := range []workFunc{
+		n.doWALWork,
+		n.doClientWork,
+		n.doHashWork,
+		n.doNetWork,
+		n.doAppWork,
+		n.doReqStoreWork,
+		n.doStateMachineWork,
+	} {
+		wg.Add(1)
+		go func(work workFunc) {
+			wg.Done()
+			n.doUntilErr(work)
+		}(work)
+	}
+	defer wg.Wait()
+
+	var walActionsC, clientActionsC, hashActionsC, netActionsC, appActionsC chan<- *statemachine.ActionList
+	var reqStoreEventsC, resultEventsC chan<- *statemachine.EventList
+
+	for {
+		select {
+		case resultEventsC <- n.workItems.ResultEvents():
+			n.workItems.ClearResultEvents()
+			resultEventsC = nil
+		case walActionsC <- n.workItems.WALActions():
+			n.workItems.ClearWALActions()
+			walActionsC = nil
+		case walResultsC := <-n.walResultsC:
+			n.workItems.AddWALResults(walResultsC)
+		case clientActionsC <- n.workItems.ClientActions():
+			n.workItems.ClearClientActions()
+			clientActionsC = nil
+		case hashActionsC <- n.workItems.HashActions():
+			n.workItems.ClearHashActions()
+			hashActionsC = nil
+		case netActionsC <- n.workItems.NetActions():
+			n.workItems.ClearNetActions()
+			netActionsC = nil
+		case appActionsC <- n.workItems.AppActions():
+			n.workItems.ClearAppActions()
+			appActionsC = nil
+		case reqStoreEventsC <- n.workItems.ReqStoreEvents():
+			n.workItems.ClearReqStoreEvents()
+			reqStoreEventsC = nil
+		case clientResults := <-n.clientResultsC:
+			n.workItems.AddClientResults(clientResults)
+		case hashResults := <-n.hashResultsC:
+			n.workItems.AddHashResults(hashResults)
+		case netResults := <-n.netResultsC:
+			n.workItems.AddNetResults(netResults)
+		case appResults := <-n.appResultsC:
+			n.workItems.AddAppResults(appResults)
+		case reqStoreResults := <-n.reqStoreResultsC:
+			n.workItems.AddReqStoreResults(reqStoreResults)
+		case actions := <-n.ResultResultsC:
+			n.workItems.AddStateMachineResults(actions)
+		case <-n.workErrNotifier.ExitC():
+			return n.workErrNotifier.Err()
+		case <-tickC:
+			n.workItems.ResultEvents().TickElapsed()
+		case <-exitC:
+			n.workErrNotifier.Fail(ErrStopped)
+		}
+
+		if resultEventsC == nil && n.workItems.ResultEvents().Len() > 0 {
+			resultEventsC = n.ResultEventsC
+		}
+
+		if walActionsC == nil && n.workItems.WALActions().Len() > 0 {
+			walActionsC = n.walActionsC
+		}
+
+		if clientActionsC == nil && n.workItems.ClientActions().Len() > 0 {
+			clientActionsC = n.clientActionsC
+		}
+
+		if hashActionsC == nil && n.workItems.HashActions().Len() > 0 {
+			hashActionsC = n.hashActionsC
+		}
+
+		if netActionsC == nil && n.workItems.NetActions().Len() > 0 {
+			netActionsC = n.netActionsC
+		}
+
+		if appActionsC == nil && n.workItems.AppActions().Len() > 0 {
+			appActionsC = n.appActionsC
+		}
+
+		if reqStoreEventsC == nil && n.workItems.ReqStoreEvents().Len() > 0 {
+			reqStoreEventsC = n.reqStoreEventsC
+		}
+	}
+}
+
+type workErrNotifier struct {
+	mutex sync.Mutex
+	err   error
+	exitC chan struct{}
+}
+
+func newWorkErrNotifier() *workErrNotifier {
+	return &workErrNotifier{
+		exitC: make(chan struct{}),
+	}
+}
+
+func (wen *workErrNotifier) Err() error {
+	wen.mutex.Lock()
+	defer wen.mutex.Unlock()
+	return wen.err
+}
+
+func (wen *workErrNotifier) Fail(err error) {
+	wen.mutex.Lock()
+	defer wen.mutex.Unlock()
+	if wen.err != nil {
+		return
+	}
+	wen.err = err
+	close(wen.exitC)
+}
+
+func (wen *workErrNotifier) ExitC() <-chan struct{} {
+	return wen.exitC
 }

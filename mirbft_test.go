@@ -389,8 +389,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 
 	node, err := mirbft.NewNode(
 		tr.Config,
-		&processor.Config{
-			NodeID:       tr.Config.ID,
+		&mirbft.ProcessorConfig{
 			Link:         tr.FakeTransport.Link(tr.Config.ID),
 			Hasher:       crypto.SHA256,
 			RequestStore: reqStore,
@@ -401,7 +400,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	Expect(err).NotTo(HaveOccurred())
 
 	crs := &processor.ConcurrentReplicas{
-		EventC: node.Processor.ResultEventsC,
+		EventC: node.ResultEventsC,
 	}
 
 	wg.Add(1)
@@ -424,7 +423,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		client := node.Processor.Clients.Client(0)
+		client := node.Clients.Client(0)
 		for {
 			select {
 			case <-node.Err():
@@ -456,7 +455,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 				select {
 				case <-node.Err():
 					return
-				case node.Processor.ResultEventsC <- events:
+				case node.ResultEventsC <- events:
 				}
 			}
 
@@ -473,7 +472,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		BufferSize:           tr.Config.BufferSize,
 	}
 
-	err = node.Processor.ProcessAsNewNode(tr.DoneC, ticker.C, initParms, tr.InitialNetworkState, []byte("fake"))
+	err = node.ProcessAsNewNode(tr.DoneC, ticker.C, initParms, tr.InitialNetworkState, []byte("fake"))
 	return nil, nil
 }
 

@@ -226,6 +226,7 @@ type Node struct {
 
 func (n *Node) Initialize(initParms *state.EventInitialParameters, logger statemachine.Logger) error {
 	n.WorkItems = processor.NewWorkItems()
+
 	n.Clients = &processor.Clients{
 		RequestStore: n.ReqStore,
 		Hasher:       n.Hasher,
