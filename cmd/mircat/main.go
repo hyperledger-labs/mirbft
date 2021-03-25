@@ -102,6 +102,7 @@ func excludedByNodeID(re *recording.Event, nodeIDs []uint64) bool {
 type arguments struct {
 	input         io.ReadCloser
 	interactive   bool
+	printActions  bool
 	logLevel      statemachine.LogLevel
 	nodeIDs       []uint64
 	eventTypes    []string
@@ -163,7 +164,11 @@ func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMa
 	}
 }
 
-// Applies an event to the corresponding (according to the event's NodeId) state machine.
+// Applies event to the corresponding (according to the event's NodeId) state machine.
+// For all events except state.Event_ActionsReceived, returns the actions produced by
+// the state machine when applying event.
+// For state.Event_ActionsReceived, returns all accumulated actions
+// produced since last state.Event_ActionsReceived event.
 func (s *stateMachines) apply(event *recording.Event) (result *statemachine.ActionList, err error) {
 	var node *stateMachine
 
@@ -208,14 +213,16 @@ func (s *stateMachines) apply(event *recording.Event) (result *statemachine.Acti
 		return nil, err
 	}
 
-	// If this was an event of receiving actions from the state machine, return those actions (nil otherwise).
+	// If this was an event of receiving actions from the state machine,
+	// return all the pending actions.
+	// Otherwise, return only the actions produced by this event.
 	switch event.StateEvent.Type.(type) {
 	case *state.Event_ActionsReceived:
 		result := node.pendingActions
 		node.pendingActions = &statemachine.ActionList{}
 		return result, nil
 	default:
-		return nil, nil
+		return actions, nil
 	}
 }
 
@@ -376,15 +383,32 @@ func (a *arguments) execute(output io.Writer) error {
 				return err
 			}
 
-			// Print requested actions.
-			if actions != nil {
+			// Define convenience function for printing the list of resulting actions.
+			printActions := func() error {
 				iter := actions.Iterator()
 				for action := iter.Next(); action != nil; action = iter.Next() {
-					text, err := textFormat(action, !a.verboseText)
-					if err != nil {
+					if text, err := textFormat(action, !a.verboseText); err == nil {
+						fmt.Fprintf(output, "       actions: %s\n", string(text))
+					} else {
 						return errors.WithMessage(err, "could not marshal actions")
 					}
-					fmt.Fprintf(output, "       actions: %s\n", string(text))
+				}
+				return nil
+			}
+
+			// Print resulting actions, if:
+			// - this is an event of consuming state machine actions or
+			// - we are configured to print actions on each event application.
+			switch event.StateEvent.Type.(type) {
+			case *state.Event_ActionsReceived:
+				if err := printActions(); err != nil {
+					return err
+				}
+			default:
+				if a.printActions {
+					if err := printActions(); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -424,6 +448,7 @@ func parseArgs(args []string) (*arguments, error) {
 	app := kingpin.New("mircat", "Utility for processing Mir state event logs.")
 	input := app.Flag("input", "The input file to read (defaults to stdin).").Default(os.Stdin.Name()).File()
 	interactive := app.Flag("interactive", "Whether to apply this log to a Mir state machine.").Default("false").Bool()
+	printActions := app.Flag("printActions", "Print actions produced by each event. (Must combine with --interactive)").Default("false").Bool()
 	nodeIDs := app.Flag("nodeID", "Report events from this nodeID only (useful for interleaved logs), may be repeated").Uint64List()
 	eventTypes := app.Flag("eventType", "Which event types to report.").Enums(allEventTypes...)
 	notEventTypes := app.Flag("notEventType", "Which eventtypes to exclude. (Cannot combine with --eventTypes)").Enums(allEventTypes...)
@@ -447,6 +472,8 @@ func parseArgs(args []string) (*arguments, error) {
 		return nil, errors.Errorf("cannot set status indices for non-interactive playback")
 	case *logLevel != "" && !*interactive:
 		return nil, errors.Errorf("cannot set logLevel for non-interactive playback")
+	case *printActions && !*interactive:
+		return nil, errors.Errorf("cannot print actions for non-interactive playback")
 	}
 
 	mirLogLevel := statemachine.LevelInfo
@@ -465,6 +492,7 @@ func parseArgs(args []string) (*arguments, error) {
 	return &arguments{
 		input:         *input,
 		interactive:   *interactive,
+		printActions:  *printActions,
 		nodeIDs:       *nodeIDs,
 		eventTypes:    *eventTypes,
 		logLevel:      mirLogLevel,
