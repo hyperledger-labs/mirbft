@@ -162,10 +162,12 @@ func (sm *StateMachine) completeInitialization() *ActionList {
 	return sm.reinitialize()
 }
 
+// Public wrapper for StateMachine.applyEvent()
 func (sm *StateMachine) ApplyEvent(stateEvent *state.Event) *ActionList {
 	return sm.applyEvent(stateEvent)
 }
 
+// Applies an external event, such as a message, a tick, or a result of an action, to the state machine.
 func (sm *StateMachine) applyEvent(stateEvent *state.Event) *ActionList {
 	assertInitialized := func() {
 		assertEqualf(sm.state, smInitialized, "cannot apply events to an uninitialized state machine")
@@ -282,6 +284,7 @@ func (sm *StateMachine) reinitialize() *ActionList {
 	return actions.concat(sm.epochTracker.reinitialize())
 }
 
+// Truncates the WAL based on the last FEntry found.
 func (sm *StateMachine) recoverLog() *ActionList {
 	var lastCEntry *msgs.CEntry
 
@@ -297,7 +300,7 @@ func (sm *StateMachine) recoverLog() *ActionList {
 		},
 	})
 
-	assertNotEqualf(lastCEntry, nil, "found no checkpoints in the log")
+	assertTruef(lastCEntry != nil, "found no checkpoints in the log")
 
 	return actions
 }
