@@ -1,85 +1,69 @@
-# MirBFT Library
+# MirBFT Research Prototype
+The implementation for  [Mir-BFT: High-Throughput Robust BFT for Decentralized Networks
+](https://arxiv.org/abs/1906.05552) paper.
 
-MirBFT is a library implementing the [Mir byzantine fault tolerant consensus protocol](https://arxiv.org/abs/1906.05552) in a network transport, storage, and cryptographic algorithm agnostic way.  MirBFT hopes to be a building block of a next generation of distributed systems, providing an implementation of [atomic broadcast](https://en.wikipedia.org/wiki/Atomic_broadcast) which can be utilized by any distributed system.
+## Setup
+The following scripts among other dpendencies install `Go` in the home directory and set gopath to `/opt/gopath/bin/`.
 
-MirBFT improves on traditional atomic broadcast protocols like PBFT and Raft which always have a single active leader by allowing concurrent leaders and reconciling total order in a deterministic and provably safe way.  The multi-leader nature of Mir should lead to exceptional performance especially on wide area networks but should be suitable for LAN deployments as well.
+The default path to the repository is set to: `/opt/gopath/src/github.com/IBM/mirbft/`.
 
-MirBFT, like the original [PBFT](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/01/p398-castro-bft-tocs.pdf) protocol, emphasizes consenting over digests, rather than over actual request data.  This allows for more novel methods of request dissemination, and in the optimal case, the state machine may never need to fetch request data.
 
-MirBFT, also like the original PBFT shuns signatures internally, instead preferring to collect quorum certificates during epoch change and other such events.  In many ways, this complicates the internal implementation of the library, but it drastically simplifies the external interface and prevents signature validation from becoming a bottleneck under certain workloads.
+Go to the deployment directory:
 
-[![Build Status](https://travis-ci.org/IBM/mirbft.svg?branch=master)](https://travis-ci.org/IBM/mirbft)
-[![GoDoc](https://godoc.org/github.com/IBM/mirbft?status.svg)](https://godoc.org/github.com/IBM/mirbft)
+`cd deployment`
 
-## Architecture
+To install Golang and requirements: 
 
-The high level structure of the MirBFT library steals heavily from the architecture of [etcdraft](https://github.com/etcd-io/etcd/tree/master/raft). A single threaded state machine is mutated by short lived, non-blocking operations.  Operations which might block or which have any degree of computational complexity (like hashing, network calls, etc.) are delegated to the caller.
+`./install-local.sh`
 
-The required components not dictated by the implementation include:
+To clone the repository under `/opt/gopath/src/github.com/IBM/mirbft/`:
 
-1. A write-ahead-log for persisting the state machine log entries. (or use [the provided one](https://github.com/IBM/mirbft/blob/master/pkg/simplewal/wal.go)).
-2. A hashing implementation (such as the builtin [sha256](https://golang.org/pkg/crypto/sha256/)).
-3. A request store for persisting application requests while they are consented upon (or use [the provided one](https://github.com/IBM/mirbft/blob/master/pkg/reqstore/reqstore.go)).
-4. An application state which can apply committed requests and may be snapshotted.
+`./clone.sh`
 
-For basic applications, only (4) may need to be written, though for applications which wish to optimize for throughput (for instance avoiding committing request data to disk twice), a custom implementation of (3) which integrates with (4) may be desirable.
+Build the protobufs:
 
-For more information, see the detailed [design document](/docs/Design.md).  Note, the documentation has fallen a bit behind based on the implementation work that has happened over the last few months.  The documentation should be taken with a grain of salt.
+`cd ..`
 
-## Using Mir
- 
-This repository is a new project and under active development and as such, unless you're interested in contributing, it's probably not a good choice for your project (yet!). Most all basic features are present, including state transfer and reconfiguration.  For now, if you'd like to see a sample application based on some older code, please look at [mirbft-sample](https://github.com/jyellick/mirbft-sample), but this can and should be updated..
+`./run-protoc.sh`
 
-### Preview
+To compile the peer:
 
-Currently, the Mir APIs are mostly stable, but there are significant caveats associated with assorted features.  There are APIs for reconfiguration, but it does not entirely work, and there are some assorted unhandled internal cases (like some known missing validation in new epoch messages, poor new epoch leader selection, and more).  However, the overall code architecture is finalizing, and it should be possible to parse it and begin to replicate the patterns and begin contributing.
+`cd server`
 
-```
-networkState := mirbft.StandardInitialNetworkState(4, 0)
+`go build`
 
-nodeConfig := &mirbft.Config{
-	ID:     uint64(i),
-	Logger: mirbft.ConsoleInfoLogger,
-	BatchSize: 20,
-	HeartbeatTicks:       2,
-	SuspectTicks:         4,
-	NewEpochTimeoutTicks: 8,
-	BufferSize:           500,
-}
+To compile the client:
 
-applicationLog := MyNewApplicationLog(networkState)
+`cd client`
 
-node, err := mirbft.StartNewNode(nodeConfig, networkState, applicationLog.Snap())
-// handle err
+`go build`
 
-processor := &mirbft.SerialProcessor{
-	Node:      node,
-	Hasher:    sha256.New,
-	Log:       applicationLog,   // mirbft.Log interface impl
-	Link:      network,          // mirbft.Link interface impl
-}
+A peer sample configuration exists in `sampleconfig/serverconfig/` .
 
-go func() {
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
+A client sample configuration exists in `sampleconfig/clientconfig/`.
 
-	for {
-		select {
-		case actions := <-node.Ready():
-			node.AddResults(processor.Process(&actions))
-		case <-ticker.C:
-			node.Tick()
-		case <-node.Err():
-			return
-		}
-	}
-}()
+To start locally a setup with 4 peers and 1 client on each peer:
 
-// Perform application logic
-err := node.Propose(context.TODO(), &pb.Request{
-	ClientId: 0,
-	ReqNo: 0,
-	Data: []byte("some-data"),
-})
-...
-```
+`cd server`
+
+`./server config$id`
+where `$id` is `1 2 3 4` for each of the 4 peers
+
+On the client:
+
+`cd client`
+
+`./client 4peer-config`
+
+To start locally a setup with 1 peer and 1 client:
+
+`cd server`
+
+`./server config`
+
+On the client:
+
+`cd client`
+
+`./client 1peer-config`
+

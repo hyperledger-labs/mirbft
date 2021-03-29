@@ -1,0 +1,37 @@
+---
+id : 0
+
+n : 1
+f : 0
+
+logging: "debug"  # One of {debug, info, error}
+blocking: false # Set to true for the client to wait command line input before starting
+
+# Request fromat
+requestSize: 500
+signatureVerification: true
+
+# Parameters that define request rate
+requestsPerClient: 100 # Total number of requests the client submits is RequestsPerClientCore*CPUs
+parallelism: 1             # Number of requests send in parallel
+requestRate: 1000          # Max request rate per client, in requests per second. Set to -1 for no limit.
+clients: 1                 # Number of clients
+clientRunTime: 30000       # Timeout for client to submit all its requests, in milliseconds. Set to 0 for no timeout.
+
+# This parameters define how the client communicates with the servers
+broadcast: true   # If true send requests to Receivers servers estimating which server has an active bucket per request
+receivers: 1      # Number of leaders client sends requests to
+dedicated: false  # if true send requests only to a destination server
+destination: 0    # if communication is dedicated
+
+# Set this parameters same as in server configuration to guess active buckets correctly
+batchSizeBytes: 2000000
+bucketRotationPeriod: 256             # max epoch size in recovery & bucket rotation period in stable mode
+buckets: 2                            # buckets per leader
+
+useTLS: true
+
+servers:
+  caCertFile: "/opt/gopath/src/github.com/IBM/mirbft/sampleconfig/certs/ecdsa/ca.pem"
+  addresses:
+    - "127.0.0.1:8003"

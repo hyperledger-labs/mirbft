@@ -1,0 +1,146 @@
+/*
+Copyright IBM Corp. 2021 All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+		 http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+syntax = "proto3";
+
+option go_package = "./;protos";
+
+package protos;
+
+message MultiChainMsg {
+    string chainID = 1;
+    Msg msg = 2;
+}
+
+message Msg {
+        oneof type {
+                Request request = 1;
+                Preprepare preprepare = 2;
+                Subject prepare = 3;
+                Commit commit = 4;
+                Signed view_change = 5;
+                NewView new_view = 6;
+                Checkpoint checkpoint = 7;
+                Hello hello = 8;
+                Subject epoch_cfg_echo = 9;
+                Subject epoch_cfg_accept = 10;
+                EpochConfig config = 11;
+        };
+};
+
+message RequestMessage {
+    Request request = 1;
+}
+
+message ResponseMessage {
+    uint64 src = 1;            // Id of the node that seds the response
+    bytes response = 2;        // Response message: one of {ACK, NACK, DELIVERED}
+                               // ACK: request added to pending
+                               // BUCKETS: indicating the correct bucket to leader assignment
+                               // NACK: request is invalid and cannot be processed
+                               // DELIVERED: requests is delivered
+    Request request = 3;       // Placeholder for the original request message.
+}
+
+message Request {
+        uint64 client = 1;
+        uint64 seq = 2;         // configuration sequence
+        uint64 isconfig = 3;    // {0: no configuration, 1: epoch configuration, 2: bucket rotation offset}
+        uint64 nonce = 4;       // to distinguish retransmitions of the same request
+        bytes payload = 5;
+        bytes signature = 6;
+        bytes pub_key = 7;
+};
+
+message SeqView {
+        uint64 view = 1;
+        uint64 seq = 2;
+};
+
+message BatchHeader {
+        uint64 seq = 1;
+        uint64 is_config = 2;
+        bytes prev_hash = 3;
+        bytes data_hash = 4;
+};
+
+message Batch {
+        bytes header = 1;
+        repeated uint64 seqNos = 2;
+        repeated bytes payloads = 3;
+        repeated bytes payload_sigs = 4;
+        repeated bytes pub = 5;
+        map<uint64, bytes> signatures = 6;  // server signatures on commits
+        map<uint64, bytes> pubKeys = 7;     // server pub keys
+};
+
+message Preprepare {
+        uint64 leader = 1;
+        SeqView seq = 2;
+        Batch batch = 3;
+};
+
+message Subject {
+        SeqView seq = 1;
+        bytes digest = 2;
+};
+
+message Commit {
+    SeqView seq = 1;
+    bytes digest = 2;
+    bytes signature = 3;
+}
+
+message ViewChange {
+        uint64 view = 1;
+        repeated Subject pset = 2;
+        repeated Subject qset = 3;
+        Batch checkpoint = 4;
+};
+
+message Signed {
+        bytes data = 1;
+        bytes signature = 2;
+};
+
+message NewView {
+        uint64 view = 1;
+        map<uint64, Signed> vset = 2;
+        repeated Batch xset = 3;
+        Batch checkpoint = 4;    // The latest checkpoint
+        EpochConfig config = 5;
+};
+
+message Checkpoint {
+        uint64 seq = 1;
+        bytes digest = 2;
+        bytes signature = 3;
+};
+
+message Hello {
+        Batch batch = 1; // last checkpointed batch
+        NewView new_view = 2;
+};
+
+message EpochConfig {
+        uint64 epoch = 1;
+        uint64 primary = 2;
+        uint64 first = 3;
+        uint64 length = 4;
+        repeated uint64 leaderset = 5;
+        repeated uint64 blacklist = 6;
+        uint64 rotation_offset = 7;
+}

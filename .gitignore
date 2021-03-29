@@ -1,6 +1,5 @@
-# Ignore tools
-/bin
-mircat/mircat
-
-# Ignore coverprofiles
-*.coverprofile
+.idea
+.DS_Store
+*.out
+*.trc
+*.pb.go
