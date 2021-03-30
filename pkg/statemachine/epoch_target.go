@@ -44,7 +44,7 @@ type epochTarget struct {
 	number          uint64
 	startingSeqNo   uint64
 	changes         map[nodeID]*epochChange
-	strongChanges   map[nodeID]*parsedEpochChange
+	strongChanges   map[nodeID]*parsedEpochChange // Parsed EpochChange messages acknowledged by enough nodes
 	echos           map[*msgs.NewEpochConfig]map[nodeID]struct{}
 	readies         map[*msgs.NewEpochConfig]map[nodeID]struct{}
 	activeEpoch     *activeEpoch
@@ -88,6 +88,7 @@ func newEpochTarget(
 	}
 
 	return &epochTarget{
+		state:                  etPrepending,
 		number:                 number,
 		commitState:            commitState,
 		suspicions:             map[nodeID]struct{}{},
@@ -121,7 +122,16 @@ func (et *epochTarget) step(source nodeID, msg *msgs.Msg) *ActionList {
 	return et.activeEpoch.step(source, msg)
 }
 
+// Constructs and returns a NewEpoch message.
+// This message consists of the configuration for the new epoch
+// and a set of digests of acked EpochChange messages.
+// Note specifically that this NewEpoch message does not contain the payload of the EpochChange messages.
+// The recipient receives those directly from other nodes.
+// TODO: Verify that the comment above makes sense.
 func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *msgs.NetworkState_Config) *msgs.NewEpoch {
+
+	// TODO: Check whether this filtering is indeed meaningful.
+	//       Also remove the check for nil when calling, in case this function cannot return nil any more.
 	filteredStrongChanges := map[nodeID]*parsedEpochChange{}
 	for nodeID, change := range et.strongChanges {
 		if change.underlying == nil {
@@ -169,12 +179,14 @@ func (et *epochTarget) verifyNewEpochState() *ActionList {
 
 		change, ok := et.changes[nodeID(remoteEpochChange.NodeId)]
 		if !ok {
+			// The NewEpoch is referencing an EpochChange that we have not yet received.
 			// Either the primary is lying, or, we simply don't have enough information yet.
 			return &ActionList{}
 		}
 
 		parsedChange, ok := change.parsedByDigest[string(remoteEpochChange.Digest)]
 		if !ok || len(parsedChange.acks) < someCorrectQuorum(et.networkConfig) {
+			// The NewEpoch is referencing an EpochChange for which we have not yet received enough ACKs.
 			return &ActionList{}
 		}
 
@@ -185,8 +197,11 @@ func (et *epochTarget) verifyNewEpochState() *ActionList {
 
 	// TODO, do we need to try to validate the leader set?
 
+	// Reconstruct the new epoch configuration based on the received information.
 	newEpochConfig := constructNewEpochConfig(et.networkConfig, et.leaderNewEpoch.NewConfig.Config.Leaders, epochChanges)
 
+	// The reconstructed new epoch configuration must be the same as the one obtained from the leader.
+	// Otherwise the leader must be faulty.
 	if !proto.Equal(newEpochConfig, et.leaderNewEpoch.NewConfig) {
 		// TODO byzantine, log oddity
 		return &ActionList{}
@@ -195,6 +210,9 @@ func (et *epochTarget) verifyNewEpochState() *ActionList {
 	et.logger.Log(LevelDebug, "epoch transitioning from from verifying to fetching", "epoch_no", et.number)
 	et.state = etFetching
 
+	// TODO: Do we need to recursively call et.advanceState()?
+	//       verifyNewEpochState is already called from advanceState() and changing
+	//       state will cause the caller to run the body of advanceState() again.
 	return et.advanceState()
 }
 
@@ -441,6 +459,8 @@ func (et *epochTarget) tickPending() *ActionList {
 	return &ActionList{}
 }
 
+// Applying an EpochChange message only involves sending ACKs to all other nodes
+// and locally handling own ACK.
 func (et *epochTarget) applyEpochChangeMsg(source nodeID, msg *msgs.EpochChange) *ActionList {
 	actions := &ActionList{}
 	if source != nodeID(et.myConfig.Id) {
@@ -463,6 +483,12 @@ func (et *epochTarget) applyEpochChangeMsg(source nodeID, msg *msgs.EpochChange)
 	return actions.concat(et.applyEpochChangeAckMsg(source, source, msg))
 }
 
+// An incoming EpochChangeAck message first needs to be hashed.
+// Here we only request the hast, and the actual processing
+// happens in epochTarget.applyEpochChangeDigest().
+//
+// Note that the message passed as argument is not the ACK itself (sent by source),
+// but the (contained) original EpochChange message (sent to source by origin)
 func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg *msgs.EpochChange) *ActionList {
 
 	return (&ActionList{}).Hash(
@@ -479,47 +505,58 @@ func (et *epochTarget) applyEpochChangeAckMsg(source nodeID, origin nodeID, msg 
 	)
 }
 
+// Processes an EpochChange ACK that already includes a hash of the EpochChange.
+// Note that the ACK message itself is not used here any more, as all the related
+// information is contained in the HashOrigin, that is, in turn, part of the result
+// of hashing (the relevant parts of) the ACK message.
 func (et *epochTarget) applyEpochChangeDigest(processedChange *state.HashOrigin_EpochChange, digest []byte) *ActionList {
 	originNode := nodeID(processedChange.Origin)
 	sourceNode := nodeID(processedChange.Source)
 
+	// If this is the first ACK for an EpochChange from this origin,
+	// create a new EpochChange data structure for tracking ACKs.
 	change, ok := et.changes[originNode]
 	if !ok {
-		change = &epochChange{
-			networkConfig: et.networkConfig,
-		}
+		change = newEpochChange(et.networkConfig)
 		et.changes[originNode] = change
 	}
 
-	change.addMsg(sourceNode, processedChange.EpochChange, digest)
+	// Register reception of the acknowledgment.
+	change.addAck(sourceNode, processedChange.EpochChange, digest)
 
-	if change.strongCert == nil {
-		return &ActionList{}
+	// If the (parsed) EpochChange has been acknowledged
+	if change.strongCert != nil {
+		// and has not yet been considered,
+		if _, alreadyConsidered := et.strongChanges[originNode]; !alreadyConsidered {
+			// assign the EpochChange to its originating node and try to advance the state.
+			et.strongChanges[originNode] = change.parsedByDigest[string(change.strongCert)]
+			return et.advanceState()
+		}
 	}
 
-	if _, alreadyInQuorum := et.strongChanges[originNode]; alreadyInQuorum {
-		return &ActionList{}
-	}
-
-	et.strongChanges[originNode] = change.parsedByDigest[string(change.strongCert)]
-
-	return et.advanceState()
+	return &ActionList{}
 }
 
+// Checks whether enough EpochChange messages have been received and acknowledged.
+// If so, advances the state to etPending and sends a NewEpoch message if this node is the leader.
+// TODO: Fix comment above (and below): "leader" or "primary"?
 func (et *epochTarget) checkEpochQuorum() *ActionList {
+
+	// Do nothing if not enough EpochChanges have been received/acknowledged
+	// or the node itself is not yet ready for an epoch change.
 	if len(et.strongChanges) < intersectionQuorum(et.networkConfig) || et.myEpochChange == nil {
 		return &ActionList{}
 	}
 
+	// Compute the NewEpoch message and advance to the next state.
 	et.myNewEpoch = et.constructNewEpoch(et.myLeaderChoice, et.networkConfig)
 	if et.myNewEpoch == nil {
-
 		return &ActionList{}
 	}
-
 	et.stateTicks = 0
 	et.state = etPending
 
+	// If this node is the leader, send the NewEpoch message to all others.
 	if et.isLeader {
 		return (&ActionList{}).Send(
 			et.networkConfig.Nodes,
@@ -534,6 +571,9 @@ func (et *epochTarget) checkEpochQuorum() *ActionList {
 	return &ActionList{}
 }
 
+// Applies a NewEpoch message received from the new primary.
+// Saves the message and tries to advance the state.
+// This is important for the case where the NewEpoch cannot be processed yet.
 func (et *epochTarget) applyNewEpochMsg(msg *msgs.NewEpoch) *ActionList {
 	et.leaderNewEpoch = msg
 	return et.advanceState()
@@ -689,6 +729,9 @@ func (et *epochTarget) checkEpochResumed() {
 
 }
 
+// Repeatedly checks the epochTarget.state field and performs the corresponding actions,
+// until epochTarget.state stops changing, meaning there is nothing left to be done
+// without further input.
 func (et *epochTarget) advanceState() *ActionList {
 	actions := &ActionList{}
 	for {

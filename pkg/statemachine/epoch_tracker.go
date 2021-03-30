@@ -349,6 +349,7 @@ func (et *epochTracker) applyMsg(source nodeID, msg *msgs.Msg) *ActionList {
 	case *msgs.Msg_EpochChangeAck:
 		return target.applyEpochChangeAckMsg(source, nodeID(innerMsg.EpochChangeAck.Originator), innerMsg.EpochChangeAck.EpochChange)
 	case *msgs.Msg_NewEpoch:
+		// Ignore NewEpoch message if not sent by the epoch primary.
 		if innerMsg.NewEpoch.NewConfig.Config.Number%uint64(len(et.networkConfig.Nodes)) != uint64(source) {
 			// TODO, log oddity
 			return &ActionList{}
