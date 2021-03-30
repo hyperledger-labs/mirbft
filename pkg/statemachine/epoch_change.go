@@ -22,15 +22,23 @@ type epochChange struct {
 	// set via setMsg and setDigest
 	parsedByDigest map[string]*parsedEpochChange
 
-	// updated via updateAcks
+	// Hash of the EpochChange for which we obtained a strong quorum of ACKs.
+	// Updated via addAck()
 	strongCert []byte
 }
 
-func (ec *epochChange) addMsg(source nodeID, msg *msgs.EpochChange, digest []byte) {
-	if ec.parsedByDigest == nil {
-		ec.parsedByDigest = map[string]*parsedEpochChange{}
+func newEpochChange(networkConfig *msgs.NetworkState_Config) *epochChange {
+	return &epochChange{
+		networkConfig:  networkConfig,
+		parsedByDigest: map[string]*parsedEpochChange{},
+		strongCert:     nil,
 	}
+}
 
+func (ec *epochChange) addAck(source nodeID, msg *msgs.EpochChange, digest []byte) {
+
+	// Look up the (locally parsed) original epoch change or create a new
+	// one if this is the first ACK for an EpochChange with this digest.
 	parsedChange, ok := ec.parsedByDigest[string(digest)]
 	if !ok {
 		var err error
@@ -42,13 +50,13 @@ func (ec *epochChange) addMsg(source nodeID, msg *msgs.EpochChange, digest []byt
 		ec.parsedByDigest[string(digest)] = parsedChange
 	}
 
+	// Register ACK from source.
 	parsedChange.acks[source] = struct{}{}
 
-	if ec.strongCert != nil || len(parsedChange.acks) < intersectionQuorum(ec.networkConfig) {
-		return
+	// If enough ACKs have been collected for this EpochChange, store its digest.
+	if ec.strongCert == nil && len(parsedChange.acks) >= intersectionQuorum(ec.networkConfig) {
+		ec.strongCert = digest
 	}
-
-	ec.strongCert = digest
 }
 
 type parsedEpochChange struct {
