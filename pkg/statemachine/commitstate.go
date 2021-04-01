@@ -28,7 +28,7 @@ type commitState struct {
 
 	lowWatermark      uint64
 	lastAppliedCommit uint64
-	highestCommit     uint64
+	highestCommit     uint64 // Highest in order commit sequence number. All SNs up to highestCommit are committed.
 	stopAtSeqNo       uint64
 	activeState       *msgs.NetworkState
 	lowerHalfCommits  []*msgs.QEntry

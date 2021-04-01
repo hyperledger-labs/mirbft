@@ -15,14 +15,25 @@ import (
 )
 
 type batchTracker struct {
+
+	// Indexes the observed batches by their digests.
 	batchesByDigest map[string]*batch
-	fetchInFlight   map[string][]uint64
-	persisted       *persisted
+
+	// Maps batch digests to lists of sequence numbers.
+	// For each batch digest, stores the list of sequence numbers
+	// for which the batch is being fetched (e.g. during an epoch change).
+	// The list (instead of just a boolean) is necessary,
+	// since we might need to fetch batches that happen to have the same digest
+	// (empty batches) for multiple different sequence numbers.
+	// Referring to a batch solely by its digest is thus not enough.
+	fetchInFlight map[string][]uint64
+
+	persisted *persisted
 }
 
 type batch struct {
-	observedSequences map[uint64]struct{}
-	requestAcks       []*msgs.RequestAck
+	observedFor map[uint64]struct{}
+	requestAcks []*msgs.RequestAck
 }
 
 func newBatchTracker(persisted *persisted) *batchTracker {
@@ -56,40 +67,51 @@ func (bt *batchTracker) step(source nodeID, msg *msgs.Msg) *ActionList {
 
 func (bt *batchTracker) truncate(seqNo uint64) {
 	for digest, batch := range bt.batchesByDigest {
-		for seq := range batch.observedSequences {
+		for seq := range batch.observedFor {
 			if seq < seqNo {
-				delete(batch.observedSequences, seq)
+				delete(batch.observedFor, seq)
 			}
 		}
-		if len(batch.observedSequences) == 0 {
+		if len(batch.observedFor) == 0 {
 			delete(bt.batchesByDigest, digest)
 		}
 	}
 }
 
+// Adds a request batch to the batch tracker.
 func (bt *batchTracker) addBatch(seqNo uint64, digest []byte, requestAcks []*msgs.RequestAck) {
+
+	// Create an entry in the batch index if this is the first time we see the batch.
 	b, ok := bt.batchesByDigest[string(digest)]
 	if !ok {
 		b = &batch{
-			observedSequences: map[uint64]struct{}{},
-			requestAcks:       requestAcks,
+			observedFor: map[uint64]struct{}{},
+			requestAcks: requestAcks,
 		}
 		bt.batchesByDigest[string(digest)] = b
 	}
 
+	// Mark the sequence number for which the added batch is destined.
+	b.observedFor[seqNo] = struct{}{}
+
+	// If this same batch is currently being fetched, potentially for other sequence numbers
+	// (this can generally be the case for empty batches), mark it as observed for those
+	// sequence as well and remove the "fetching" flag.
 	inFlight, ok := bt.fetchInFlight[string(digest)]
 	if ok {
 		for _, ifSeqNo := range inFlight {
-			b.observedSequences[ifSeqNo] = struct{}{}
+			b.observedFor[ifSeqNo] = struct{}{}
 		}
 		delete(bt.fetchInFlight, string(digest))
 	}
-
-	b.observedSequences[seqNo] = struct{}{}
 }
 
 func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte, sources []uint64) *ActionList {
+
+	// Check if a batch with this digest is already being fetched.
 	inFlight, ok := bt.fetchInFlight[string(digest)]
+
+	// If it is, return immediately.
 	if ok {
 		// It's a weird, but possible case, that two batches have
 		// identical digests, for different seqNos.  If so, we need
@@ -100,9 +122,14 @@ func (bt *batchTracker) fetchBatch(seqNo uint64, digest []byte, sources []uint64
 			}
 		}
 	}
+
+	// Mark the batch as "being fetched" (if inFlight is nil, it behaves like an empty slice).
 	inFlight = append(inFlight, seqNo)
 	bt.fetchInFlight[string(digest)] = inFlight
 
+	// Request the batch from all nodes that have it.
+	// TODO: If there are many sources, we probably get bombarded by loads of data.
+	//       Use a less agressive approach with timeouts?
 	return (&ActionList{}).Send(
 		sources,
 		&msgs.Msg{
@@ -177,14 +204,14 @@ func (bt *batchTracker) applyVerifyBatchHashResult(digest []byte, verifyBatch *s
 	b, ok := bt.batchesByDigest[string(digest)]
 	if !ok {
 		b = &batch{
-			observedSequences: map[uint64]struct{}{},
-			requestAcks:       verifyBatch.RequestAcks,
+			observedFor: map[uint64]struct{}{},
+			requestAcks: verifyBatch.RequestAcks,
 		}
 		bt.batchesByDigest[string(digest)] = b
 	}
 
 	for _, seqNo := range inFlight {
-		b.observedSequences[seqNo] = struct{}{}
+		b.observedFor[seqNo] = struct{}{}
 	}
 
 	delete(bt.fetchInFlight, string(digest))
