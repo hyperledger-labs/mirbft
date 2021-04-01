@@ -169,24 +169,31 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *msgs.NetworkSt
 	}
 }
 
+// Verifies that the NewEpoch message we obtained from the new primary is valid
+// and that we have received all the EpochChange messages it references.
+// If this is the case, advances the state to etFetching.
 func (et *epochTarget) verifyNewEpochState() *ActionList {
 	epochChanges := map[nodeID]*parsedEpochChange{}
+
+	// Verify that:
 	for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
+
+		// Each EpochChange is only referenced once.
 		if _, ok := epochChanges[nodeID(remoteEpochChange.NodeId)]; ok {
 			// TODO, references multiple epoch changes from the same node, malformed, log oddity
 			return &ActionList{}
 		}
 
+		// We have received an EpochChange from the source of the referenced message.
 		change, ok := et.changes[nodeID(remoteEpochChange.NodeId)]
 		if !ok {
-			// The NewEpoch is referencing an EpochChange that we have not yet received.
-			// Either the primary is lying, or, we simply don't have enough information yet.
+			// Either the primary is lying, or we simply don't have enough information yet.
 			return &ActionList{}
 		}
 
+		// The received EpochChange has the correct digest and is acknowledged.
 		parsedChange, ok := change.parsedByDigest[string(remoteEpochChange.Digest)]
 		if !ok || len(parsedChange.acks) < someCorrectQuorum(et.networkConfig) {
-			// The NewEpoch is referencing an EpochChange for which we have not yet received enough ACKs.
 			return &ActionList{}
 		}
 
@@ -220,7 +227,7 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 	newEpochConfig := et.leaderNewEpoch.NewConfig
 
 	if et.commitState.transferring {
-		// Wait until state transfer completes before attempting to process the new view
+		// Wait until state transfer completes before attempting to process the new epoch
 		et.logger.Log(LevelDebug, "delaying fetching of epoch state until state transfer completes", "epoch_no", et.number)
 		return &ActionList{}
 	}
@@ -233,17 +240,24 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 	actions := &ActionList{}
 	fetchPending := false
 
+	// The NewEpoch message only references (by digest) Preprepare messages instead of including them.
+	// Here we make sure we obtain the payload if we still do not have it.
 	for i, digest := range newEpochConfig.FinalPreprepares {
+
+		// An empty digest corresponds to a "null request"/empty batch.
 		if len(digest) == 0 {
 			continue
 		}
 
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
 
+		// We already committed this SN, no need to fetch Preprepare.
 		if seqNo <= et.commitState.highestCommit {
 			continue
 		}
 
+		// Find the nodes which claimed to have received the referenced Preprepare
+		// by inspecting (the qSets of) the EpochChange messages they sent.
 		var sources []uint64
 		for _, remoteEpochChange := range et.leaderNewEpoch.EpochChanges {
 			// Previous state verified these exist
@@ -257,10 +271,12 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 			}
 		}
 
+		// Sanity check.
 		if len(sources) < someCorrectQuorum(et.networkConfig) {
 			panic(fmt.Sprintf("dev only, should never be true, we only found %d sources for seqno=%d with digest=%x", len(sources), seqNo, digest))
 		}
 
+		// If we are missing the referenced batch (i.e. we did not receive the Preprepare), fetch it.
 		batch, ok := et.batchTracker.getBatch(digest)
 		if !ok {
 			actions.concat(et.batchTracker.fetchBatch(seqNo, digest, sources))
@@ -268,8 +284,12 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 			continue
 		}
 
-		batch.observedSequences[seqNo] = struct{}{}
+		// At this point we know we have the batch.
+		// However, we might have received it for a different sequence number.
+		// Mark it as observed also for seqNo.
+		batch.observedFor[seqNo] = struct{}{}
 
+		// TODO: Explain what this block does.
 		for _, requestAck := range batch.requestAcks {
 			// TODO, do we really want this? We should not need acks to commit, and we fetch explicitly maybe?
 			var cr *clientRequest
@@ -289,6 +309,7 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 		}
 	}
 
+	// We cannot continue until more data is fetched.
 	if fetchPending {
 		return actions
 	}
@@ -326,13 +347,17 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 
 	// XXX what if the final preprepares span both an old and new config?
 
+	// "Allocate" the sequence numbers corresponding to the new epoch by appending an NEntry to the persistent log.
 	actions.concat(et.persisted.addNEntry(&msgs.NEntry{
 		SeqNo:       newEpochConfig.StartingCheckpoint.SeqNo + 1,
 		EpochConfig: newEpochConfig.Config,
 	}))
+
+	// Handle the Preprepares contained in the NewEpoch message.
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
 
+		// For "null requests", only append an "empth" QEntry to the persistent log.
 		if len(digest) == 0 {
 			actions.concat(et.persisted.addQEntry(&msgs.QEntry{
 				SeqNo: seqNo,
@@ -745,7 +770,7 @@ func (et *epochTarget) advanceState() *ActionList {
 			}
 			et.logger.Log(LevelDebug, "epoch transitioning from pending to verifying", "epoch_no", et.number)
 			et.state = etVerifying
-		case etVerifying: // Have a new view message but it references epoch changes we cannot yet verify
+		case etVerifying: // Have a NewEpoch message but it references epoch changes we cannot yet verify
 			actions.concat(et.verifyNewEpochState())
 		case etFetching: // Have received and verified a new epoch messages, and are waiting to get state
 			actions.concat(et.fetchNewEpochState())
