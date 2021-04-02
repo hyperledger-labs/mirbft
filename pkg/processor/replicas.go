@@ -7,46 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package processor
 
 import (
-	"context"
-	"sync"
-
 	"github.com/IBM/mirbft/pkg/pb/msgs"
 	"github.com/IBM/mirbft/pkg/statemachine"
 )
-
-type ConcurrentReplicas struct {
-	mutex    sync.Mutex
-	EventC   chan *statemachine.EventList
-	Replicas Replicas
-}
-
-func (cr *ConcurrentReplicas) Replica(id uint64) *ConcurrentReplica {
-	cr.mutex.Lock()
-	defer cr.mutex.Unlock()
-	return &ConcurrentReplica{
-		Replica: cr.Replicas.Replica(id),
-		EventC:  cr.EventC,
-	}
-}
-
-type ConcurrentReplica struct {
-	Replica *Replica
-	EventC  chan *statemachine.EventList
-}
-
-func (cr *ConcurrentReplica) Step(ctx context.Context, msg *msgs.Msg) error {
-	e, err := cr.Replica.Step(msg)
-	if err != nil {
-		return err
-	}
-
-	select {
-	case cr.EventC <- e:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
 
 type Replicas struct {
 	replicas map[uint64]*Replica

@@ -399,10 +399,6 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	)
 	Expect(err).NotTo(HaveOccurred())
 
-	crs := &processor.ConcurrentReplicas{
-		EventC: node.ResultEventsC,
-	}
-
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -410,7 +406,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 		for {
 			select {
 			case sourceMsg := <-recvC:
-				crs.Replica(sourceMsg.Source).Step(context.Background(), sourceMsg.Msg)
+				node.Step(context.Background(), sourceMsg.Source, sourceMsg.Msg)
 			case <-tr.DoneC:
 				return
 			}

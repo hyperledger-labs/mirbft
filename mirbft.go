@@ -29,6 +29,18 @@ import (
 
 var ErrStopped = fmt.Errorf("stopped at caller request")
 
+type replicas struct {
+	mutex    sync.Mutex
+	eventC   chan *statemachine.EventList
+	replicas processor.Replicas
+}
+
+func (r *replicas) replica(id uint64) *processor.Replica {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	return r.replicas.Replica(id)
+}
+
 // Node is the local instance of the MirBFT state machine through which the calling application
 // proposes new messages, receives delegated actions, and returns action results.
 // The methods exposed on Node are all thread safe, though typically, a single loop handles
@@ -37,6 +49,8 @@ type Node struct {
 	ID              uint64
 	Config          *Config
 	processorConfig *ProcessorConfig
+
+	replicas *replicas
 
 	stateMachine    *statemachine.StateMachine
 	workItems       *processor.WorkItems
@@ -104,6 +118,9 @@ func NewNode(
 		Config:          config,
 		processorConfig: processorConfig,
 
+		replicas: &replicas{
+			eventC: make(chan *statemachine.EventList),
+		},
 		stateMachine: &statemachine.StateMachine{
 			Logger: logAdapter{Logger: config.Logger},
 		},
@@ -156,6 +173,24 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 		return n.workErrNotifier.ExitStatus()
 	case s := <-statusC:
 		return s, nil
+	}
+}
+
+func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
+	r := n.replicas.replica(source)
+
+	e, err := r.Step(msg)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case n.replicas.eventC <- e:
+		return nil
+	case <-n.workErrNotifier.ExitStatusC():
+		return n.workErrNotifier.Err()
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -452,6 +487,11 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 			n.workItems.AddReqStoreResults(reqStoreResults)
 		case actions := <-n.ResultResultsC:
 			n.workItems.AddStateMachineResults(actions)
+		case stepEvents := <-n.replicas.eventC:
+			// TODO, once request forwarding works, we'll
+			// need to split this into the req store component
+			// and 'other' that goes into the result events.
+			n.workItems.ResultEvents().PushBackList(stepEvents)
 		case <-n.workErrNotifier.ExitC():
 			return n.workErrNotifier.Err()
 		case <-tickC:
