@@ -54,7 +54,7 @@ type epochTarget struct {
 	myLeaderChoice  []uint64             // Set along with myEpochChange
 	leaderNewEpoch  *msgs.NewEpoch       // The NewEpoch msg we received directly from the leader
 	networkNewEpoch *msgs.NewEpochConfig // The NewEpoch msg as received via the bracha broadcast
-	isLeader        bool
+	isPrimary       bool
 	prestartBuffers map[nodeID]*msgBuffer
 
 	persisted              *persisted
@@ -96,7 +96,7 @@ func newEpochTarget(
 		strongChanges:          map[nodeID]*parsedEpochChange{},
 		echos:                  map[*msgs.NewEpochConfig]map[nodeID]struct{}{},
 		readies:                map[*msgs.NewEpochConfig]map[nodeID]struct{}{},
-		isLeader:               number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
+		isPrimary:              number%uint64(len(networkConfig.Nodes)) == myConfig.Id,
 		prestartBuffers:        prestartBuffers,
 		persisted:              persisted,
 		nodeBuffers:            nodeBuffers,
@@ -127,28 +127,20 @@ func (et *epochTarget) step(source nodeID, msg *msgs.Msg) *ActionList {
 // and a set of digests of acked EpochChange messages.
 // Note specifically that this NewEpoch message does not contain the payload of the EpochChange messages.
 // The recipient receives those directly from other nodes.
-// TODO: Verify that the comment above makes sense.
 func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *msgs.NetworkState_Config) *msgs.NewEpoch {
 
-	// TODO: Check whether this filtering is indeed meaningful.
-	//       Also remove the check for nil when calling, in case this function cannot return nil any more.
-	filteredStrongChanges := map[nodeID]*parsedEpochChange{}
-	for nodeID, change := range et.strongChanges {
-		if change.underlying == nil {
-			continue
-		}
-		filteredStrongChanges[nodeID] = change
-	}
+	// Sanity check.
+	assertGreaterThanOrEqualf(uint64(len(et.strongChanges)), uint64(intersectionQuorum(nc)),
+		"received %d acked epoch change messages, only received %d",
+		uint64(len(et.strongChanges)), uint64(intersectionQuorum(nc)))
 
-	if len(filteredStrongChanges) < intersectionQuorum(nc) {
-		return nil
-	}
-
-	newConfig := constructNewEpochConfig(nc, newLeaders, filteredStrongChanges)
+	// Compute the new epoch configuration based on the received EpochChange messages.
+	newConfig := constructNewEpochConfig(nc, newLeaders, et.strongChanges)
 	if newConfig == nil {
 		return nil
 	}
 
+	// Include the digests of the received EpochChange messages in the NewEpoch message.
 	remoteChanges := make([]*msgs.NewEpoch_RemoteEpochChange, 0, len(et.changes))
 	for _, id := range et.networkConfig.Nodes {
 		// Deterministic iteration over strong changes
@@ -163,6 +155,7 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *msgs.NetworkSt
 		})
 	}
 
+	// Return newly computed NewEpoch message.
 	return &msgs.NewEpoch{
 		NewConfig:    newConfig,
 		EpochChanges: remoteChanges,
@@ -172,7 +165,7 @@ func (et *epochTarget) constructNewEpoch(newLeaders []uint64, nc *msgs.NetworkSt
 // Verifies that the NewEpoch message we obtained from the new primary is valid
 // and that we have received all the EpochChange messages it references.
 // If this is the case, advances the state to etFetching.
-func (et *epochTarget) verifyNewEpochState() *ActionList {
+func (et *epochTarget) verifyNewEpochState() {
 	epochChanges := map[nodeID]*parsedEpochChange{}
 
 	// Verify that:
@@ -181,20 +174,20 @@ func (et *epochTarget) verifyNewEpochState() *ActionList {
 		// Each EpochChange is only referenced once.
 		if _, ok := epochChanges[nodeID(remoteEpochChange.NodeId)]; ok {
 			// TODO, references multiple epoch changes from the same node, malformed, log oddity
-			return &ActionList{}
+			return
 		}
 
 		// We have received an EpochChange from the source of the referenced message.
 		change, ok := et.changes[nodeID(remoteEpochChange.NodeId)]
 		if !ok {
 			// Either the primary is lying, or we simply don't have enough information yet.
-			return &ActionList{}
+			return
 		}
 
 		// The received EpochChange has the correct digest and is acknowledged.
 		parsedChange, ok := change.parsedByDigest[string(remoteEpochChange.Digest)]
 		if !ok || len(parsedChange.acks) < someCorrectQuorum(et.networkConfig) {
-			return &ActionList{}
+			return
 		}
 
 		epochChanges[nodeID(remoteEpochChange.NodeId)] = parsedChange
@@ -211,16 +204,11 @@ func (et *epochTarget) verifyNewEpochState() *ActionList {
 	// Otherwise the leader must be faulty.
 	if !proto.Equal(newEpochConfig, et.leaderNewEpoch.NewConfig) {
 		// TODO byzantine, log oddity
-		return &ActionList{}
+		return
 	}
 
 	et.logger.Log(LevelDebug, "epoch transitioning from from verifying to fetching", "epoch_no", et.number)
 	et.state = etFetching
-
-	// TODO: Do we need to recursively call et.advanceState()?
-	//       verifyNewEpochState is already called from advanceState() and changing
-	//       state will cause the caller to run the body of advanceState() again.
-	return et.advanceState()
 }
 
 func (et *epochTarget) fetchNewEpochState() *ActionList {
@@ -444,7 +432,7 @@ func (et *epochTarget) tickPrepending() *ActionList {
 		return &ActionList{}
 	}
 
-	if et.isLeader {
+	if et.isPrimary {
 		return (&ActionList{}).Send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
@@ -460,7 +448,7 @@ func (et *epochTarget) tickPrepending() *ActionList {
 
 func (et *epochTarget) tickPending() *ActionList {
 	pendingTicks := et.stateTicks % uint64(et.myConfig.NewEpochTimeoutTicks)
-	if et.isLeader {
+	if et.isPrimary {
 		// resend the new-view if others perhaps missed it
 		if pendingTicks%2 == 0 {
 			return (&ActionList{}).Send(
@@ -572,8 +560,7 @@ func (et *epochTarget) applyEpochChangeDigest(processedChange *state.HashOrigin_
 }
 
 // Checks whether enough EpochChange messages have been received and acknowledged.
-// If so, advances the state to etPending and sends a NewEpoch message if this node is the leader.
-// TODO: Fix comment above (and below): "leader" or "primary"?
+// If so, advances the state to etPending and sends a NewEpoch message if this node is the primary.
 func (et *epochTarget) checkEpochQuorum() *ActionList {
 
 	// Do nothing if not enough EpochChanges have been received/acknowledged
@@ -590,8 +577,8 @@ func (et *epochTarget) checkEpochQuorum() *ActionList {
 	et.stateTicks = 0
 	et.state = etPending
 
-	// If this node is the leader, send the NewEpoch message to all others.
-	if et.isLeader {
+	// If this node is the primary, send the NewEpoch message to all others.
+	if et.isPrimary {
 		return (&ActionList{}).Send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
@@ -821,7 +808,7 @@ func (et *epochTarget) advanceState() *ActionList {
 			et.logger.Log(LevelDebug, "epoch transitioning from pending to verifying", "epoch_no", et.number)
 			et.state = etVerifying
 		case etVerifying: // Have a NewEpoch message but it references epoch changes we cannot yet verify
-			actions.concat(et.verifyNewEpochState())
+			et.verifyNewEpochState()
 		case etFetching: // Have received and verified a new epoch messages, and are waiting to get state
 			actions.concat(et.fetchNewEpochState())
 		case etEchoing: // Have received and validated a new-epoch, waiting for a quorum of echos
