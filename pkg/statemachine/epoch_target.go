@@ -357,7 +357,7 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 	for i, digest := range newEpochConfig.FinalPreprepares {
 		seqNo := uint64(i) + newEpochConfig.StartingCheckpoint.SeqNo + 1
 
-		// For "null requests", only append an "empth" QEntry to the persistent log.
+		// For "null requests", only append an "empty" QEntry to the persistent log.
 		if len(digest) == 0 {
 			actions.concat(et.persisted.addQEntry(&msgs.QEntry{
 				SeqNo: seqNo,
@@ -365,19 +365,22 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 			continue
 		}
 
+		// For an actual batch, we know already we have the payload
+		// (otherwise we would return before reaching this code).
 		batch, ok := et.batchTracker.getBatch(digest)
 		if !ok {
 			panic(fmt.Sprintf("dev sanity check -- batch %x was just found above, not is now missing", digest))
 		}
 
+		// Add a new QEntry to the persistent log (i.e. consider the batch preprepared).
 		qEntry := &msgs.QEntry{
 			SeqNo:    seqNo,
 			Digest:   digest,
 			Requests: batch.requestAcks,
 		}
-
 		actions.concat(et.persisted.addQEntry(qEntry))
 
+		// If this SN corresponds to a checkpoint, allocate the next epoch by appending an NEntry to the WAL.
 		if seqNo%uint64(et.networkConfig.CheckpointInterval) == 0 && seqNo < et.commitState.stopAtSeqNo {
 			actions.concat(et.persisted.addNEntry(&msgs.NEntry{
 				SeqNo:       seqNo + 1,
@@ -386,9 +389,15 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 		}
 	}
 
+	// TODO: Explain this. What is the logic behind FinalPreprepares and their sequence numbers?
+	//       Are the FinalPreprepares meant to be part of the new epoch?
+	//       Or are they "fillers" for the old epoch until the next checkpoint?
 	et.startingSeqNo = newEpochConfig.StartingCheckpoint.SeqNo +
 		uint64(len(newEpochConfig.FinalPreprepares)) + 1
 
+	// Echo the NewEpoch message to all nodes (2nd phase of Bracha broadcast).
+	// Note that this echo message also serves as a PBFT prepare message
+	// for all the outstanding sequence numbers included in the epoch change.
 	return actions.Send(
 		et.networkConfig.Nodes,
 		&msgs.Msg{
@@ -604,9 +613,13 @@ func (et *epochTarget) applyNewEpochMsg(msg *msgs.NewEpoch) *ActionList {
 	return et.advanceState()
 }
 
+// Registers a received NewEpochEcho message received during epoch change.
+// Note that a NewEpochEcho also serves as the PBFT prepare message for all
+// the outstanding sequence numbers in an epoch change.
 func (et *epochTarget) applyNewEpochEchoMsg(source nodeID, msg *msgs.NewEpochConfig) *ActionList {
 	var msgEchos map[nodeID]struct{}
 
+	// Check if we already received this echo message from some node.
 	for config, echos := range et.echos {
 		if proto.Equal(config, msg) {
 			msgEchos = echos
@@ -614,46 +627,65 @@ func (et *epochTarget) applyNewEpochEchoMsg(source nodeID, msg *msgs.NewEpochCon
 		}
 	}
 
+	// If we did not, create a new entry for this echo message.
 	if msgEchos == nil {
 		msgEchos = map[nodeID]struct{}{}
 		et.echos[msg] = msgEchos
 	}
 
+	// Register reception of this echo message from source.
 	msgEchos[source] = struct{}{}
 
+	// Advancing the state checks whether we now have enough echoes and acts accordingly.
 	return et.advanceState()
 }
 
+// Checks whether enough NewEpochEcho messages have been received.
+// If yes, enters the READY phase of Bracha-broadcasting the NewEpoch message.
 func (et *epochTarget) checkNewEpochEchoQuorum() *ActionList {
 	actions := &ActionList{}
+
+	// Go through all different echo messages and look for a quorum.
+	// An echo message is defined uniquely by the new epoch configuration (NewEpochConfig) it contains.
 	for config, msgEchos := range et.echos {
-		if len(msgEchos) < intersectionQuorum(et.networkConfig) {
-			continue
-		}
 
-		et.state = etReadying
+		// If a quorum of echoes has been obtained for some configuration
+		if len(msgEchos) >= intersectionQuorum(et.networkConfig) {
 
-		for i, digest := range config.FinalPreprepares {
-			seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
-			actions.concat(et.persisted.addPEntry(&msgs.PEntry{
-				SeqNo:  seqNo,
-				Digest: digest,
-			}))
-		}
+			// Advance to the READY phase of Bracha broadcast.
+			et.state = etReadying
 
-		return actions.Send(
-			et.networkConfig.Nodes,
-			&msgs.Msg{
-				Type: &msgs.Msg_NewEpochReady{
-					NewEpochReady: config,
+			// The NewEpochEcho simultaneously serves as the PBFT prepare message
+			// for all the outstanding sequence numbers included in the epoch change.
+			// Thus, mark those sequence numbers as prepared.
+			for i, digest := range config.FinalPreprepares {
+				seqNo := uint64(i) + config.StartingCheckpoint.SeqNo + 1
+				actions.concat(et.persisted.addPEntry(&msgs.PEntry{
+					SeqNo:  seqNo,
+					Digest: digest,
+				}))
+			}
+
+			// Send a READY message (3rd phase of Bracha broadcast).
+			// Note that this message also serves as a PBFT commit message
+			// for all the outstanding sequence numbers included in the epoch change.
+			return actions.Send(
+				et.networkConfig.Nodes,
+				&msgs.Msg{
+					Type: &msgs.Msg_NewEpochReady{
+						NewEpochReady: config,
+					},
 				},
-			},
-		)
+			)
+		}
 	}
 
 	return actions
 }
 
+// Registers a received NewEpochReady message received during epoch change.
+// Note that a NewEpochReady also serves as the PBFT commit message for all
+// the outstanding sequence numbers in an epoch change.
 func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochConfig) *ActionList {
 	if et.state > etReadying {
 		// We've already accepted the epoch config, move along
@@ -662,6 +694,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochCo
 
 	var msgReadies map[nodeID]struct{}
 
+	// Check if we already received this ready message from some node.
 	for config, readies := range et.readies {
 		if proto.Equal(config, msg) {
 			msgReadies = readies
@@ -669,25 +702,37 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochCo
 		}
 	}
 
+	// If we did not, create a new entry for this ready message.
 	if msgReadies == nil {
 		msgReadies = map[nodeID]struct{}{}
 		et.readies[msg] = msgReadies
 	}
 
+	// Register reception of this ready message from source.
 	msgReadies[source] = struct{}{}
 
+	// If the received message does not contribute to even a weak quorum, return immediately.
 	if len(msgReadies) < someCorrectQuorum(et.networkConfig) {
 		return &ActionList{}
 	}
 
+	// TODO: Explain why we are advancing the state here.
+	//       It looks like a ready message cannot make any difference before the etEchoing state.
 	if et.state < etEchoing {
 		return et.advanceState()
 	}
 
+	// If we are not yet in etReadying state (i.e., given the previous check, we must be in etEchoing),
+	// move to the etReadying state (since we've received a weak quorum of readies).
+	// This is the case in Bracha broadcast where we receive a weak quorum of readies
+	// before having received a strong quorum of echoes.
 	if et.state < etReadying {
+
+		// Advance state.
 		et.logger.Log(LevelDebug, "epoch transitioning from echoing to ready", "epoch_no", et.number)
 		et.state = etReadying
 
+		// Send a READY message to all nodes.
 		actions := (&ActionList{}).Send(
 			et.networkConfig.Nodes,
 			&msgs.Msg{
@@ -697,12 +742,17 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochCo
 			},
 		)
 
+		// TODO: Don't we need to call advanceState() here as well?
+		//       (This function is not called from within advanceState(),
+		//        so changing et.state does not help.)
 		return actions
 	}
 
 	return et.advanceState()
 }
 
+// TODO: Should we move part of the functionality of applyNewEpochReadyMst() inside checkNewEpochReadyQuorum()?
+//       It might make the code more readable by keeping the same pattern as the one used with echoes.
 func (et *epochTarget) checkNewEpochReadyQuorum() {
 	for config, msgReadies := range et.readies {
 		if len(msgReadies) < intersectionQuorum(et.networkConfig) {

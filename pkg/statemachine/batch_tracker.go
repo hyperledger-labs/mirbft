@@ -96,7 +96,7 @@ func (bt *batchTracker) addBatch(seqNo uint64, digest []byte, requestAcks []*msg
 
 	// If this same batch is currently being fetched, potentially for other sequence numbers
 	// (this can generally be the case for empty batches), mark it as observed for those
-	// sequence as well and remove the "fetching" flag.
+	// sequence numbers as well and remove the "fetching" flag.
 	inFlight, ok := bt.fetchInFlight[string(digest)]
 	if ok {
 		for _, ifSeqNo := range inFlight {
