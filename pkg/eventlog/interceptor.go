@@ -19,8 +19,8 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/IBM/mirbft/pkg/pb/recording"
-	"github.com/IBM/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/recording"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 )
 
 type RecorderOpt interface{}

@@ -7,8 +7,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/reqstore"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
 )
 
 var _ = Describe("Reqstore", func() {

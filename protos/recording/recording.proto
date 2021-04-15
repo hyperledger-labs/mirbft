@@ -8,7 +8,7 @@ syntax = "proto3";
 
 package recording;
 
-option go_package = "github.com/IBM/mirbft/pkg/pb/recording";
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/recording";
 
 import "state/state.proto";
 

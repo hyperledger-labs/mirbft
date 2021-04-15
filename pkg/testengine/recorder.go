@@ -21,13 +21,13 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/IBM/mirbft"
-	"github.com/IBM/mirbft/pkg/eventlog"
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/recording"
-	"github.com/IBM/mirbft/pkg/pb/state"
-	"github.com/IBM/mirbft/pkg/processor"
-	"github.com/IBM/mirbft/pkg/statemachine"
+	"github.com/hyperledger-labs/mirbft"
+	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/recording"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/processor"
+	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 )
 
 func uint64ToBytes(value uint64) []byte {

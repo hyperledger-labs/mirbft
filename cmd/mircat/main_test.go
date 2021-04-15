@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/IBM/mirbft/pkg/testengine"
+	"github.com/hyperledger-labs/mirbft/pkg/testengine"
 )
 
 var _ = Describe("Parsing", func() {

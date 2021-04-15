@@ -9,8 +9,8 @@ package statemachine
 import (
 	"container/list"
 
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 )
 
 type EventList struct {

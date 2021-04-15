@@ -32,4 +32,4 @@ If a replica has a correct quorum cert for a request, but has not received this 
 
 Additionally, if a client request does not have a strong cert, the replicas with the request will periodically re-ack this request (with a backoff) in an attempt to resolve this request once adequate replicas come online.
 
-There is a lot more discussion of client to be found in [client_tracker.go](https://github.com/IBM/mirbft/blob/master/processor.go).
+There is a lot more discussion of client to be found in [client_tracker.go](https://github.com/hyperledger-labs/mirbft/blob/master/processor.go).

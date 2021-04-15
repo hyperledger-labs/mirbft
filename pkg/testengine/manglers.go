@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 )
 
 type Mangler interface {

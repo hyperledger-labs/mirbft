@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 */
 
 // mircat is a package for reviewing Mir state machine recordings.
-// It understands the format encoded via github.com/IBM/mirbft/eventlog
+// It understands the format encoded via github.com/hyperledger-labs/mirbft/eventlog
 // and is able to parse and filter these log files.  It is also able to
 // play them against an identical version of the state machine for problem
 // reproduction and debugging.
@@ -22,12 +22,12 @@ import (
 	"github.com/pkg/errors"
 	"gopkg.in/alecthomas/kingpin.v2"
 
-	"github.com/IBM/mirbft/pkg/eventlog"
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/recording"
-	"github.com/IBM/mirbft/pkg/pb/state"
-	"github.com/IBM/mirbft/pkg/statemachine"
-	"github.com/IBM/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/recording"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
+	"github.com/hyperledger-labs/mirbft/pkg/status"
 )
 
 // command line flags

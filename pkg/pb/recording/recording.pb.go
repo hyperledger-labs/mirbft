@@ -12,7 +12,7 @@
 package recording
 
 import (
-	state "github.com/IBM/mirbft/pkg/pb/state"
+	state "github.com/hyperledger-labs/mirbft/pkg/pb/state"
 	proto "github.com/golang/protobuf/proto"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"

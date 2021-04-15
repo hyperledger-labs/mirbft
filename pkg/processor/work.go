@@ -7,9 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package processor
 
 import (
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
-	"github.com/IBM/mirbft/pkg/statemachine"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 )
 
 type WorkItems struct {

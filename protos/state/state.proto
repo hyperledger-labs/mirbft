@@ -10,7 +10,7 @@ package state;
 
 import "msgs/msgs.proto";
 
-option go_package = "github.com/IBM/mirbft/pkg/pb/state";
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/state";
 
 // Event represents a state event to be injected into the state machine
 message Event {

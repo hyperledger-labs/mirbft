@@ -13,7 +13,7 @@ There are two builtin processors which are suitable for many applications.  Both
 * `Log` an application log for committed transactions and state transfer.
 
 
-There is the [SerialProcessor](https://github.com/IBM/mirbft/blob/master/processor.go) which performs operations serially (and therefore simply and deterministically), as well as the [ParallelProcessor](https://github.com/IBM/mirbft/blob/master/processor.go) which is capable of significantly faster execution.
+There is the [SerialProcessor](https://github.com/hyperledger-labs/mirbft/blob/master/processor.go) which performs operations serially (and therefore simply and deterministically), as well as the [ParallelProcessor](https://github.com/hyperledger-labs/mirbft/blob/master/processor.go) which is capable of significantly faster execution.
 
 ## Writing your own processor
 

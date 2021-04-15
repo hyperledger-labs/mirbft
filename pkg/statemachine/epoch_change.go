@@ -9,8 +9,8 @@ package statemachine
 import (
 	"sort"
 
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/status"
 
 	"github.com/pkg/errors"
 )

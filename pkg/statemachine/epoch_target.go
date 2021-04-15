@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
-	"github.com/IBM/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/status"
 
 	"google.golang.org/protobuf/proto"
 )

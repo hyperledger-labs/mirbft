@@ -19,11 +19,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
-	"github.com/IBM/mirbft/pkg/processor"
-	"github.com/IBM/mirbft/pkg/statemachine"
-	"github.com/IBM/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/processor"
+	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
+	"github.com/hyperledger-labs/mirbft/pkg/status"
 	"github.com/pkg/errors"
 )
 

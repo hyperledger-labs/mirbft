@@ -12,7 +12,7 @@
 package state
 
 import (
-	msgs "github.com/IBM/mirbft/pkg/pb/msgs"
+	msgs "github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	proto "github.com/golang/protobuf/proto"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"

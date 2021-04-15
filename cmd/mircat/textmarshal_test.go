@@ -10,9 +10,9 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/recording"
-	"github.com/IBM/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/recording"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 )
 
 var _ = Describe("textmarshal", func() {

@@ -9,7 +9,7 @@ package statemachine
 import (
 	"fmt"
 
-	"github.com/IBM/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 )
 
 func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.NetworkState, logger Logger) *allOutstandingReqs {

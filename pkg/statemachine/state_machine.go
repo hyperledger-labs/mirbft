@@ -11,9 +11,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/pb/state"
-	"github.com/IBM/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/status"
 )
 
 // bucketID is the identifier for a bucket.  It is a simple alias to a uint64, but

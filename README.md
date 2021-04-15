@@ -8,8 +8,8 @@ MirBFT, like the original [PBFT](https://www.microsoft.com/en-us/research/wp-con
 
 MirBFT, also like the original PBFT shuns signatures internally, instead preferring to collect quorum certificates during epoch change and other such events.  In many ways, this complicates the internal implementation of the library, but it drastically simplifies the external interface and prevents signature validation from becoming a bottleneck under certain workloads.
 
-[![Build Status](https://travis-ci.org/IBM/mirbft.svg?branch=master)](https://travis-ci.org/IBM/mirbft)
-[![GoDoc](https://godoc.org/github.com/IBM/mirbft?status.svg)](https://godoc.org/github.com/IBM/mirbft)
+[![Build Status](https://travis-ci.org/hyperledger-labs/mirbft.svg?branch=master)](https://travis-ci.org/hyperledger-labs/mirbft)
+[![GoDoc](https://godoc.org/github.com/hyperledger-labs/mirbft?status.svg)](https://godoc.org/github.com/hyperledger-labs/mirbft)
 
 ## Architecture
 
@@ -17,9 +17,9 @@ The high level structure of the MirBFT library steals heavily from the architect
 
 The required components not dictated by the implementation include:
 
-1. A write-ahead-log for persisting the state machine log entries. (or use [the provided one](https://github.com/IBM/mirbft/blob/master/pkg/simplewal/wal.go)).
+1. A write-ahead-log for persisting the state machine log entries. (or use [the provided one](https://github.com/hyperledger-labs/mirbft/blob/master/pkg/simplewal/wal.go)).
 2. A hashing implementation (such as the builtin [sha256](https://golang.org/pkg/crypto/sha256/)).
-3. A request store for persisting application requests while they are consented upon (or use [the provided one](https://github.com/IBM/mirbft/blob/master/pkg/reqstore/reqstore.go)).
+3. A request store for persisting application requests while they are consented upon (or use [the provided one](https://github.com/hyperledger-labs/mirbft/blob/master/pkg/reqstore/reqstore.go)).
 4. An application state which can apply committed requests and may be snapshotted.
 
 For basic applications, only (4) may need to be written, though for applications which wish to optimize for throughput (for instance avoiding committing request data to disk twice), a custom implementation of (3) which integrates with (4) may be desirable.

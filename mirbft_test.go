@@ -22,13 +22,13 @@ import (
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 
-	"github.com/IBM/mirbft"
-	"github.com/IBM/mirbft/pkg/eventlog"
-	"github.com/IBM/mirbft/pkg/pb/msgs"
-	"github.com/IBM/mirbft/pkg/processor"
-	"github.com/IBM/mirbft/pkg/reqstore"
-	"github.com/IBM/mirbft/pkg/simplewal"
-	"github.com/IBM/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft"
+	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/processor"
+	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
+	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
+	"github.com/hyperledger-labs/mirbft/pkg/status"
 )
 
 var (

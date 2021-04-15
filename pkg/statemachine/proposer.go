@@ -10,7 +10,7 @@ import (
 	"container/list"
 	"encoding/binary"
 
-	"github.com/IBM/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 )
 
 func uint64ToBytes(value uint64) []byte {
