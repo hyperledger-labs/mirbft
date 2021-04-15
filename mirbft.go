@@ -41,6 +41,32 @@ func (r *replicas) replica(id uint64) *processor.Replica {
 	return r.replicas.Replica(id)
 }
 
+type Client struct {
+	client          *processor.Client
+	resultC         chan<- *statemachine.EventList
+	workErrNotifier *workErrNotifier
+}
+
+func (c *Client) NextReqNo() (uint64, error) {
+	return c.client.NextReqNo()
+}
+
+func (c *Client) Propose(ctx context.Context, reqNo uint64, data []byte) error {
+	result, err := c.client.Propose(reqNo, data)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case c.resultC <- result:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.workErrNotifier.ExitC():
+		return c.workErrNotifier.Err()
+	}
+}
+
 // Node is the local instance of the MirBFT state machine through which the calling application
 // proposes new messages, receives delegated actions, and returns action results.
 // The methods exposed on Node are all thread safe, though typically, a single loop handles
@@ -69,10 +95,9 @@ type Node struct {
 	appResultsC      chan *statemachine.EventList
 	reqStoreEventsC  chan *statemachine.EventList
 	reqStoreResultsC chan *statemachine.EventList
-	// Exported as a temporary hack
-	ResultEventsC  chan *statemachine.EventList
-	ResultResultsC chan *statemachine.ActionList
-	Clients        *processor.Clients
+	resultEventsC    chan *statemachine.EventList
+	resultResultsC   chan *statemachine.ActionList
+	clients          *processor.Clients
 }
 
 func StandardInitialNetworkState(nodeCount int, clientCount int) *msgs.NetworkState {
@@ -124,7 +149,7 @@ func NewNode(
 		stateMachine: &statemachine.StateMachine{
 			Logger: logAdapter{Logger: config.Logger},
 		},
-		Clients: &processor.Clients{
+		clients: &processor.Clients{
 			RequestStore: processorConfig.RequestStore,
 			Hasher:       processorConfig.Hasher,
 		},
@@ -144,8 +169,8 @@ func NewNode(
 		appResultsC:      make(chan *statemachine.EventList),
 		reqStoreEventsC:  make(chan *statemachine.EventList),
 		reqStoreResultsC: make(chan *statemachine.EventList),
-		ResultEventsC:    make(chan *statemachine.EventList),
-		ResultResultsC:   make(chan *statemachine.ActionList),
+		resultEventsC:    make(chan *statemachine.EventList),
+		resultResultsC:   make(chan *statemachine.ActionList),
 	}, nil
 }
 
@@ -194,6 +219,14 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 	}
 }
 
+func (n *Node) Client(id uint64) *Client {
+	return &Client{
+		client:          n.clients.Client(id),
+		resultC:         n.clientResultsC,
+		workErrNotifier: n.workErrNotifier,
+	}
+}
+
 func (n *Node) doWALWork(exitC <-chan struct{}) error {
 	var actions *statemachine.ActionList
 	select {
@@ -228,7 +261,7 @@ func (n *Node) doClientWork(exitC <-chan struct{}) error {
 		return ErrStopped
 	}
 
-	clientResults, err := n.Clients.ProcessClientActions(actions)
+	clientResults, err := n.clients.ProcessClientActions(actions)
 	if err != nil {
 		return errors.WithMessage(err, "could not perform client actions")
 	}
@@ -343,7 +376,7 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 
 	var events *statemachine.EventList
 	select {
-	case events = <-n.ResultEventsC:
+	case events = <-n.resultEventsC:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -358,7 +391,7 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 	}
 
 	select {
-	case n.ResultResultsC <- actions:
+	case n.resultResultsC <- actions:
 		n.processorConfig.Interceptor.Intercept(statemachine.EventActionsReceived())
 	case <-exitC:
 		return ErrStopped
@@ -485,7 +518,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 			n.workItems.AddAppResults(appResults)
 		case reqStoreResults := <-n.reqStoreResultsC:
 			n.workItems.AddReqStoreResults(reqStoreResults)
-		case actions := <-n.ResultResultsC:
+		case actions := <-n.resultResultsC:
 			n.workItems.AddStateMachineResults(actions)
 		case stepEvents := <-n.replicas.eventC:
 			// TODO, once request forwarding works, we'll
@@ -501,7 +534,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		}
 
 		if resultEventsC == nil && n.workItems.ResultEvents().Len() > 0 {
-			resultEventsC = n.ResultEventsC
+			resultEventsC = n.resultEventsC
 		}
 
 		if walActionsC == nil && n.workItems.WALActions().Len() > 0 {

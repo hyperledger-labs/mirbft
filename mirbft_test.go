@@ -419,7 +419,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		client := node.Clients.Client(0)
+		client := node.Client(0)
 		for {
 			select {
 			case <-tr.DoneC:
@@ -441,17 +441,10 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 
 			// Batch them in, 50 at a time
 			for i := nextReqNo; i < tr.FakeClient.MsgCount && i < nextReqNo+50; i++ {
-				events, err := client.Propose(i, clientReq(0, i))
-				if err != nil {
+				if err := client.Propose(context.Background(), i, clientReq(0, i)); err != nil {
 					// TODO, failing on err causes flakes in the teardown,
 					// so just returning for now, we should address later
 					break
-				}
-
-				select {
-				case <-tr.DoneC:
-					return
-				case node.ResultEventsC <- events:
 				}
 			}
 
