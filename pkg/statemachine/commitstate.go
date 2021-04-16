@@ -67,6 +67,9 @@ func (cs *commitState) reinitialize() *ActionList {
 		cs.lowWatermark = secondToLastCEntry.SeqNo
 	}
 
+	actions := &ActionList{}
+	actions.StateApplied(cs.lowWatermark, cs.activeState)
+
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 	if len(cs.activeState.PendingReconfigurations) == 0 {
 		cs.stopAtSeqNo = lastCEntry.SeqNo + 2*ci
@@ -95,7 +98,7 @@ func (cs *commitState) reinitialize() *ActionList {
 
 	// We crashed during a state transfer
 	cs.transferring = true
-	return (&ActionList{}).StateTransfer(lastTEntry.SeqNo, lastTEntry.Value)
+	return actions.StateTransfer(lastTEntry.SeqNo, lastTEntry.Value)
 }
 
 func (cs *commitState) transferTo(seqNo uint64, value []byte) *ActionList {
@@ -288,6 +291,9 @@ func newCommittingClient(seqNo uint64, clientState *msgs.NetworkState_Client) *c
 }
 
 func (cc *committingClient) markCommitted(seqNo, reqNo uint64) {
+	if reqNo < cc.lastState.LowWatermark {
+		return
+	}
 	offset := reqNo - cc.lastState.LowWatermark
 	cc.committedSinceLastCheckpoint[offset] = &seqNo
 }

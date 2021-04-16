@@ -71,6 +71,10 @@ func (c *Clients) ProcessClientActions(actions *statemachine.ActionList) (*state
 			if err != nil {
 				return nil, err
 			}
+		case *state.Action_StateApplied:
+			for _, client := range t.StateApplied.NetworkState.Clients {
+				c.Client(client.Id).stateApplied(client)
+			}
 		default:
 			return nil, errors.Errorf("unexpected type for client action: %T", action.Type)
 		}
@@ -78,14 +82,16 @@ func (c *Clients) ProcessClientActions(actions *statemachine.ActionList) (*state
 	return events, nil
 }
 
+// TODO, client needs to be updated based on the state applied events, to give it a low watermark
+// minimally and to clean up the reqNoMap
 type Client struct {
 	mutex        sync.Mutex
 	hasher       Hasher
 	clientID     uint64
+	nextReqNo    uint64
 	requestStore RequestStore
 	requests     *list.List
 	reqNoMap     map[uint64]*list.Element
-	nextReqNo    uint64
 }
 
 func newClient(clientID uint64, hasher Hasher, reqStore RequestStore) *Client {
@@ -102,6 +108,20 @@ type clientRequest struct {
 	reqNo                 uint64
 	localAllocationDigest []byte
 	remoteCorrectDigests  [][]byte
+}
+
+func (c *Client) stateApplied(state *msgs.NetworkState_Client) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	for reqNo, el := range c.reqNoMap {
+		if reqNo < state.LowWatermark {
+			c.requests.Remove(el)
+			delete(c.reqNoMap, reqNo)
+		}
+	}
+	if c.nextReqNo < state.LowWatermark {
+		c.nextReqNo = state.LowWatermark
+	}
 }
 
 func (c *Client) allocate(reqNo uint64) ([]byte, error) {
@@ -181,11 +201,21 @@ func (c *Client) Propose(reqNo uint64, data []byte) (*statemachine.EventList, er
 		return &statemachine.EventList{}, nil
 	}
 
-	if reqNo > c.nextReqNo {
-		return nil, errors.Errorf("client must submit req_no %d next", c.nextReqNo)
-	}
+	if reqNo == c.nextReqNo {
+		for {
+			c.nextReqNo++
+			// Keep incrementing 'nextRequest' until we find one we don't have
 
-	c.nextReqNo++
+			el, ok := c.reqNoMap[c.nextReqNo]
+			if !ok {
+				break
+			}
+
+			if el.Value.(*clientRequest).localAllocationDigest == nil {
+				break
+			}
+		}
+	}
 
 	el, ok := c.reqNoMap[reqNo]
 	previouslyAllocated := ok

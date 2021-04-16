@@ -171,7 +171,8 @@ func (pi *WorkItems) AddStateMachineResults(actions *statemachine.ActionList) {
 		case *state.Action_CorrectRequest:
 			pi.ClientActions().PushBack(action)
 		case *state.Action_StateApplied:
-			// TODO, handle
+			pi.ClientActions().PushBack(action)
+			// TODO, create replicas
 		case *state.Action_ForwardRequest:
 			// XXX address
 		case *state.Action_StateTransfer:

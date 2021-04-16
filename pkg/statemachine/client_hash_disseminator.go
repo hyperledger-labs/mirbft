@@ -251,7 +251,9 @@ func (ct *clientHashDisseminator) applyNewRequest(ack *msgs.RequestAck) *ActionL
 		return &ActionList{}
 	}
 
-	return client.reqNo(ack.ReqNo).applyNewRequest(ack)
+	client.reqNo(ack.ReqNo).applyNewRequest(ack)
+
+	return client.advanceAcks()
 }
 
 // allocate should be invoked after the checkpoint is computed and advances the high watermark.
@@ -426,38 +428,35 @@ func (crn *clientReqNo) clientReq(ack *msgs.RequestAck) *clientRequest {
 	return clientReq
 }
 
-func (crn *clientReqNo) applyNewRequest(ack *msgs.RequestAck) *ActionList {
+func (crn *clientReqNo) applyNewRequest(ack *msgs.RequestAck) {
 	_, ok := crn.myRequests[string(ack.Digest)]
 	if ok {
 		// We have already persisted this request, likely
 		// a race between a forward and a local proposal, do nothing
-		return &ActionList{}
+		return
 	}
 
 	clientReq := crn.clientReq(ack)
 	clientReq.stored = true
 
 	crn.myRequests[string(ack.Digest)] = clientReq
+}
 
-	actions := &ActionList{}
+func (crn *clientReqNo) generateAck() *msgs.Msg {
+	if len(crn.myRequests) == 0 {
+		return nil
+	}
 
 	if len(crn.myRequests) == 1 {
 		crn.acksSent = 1
 		crn.ticksSinceAck = 0
-		return actions.Send(
-			crn.networkConfig.Nodes,
-			&msgs.Msg{
+		for _, cr := range crn.myRequests {
+			return &msgs.Msg{
 				Type: &msgs.Msg_RequestAck{
-					RequestAck: ack,
+					RequestAck: cr.ack,
 				},
-			},
-		)
-	}
-
-	// More than one request persisted
-	if _, ok := crn.myRequests[""]; !ok {
-		// already persisted and acked null request
-		return actions
+			}
+		}
 	}
 
 	nullAck := &msgs.RequestAck{
@@ -472,14 +471,11 @@ func (crn *clientReqNo) applyNewRequest(ack *msgs.RequestAck) *ActionList {
 	crn.acksSent = 1
 	crn.ticksSinceAck = 0
 
-	return actions.Send(
-		crn.networkConfig.Nodes,
-		&msgs.Msg{
-			Type: &msgs.Msg_RequestAck{
-				RequestAck: nullAck,
-			},
+	return &msgs.Msg{
+		Type: &msgs.Msg_RequestAck{
+			RequestAck: nullAck,
 		},
-	)
+	}
 }
 
 func (crn *clientReqNo) applyRequestAck(source nodeID, ack *msgs.RequestAck, force bool) {
@@ -679,6 +675,7 @@ type client struct {
 	clientTracker *clientTracker
 	highWatermark uint64 // TODO, remove, it's just convenient for the moment
 	nextReadyMark uint64
+	nextAckMark   uint64
 
 	reqNoList *list.List
 	reqNoMap  map[uint64]*list.Element
@@ -706,6 +703,9 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *msgs.NetworkState_Con
 		c.highWatermark = intermediateHighWatermark
 	}
 	c.nextReadyMark = clientState.LowWatermark
+	if c.nextAckMark < clientState.LowWatermark {
+		c.nextAckMark = clientState.LowWatermark
+	}
 	c.reqNoList = list.New()
 	c.reqNoMap = map[uint64]*list.Element{}
 
@@ -737,7 +737,7 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *msgs.NetworkState_Con
 
 	c.advanceReady()
 
-	c.logger.Log(LevelDebug, "reinitialized client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark)
+	c.logger.Log(LevelDebug, "reinitialized client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark, "next_ack_mark", c.nextAckMark)
 
 	return actions
 }
@@ -758,6 +758,10 @@ func (c *client) allocate(seqNo uint64, state *msgs.NetworkState_Client, reconfi
 		// It's possible that a request we never saw as ready commits
 		// because it was correct, so advance the ready mark
 		c.nextReadyMark = state.LowWatermark
+	}
+
+	if state.LowWatermark > c.nextAckMark {
+		c.nextAckMark = state.LowWatermark
 	}
 
 	for el := c.reqNoList.Front(); el != nil; {
@@ -869,6 +873,25 @@ func (c *client) advanceReady() {
 			break
 		}
 	}
+}
+
+func (c *client) advanceAcks() *ActionList {
+	actions := &ActionList{}
+	for i := c.nextAckMark; i <= c.highWatermark; i++ {
+		ack := c.reqNo(i).generateAck()
+		if ack == nil {
+			break
+		}
+
+		actions.Send(
+			c.networkConfig.Nodes,
+			ack,
+		)
+
+		c.nextAckMark = i + 1
+	}
+
+	return actions
 }
 
 func (c *client) tick() *ActionList {

@@ -25,7 +25,6 @@ import (
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/processor"
 	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
@@ -427,28 +426,13 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			default:
 			}
 
-			nextReqNo, err := client.NextReqNo()
-			if err == processor.ErrClientNotExist {
-				time.Sleep(20 * time.Millisecond)
-				continue
-			}
-			if err != nil {
-				return // TODO, make this less dumb
-			}
-			if nextReqNo == tr.FakeClient.MsgCount {
-				return
-			}
-
-			// Batch them in, 50 at a time
-			for i := nextReqNo; i < tr.FakeClient.MsgCount && i < nextReqNo+50; i++ {
+			for i := uint64(0); i < tr.FakeClient.MsgCount; i++ {
 				if err := client.Propose(context.Background(), i, clientReq(0, i)); err != nil {
 					// TODO, failing on err causes flakes in the teardown,
 					// so just returning for now, we should address later
 					break
 				}
 			}
-
-			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 

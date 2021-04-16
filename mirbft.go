@@ -52,6 +52,7 @@ func (c *Client) NextReqNo() (uint64, error) {
 }
 
 func (c *Client) Propose(ctx context.Context, reqNo uint64, data []byte) error {
+
 	result, err := c.client.Propose(reqNo, data)
 	if err != nil {
 		return err
