@@ -62,7 +62,7 @@ type sequence struct {
 	batch []*msgs.RequestAck
 
 	// outstandingReqs is not set until after state >= sequenceAllocated and may never be set
-	outstandingReqs map[string]struct{}
+	outstandingReqs map[ackKey]struct{}
 
 	// digest is the computed digest of the batch, may not be set until state > sequenceReady
 	digest []byte
@@ -139,7 +139,7 @@ func (s *sequence) allocateAsOwner(clientRequests []*clientRequest) *ActionList 
 // allocate reserves this sequence in this epoch for a set of requests.
 // If the state machine is not in the uninitialized state, it returns an error.  Otherwise,
 // It transitions to preprepared and returns a ValidationRequest message.
-func (s *sequence) allocate(requestAcks []*msgs.RequestAck, outstandingReqs map[string]struct{}) *ActionList {
+func (s *sequence) allocate(requestAcks []*msgs.RequestAck, outstandingReqs map[ackKey]struct{}) *ActionList {
 	assertEqualf(s.state, sequenceUninitialized, "seq_no=%d must be uninitialized to allocate", s.seqNo)
 
 	s.state = sequenceAllocated
@@ -177,10 +177,11 @@ func (s *sequence) allocate(requestAcks []*msgs.RequestAck, outstandingReqs map[
 }
 
 func (s *sequence) satisfyOutstanding(fr *msgs.RequestAck) *ActionList {
-	_, ok := s.outstandingReqs[string(fr.Digest)]
+	key := ackToKey(fr)
+	_, ok := s.outstandingReqs[key]
 	assertTruef(ok, "told request %x was ready but we weren't waiting for it", fr.Digest)
 
-	delete(s.outstandingReqs, string(fr.Digest))
+	delete(s.outstandingReqs, key)
 
 	return s.advanceState()
 }

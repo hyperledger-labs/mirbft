@@ -12,13 +12,27 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 )
 
+type ackKey struct {
+	clientID uint64
+	reqNo    uint64
+	digest   string
+}
+
+func ackToKey(ack *msgs.RequestAck) ackKey {
+	return ackKey{
+		clientID: ack.ClientId,
+		reqNo:    ack.ReqNo,
+		digest:   string(ack.Digest),
+	}
+}
+
 func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.NetworkState, logger Logger) *allOutstandingReqs {
 	clientTracker.availableList.resetIterator()
 
 	ao := &allOutstandingReqs{
 		buckets:             map[bucketID]*bucketOutstandingReqs{},
-		correctRequests:     map[string]*msgs.RequestAck{},
-		outstandingRequests: map[string]*sequence{},
+		correctRequests:     map[ackKey]*msgs.RequestAck{},
+		outstandingRequests: map[ackKey]*sequence{},
 		availableIterator:   clientTracker.availableList,
 	}
 
@@ -60,8 +74,8 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.Network
 type allOutstandingReqs struct {
 	buckets             map[bucketID]*bucketOutstandingReqs
 	availableIterator   *availableList
-	correctRequests     map[string]*msgs.RequestAck // TODO, map by struct with digest + reqNo + clientNo, otherwise clients can engineer collisions.
-	outstandingRequests map[string]*sequence
+	correctRequests     map[ackKey]*msgs.RequestAck
+	outstandingRequests map[ackKey]*sequence
 }
 
 type bucketOutstandingReqs struct {
@@ -88,7 +102,7 @@ func (ao *allOutstandingReqs) advanceRequests() *ActionList {
 	actions := &ActionList{}
 	for ao.availableIterator.hasNext() {
 		ack := ao.availableIterator.next()
-		key := string(ack.Digest)
+		key := ackToKey(ack)
 
 		if seq, ok := ao.outstandingRequests[key]; ok {
 			delete(ao.outstandingRequests, key)
@@ -107,7 +121,7 @@ func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []
 	bo, ok := ao.buckets[bucket]
 	assertTruef(ok, "told to apply acks for bucket %d which does not exist", bucket)
 
-	outstandingReqs := map[string]struct{}{}
+	outstandingReqs := map[ackKey]struct{}{}
 
 	for _, req := range batch {
 		co, ok := bo.clients[req.ClientId]
@@ -121,7 +135,7 @@ func (ao *allOutstandingReqs) applyAcks(bucket bucketID, seq *sequence, batch []
 
 		// TODO, return an error if the request proposed is for a seqno before this request is valid
 
-		key := string(req.Digest)
+		key := ackToKey(req)
 		if _, ok := ao.correctRequests[key]; ok {
 			delete(ao.correctRequests, key)
 		} else {
