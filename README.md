@@ -8,7 +8,7 @@ MirBFT, like the original [PBFT](https://www.microsoft.com/en-us/research/wp-con
 
 MirBFT, also like the original PBFT shuns signatures internally, instead preferring to collect quorum certificates during epoch change and other such events.  In many ways, this complicates the internal implementation of the library, but it drastically simplifies the external interface and prevents signature validation from becoming a bottleneck under certain workloads.
 
-[![Build Status](https://travis-ci.org/hyperledger-labs/mirbft.svg?branch=master)](https://travis-ci.org/hyperledger-labs/mirbft)
+[![Build Status](https://github.com/hyperledger-labs/mirbft/workflows/test/badge.svg)](https://github.com/hyperledger-labs/mirbft/actions)
 [![GoDoc](https://godoc.org/github.com/hyperledger-labs/mirbft?status.svg)](https://godoc.org/github.com/hyperledger-labs/mirbft)
 
 ## Architecture
