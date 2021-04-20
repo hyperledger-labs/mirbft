@@ -19,7 +19,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Install rools
+      - name: Install test tools
         run: |
           go install github.com/onsi/ginkgo/ginkgo
           go install honnef.co/go/tools/cmd/staticcheck
