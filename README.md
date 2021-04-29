@@ -1,6 +1,15 @@
 # MirBFT Library
 
 This open-source project is part of [Hyperledger Labs](https://labs.hyperledger.org/labs/mir-bft.html).
+It aims at developing a production-quality implementation of the
+[Mir Byzantine fault tolerant consensus protocol](https://arxiv.org/abs/1906.05552)
+and integrating it with Hyperledger Fabric.
+Being framed as a library, however, MirBFT's goal is also to serve as a general-purpose high-performance BFT component
+of other projects as well.
+
+The [research branch](https://github.com/hyperledger-labs/mirbft/tree/research) contains code developed independently
+as a research prototype and was used to produce experimental results
+for the [research paper](https://arxiv.org/abs/1906.05552).
 
 ## Current status
 
@@ -79,18 +88,25 @@ To increase performance, the user of the library may provide their own optimized
 
 ## Using Mir
  
-TODO
+TODO: Refer to the sample application when it is integrated in this repository.
 
 ## Contributing
 
 **Contributions are more than welcome!**
+
 If you want to contribute, have a look at Contributor's guide
 (TODO: create a contributor's guide link when there is a contributor's guide.)
 and at the open [issues](https://github.com/hyperledger-labs/mirbft/issues).
-
 If you have any questions (specific or general),
 do not hesitate to post them on [MirBFT's Rocket.Chat channel](https://chat.hyperledger.org/channel/mirbft).
 You can also drop an email to the active maintainer(s).
+
+## Summary of References
+
+- Public Rocket.Chat channel: https://chat.hyperledger.org/channel/mirbft
+- Hyperledger Labs page: https://labs.hyperledger.org/labs/mir-bft.html
+- Paper describing the algorithm: https://arxiv.org/abs/1906.05552
+- Original PBFT paper: https://www.microsoft.com/en-us/research/wp-content/uploads/2017/01/p398-castro-bft-tocs.pdf
 
 ## Active maintainer(s)
 
