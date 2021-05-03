@@ -11,6 +11,7 @@ import (
 	"crypto"
 	"encoding/binary"
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -328,7 +329,7 @@ var _ = Describe("StressyTest", func() {
 
 type TestReplica struct {
 	ID                  uint64
-	Config              *mirbft.Config
+	Config              *mirbft.NodeConfig
 	InitialNetworkState *msgs.NetworkState
 	TmpDir              string
 	App                 *FakeApp
@@ -387,8 +388,8 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	node, err := mirbft.NewNode(
 		tr.ID,
 		tr.Config,
-		&mirbft.ProcessorConfig{
-			Link:         tr.FakeTransport.Link(tr.ID),
+		&modules.Modules{
+			Net:          tr.FakeTransport.Link(tr.ID),
 			Hasher:       crypto.SHA256,
 			RequestStore: reqStore,
 			App:          tr.App,
@@ -418,7 +419,6 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		client := node.Client(0)
 		for {
 			select {
 			case <-tr.DoneC:
@@ -427,7 +427,7 @@ func (tr *TestReplica) Run() (*status.StateMachine, error) {
 			}
 
 			for i := uint64(0); i < tr.FakeClient.MsgCount; i++ {
-				if err := client.Propose(context.Background(), i, clientReq(0, i)); err != nil {
+				if err := node.SubmitRequest(context.Background(), 0, i, clientReq(0, i)); err != nil {
 					// TODO, failing on err causes flakes in the teardown,
 					// so just returning for now, we should address later
 					break
@@ -477,7 +477,7 @@ func CreateNetwork(testConfig *TestConfig, doneC <-chan struct{}) *Network {
 	Expect(err).NotTo(HaveOccurred())
 
 	for i := range replicas {
-		config := &mirbft.Config{
+		config := &mirbft.NodeConfig{
 			BatchSize:            1,
 			SuspectTicks:         4,
 			HeartbeatTicks:       2,
