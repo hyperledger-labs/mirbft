@@ -4,23 +4,31 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package processor
+package clients
 
 import (
 	"bytes"
 	"container/list"
+	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"sync"
 
 	"github.com/pkg/errors"
 
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 )
 
 var ErrClientNotExist error = errors.New("client does not exist")
 
-func (cs *Clients) Client(clientID uint64) *Client {
+type Clients struct {
+	Hasher       modules.Hasher
+	RequestStore modules.RequestStore
+
+	mutex   sync.Mutex
+	clients map[uint64]*Client
+}
+
+func (cs *Clients) Client(clientID uint64) modules.Client {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
 	if cs.clients == nil {
@@ -35,66 +43,19 @@ func (cs *Clients) Client(clientID uint64) *Client {
 	return c
 }
 
-type Clients struct {
-	Hasher       Hasher
-	RequestStore RequestStore
-
-	mutex   sync.Mutex
-	clients map[uint64]*Client
-}
-
-func (c *Clients) ProcessClientActions(actions *statemachine.ActionList) (*statemachine.EventList, error) {
-	events := &statemachine.EventList{}
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_AllocatedRequest:
-			r := t.AllocatedRequest
-			client := c.Client(r.ClientId)
-			digest, err := client.allocate(r.ReqNo)
-			if err != nil {
-				return nil, err
-			}
-
-			if digest == nil {
-				continue
-			}
-
-			events.RequestPersisted(&msgs.RequestAck{
-				ClientId: r.ClientId,
-				ReqNo:    r.ReqNo,
-				Digest:   digest,
-			})
-		case *state.Action_CorrectRequest:
-			client := c.Client(t.CorrectRequest.ClientId)
-			err := client.addCorrectDigest(t.CorrectRequest.ReqNo, t.CorrectRequest.Digest)
-			if err != nil {
-				return nil, err
-			}
-		case *state.Action_StateApplied:
-			for _, client := range t.StateApplied.NetworkState.Clients {
-				c.Client(client.Id).stateApplied(client)
-			}
-		default:
-			return nil, errors.Errorf("unexpected type for client action: %T", action.Type)
-		}
-	}
-	return events, nil
-}
-
 // TODO, client needs to be updated based on the state applied events, to give it a low watermark
 // minimally and to clean up the reqNoMap
 type Client struct {
 	mutex        sync.Mutex
-	hasher       Hasher
+	hasher       modules.Hasher
 	clientID     uint64
 	nextReqNo    uint64
-	requestStore RequestStore
+	requestStore modules.RequestStore
 	requests     *list.List
 	reqNoMap     map[uint64]*list.Element
 }
 
-func newClient(clientID uint64, hasher Hasher, reqStore RequestStore) *Client {
+func newClient(clientID uint64, hasher modules.Hasher, reqStore modules.RequestStore) *Client {
 	return &Client{
 		clientID:     clientID,
 		hasher:       hasher,
@@ -110,7 +71,7 @@ type clientRequest struct {
 	remoteCorrectDigests  [][]byte
 }
 
-func (c *Client) stateApplied(state *msgs.NetworkState_Client) {
+func (c *Client) StateApplied(state *msgs.NetworkState_Client) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	for reqNo, el := range c.reqNoMap {
@@ -124,7 +85,7 @@ func (c *Client) stateApplied(state *msgs.NetworkState_Client) {
 	}
 }
 
-func (c *Client) allocate(reqNo uint64) ([]byte, error) {
+func (c *Client) Allocate(reqNo uint64) ([]byte, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	el, ok := c.reqNoMap[reqNo]
@@ -149,7 +110,7 @@ func (c *Client) allocate(reqNo uint64) ([]byte, error) {
 	return digest, nil
 }
 
-func (c *Client) addCorrectDigest(reqNo uint64, digest []byte) error {
+func (c *Client) AddCorrectDigest(reqNo uint64, digest []byte) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if c.requests.Len() == 0 {
@@ -176,6 +137,7 @@ func (c *Client) addCorrectDigest(reqNo uint64, digest []byte) error {
 	return nil
 }
 
+// TODO: Make sure this function is useful. If not, remove it.
 func (c *Client) NextReqNo() (uint64, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()

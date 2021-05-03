@@ -4,16 +4,16 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package processor
+package mirbft
 
 import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/processor"
 	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 )
 
 type Replicas struct {
 	replicas map[uint64]*Replica
-	Clients  *Clients
 }
 
 func (rs *Replicas) Replica(id uint64) *Replica {
@@ -36,7 +36,7 @@ type Replica struct {
 }
 
 func (r *Replica) Step(msg *msgs.Msg) (*statemachine.EventList, error) {
-	err := preProcess(msg)
+	err := processor.PreProcess(msg)
 	if err != nil {
 		return nil, err
 	}

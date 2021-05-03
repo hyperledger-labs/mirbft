@@ -6,7 +6,12 @@ SPDX-License-Identifier: Apache-2.0
 
 package mirbft
 
-type Config struct {
+// The NodeConfig struct represents configuration parameters of the node
+// that are independent of the protocol the Node is executing.
+// These parameters include various buffer sizes, the choice of the logger, etc.
+// TODO: Move the protocol-related parameters (Heartbeat, Suspect, an NewEpoch timeouts and BatchSize)
+//       to a different data structure.
+type NodeConfig struct {
 	// Logger provides the logging functions.
 	Logger Logger
 
