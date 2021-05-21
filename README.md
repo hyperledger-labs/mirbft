@@ -19,7 +19,7 @@ This document itself is more than likely to still change.
 You are more than welcome to contribute to accelerating the development of the MirBFT library.
 Have a look at the [Contributions section](#contributing) if you want to help out!
 
-[![Build Status](https://github.com/hyperledger-labs/mirbft/workflows/test/badge.svg)](https://github.com/hyperledger-labs/mirbft/actions)
+[![Build Status](https://github.com/hyperledger-labs/mirbft/actions/workflows/test.yml/badge.svg)](https://github.com/hyperledger-labs/mirbft/actions)
 [![GoDoc](https://godoc.org/github.com/hyperledger-labs/mirbft?status.svg)](https://godoc.org/github.com/hyperledger-labs/mirbft)
 
 ## Overview
