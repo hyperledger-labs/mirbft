@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft_test
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -20,8 +21,37 @@ import (
 // and independent of time (for instance, by specifying step counts), but for
 // the more 'real' integration stress tests, this is not possible.  Since
 // the CI hardware is weak, and, the race detector slows testing considerably,
-// this value is overridded via MIRBFT_TEST_CONTEXT_TIMEOUT in CI.
+// this value is overridden via MIRBFT_TEST_CONTEXT_TIMEOUT in CI.
 var ContextTimeout = 30 * time.Second
+
+var (
+	tickInterval = 100 * time.Millisecond
+	testTimeout  = 10 * time.Second
+)
+
+func init() {
+	val := os.Getenv("MIRBFT_TEST_STRESS_TICK_INTERVAL")
+	if val != "" {
+		dur, err := time.ParseDuration(val)
+		if err != nil {
+			fmt.Printf("Could not parse duration for stress tick interval: %s\n", err)
+			return
+		}
+		fmt.Printf("Setting tick interval to be %v\n", dur)
+		tickInterval = dur
+	}
+
+	val = os.Getenv("MIRBFT_TEST_STRESS_TEST_TIMEOUT")
+	if val != "" {
+		dur, err := time.ParseDuration(val)
+		if err != nil {
+			fmt.Printf("Could not parse duration for stress tick interval: %s\n", err)
+			return
+		}
+		fmt.Printf("Setting test timeout to be %v\n", dur)
+		testTimeout = dur
+	}
+}
 
 func TestMirbft(t *testing.T) {
 	RegisterFailHandler(Fail)

@@ -28,7 +28,7 @@ type Node struct {
 	replicas      *Replicas
 	replicaEvents chan *statemachine.EventList
 
-	stateMachine *statemachine.StateMachine
+	stateMachine modules.StateMachine
 
 	statusC chan chan *status.StateMachine
 }

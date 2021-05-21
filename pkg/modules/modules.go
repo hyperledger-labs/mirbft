@@ -22,6 +22,7 @@ type Hasher interface {
 	New() hash.Hash
 }
 
+// The Net
 type Net interface {
 	Send(dest uint64, msg *msgs.Msg)
 }

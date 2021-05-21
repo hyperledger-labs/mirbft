@@ -381,7 +381,7 @@ func ProcessReqStoreEvents(reqStore modules.RequestStore, events *statemachine.E
 	return events, nil
 }
 
-func ProcessStateMachineEvents(sm *statemachine.StateMachine, i modules.EventInterceptor, events *statemachine.EventList) (*statemachine.ActionList, error) {
+func ProcessStateMachineEvents(sm modules.StateMachine, i modules.EventInterceptor, events *statemachine.EventList) (*statemachine.ActionList, error) {
 	actions := &statemachine.ActionList{}
 	iter := events.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
@@ -407,7 +407,7 @@ func ProcessStateMachineEvents(sm *statemachine.StateMachine, i modules.EventInt
 	return actions, nil
 }
 
-func safeApplyEvent(sm *statemachine.StateMachine, event *state.Event) (result *statemachine.ActionList, err error) {
+func safeApplyEvent(sm modules.StateMachine, event *state.Event) (result *statemachine.ActionList, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if rErr, ok := r.(error); ok {

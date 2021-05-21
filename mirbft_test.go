@@ -7,15 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package mirbft_test
 
 import (
-	"context"
-	"crypto"
-	"encoding/binary"
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/modules"
-	"io/ioutil"
+	"github.com/hyperledger-labs/mirbft/pkg/deploytest"
 	"os"
-	"path/filepath"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -24,11 +18,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/hyperledger-labs/mirbft"
-	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
-	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
-	"github.com/hyperledger-labs/mirbft/pkg/status"
 )
 
 var (
@@ -36,188 +26,27 @@ var (
 	testTimeout  = 10 * time.Second
 )
 
-func init() {
-	val := os.Getenv("MIRBFT_TEST_STRESS_TICK_INTERVAL")
-	if val != "" {
-		dur, err := time.ParseDuration(val)
-		if err != nil {
-			fmt.Printf("Could not parse duration for stress tick interval: %s\n", err)
-			return
-		}
-		fmt.Printf("Setting tick interval to be %v\n", dur)
-		tickInterval = dur
-	}
-
-	val = os.Getenv("MIRBFT_TEST_STRESS_TEST_TIMEOUT")
-	if val != "" {
-		dur, err := time.ParseDuration(val)
-		if err != nil {
-			fmt.Printf("Could not parse duration for stress tick interval: %s\n", err)
-			return
-		}
-		fmt.Printf("Setting test timeout to be %v\n", dur)
-		testTimeout = dur
-	}
-}
-
-type FakeClient struct {
-	MsgCount uint64
-}
-
-type SourceMsg struct {
-	Source uint64
-	Msg    *msgs.Msg
-}
-
-type FakeLink struct {
-	FakeTransport *FakeTransport
-	Source        uint64
-}
-
-func (fl *FakeLink) Send(dest uint64, msg *msgs.Msg) {
-	fl.FakeTransport.Send(fl.Source, dest, msg)
-}
-
-type FakeTransport struct {
-	// Buffers is source x dest
-	Buffers   [][]chan *msgs.Msg
-	NodeSinks []chan SourceMsg
-	WaitGroup sync.WaitGroup
-	DoneC     chan struct{}
-}
-
-func NewFakeTransport(nodes int) *FakeTransport {
-	buffers := make([][]chan *msgs.Msg, nodes)
-	nodeSinks := make([]chan SourceMsg, nodes)
-	for i := 0; i < nodes; i++ {
-		buffers[i] = make([]chan *msgs.Msg, nodes)
-		for j := 0; j < nodes; j++ {
-			if i == j {
-				continue
-			}
-			buffers[i][j] = make(chan *msgs.Msg, 10000)
-		}
-		nodeSinks[i] = make(chan SourceMsg)
-	}
-
-	return &FakeTransport{
-		Buffers:   buffers,
-		NodeSinks: nodeSinks,
-		DoneC:     make(chan struct{}),
-	}
-}
-
-func (ft *FakeTransport) Send(source, dest uint64, msg *msgs.Msg) {
-	select {
-	case ft.Buffers[int(source)][int(dest)] <- msg:
-	default:
-		fmt.Printf("Warning: Dropping message %T from %d to %d\n", msg.Type, source, dest)
-	}
-}
-
-func (ft *FakeTransport) Link(source uint64) *FakeLink {
-	return &FakeLink{
-		Source:        source,
-		FakeTransport: ft,
-	}
-}
-
-func (ft *FakeTransport) RecvC(dest uint64) <-chan SourceMsg {
-	return ft.NodeSinks[int(dest)]
-}
-
-func (ft *FakeTransport) Start() {
-	for i, sourceBuffers := range ft.Buffers {
-		for j, buffer := range sourceBuffers {
-			if i == j {
-				continue
-			}
-
-			ft.WaitGroup.Add(1)
-			go func(i, j int, buffer chan *msgs.Msg) {
-				// fmt.Printf("Starting drain thread from %d to %d\n", i, j)
-				defer ft.WaitGroup.Done()
-				for {
-					select {
-					case msg := <-buffer:
-						// fmt.Printf("Sending message from %d to %d\n", i, j)
-						select {
-						case ft.NodeSinks[j] <- SourceMsg{
-							Source: uint64(i),
-							Msg:    msg,
-						}:
-						case <-ft.DoneC:
-							return
-						}
-					case <-ft.DoneC:
-						return
-					}
-				}
-			}(i, j, buffer)
-		}
-	}
-}
-
-func (ft *FakeTransport) Stop() {
-	close(ft.DoneC)
-	ft.WaitGroup.Wait()
-}
-
-type FakeApp struct {
-	Entries []*msgs.QEntry
-	CommitC chan *msgs.QEntry
-}
-
-func (fl *FakeApp) Apply(entry *msgs.QEntry) error {
-	if len(entry.Requests) == 0 {
-		// this is a no-op batch from a tick, or catchup, ignore it
-		return nil
-	}
-	fl.Entries = append(fl.Entries, entry)
-	fl.CommitC <- entry
-	return nil
-}
-
-func (fl *FakeApp) Snap(*msgs.NetworkState_Config, []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error) {
-	return Uint64ToBytes(uint64(len(fl.Entries))), nil, nil
-}
-
-func (fl *FakeApp) TransferTo(seqNo uint64, snap []byte) (*msgs.NetworkState, error) {
-	return nil, fmt.Errorf("we don't support state transfer in this test (yet)")
-
-}
-
-type TestConfig struct {
-	NodeCount          int
-	BucketCount        int
-	MsgCount           int
-	CheckpointInterval int
-	BatchSize          uint32
-	ClientWidth        uint32
-	ParallelProcess    bool
-}
-
-func Uint64ToBytes(value uint64) []byte {
-	byteValue := make([]byte, 8)
-	binary.LittleEndian.PutUint64(byteValue, value)
-	return byteValue
-}
-
 // StressyTest attempts to spin up as 'real' a network as possible, using
 // fake links, but real concurrent go routines.  This means the test is non-deterministic
 // so we can't make assertions about the state of the network that are as specific
 // as the more general single threaded testengine type tests.  Still, there
 // seems to be value in confirming that at a basic level, a concurrent network executes
 // correctly.
-var _ = Describe("StressyTest", func() {
+var _ = Describe("Basic test", func() {
+
+	network := deploytest.NewDeployment(testConfig, doneC)
+	go func() {
+		nodeStatusesC <- network.Run(tickInterval)
+	}()
+
 	var (
 		doneC                 chan struct{}
 		expectedProposalCount int
 		proposals             map[uint64]*msgs.Request
 		wg                    sync.WaitGroup
-		nodeStatusesC         chan []*NodeStatus
+		nodeStatusesC         chan []*deploytest.NodeStatus
 
-		network *Network
+		network *deploytest.Deployment
 	)
 
 	BeforeEach(func() {
@@ -274,12 +103,9 @@ var _ = Describe("StressyTest", func() {
 
 	})
 
-	DescribeTable("commits all messages", func(testConfig *TestConfig) {
-		nodeStatusesC = make(chan []*NodeStatus, 1)
-		network = CreateNetwork(testConfig, doneC)
-		go func() {
-			nodeStatusesC <- network.Run()
-		}()
+	DescribeTable("commits all messages", func(testConfig *deploytest.TestConfig) {
+
+		nodeStatusesC = make(chan []*deploytest.NodeStatus, 1)
 
 		observations := map[uint64]struct{}{}
 		for j, replica := range network.TestReplicas {
@@ -297,25 +123,25 @@ var _ = Describe("StressyTest", func() {
 			}
 		}
 	},
-		Entry("SingleNode greenpath", &TestConfig{
+		Entry("SingleNode greenpath", &deploytest.TestConfig{
 			NodeCount: 1,
 			MsgCount:  1000,
 		}),
 
-		Entry("FourNodeBFT greenpath", &TestConfig{
+		Entry("FourNodeBFT greenpath", &deploytest.TestConfig{
 			NodeCount:          4,
 			CheckpointInterval: 20,
 			MsgCount:           1000,
 		}),
 
-		Entry("FourNodeBFT single bucket greenpath", &TestConfig{
+		Entry("FourNodeBFT single bucket greenpath", &deploytest.TestConfig{
 			NodeCount:          4,
 			BucketCount:        1,
 			CheckpointInterval: 10,
 			MsgCount:           1000,
 		}),
 
-		Entry("FourNodeBFT single bucket big batch greenpath", &TestConfig{
+		Entry("FourNodeBFT single bucket big batch greenpath", &deploytest.TestConfig{
 			NodeCount:          4,
 			BucketCount:        1,
 			CheckpointInterval: 10,
@@ -326,229 +152,3 @@ var _ = Describe("StressyTest", func() {
 		}),
 	)
 })
-
-type TestReplica struct {
-	ID                  uint64
-	Config              *mirbft.NodeConfig
-	InitialNetworkState *msgs.NetworkState
-	TmpDir              string
-	App                 *FakeApp
-	FakeTransport       *FakeTransport
-	FakeClient          *FakeClient
-	ParallelProcess     bool
-	DoneC               <-chan struct{}
-}
-
-func (tr *TestReplica) EventLogPath() string {
-	return filepath.Join(tr.TmpDir, "eventlog.gz")
-}
-
-func clientReq(clientID, reqNo uint64) []byte {
-	res := make([]byte, 16)
-	binary.BigEndian.PutUint64(res, clientID)
-	binary.BigEndian.PutUint64(res[8:], reqNo)
-	return res
-}
-
-func (tr *TestReplica) Run() (*status.StateMachine, error) {
-	defer GinkgoRecover()
-
-	ticker := time.NewTicker(tickInterval)
-	defer ticker.Stop()
-
-	reqStorePath := filepath.Join(tr.TmpDir, "reqstore")
-	err := os.MkdirAll(reqStorePath, 0700)
-	Expect(err).NotTo(HaveOccurred())
-
-	walPath := filepath.Join(tr.TmpDir, "wal")
-	err = os.MkdirAll(walPath, 0700)
-	Expect(err).NotTo(HaveOccurred())
-
-	file, err := os.Create(tr.EventLogPath())
-	Expect(err).NotTo(HaveOccurred())
-	defer file.Close()
-
-	interceptor := eventlog.NewRecorder(tr.ID, file)
-	defer func() {
-		err := interceptor.Stop()
-		Expect(err).NotTo(HaveOccurred())
-	}()
-
-	wal, err := simplewal.Open(walPath)
-	Expect(err).NotTo(HaveOccurred())
-	defer wal.Close()
-
-	reqStore, err := reqstore.Open(reqStorePath)
-	Expect(err).NotTo(HaveOccurred())
-	defer reqStore.Close()
-
-	var wg sync.WaitGroup
-	defer wg.Wait()
-
-	node, err := mirbft.NewNode(
-		tr.ID,
-		tr.Config,
-		&modules.Modules{
-			Net:          tr.FakeTransport.Link(tr.ID),
-			Hasher:       crypto.SHA256,
-			RequestStore: reqStore,
-			App:          tr.App,
-			WAL:          wal,
-			Interceptor:  interceptor,
-		},
-	)
-	Expect(err).NotTo(HaveOccurred())
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		recvC := tr.FakeTransport.RecvC(node.ID)
-		for {
-			select {
-			case sourceMsg := <-recvC:
-				node.Step(context.Background(), sourceMsg.Source, sourceMsg.Msg)
-			case <-tr.DoneC:
-				return
-			}
-		}
-	}()
-
-	expectedProposalCount := tr.FakeClient.MsgCount
-	Expect(expectedProposalCount).NotTo(Equal(0))
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-tr.DoneC:
-				return
-			default:
-			}
-
-			for i := uint64(0); i < tr.FakeClient.MsgCount; i++ {
-				if err := node.SubmitRequest(context.Background(), 0, i, clientReq(0, i)); err != nil {
-					// TODO, failing on err causes flakes in the teardown,
-					// so just returning for now, we should address later
-					break
-				}
-			}
-		}
-	}()
-
-	err = node.ProcessAsNewNode(tr.DoneC, ticker.C, tr.InitialNetworkState, []byte("fake"))
-	_ = err // XXX we need to rewire all of this
-
-	return node.Status(context.Background())
-}
-
-type Network struct {
-	Transport    *FakeTransport
-	TestReplicas []*TestReplica
-}
-
-type NodeStatus struct {
-	Status  *status.StateMachine
-	ExitErr error
-}
-
-func CreateNetwork(testConfig *TestConfig, doneC <-chan struct{}) *Network {
-	transport := NewFakeTransport(testConfig.NodeCount)
-
-	networkState := mirbft.StandardInitialNetworkState(testConfig.NodeCount, 1)
-
-	if testConfig.BucketCount != 0 {
-		networkState.Config.NumberOfBuckets = int32(testConfig.BucketCount)
-	}
-
-	if testConfig.CheckpointInterval != 0 {
-		networkState.Config.CheckpointInterval = int32(testConfig.CheckpointInterval)
-	}
-
-	if testConfig.ClientWidth != 0 {
-		for _, client := range networkState.Clients {
-			client.Width = testConfig.ClientWidth
-		}
-	}
-
-	replicas := make([]*TestReplica, testConfig.NodeCount)
-
-	tmpDir, err := ioutil.TempDir("", "stress_test.*")
-	Expect(err).NotTo(HaveOccurred())
-
-	for i := range replicas {
-		config := &mirbft.NodeConfig{
-			BatchSize:            1,
-			SuspectTicks:         4,
-			HeartbeatTicks:       2,
-			NewEpochTimeoutTicks: 8,
-			BufferSize:           5 * 1024 * 1024, // 5 MB
-			Logger:               mirbft.ConsoleWarnLogger,
-		}
-
-		if testConfig.BatchSize != 0 {
-			config.BatchSize = testConfig.BatchSize
-		}
-
-		fakeApp := &FakeApp{
-			// We make the CommitC excessive, to prevent deadlock
-			// in case of bugs this test would otherwise catch.
-			CommitC: make(chan *msgs.QEntry, 5*testConfig.MsgCount),
-		}
-
-		replicas[i] = &TestReplica{
-			ID:                  uint64(i),
-			Config:              config,
-			InitialNetworkState: networkState,
-			TmpDir:              filepath.Join(tmpDir, fmt.Sprintf("node%d", i)),
-			App:                 fakeApp,
-			FakeTransport:       transport,
-			FakeClient: &FakeClient{
-				MsgCount: uint64(testConfig.MsgCount),
-			},
-			ParallelProcess: testConfig.ParallelProcess,
-			DoneC:           doneC,
-		}
-	}
-
-	return &Network{
-		Transport:    transport,
-		TestReplicas: replicas,
-	}
-}
-
-func (n *Network) Run() []*NodeStatus {
-	result := make([]*NodeStatus, len(n.TestReplicas))
-	var wg sync.WaitGroup
-
-	// Start the Mir nodes
-	for i, testReplica := range n.TestReplicas {
-		nodeStatus := &NodeStatus{}
-		result[i] = nodeStatus
-		wg.Add(1)
-		go func(i int, testReplica *TestReplica) {
-			defer GinkgoRecover()
-			defer wg.Done()
-			defer func() {
-				fmt.Printf("Node %d: shutting down\n", i)
-				if r := recover(); r != nil {
-					fmt.Printf("  Node %d: received panic %s\n%s\n", i, r, debug.Stack())
-					panic(r)
-				}
-			}()
-
-			fmt.Printf("Node %d: running\n", i)
-			status, err := testReplica.Run()
-			fmt.Printf("Node %d: exit with exitErr=%v\n", i, err)
-			nodeStatus.Status, nodeStatus.ExitErr = status, err
-		}(i, testReplica)
-	}
-
-	n.Transport.Start()
-	defer n.Transport.Stop()
-
-	wg.Wait()
-
-	fmt.Printf("All go routines shut down\n")
-	return result
-}
