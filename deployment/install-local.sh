@@ -31,3 +31,4 @@ go get -u github.com/golang/protobuf/protoc-gen-go
 go get -u github.com/op/go-logging
 go get -u golang.org/x/net/context
 go get -u  gopkg.in/yaml.v2
+go get -u github.com/rs/zerolog/log
