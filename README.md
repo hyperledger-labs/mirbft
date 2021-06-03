@@ -3,7 +3,7 @@ The implementation for  [Mir-BFT: High-Throughput Robust BFT for Decentralized N
 ](https://arxiv.org/abs/1906.05552) paper.
 
 ## Setup
-The following scripts among other dpendencies install `Go` in the home directory and set gopath to `/opt/gopath/bin/`.
+The following scripts among other dependencies install `Go` in the home directory and set gopath to `/opt/gopath/bin/`.
 
 The default path to the repository is set to: `/opt/gopath/src/github.com/IBM/mirbft/`.
 
@@ -26,7 +26,7 @@ Build the protobufs:
 
 `./run-protoc.sh`
 
-To compile the peer:
+To compile the node:
 
 `cd server`
 
@@ -38,32 +38,43 @@ To compile the client:
 
 `go build`
 
-A peer sample configuration exists in `sampleconfig/serverconfig/` .
+A node sample configuration exists in `sampleconfig/serverconfig/` .
 
 A client sample configuration exists in `sampleconfig/clientconfig/`.
 
-To start locally a setup with 4 peers and 1 client on each peer:
+To start locally a setup with 4 nodes and 1 client:
+
+On each node:
 
 `cd server`
 
-`./server config$id`
-where `$id` is `1 2 3 4` for each of the 4 peers
+`./server ../sampleconfig/serverconfig/config$id.yml server$id`
+where `$id` is `1 2 3 4` for each of the 4 nodes.
+
+The first argument is the path to the node configuration and the second argument a name prefix for a trace file.
+
 
 On the client:
 
 `cd client`
 
-`./client 4peer-config`
+`./client ../sampleconfig/clientconfig/4peer-config.yml client`
 
-To start locally a setup with 1 peer and 1 client:
+Again, the first argument is the path to the node configuration and the second argument a name prefix for a trace file.
+
+
+Similarly, to start locally a setup with 1 peer and 1 client:
+
+On the node:
 
 `cd server`
 
-`./server config`
+`./server ../sampleconfig/serverconfig/config.yml server`
 
 On the client:
 
 `cd client`
 
-`./client 1peer-config`
+`./client ../sampleconfig/clientconfig/1peer-config.yml client`
+
 
