@@ -36,14 +36,14 @@ import (
 
 const numRequestCount = 0
 
-var slog = logging.MustGetLogger("bftserver")
+var log = logging.MustGetLogger("bftserver")
 var format = logging.MustStringFormatter(
-	`%{time:15:04:05.000000} %{shortfunc} %{message}`,
+	`%{time:2006/01/02 15:04:05.000000} %{shortfunc} %{message}`,
 )
 
 func fatal(err error) {
 	if err != nil {
-		slog.Critical(err)
+		log.Critical(err)
 	}
 }
 
@@ -81,6 +81,7 @@ func StartServer(outFilePrefix string, txNo int) {
 	id := config.Config.Id
 
 	// Set up logging
+	logBackend := logging.NewLogBackend(os.Stdout, "", 0)
 	if config.Config.Logging == "error" {
 		logging.SetLevel(logging.ERROR, "server-main")
 		logging.SetLevel(logging.ERROR, "server")
@@ -106,8 +107,9 @@ func StartServer(outFilePrefix string, txNo int) {
 		logging.SetLevel(logging.DEBUG, "logging")
 	}
 	logging.SetFormatter(format)
+	logging.SetBackend(logBackend)
 
-	slog.Infof("Starting peer with id: %d", id)
+	log.Infof("Starting peer with id: %d", id)
 
 	if D < 3 {
 		panic("current configuration set up for at least 3 connection layers")
@@ -316,7 +318,7 @@ func StartServer(outFilePrefix string, txNo int) {
 
 func startServer(conn *connection.Manager, complete chan int) {
 	if err := conn.Server.Serve(conn.Listener); err != nil {
-		slog.Fatalf("failed to serve: %v", err)
+		log.Fatalf("failed to serve: %v", err)
 	}
 	close(complete)
 }

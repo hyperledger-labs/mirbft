@@ -37,7 +37,7 @@ import (
 
 var log = logging.MustGetLogger("client")
 var format = logging.MustStringFormatter(
-	`%{time:15:04:05.000000} %{shortfunc} %{message}`,
+	`%{time:2006/01/02 15:04:05.000000} %{shortfunc} %{message}`,
 )
 
 func main() {
@@ -259,7 +259,7 @@ func main() {
 		}
 	}
 
-	log.Infof("FINISH")
+	log.Infof("FINISH %d", total )
 
 	close(c.queue)
 

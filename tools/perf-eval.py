@@ -79,7 +79,7 @@ def main(argv):
             for line in serverContent:
                 if 'DELIVERED' in line:
                     year, month, day = line.split()[0].split('/')
-                    hour, minute, second = line.split()[2].split(':')
+                    hour, minute, second = line.split()[1].split(':')
                     micro = int(second.split('.')[1])
                     second = second.split('.')[0]
                     batchId = int(line.split()[-1])
@@ -101,7 +101,7 @@ def main(argv):
                         blocks[batchId] = block
                     block = blocks[batchId]
                     year, month, day = line.split()[0].split('/')
-                    hour, minute, second = line.split()[2].split(':')
+                    hour, minute, second = line.split()[1].split(':')
                     micro = int(second.split('.')[1])
                     second = second.split('.')[0]
                     block.delivered = datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), micro)
@@ -119,20 +119,20 @@ def main(argv):
                     if txId in transactions:
                         tx = transactions[txId]
                         year, month, day = line.split()[0].split('/')
-                        hour, minute, second = line.split()[2].split(':')
+                        hour, minute, second = line.split()[1].split(':')
                         micro = int(second.split('.')[1])
                         second = second.split('.')[0]
                         tx.sent = datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), micro)
                 if 'START' in line:
                     year, month, day = line.split()[0].split('/')
-                    hour, minute, second = line.split()[2].split(':')
+                    hour, minute, second = line.split()[1].split(':')
                     micro = int(second.split('.')[1])
                     second = second.split('.')[0]
                     start = datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), micro)
                 if  'FINISH' in line:
                     reqs = float(line.split()[-1])
                     year, month, day = line.split()[0].split('/')
-                    hour, minute, second = line.split()[2].split(':')
+                    hour, minute, second = line.split()[1].split(':')
                     micro = int(second.split('.')[1])
                     second = second.split('.')[0]
                     end = datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), micro)
@@ -159,7 +159,6 @@ def main(argv):
         if tx.sent is not None and tx.delivered is not None:
             tx.latency = (tx.delivered - tx.sent).total_seconds()*1000
             latency.append(tx.latency)
-    latency = latency[offset:0-tail]
     latency.sort()
     f = open("latency.out", "w")
     for i in range(len(latency)):
@@ -167,16 +166,16 @@ def main(argv):
     latency_avg = np.mean(latency)
     print "End to end latency: " + str(latency_avg) + " ms"
     rate_avg = np.mean(rate)
-    print "Average request rate per client: " + str(rate_avg) + " tps"
+    print "Average request rate per client: " + str(rate_avg) + " r/s"
 
     delivery.sort()
     delivery = delivery[offset:0-tail]
     thr = float(len(delivery))/(delivery[-1]-delivery[0]).total_seconds()
-    print "Total seconds: "+str((delivery[-1]-delivery[0]).total_seconds())
-    print "Throughput: " + str(thr)  + " tps"
-    print "Transactions: " + str(len(delivery))
-    inst_thr = np.mean(throughput)
-    print "Avg instant throughput: " + str(inst_thr)  + " tps"
+    print "Experiment duration: "+str((delivery[-1]-delivery[0]).total_seconds())+" s"
+    print "Throughput: " + str(thr)  + " r/s"
+    print "Requests: " + str(len(delivery))
+    # inst_thr = np.mean(throughput)
+    # print "Avg instant throughput: " + str(inst_thr)  + " tps"
 
 if __name__ == "__main__":
     main(sys.argv[1:])
