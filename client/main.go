@@ -50,6 +50,8 @@ func main() {
 	outFilePrefix := os.Args[2]
 
 	logBackend := logging.NewLogBackend(os.Stdout, "", 0)
+	backendFormatter := logging.NewBackendFormatter(logBackend, format)
+	logging.SetBackend(backendFormatter)
 
 	if config.Config.Logging == "debug" {
 		logging.SetLevel(logging.DEBUG, "client")
@@ -60,8 +62,9 @@ func main() {
 	if config.Config.Logging == "error" {
 		logging.SetLevel(logging.ERROR, "client")
 	}
-	logging.SetFormatter(format)
-	logging.SetBackend(logBackend)
+	if config.Config.Logging == "critical" {
+		logging.SetLevel(logging.CRITICAL, "client")
+	}
 
 	osns := make([]pb.ConsensusClient, 0)
 	grpcConns := make([]*grpc.ClientConn, 0)
@@ -91,7 +94,6 @@ func main() {
 	dst := config.Config.Destination
 
 	caCertFile := config.Config.Servers.CACertFile
-	fmt.Println(caCertFile)
 	requestsPerBatch := batchSize / payloadSize
 	period := requestsPerBatch * leaderRotationDist
 	payload := make([]byte, payloadSize, payloadSize)
@@ -191,7 +193,7 @@ func main() {
 
 				} else {
 					// Request could not be processed, put request back in the queue
-					log.Errorf("client: received %s from %d", fmt.Sprintf("%s", resp.Response), resp.Src)
+					log.Infof("client: received %s from %d", fmt.Sprintf("%s", resp.Response), resp.Src)
 					c.queue <- c.makeRequest(payload, resp.Request.Seq, signed)
 				}
 			}
@@ -218,8 +220,6 @@ func main() {
 	sent := clients
 
 	for atomic.LoadInt32(&c.stop) == 0 {
-		log.Debugf("Atomic stop: %d", atomic.LoadInt32(&c.stop))
-
 		wg.Add(sendParallelism)
 		for i := 0; i < sendParallelism; i++ {
 			select {
@@ -241,7 +241,6 @@ func main() {
 					}
 				}(request)
 			default:
-				log.Infof("Empty queue")
 				for j := i; j < sendParallelism; j++ {
 					wg.Done()
 				}
@@ -250,9 +249,7 @@ func main() {
 		}
 
 	exit:
-		log.Debugf("Waiting all threads")
 		wg.Wait()
-		log.Debugf("All threads finished")
 
 		if timeout > 0 {
 			time.Sleep(time.Duration(timeout) * time.Nanosecond)

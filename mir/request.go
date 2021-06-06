@@ -136,7 +136,7 @@ func (s *SBFT) startBatchTimer() {
 }
 
 func (s *SBFT) cutAndMaybeSend() {
-	log.Criticalf("replica %d: batch timer expired: must cut a batch", s.id)
+	log.Infof("replica %d: batch timer expired: must cut a batch", s.id)
 	if s.nextProposalInfo == nil {
 		s.startBatchTimer()
 		return

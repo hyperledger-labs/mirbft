@@ -82,32 +82,43 @@ func StartServer(outFilePrefix string, txNo int) {
 
 	// Set up logging
 	logBackend := logging.NewLogBackend(os.Stdout, "", 0)
+	backendFormatter := logging.NewBackendFormatter(logBackend, format)
+	logging.SetBackend(backendFormatter)
+
 	if config.Config.Logging == "error" {
 		logging.SetLevel(logging.ERROR, "server-main")
-		logging.SetLevel(logging.ERROR, "server")
+		logging.SetLevel(logging.ERROR, "tracing")
 		logging.SetLevel(logging.ERROR, "sbft")
-		logging.SetLevel(logging.ERROR, "logging")
+		logging.SetLevel(logging.ERROR, "connection")
+		logging.SetLevel(logging.ERROR, "bftserver")
+		logging.SetLevel(logging.ERROR, "config")
 	}
 	if config.Config.Logging == "critical" {
 		logging.SetLevel(logging.CRITICAL, "server-main")
-		logging.SetLevel(logging.CRITICAL, "server")
+		logging.SetLevel(logging.CRITICAL, "tracing")
 		logging.SetLevel(logging.CRITICAL, "sbft")
-		logging.SetLevel(logging.CRITICAL, "logging")
+		logging.SetLevel(logging.CRITICAL, "connection")
+		logging.SetLevel(logging.CRITICAL, "bftserver")
+		logging.SetLevel(logging.CRITICAL, "config")
 	}
 	if config.Config.Logging == "info" {
 		logging.SetLevel(logging.INFO, "server-main")
-		logging.SetLevel(logging.INFO, "server")
+		logging.SetLevel(logging.INFO, "tracing")
 		logging.SetLevel(logging.INFO, "sbft")
-		logging.SetLevel(logging.INFO, "logging")
+		logging.SetLevel(logging.INFO, "connection")
+		logging.SetLevel(logging.INFO, "bftserver")
+		logging.SetLevel(logging.INFO, "config")
+
 	}
 	if config.Config.Logging == "debug" {
 		logging.SetLevel(logging.DEBUG, "server-main")
-		logging.SetLevel(logging.DEBUG, "server")
+		logging.SetLevel(logging.DEBUG, "tracing")
 		logging.SetLevel(logging.DEBUG, "sbft")
-		logging.SetLevel(logging.DEBUG, "logging")
+		logging.SetLevel(logging.DEBUG, "connection")
+		logging.SetLevel(logging.DEBUG, "bftserver")
+		logging.SetLevel(logging.DEBUG, "config")
+
 	}
-	logging.SetFormatter(format)
-	logging.SetBackend(logBackend)
 
 	log.Infof("Starting peer with id: %d", id)
 
