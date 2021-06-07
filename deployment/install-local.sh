@@ -7,6 +7,8 @@ sudo apt-get install -y curl git
 sudo apt-get install -y python-minimal
 sudo apt-get install -y python-numpy
 sudo apt-get install -y build-essential
+sudo apt-get install -y protobuf-compiler
+sudo apt-get install -y	protobuf-compiler-grpc
 
 cd ~
 
