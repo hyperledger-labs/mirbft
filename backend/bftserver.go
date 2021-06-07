@@ -36,14 +36,14 @@ import (
 
 const numRequestCount = 0
 
-var slog = logging.MustGetLogger("bftserver")
+var log = logging.MustGetLogger("bftserver")
 var format = logging.MustStringFormatter(
-	`%{time:15:04:05.000000} %{shortfunc} %{message}`,
+	`%{time:2006/01/02 15:04:05.000000} %{shortfunc} %{message}`,
 )
 
 func fatal(err error) {
 	if err != nil {
-		slog.Critical(err)
+		log.Critical(err)
 	}
 }
 
@@ -81,33 +81,46 @@ func StartServer(outFilePrefix string, txNo int) {
 	id := config.Config.Id
 
 	// Set up logging
+	logBackend := logging.NewLogBackend(os.Stdout, "", 0)
+	backendFormatter := logging.NewBackendFormatter(logBackend, format)
+	logging.SetBackend(backendFormatter)
+
 	if config.Config.Logging == "error" {
 		logging.SetLevel(logging.ERROR, "server-main")
-		logging.SetLevel(logging.ERROR, "server")
+		logging.SetLevel(logging.ERROR, "tracing")
 		logging.SetLevel(logging.ERROR, "sbft")
-		logging.SetLevel(logging.ERROR, "logging")
+		logging.SetLevel(logging.ERROR, "connection")
+		logging.SetLevel(logging.ERROR, "bftserver")
+		logging.SetLevel(logging.ERROR, "config")
 	}
 	if config.Config.Logging == "critical" {
 		logging.SetLevel(logging.CRITICAL, "server-main")
-		logging.SetLevel(logging.CRITICAL, "server")
+		logging.SetLevel(logging.CRITICAL, "tracing")
 		logging.SetLevel(logging.CRITICAL, "sbft")
-		logging.SetLevel(logging.CRITICAL, "logging")
+		logging.SetLevel(logging.CRITICAL, "connection")
+		logging.SetLevel(logging.CRITICAL, "bftserver")
+		logging.SetLevel(logging.CRITICAL, "config")
 	}
 	if config.Config.Logging == "info" {
 		logging.SetLevel(logging.INFO, "server-main")
-		logging.SetLevel(logging.INFO, "server")
+		logging.SetLevel(logging.INFO, "tracing")
 		logging.SetLevel(logging.INFO, "sbft")
-		logging.SetLevel(logging.INFO, "logging")
+		logging.SetLevel(logging.INFO, "connection")
+		logging.SetLevel(logging.INFO, "bftserver")
+		logging.SetLevel(logging.INFO, "config")
+
 	}
 	if config.Config.Logging == "debug" {
 		logging.SetLevel(logging.DEBUG, "server-main")
-		logging.SetLevel(logging.DEBUG, "server")
+		logging.SetLevel(logging.DEBUG, "tracing")
 		logging.SetLevel(logging.DEBUG, "sbft")
-		logging.SetLevel(logging.DEBUG, "logging")
-	}
-	logging.SetFormatter(format)
+		logging.SetLevel(logging.DEBUG, "connection")
+		logging.SetLevel(logging.DEBUG, "bftserver")
+		logging.SetLevel(logging.DEBUG, "config")
 
-	slog.Infof("Starting peer with id: %d", id)
+	}
+
+	log.Infof("Starting peer with id: %d", id)
 
 	if D < 3 {
 		panic("current configuration set up for at least 3 connection layers")
@@ -316,7 +329,7 @@ func StartServer(outFilePrefix string, txNo int) {
 
 func startServer(conn *connection.Manager, complete chan int) {
 	if err := conn.Server.Serve(conn.Listener); err != nil {
-		slog.Fatalf("failed to serve: %v", err)
+		log.Fatalf("failed to serve: %v", err)
 	}
 	close(complete)
 }

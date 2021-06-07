@@ -20,10 +20,7 @@ import (
 	"strings"
 
 	"github.com/IBM/mirbft/connection"
-	"github.com/op/go-logging"
 )
-
-var log = logging.MustGetLogger("server")
 
 const msgChanCapacity int = 5000
 
