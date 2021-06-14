@@ -333,7 +333,7 @@ func (c *Client) checkInOrderDelivery(seq int64) {
 	if seq-1 == c.lastDelivered && c.delivered[seq] >= c.f+1 {
 		c.lastDelivered = seq
 		c.Lock()
-		c.trace.Event(tracing.REQ_DELIVERED, int64(c.id), time.Now().UnixNano()/1000-c.submitTimestamps[uint64(seq)])
+		c.trace.Event(tracing.REQ_DELIVERED, int64(seq), time.Now().UnixNano()/1000-c.submitTimestamps[uint64(seq)])
 		c.Unlock()
 		if seq+1 < int64(c.numRequests) {
 			c.checkInOrderDelivery(seq + 1)
