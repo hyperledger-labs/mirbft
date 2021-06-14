@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# The argument is the branch to checkout
+. vars.sh
 
 sudo apt-get update
 sudo apt-get install -y curl git
@@ -16,7 +16,7 @@ wget https://storage.googleapis.com/golang/go1.14.2.linux-amd64.tar.gz
 tar xpzf go1.14.2.linux-amd64.tar.gz
 
 sudo mkdir -p /opt/gopath
-sudo chown -R  $(whoami):$(whoami) /opt/gopath
+sudo chown -R  $user:$group /opt/gopath
 
 export PATH=$PATH:~/go/bin/:/opt/gopath/bin/
 export GOPATH=/opt/gopath

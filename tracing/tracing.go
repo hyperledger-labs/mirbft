@@ -20,7 +20,7 @@ import "github.com/op/go-logging"
 
 // TODO: Use https://github.com/c9s/goprocinfo for CPU load tracing.
 const EventBufferSize = 1048576 //(2^20) Capacity of the tracing event buffer, in number of events.
-const TraceSampling = 1         // Only trace one out of TraceSampling events.
+const TraceSampling = 100         // Only trace one out of TraceSampling events.
 
 // A global instance of a trace object to be used from anywhere in the code,
 // without having to keep around a reference and dereference it.

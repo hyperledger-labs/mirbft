@@ -17,6 +17,8 @@ limitations under the License.
 import subprocess, os, datetime, sys, collections
 import numpy as np
 
+sampleValue = 100
+
 class Block:
     def __init__(self):
         self.id = None
@@ -71,28 +73,6 @@ def main(argv):
             serverContent = fs.readlines()
             serverContent = [x.strip() for x in serverContent]
             for line in serverContent:
-                if 'DELIVERED' in line:
-                    tx = Transaction()
-                    tx.id = line.split()[-3]
-                    transactions[tx.id] = tx
-                    tx.src = line.split()[-1]
-            for line in serverContent:
-                if 'DELIVERED' in line:
-                    year, month, day = line.split()[0].split('/')
-                    hour, minute, second = line.split()[1].split(':')
-                    micro = int(second.split('.')[1])
-                    second = second.split('.')[0]
-                    batchId = int(line.split()[-1])
-                    if batchId not in blocks:
-                        block = Block()
-                        block.id = batchId
-                        blocks[batchId] = block
-                    block = blocks[batchId]
-                    txId = line.split()[-3]
-                    if txId in transactions:
-                        if transactions[txId].delivered is None:
-                            transactions[txId].delivered = datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), micro)
-                        block.transactions.append(tx)
                 if 'DELIVERING' in line:
                     batchId = int(line.split()[-4])
                     if batchId not in blocks:
@@ -113,30 +93,33 @@ def main(argv):
             clientContent = [x.strip() for x in clientContent]
             reqs = end = start = 0
             for line in clientContent:
-                if 'SENDING' in line:
-                    txId = line.split()[-3]
-                    src = line.split()[-1]
-                    if txId in transactions:
-                        tx = transactions[txId]
-                        year, month, day = line.split()[0].split('/')
-                        hour, minute, second = line.split()[1].split(':')
-                        micro = int(second.split('.')[1])
-                        second = second.split('.')[0]
-                        tx.sent = datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), micro)
-                if 'START' in line:
-                    year, month, day = line.split()[0].split('/')
-                    hour, minute, second = line.split()[1].split(':')
-                    micro = int(second.split('.')[1])
-                    second = second.split('.')[0]
-                    start = datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), micro)
-                if  'FINISH' in line:
-                    reqs = float(line.split()[-1])
-                    year, month, day = line.split()[0].split('/')
-                    hour, minute, second = line.split()[1].split(':')
-                    micro = int(second.split('.')[1])
-                    second = second.split('.')[0]
-                    end = datetime.datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), micro)
+                if 'REQ_SEND' in line:
+                    seq = int(line.split(",")[2].split(":")[1])
+                    src = int(line.split(",")[1].split(":")[1])
+                    txId =  str(src) + ":" + str(seq)
+                    sent = datetime.datetime.fromtimestamp((int(line.split(",")[0].split(":")[1])) / 1e6)
+                    if start == 0:
+                        start = sent
+                    end = sent
+                    reqs = reqs + 1
+                    if txId not in transactions:
+                        tx = Transaction()
+                        tx.id = txId
+                        transactions[txId] = tx
+                    tx.sent = sent
+
+                if 'REQ_DELIVERED' in line:
+                    seq = int(line.split(",")[2].split(":")[1])
+                    src = int(line.split(",")[1].split(":")[1])
+                    txId =  str(src) + ":" + str(seq)
+                    delivered = datetime.datetime.fromtimestamp((int(line.split(",")[0].split(":")[1])) / 1e6)
+                    if txId not in transactions:
+                        tx = Transaction()
+                        tx.id = txId
+                        transactions[txId] = tx
+                    tx.delivered = delivered
             duration = (end-start).total_seconds()
+            reqs = reqs * sampleValue
             if duration != 0 :
                 rate.append(reqs/(end-start).total_seconds())
 
@@ -168,12 +151,13 @@ def main(argv):
     rate_avg = np.mean(rate)
     print "Average request rate per client: " + str(rate_avg) + " r/s"
 
-    delivery.sort()
-    delivery = delivery[offset:0-tail]
-    thr = float(len(delivery))/(delivery[-1]-delivery[0]).total_seconds()
-    print "Experiment duration: "+str((delivery[-1]-delivery[0]).total_seconds())+" s"
-    print "Throughput: " + str(thr)  + " r/s"
-    print "Requests: " + str(len(delivery))
+    if len(delivery) > 0:
+        delivery.sort()
+        delivery = delivery[offset:0-tail]
+        thr = float(len(delivery))/(delivery[-1]-delivery[0]).total_seconds()
+        print "Experiment duration: "+str((delivery[-1]-delivery[0]).total_seconds())+" s"
+        print "Throughput: " + str(thr)  + " r/s"
+        print "Requests: " + str(len(delivery))
     # inst_thr = np.mean(throughput)
     # print "Avg instant throughput: " + str(inst_thr)  + " tps"
 

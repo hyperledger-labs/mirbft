@@ -79,15 +79,14 @@ On the client:
 
 ## Performance Evaluation
 
-There following steps need to be followed for performance evaluation:
-1. clone the repository 
-
 ### System requirements
 The evaluation was run on dedicated virtual machines:
-* 4-100 node machines
+* 4-100 servers (Mir-BFT nodes) machines
 * 16 client machines
 
-Each machine:
+Clients and servers are located on different virtual machines. 
+
+Each machine (server, client):
 * 32 vCPUs
 * 32 GB memory
 * 2 network interfaces (public & private) each 1 Gbps up and down
@@ -95,6 +94,8 @@ Each machine:
 * OS: Ubuntu 18.04 
 
 ### Running the evaluation
+The following steps need to be followed for performance evaluation:
+
 1. Clone the repository on each machine and install the requirements with scripts under `deployment` directory.
 2. Generate a certificate authority (CA) key and certificate.
 3. Generate a private key and certificate  signed by CA for each server (node).
@@ -102,16 +103,42 @@ Each machine:
 5. Copy all the certificates to all servers (node).
 6. Copy the CA certificate to all clients.
 7. Edit the configuration file for each server and client (see details below).
-8. Start all clients and source their output to a log file e.g.: `./client ../sampleconfig/clientconfig/config.yml client &> client.log`
-9. Start all servers and source their output to a log file e.g.: `./server ../sampleconfig/serverconfig/config.yml server &> server.log`
-10. Use the performance evaluation tool to parse the log files and get performance evaluation results (see details below).
+8. Start all clients: `./client ../deployment/config/clientconfig/config.yml client`. A trace file is generated as `client-id.trc`.
+9. Start all servers and source their output to a log file e.g.: `./server ../deployment/config/serverconfig/config.yml server &> server.log`
+10. Use the performance evaluation tool to parse the log and trc files and get performance evaluation results (see details below).
 
-Experiment where for few (1-2) minutes or for for few (1-4) million client requests in total.
+Steps 1-7 can be automated with scripts in `deployment`:
+
+* First, add information for your cloud setup `cloud-instance.info` file.
+ 
+    Each line must have the following format:
+    
+    ``machine-identifier public-ip private-ip``.
+    * `machine-identifier`: should have the format `server-x` or `client-x` respectively, where `x` some counter/id. 
+    * If the machine has only one `ip` address use the same in both columns.
+
+ * Edit `vars.sh` file:
+    * `user`: the user of the vms
+    * `group`: the group name (could be the same as the user)
+    * `private_key_file`: the absolute path to a private key tha gives ssh access to `user@public-ip` for each machine.
+ 
+ * Run `deploy.sh` to copy and run `install.sh` and `clone.sh` on each client and server machine. This installs requirements, clones the repository and installs server and client executables.
+ 
+ * Edit parameters in `deployment/config-file-templates/server-config.yml` and `deployment/config-file-templates/server-config.yml` (see details below).
+ **IMPORTANT**: Leave fields in block letters untouched, they are automatically replaced by `config-gen.sh`.
+ 
+ * Run `config-gen.sh` to generate certificates, configuration files and copy them to server and client machines. The script has two flags:
+    * `-c` or `--config-only`: generates and copies only configuration files, not certificates.
+    * `-l` or `--local`: instead of copying the certificates and configuration files to a remote machine, it creates a `deployment/config` directory and copies the files there to facilitate a local deployment.
+ 
+ **IMPORTANT**: The scripts assume all machines have the same user and the user is in the `sudo` group without password for `sudo` commands.
 
 ### Server configuration
 
 Each server has:
  * 2 IPs: `ip-public`, `ip-private`.
+    * `ip-public`: the ip used by clients to submit requests.
+    * `ip-private`: the ip used for node-to-node communication.
  * and id from `0` to `N-1`, where `N` the number of servers.
  * a private key: `server.key`
  * a certificate: `server.pem`
@@ -119,7 +146,7 @@ Each server has:
  
  Comments in `sampleconfig/serverconfig/config*.yml` files describe how to configure a server.
  
- Importantly:
+ Please bare in mind:
  
  * `signatureVerification`: must be true to enable client authentication
  * `sigSharding`: must be true to enable signature verification sharding (SVS). Mir by default is considered to have SVS.
@@ -130,12 +157,12 @@ Each server has:
  * `clientWatermarkDist`: should be set to a very large value to allow few clients saturate throughput. Otherwise the setup would require many client machines.
 
  In `self` section:
- * `listen` is always `"0.0.0.0:server-to-server-port"`
+ * `listen` should always be set to `"0.0.0.0:server-to-server-port"`
  
  In `servers` section:
- * `certFiles` provide them with the same order as the corresponding server's `id`.
+ * `certFiles` make sure they have the same order as the corresponding server’s `id`.
  * `addresses`:
-    * provide them with the same order as the corresponding server's `id`. 
+    * make sure they have the same order as the corresponding server’s `id`. 
     * use `ip-private` addresses.
     * make sure the port number `server-to-server-port` matches the port number in the `self` section of each server.
  
@@ -144,13 +171,21 @@ Each server has:
 
  In `servers` section:
  * `addresses`:
-     * provide them with the same order as the corresponding server's `id`. 
+     * make sure they have the same order as the corresponding server’s `id`. 
      * use `ip-public` addresses.
      * make sure the port number `server-to-client-port` matches the port number in the `self` section of each server increased by `2`.
   
+### Experiment duration:
+Experiments where performed for minutes (1-2 minutes) or for for few (1-4) million client requests in total.
+
+Client runtime can be tuned with `clientRunTime` and `requestsPerClient` parameters in client configuration.
+*  `requestsPerClient`: The total number of requests a client process submits.
+*  `clientRunTime`: A client process is killed after `clientRunTime` milliseconds, regardless if `requestsPerClient` requests are submitted. 
+
+Servers must be killed manually.
 
 ### Latency-Throughput plots
-Progressively (different runs) increase the load from clients by increasing `requestRate` until the throughput of the system stops increasing and latency increases significantly.
+ Progressively increase load from clients (i.e,. in every subsequent run increase the load from clients) by increasing `requestRate` and `parallelism` until the throughput of the system stops increasing and latency increases significantly.
 
 ### Scalability plots
 For each number of nodes `N` run a Latency-Throughput plot and peak the maximum throughput.
@@ -165,14 +200,14 @@ Configure the servers with the parameters in `Byzantine behavior` section of the
 In `Byzantine behavior` section, set `byzantineDuplication` to true.
 
 ### Performance Evaluation Tool
-Performance evaluation metrics *throughput* and *latency* can be calculated with the `tools/perf-eval.py` with the logs generated by the `server/server` and `client/client` binaries.
+Performance evaluation metrics *throughput* and *latency* can be calculated with the `tools/perf-eval.py` with the logs generated by the `server/server` and traces generated by the `client/client` binaries.
 
 The script should be called as follows:
-`python tools/perf-eval.py n m [server_1.out ... server_m.out] [client_1.out ... client_m.out] x y`
+`python tools/perf-eval.py n m [server_1.out ... server_m.out] [client_001.trc ... client_m.trc] x y`
 * `n`: the number of server log files
 * `m`: the number of client log files
-* `[server_1.out ... server_m.out]`: list of server files
-* `[client_1.out ... client_m.out]`: list of client files
+* `[server_1.out ... server_m.out]`: list of server log files
+* `[client_001.trc ... client_m.trc]`: list of client trace files
 * `x`: number of requests to ignore at the beginning of the experiment for throughput calculation
 * `y`: number of requests to ignore at the end of the experiment for throughput calculation
 
