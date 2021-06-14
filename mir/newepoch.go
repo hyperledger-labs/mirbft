@@ -219,7 +219,7 @@ func (s *SBFT) applyNewView(nv *pb.NewView, src uint64) {
 
 	oldconfig, ok := s.epochConfig[nv.Config.Epoch-1]
 
-	if !ok || len(oldconfig.leaders) == 0 || s.sys.LastBatch(s.chainId).DecodeHeader().Seq == oldconfig.last {
+	if !ok || len(oldconfig.leaders) == 0 || s.lastDelivered.subject.Seq.Seq == oldconfig.last {
 		//means change was due to no epoch config being present ???
 		addToBlacklist = false
 	}
@@ -239,7 +239,7 @@ func (s *SBFT) applyNewView(nv *pb.NewView, src uint64) {
 		for _, batch := range nv.Xset {
 			batchHeader := batch.DecodeHeader()
 			// if the last batch delivered has a smaller sequence number
-			if s.sys.LastBatch(s.chainId).DecodeHeader().Seq < batchHeader.Seq {
+			if s.lastDelivered.subject.Seq.Seq < batchHeader.Seq {
 				// if the we already preprepared a batch for this sequence number but haven't delivered
 				localBatch, ok := s.cur[batchHeader.Seq]
 				if ok && localBatch.preprep != nil {
@@ -340,7 +340,7 @@ func (s *SBFT) applyNewView(nv *pb.NewView, src uint64) {
 }
 
 func (s *SBFT) processLog() {
-	lastDelivered := s.sys.LastBatch(s.chainId).DecodeHeader().Seq
+	lastDelivered := s.lastDelivered.subject.Seq.Seq
 	for key, batch := range s.cur {
 		batch.maybeCancelTimer()
 		//if batch.preprep != nil && !batch.committed {
