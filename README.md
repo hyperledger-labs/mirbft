@@ -79,9 +79,6 @@ On the client:
 
 ## Performance Evaluation
 
-There following steps need to be followed for performance evaluation:
-1. clone the repository 
-
 ### System requirements
 The evaluation was run on dedicated virtual machines:
 * 4-100 servers (Mir-BFT nodes) machines
@@ -97,6 +94,8 @@ Each machine (server, client):
 * OS: Ubuntu 18.04 
 
 ### Running the evaluation
+The following steps need to be followed for performance evaluation:
+
 1. Clone the repository on each machine and install the requirements with scripts under `deployment` directory.
 2. Generate a certificate authority (CA) key and certificate.
 3. Generate a private key and certificate  signed by CA for each server (node).
@@ -108,30 +107,29 @@ Each machine (server, client):
 9. Start all servers and source their output to a log file e.g.: `./server ../deployment/config/serverconfig/config.yml server &> server.log`
 10. Use the performance evaluation tool to parse the log files and get performance evaluation results (see details below).
 
-Experiment where for few (1-2) minutes or for for few (1-4) million client requests in total.
-
 Steps 1-7 can be automated with scripts in `deployment`:
 
-First, add information for your cloud setup `cloud-instance.info` file. 
-
-Each line must have the following format:
-``machine-identifier public-ip private-ip``.
-* `machine-identifier`: should have the format `server-x` or `client-x` respectively, where `x` some counter/id. 
-* If the machine has only one `ip` address use the same in both columns.
-
- Edit `vars.sh` file:
- * `user`: the user of the vms
- * `group`: the group name (could be the same as the user)
- * `private_key_file`: the absolute path to a private key tha gives ssh access to `user@public-ip` for each machine.
+* First, add information for your cloud setup `cloud-instance.info` file.
  
- Run `deploy.sh` to copy and run `install.sh` and `clone.sh` on each client and server machine. This installs requirements, clones the repository and installs server and client executables.
+    Each line must have the following format:
+    
+    ``machine-identifier public-ip private-ip``.
+    * `machine-identifier`: should have the format `server-x` or `client-x` respectively, where `x` some counter/id. 
+    * If the machine has only one `ip` address use the same in both columns.
+
+ * Edit `vars.sh` file:
+    * `user`: the user of the vms
+    * `group`: the group name (could be the same as the user)
+    * `private_key_file`: the absolute path to a private key tha gives ssh access to `user@public-ip` for each machine.
  
- Edit parameters in `deployment/config-file-templates/server-config.yml` and `deployment/config-file-templates/server-config.yml` (see details below).
+ * Run `deploy.sh` to copy and run `install.sh` and `clone.sh` on each client and server machine. This installs requirements, clones the repository and installs server and client executables.
+ 
+ * Edit parameters in `deployment/config-file-templates/server-config.yml` and `deployment/config-file-templates/server-config.yml` (see details below).
  **IMPORTANT**: Leave fields in block letters untouched, they are automatically replaced by `config-gen.sh`.
  
- Run `config-gen.sh` to generate certificates, configuration files and copy them to server and client machines. The script has two flags:
- * `-c` or `--config-only`: generates and copies only configuration files, not certificates.
- * `-l` or `--local`: instead of copying the certificates and configuration files to a remote machine, it creates a `deployment/config` directory and copies the files there to facilitate a local deployment.
+ * Run `config-gen.sh` to generate certificates, configuration files and copy them to server and client machines. The script has two flags:
+    * `-c` or `--config-only`: generates and copies only configuration files, not certificates.
+    * `-l` or `--local`: instead of copying the certificates and configuration files to a remote machine, it creates a `deployment/config` directory and copies the files there to facilitate a local deployment.
  
  **IMPORTANT**: The scripts assume all machines have the same user and the user is in the `sudo` group without password for `sudo` commands.
 
@@ -139,6 +137,8 @@ Each line must have the following format:
 
 Each server has:
  * 2 IPs: `ip-public`, `ip-private`.
+    * `ip-public`: the ip used by clients to submit requests.
+    * `ip-private`: the ip used for node-to-node communication.
  * and id from `0` to `N-1`, where `N` the number of servers.
  * a private key: `server.key`
  * a certificate: `server.pem`
@@ -146,7 +146,7 @@ Each server has:
  
  Comments in `sampleconfig/serverconfig/config*.yml` files describe how to configure a server.
  
- Importantly:
+ Please bare in mind:
  
  * `signatureVerification`: must be true to enable client authentication
  * `sigSharding`: must be true to enable signature verification sharding (SVS). Mir by default is considered to have SVS.
@@ -157,12 +157,12 @@ Each server has:
  * `clientWatermarkDist`: should be set to a very large value to allow few clients saturate throughput. Otherwise the setup would require many client machines.
 
  In `self` section:
- * `listen` is always `"0.0.0.0:server-to-server-port"`
+ * `listen` should always be set to `"0.0.0.0:server-to-server-port"`
  
  In `servers` section:
- * `certFiles` provide them with the same order as the corresponding server's `id`.
+ * `certFiles` make sure they have the same order as the corresponding server’s `id`.
  * `addresses`:
-    * provide them with the same order as the corresponding server's `id`. 
+    * make sure they have the same order as the corresponding server’s `id`. 
     * use `ip-private` addresses.
     * make sure the port number `server-to-server-port` matches the port number in the `self` section of each server.
  
@@ -171,13 +171,21 @@ Each server has:
 
  In `servers` section:
  * `addresses`:
-     * provide them with the same order as the corresponding server's `id`. 
+     * make sure they have the same order as the corresponding server’s `id`. 
      * use `ip-public` addresses.
      * make sure the port number `server-to-client-port` matches the port number in the `self` section of each server increased by `2`.
   
+### Experiment duration:
+Experiments where performed for minutes (1-2 minutes) or for for few (1-4) million client requests in total.
+
+Client runtime can be tuned with `clientRunTime` and `requestsPerClient` parameters in client configuration.
+*  `requestsPerClient`: The total number of requests a client process submits.
+*  `clientRunTime`: A client process is killed after `clientRunTime` milliseconds, regardless if `requestsPerClient` requests are submitted. 
+
+Servers must be killed manually.
 
 ### Latency-Throughput plots
-Progressively (different runs) increase the load from clients by increasing `requestRate` and `parallelism` until the throughput of the system stops increasing and latency increases significantly.
+ Progressively increase load from clients (i.e,. in every subsequent run increase the load from clients) by increasing `requestRate` and `parallelism` until the throughput of the system stops increasing and latency increases significantly.
 
 ### Scalability plots
 For each number of nodes `N` run a Latency-Throughput plot and peak the maximum throughput.
