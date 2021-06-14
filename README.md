@@ -177,7 +177,7 @@ Each server has:
   
 
 ### Latency-Throughput plots
-Progressively (different runs) increase the load from clients by increasing `requestRate` until the throughput of the system stops increasing and latency increases significantly.
+Progressively (different runs) increase the load from clients by increasing `requestRate` and `parallelism` until the throughput of the system stops increasing and latency increases significantly.
 
 ### Scalability plots
 For each number of nodes `N` run a Latency-Throughput plot and peak the maximum throughput.
