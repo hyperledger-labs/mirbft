@@ -84,10 +84,12 @@ There following steps need to be followed for performance evaluation:
 
 ### System requirements
 The evaluation was run on dedicated virtual machines:
-* 4-100 node machines
+* 4-100 servers (Mir-BFT nodes) machines
 * 16 client machines
 
-Each machine:
+Clients and servers are located on different virtual machines. 
+
+Each machine (server, client):
 * 32 vCPUs
 * 32 GB memory
 * 2 network interfaces (public & private) each 1 Gbps up and down
@@ -102,11 +104,36 @@ Each machine:
 5. Copy all the certificates to all servers (node).
 6. Copy the CA certificate to all clients.
 7. Edit the configuration file for each server and client (see details below).
-8. Start all clients and source their output to a log file e.g.: `./client ../sampleconfig/clientconfig/config.yml client &> client.log`
-9. Start all servers and source their output to a log file e.g.: `./server ../sampleconfig/serverconfig/config.yml server &> server.log`
+8. Start all clients and source their output to a log file e.g.: `./client ../deployment/config/clientconfig/config.yml client &> client.log`
+9. Start all servers and source their output to a log file e.g.: `./server ../deployment/config/serverconfig/config.yml server &> server.log`
 10. Use the performance evaluation tool to parse the log files and get performance evaluation results (see details below).
 
 Experiment where for few (1-2) minutes or for for few (1-4) million client requests in total.
+
+Steps 1-7 can be automated with scripts in `deployment`:
+
+First, add information for your cloud setup `cloud-instance.info` file. 
+
+Each line must have the following format:
+``machine-identifier public-ip private-ip``.
+* `machine-identifier`: should have the format `server-x` or `client-x` respectively, where `x` some counter/id. 
+* If the machine has only one `ip` address use the same in both columns.
+
+ Edit `vars.sh` file:
+ * `user`: the user of the vms
+ * `group`: the group name (could be the same as the user)
+ * `private_key_file`: the absolute path to a private key tha gives ssh access to `user@public-ip` for each machine.
+ 
+ Run `deploy.sh` to copy and run `install.sh` and `clone.sh` on each client and server machine. This installs requirements, clones the repository and installs server and client executables.
+ 
+ Edit parameters in `deployment/config-file-templates/server-config.yml` and `deployment/config-file-templates/server-config.yml` (see details below).
+ **IMPORTANT**: Leave fields in block letters untouched, they are automatically replaced by `config-gen.sh`.
+ 
+ Run `config-gen.sh` to generate certificates, configuration files and copy them to server and client machines. The script has two flags:
+ * `-c` or `--config-only`: generates and copies only configuration files, not certificates.
+ * `-l` or `--local`: instead of copying the certificates and configuration files to a remote machine, it creates a `deployment/config` directory and copies the files there to facilitate a local deployment.
+ 
+ **IMPORTANT**: The scripts assume all machines have the same user and the user is in the `sudo` group without password for `sudo` commands.
 
 ### Server configuration
 
