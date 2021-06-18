@@ -198,7 +198,7 @@ func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
 func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 	defer func() {
 		if err != nil {
-			s, err := n.stateMachine.Status()
+			s, err := n.modules.StateMachine.Status()
 			n.workErrNotifier.SetExitStatus(s, err)
 		}
 	}()
@@ -210,7 +210,7 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 		return ErrStopped
 	}
 
-	actions, err := ProcessStateMachineEvents(n.stateMachine, n.modules.Interceptor, events)
+	actions, err := ProcessStateMachineEvents(n.modules.StateMachine, n.modules.Interceptor, events)
 	if err != nil {
 		return err
 	}

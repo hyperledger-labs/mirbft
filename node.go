@@ -1,3 +1,9 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
 package mirbft
 
 import (
@@ -19,7 +25,10 @@ type Node struct {
 	ID     uint64      // Protocol-level node ID
 	Config *NodeConfig // Node-level (protocol-independent) configuration, like buffer sizes, logging, ...
 
-	modules         *modules.Modules
+	// Implementations of networking, hashing, request store, WAL, etc.
+	// The state machine is also a module of the node.
+	modules *modules.Modules
+
 	workItems       *WorkItems
 	workChans       workChans
 	workErrNotifier *workErrNotifier
@@ -27,8 +36,6 @@ type Node struct {
 	clients       modules.Clients
 	replicas      *Replicas
 	replicaEvents chan *statemachine.EventList
-
-	stateMachine modules.StateMachine
 
 	statusC chan chan *status.StateMachine
 }
@@ -53,9 +60,7 @@ func NewNode(
 		},
 		replicas:      &Replicas{},
 		replicaEvents: make(chan *statemachine.EventList),
-		stateMachine: &statemachine.StateMachine{
-			Logger: logAdapter{Logger: config.Logger},
-		},
+
 		workItems:       NewWorkItems(),
 		workErrNotifier: newWorkErrNotifier(),
 
@@ -66,11 +71,13 @@ func NewNode(
 // Status returns a static snapshot in time of the internal state of the state machine.
 // This method necessarily exposes some of the internal architecture of the system, and
 // especially while the library is in development, the data structures may change substantially.
-// This method returns a nil status and an error if the context ends.  If the serializer go routine
+// This method returns a nil status and an error if the context ends. If the serializer go routine
 // exits for any other reason, then a best effort is made to return the last (and final) status.
-// This final status may be relied upon if it is non-nil.  If the serializer exited at the user's
+// This final status may be relied upon if it is non-nil. If the serializer exited at the user's
 // request (because the done channel was closed), then ErrStopped is returned.
 func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
+
+	//
 	statusC := make(chan *status.StateMachine, 1)
 	select {
 	case <-ctx.Done():
@@ -131,14 +138,30 @@ func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64,
 }
 
 func (n *Node) runtimeParms() *state.EventInitialParameters {
+
+	// TODO: instead of hard-coding the state-machine-specific parameters (now commented out),
+	//       use a generic format that each state machine can interpret on its own.
 	return &state.EventInitialParameters{
-		Id:                   n.ID,
-		BatchSize:            n.Config.BatchSize,
-		HeartbeatTicks:       n.Config.HeartbeatTicks,
-		SuspectTicks:         n.Config.SuspectTicks,
-		NewEpochTimeoutTicks: n.Config.NewEpochTimeoutTicks,
-		BufferSize:           n.Config.BufferSize,
+		Id: n.ID,
+		//BatchSize:            n.Config.BatchSize,
+		//HeartbeatTicks:       n.Config.HeartbeatTicks,
+		//SuspectTicks:         n.Config.SuspectTicks,
+		//NewEpochTimeoutTicks: n.Config.NewEpochTimeoutTicks,
+		BufferSize: n.Config.BufferSize,
 	}
+}
+
+// Run starts the Node.
+// It launches the processing of incoming messages, time ticks, and other internal events.
+// The node stops when exitC is closed.
+// Logical time ticks need to be written to tickC by the calling code.
+// The function call is blocking and only returns when the node stops.
+func (n *Node) Run(exitC <-chan struct{}, tickC <-chan time.Time) error {
+
+	// TODO: Get rid of ProcessAsNewNode and RestartProcessing.
+	//       Instead, check the WAL for potential necessary initialization here.
+
+	return n.process(exitC, tickC)
 }
 
 func (n *Node) ProcessAsNewNode(
@@ -171,32 +194,59 @@ func (n *Node) RestartProcessing(
 	return n.process(exitC, tickC)
 }
 
+// Performs all internal work of the node,
+// which mostly consists of routing events and actions between the node's modules.
+// Stops and returns when exitC is closed.
+// Logical time ticks need to be written to tickC by the calling code.
 func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
 	var wg sync.WaitGroup // Synchronizes all the worker functions
+	defer wg.Wait()
 
-	// Start all worker functions in separate threads
+	// Start all worker functions in separate threads.
+	// Those functions mostly read actions/events from their respective channels in n.workChans,
+	// process them correspondingly, and write the results in the appropriate channels.
+	// Each workFunc reads a single work item, processes it and writes its results.
+	// The looping behavior is implemented in doUntilErr.
+	// TODO: Consider unifying the reading from and writing to channels
+	//       (currently repeated inside each workFunc) outside of the workFunc.
 	for _, work := range []workFunc{
 		n.doWALWork,
 		n.doClientWork,
-		n.doHashWork, // TODO, spawn more of these
+		n.doHashWork, // TODO (Jason), spawn more of these
 		n.doNetWork,
 		n.doAppWork,
 		n.doReqStoreWork,
 		n.doStateMachineWork,
 	} {
+		// Each function is executed by a separate thread.
+		// The wg is waited on before n.process() returns.
 		wg.Add(1)
 		go func(work workFunc) {
 			wg.Done()
 			n.doUntilErr(work)
 		}(work)
 	}
-	defer wg.Wait()
 
+	// These variables hold the respective channels into which actions are written
+	// whenever actions are requested by the node's respective modules.
+	// Those variables are set to nil by default, making any writes to them block,
+	// preventing them to be selected in the big select statement below.
+	// When there are outstanding actions (produced by som module) to be written in a workChan,
+	// the workChan is saved in the corresponding channel variable, making it available to the select statement.
+	// When writing to the workChan (saved in one of these variables) is selected and the actions written,
+	// The variable is set to nil again until new actions are ready.
+	// This complicated construction is necessary to prevent writing empty action lists or nil values to the workChans
+	// when no actions are pending.
 	var walActionsC, clientActionsC, hashActionsC, netActionsC, appActionsC chan<- *statemachine.ActionList
+
+	// Same as above for event channels.
 	var reqStoreEventsC, resultEventsC chan<- *statemachine.EventList
 
+	// This loop shovels actions and events between the appropriate channels, until a stopping condition is satisfied.
 	for {
+
+		// Wait until any actions/events are ready and write them to the appropriate location.
 		select {
 		case resultEventsC <- n.workItems.ResultEvents():
 			n.workItems.ClearResultEvents()
@@ -245,6 +295,9 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		case <-exitC:
 			n.workErrNotifier.Fail(ErrStopped)
 		}
+
+		// If any actions/results have been added to the work items,
+		// update the corresponding channel variables accordingly.
 
 		if resultEventsC == nil && n.workItems.ResultEvents().Len() > 0 {
 			resultEventsC = n.workChans.resultEvents

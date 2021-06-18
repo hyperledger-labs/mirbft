@@ -11,10 +11,10 @@ import (
 )
 
 // TODO, add assertion in tests that log levels match
-type logAdapter struct {
+type LogAdapter struct {
 	Logger
 }
 
-func (la logAdapter) Log(level statemachine.LogLevel, msg string, args ...interface{}) {
+func (la LogAdapter) Log(level statemachine.LogLevel, msg string, args ...interface{}) {
 	la.Logger.Log(LogLevel(level), msg, args...)
 }

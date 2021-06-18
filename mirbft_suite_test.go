@@ -24,11 +24,6 @@ import (
 // this value is overridden via MIRBFT_TEST_CONTEXT_TIMEOUT in CI.
 var ContextTimeout = 30 * time.Second
 
-var (
-	tickInterval = 100 * time.Millisecond
-	testTimeout  = 10 * time.Second
-)
-
 func init() {
 	val := os.Getenv("MIRBFT_TEST_STRESS_TICK_INTERVAL")
 	if val != "" {

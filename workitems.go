@@ -12,6 +12,8 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 )
 
+// WorkItems is a buffer for storing outstanding actions and events that need to be processed by the node.
+// It contains a separate list for each type of action / event.
 type WorkItems struct {
 	walActions     *statemachine.ActionList
 	netActions     *statemachine.ActionList
@@ -22,6 +24,7 @@ type WorkItems struct {
 	resultEvents   *statemachine.EventList
 }
 
+// NewWorkItems allocates and returns a pointer to a new WorkItems object.
 func NewWorkItems() *WorkItems {
 	return &WorkItems{
 		walActions:     &statemachine.ActionList{},
@@ -33,6 +36,38 @@ func NewWorkItems() *WorkItems {
 		resultEvents:   &statemachine.EventList{},
 	}
 }
+
+// Getters.
+
+func (wi *WorkItems) WALActions() *statemachine.ActionList {
+	return wi.walActions
+}
+
+func (wi *WorkItems) NetActions() *statemachine.ActionList {
+	return wi.netActions
+}
+
+func (wi *WorkItems) HashActions() *statemachine.ActionList {
+	return wi.hashActions
+}
+
+func (wi *WorkItems) ClientActions() *statemachine.ActionList {
+	return wi.clientActions
+}
+
+func (wi *WorkItems) AppActions() *statemachine.ActionList {
+	return wi.appActions
+}
+
+func (wi *WorkItems) ReqStoreEvents() *statemachine.EventList {
+	return wi.reqStoreEvents
+}
+
+func (wi *WorkItems) ResultEvents() *statemachine.EventList {
+	return wi.resultEvents
+}
+
+// Methods for clearing the buffers.
 
 func (wi *WorkItems) ClearWALActions() {
 	wi.walActions = &statemachine.ActionList{}
@@ -62,54 +97,7 @@ func (wi *WorkItems) ClearResultEvents() {
 	wi.resultEvents = &statemachine.EventList{}
 }
 
-func (wi *WorkItems) WALActions() *statemachine.ActionList {
-	if wi.walActions == nil {
-		wi.walActions = &statemachine.ActionList{}
-	}
-	return wi.walActions
-}
-
-func (wi *WorkItems) NetActions() *statemachine.ActionList {
-	if wi.netActions == nil {
-		wi.netActions = &statemachine.ActionList{}
-	}
-	return wi.netActions
-}
-
-func (wi *WorkItems) HashActions() *statemachine.ActionList {
-	if wi.hashActions == nil {
-		wi.hashActions = &statemachine.ActionList{}
-	}
-	return wi.hashActions
-}
-
-func (wi *WorkItems) ClientActions() *statemachine.ActionList {
-	if wi.clientActions == nil {
-		wi.clientActions = &statemachine.ActionList{}
-	}
-	return wi.clientActions
-}
-
-func (wi *WorkItems) AppActions() *statemachine.ActionList {
-	if wi.appActions == nil {
-		wi.appActions = &statemachine.ActionList{}
-	}
-	return wi.appActions
-}
-
-func (wi *WorkItems) ReqStoreEvents() *statemachine.EventList {
-	if wi.reqStoreEvents == nil {
-		wi.reqStoreEvents = &statemachine.EventList{}
-	}
-	return wi.reqStoreEvents
-}
-
-func (wi *WorkItems) ResultEvents() *statemachine.EventList {
-	if wi.resultEvents == nil {
-		wi.resultEvents = &statemachine.EventList{}
-	}
-	return wi.resultEvents
-}
+// Methods for adding items to the buffers.
 
 func (wi *WorkItems) AddHashResults(events *statemachine.EventList) {
 	wi.ResultEvents().PushBackList(events)
