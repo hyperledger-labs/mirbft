@@ -49,6 +49,13 @@ func main() {
 	// Log and trace files will all begin with this
 	outFilePrefix := os.Args[2]
 
+	// Open status file
+	status_file, err := os.Create("STATUS.sh")
+	fatal(err)
+	defer status_file.Close()
+
+	status_file.WriteString("status=UP\n")
+
 	logBackend := logging.NewLogBackend(os.Stdout, "", 0)
 	backendFormatter := logging.NewBackendFormatter(logBackend, format)
 	logging.SetBackend(backendFormatter)
@@ -259,6 +266,7 @@ func main() {
 	}
 
 	log.Infof("FINISH %d", total )
+	status_file.WriteString("status=FINISHED\n")
 
 	close(c.queue)
 
