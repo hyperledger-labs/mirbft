@@ -330,9 +330,13 @@ func (c *Client) rotateBuckets() {
 // Using maps without getting locked but is called in a lock part of code.
 func (c *Client) checkInOrderDelivery(seq int64) {
 	log.Debugf("Checking in-order delivery for: %d", seq)
-	if seq-1 == c.lastDelivered && c.delivered[seq] >= c.f+1 {
-		c.lastDelivered = seq
+	c.Lock()
+	delivered := c.delivered[seq]
+	lastDelivered := c.lastDelivered
+	c.Unlock()
+	if seq-1 == lastDelivered && delivered >= c.f+1 {
 		c.Lock()
+		c.lastDelivered = seq
 		c.trace.Event(tracing.REQ_DELIVERED, int64(seq), time.Now().UnixNano()/1000-c.submitTimestamps[uint64(seq)])
 		c.Unlock()
 		if seq+1 < int64(c.numRequests) {

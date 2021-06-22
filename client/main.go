@@ -163,6 +163,7 @@ func main() {
 					// Request delivered
 					log.Debugf("DELIVERED %d from %d", resp.Request.Seq, resp.Src)
 					// Check if registered to all severs
+					c.Lock()
 					if ok, _ := c.registrations[resp.Src]; !ok {
 						c.registrations[resp.Src] = true
 						if len(c.registrations) == N {
@@ -170,22 +171,23 @@ func main() {
 						}
 					}
 					c.delivered[resp.Request.Seq]++
-					c.Lock()
 					c.trace.Event(tracing.RESP_RECEIVE, int64(int32(id)), time.Now().UnixNano()/1000-c.sentTimestamps[uint64(id)])
+					delivered := c.delivered[resp.Request.Seq]
 					c.Unlock()
-					if c.delivered[resp.Request.Seq] == F+1 {
+					if delivered == F+1 {
 						c.Lock()
 						c.trace.Event(tracing.ENOUGH_RESP, int64(int32(id)), time.Now().UnixNano()/1000-c.sentTimestamps[uint64(id)])
 						c.trace.Event(tracing.REQ_FINISHED, int64(int32(id)), time.Now().UnixNano()/1000-c.submitTimestamps[uint64(id)])
 						c.Unlock()
 						log.Debugf("Finished %d", resp.Request.Seq)
 						c.checkInOrderDelivery(int64(resp.Request.Seq))
+						c.Lock()
 						if c.lastDelivered == c.numRequests-1 {
 							log.Infof("ALL DELIVERED")
 							atomic.StoreInt32(&c.stop, 1)
 						}
+						c.Unlock()
 					}
-					log.Debugf("Last delivered: %d", c.lastDelivered)
 				} else if fmt.Sprintf("%s", resp.Response) == "ACK" {
 					// Request added to pending on server side
 					log.Debugf("ACK")
@@ -233,12 +235,12 @@ func main() {
 					}
 					c.Lock()
 					c.submitTimestamps[request.request.Seq] = time.Now().UnixNano() / 1000 // In us
-					c.Unlock()
 					sent += clients
 					if sent%c.period == 0 {
 						log.Infof("Rotating buckets")
 						c.rotateBuckets()
 					}
+					c.Unlock()
 				}(request)
 			default:
 				for j := i; j < sendParallelism; j++ {
