@@ -12,6 +12,7 @@ if [ ! -d "/opt/gopath/src/github.com/IBM/mirbft" ]; then
 fi
 cd /opt/gopath/src/github.com/IBM/mirbft
 git checkout research
+git pull
 ./run-protoc.sh
 cd /opt/gopath/src/github.com/IBM/mirbft/server
 go build
