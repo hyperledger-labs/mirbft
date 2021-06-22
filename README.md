@@ -107,7 +107,7 @@ The following steps need to be followed for performance evaluation:
 9. Start all servers and source their output to a log file e.g.: `./server ../deployment/config/serverconfig/config.yml server &> server.log`
 10. Use the performance evaluation tool to parse the log and trc files and get performance evaluation results (see details below).
 
-Steps 1-7 can be automated with scripts in `deployment`:
+Steps 1-9 can be automated with scripts in `deployment`:
 
 * First, add information for your cloud setup `cloud-instance.info` file.
  
@@ -125,6 +125,7 @@ Steps 1-7 can be automated with scripts in `deployment`:
  * Run `deploy.sh` to copy and run `install.sh` and `clone.sh` on each client and server machine. This installs requirements, clones the repository and installs server and client executables.
  
  * Edit parameters in `deployment/config-file-templates/server-config.yml` and `deployment/config-file-templates/server-config.yml` (see details below).
+
  **IMPORTANT**: Leave fields in block letters untouched, they are automatically replaced by `config-gen.sh`.
  
  * Run `config-gen.sh` to generate certificates, configuration files and copy them to server and client machines. The script has two flags:
@@ -132,6 +133,14 @@ Steps 1-7 can be automated with scripts in `deployment`:
     * `-l` or `--local`: instead of copying the certificates and configuration files to a remote machine, it creates a `deployment/config` directory and copies the files there to facilitate a local deployment.
  
  **IMPORTANT**: The scripts assume all machines have the same user and the user is in the `sudo` group without password for `sudo` commands.
+
+* Run `run.sh`. The script:
+    * Kills any previously running experiment.
+    * Starts servers and clients on the remote machines as defined in`cloud-instance.info`.
+    * Periodically checks if the experiment has finished.
+    * Creates an `experiment-output` directory and fetches the log and trace files of the experiment in it. 
+ 
+  **IMPORTANT**: If there are already files in `experiment-output` they will be overwritten.
 
 ### Server configuration
 
