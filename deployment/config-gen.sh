@@ -136,6 +136,9 @@ for p in $servers; do
     port=8001
     for s in $servers; do
         ip=$(getPrivIP $s)
+        if [ "$local" = "true" ]; then
+            ip="127.0.0.1"
+        fi
         echo "    - \"$ip:$port\"" >> temp/config_$p.yml
         if [ "$local" = "true" ]; then
             (( port += 10 ))
@@ -149,6 +152,9 @@ for p in $clients; do
     (( port += 2 ))
     for s in $servers; do
         ip=$(getIP $s)
+        if [ "$local" = "true" ]; then
+            ip="127.0.0.1"
+        fi
         echo "    - \"$ip:$port\"" >> temp/config_$p.yml
         if [ "$local" = "true" ]; then
             (( port += 10 ))
