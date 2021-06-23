@@ -8,7 +8,6 @@ package mirbft
 
 import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/processor"
 	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 )
 
@@ -36,7 +35,7 @@ type Replica struct {
 }
 
 func (r *Replica) Step(msg *msgs.Msg) (*statemachine.EventList, error) {
-	err := processor.PreProcess(msg)
+	err := preProcess(msg)
 	if err != nil {
 		return nil, err
 	}

@@ -12,7 +12,7 @@ type workChans struct {
 	walActions      chan *statemachine.ActionList
 	walResults      chan *statemachine.ActionList
 	clientActions   chan *statemachine.ActionList
-	clientResults   chan *statemachine.EventList
+	clientEvents    chan *statemachine.EventList
 	hashActions     chan *statemachine.ActionList
 	hashResults     chan *statemachine.EventList
 	netActions      chan *statemachine.ActionList
@@ -23,6 +23,7 @@ type workChans struct {
 	reqStoreResults chan *statemachine.EventList
 	resultEvents    chan *statemachine.EventList
 	resultResults   chan *statemachine.ActionList
+	externalEvents  chan *statemachine.EventList
 }
 
 func newWorkChans() workChans {
@@ -30,7 +31,7 @@ func newWorkChans() workChans {
 		walActions:      make(chan *statemachine.ActionList),
 		walResults:      make(chan *statemachine.ActionList),
 		clientActions:   make(chan *statemachine.ActionList),
-		clientResults:   make(chan *statemachine.EventList),
+		clientEvents:    make(chan *statemachine.EventList),
 		hashActions:     make(chan *statemachine.ActionList),
 		hashResults:     make(chan *statemachine.EventList),
 		netActions:      make(chan *statemachine.ActionList),
@@ -41,6 +42,7 @@ func newWorkChans() workChans {
 		reqStoreResults: make(chan *statemachine.EventList),
 		resultEvents:    make(chan *statemachine.EventList),
 		resultResults:   make(chan *statemachine.ActionList),
+		externalEvents:  make(chan *statemachine.EventList),
 	}
 }
 
@@ -90,17 +92,17 @@ func (n *Node) doClientWork(exitC <-chan struct{}) error {
 		return ErrStopped
 	}
 
-	clientResults, err := ProcessClientActions(n.clients, actions)
+	clientEvents, err := ProcessClientActions(n.clients, actions)
 	if err != nil {
 		return errors.WithMessage(err, "could not perform client actions")
 	}
 
-	if clientResults.Len() == 0 {
+	if clientEvents.Len() == 0 {
 		return nil
 	}
 
 	select {
-	case n.workChans.clientResults <- clientResults:
+	case n.workChans.clientEvents <- clientEvents:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -253,7 +255,7 @@ func ProcessWALActions(wal modules.WAL, actions *statemachine.ActionList) (*stat
 
 	// Then we sync the WAL
 	if err := wal.Sync(); err != nil {
-		return nil, errors.WithMessage(err, "failted to sync WAL")
+		return nil, errors.WithMessage(err, "failed to sync WAL")
 	}
 
 	return netActions, nil

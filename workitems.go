@@ -2,11 +2,14 @@
 Copyright IBM Corp. All Rights Reserved.
 
 SPDX-License-Identifier: Apache-2.0
+
+Refactored: 1
 */
 
 package mirbft
 
 import (
+	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
@@ -20,8 +23,8 @@ type WorkItems struct {
 	hashActions    *statemachine.ActionList
 	clientActions  *statemachine.ActionList
 	appActions     *statemachine.ActionList
-	reqStoreEvents *statemachine.EventList
-	resultEvents   *statemachine.EventList
+	reqStoreEvents *statemachine.EventList // TODO: Check whether the name is appropriate
+	resultEvents   *statemachine.EventList // TODO: Rename this
 }
 
 // NewWorkItems allocates and returns a pointer to a new WorkItems object.
@@ -34,6 +37,64 @@ func NewWorkItems() *WorkItems {
 		appActions:     &statemachine.ActionList{},
 		reqStoreEvents: &statemachine.EventList{},
 		resultEvents:   &statemachine.EventList{},
+	}
+}
+
+// AddActions adds actions produced by modules to the WorkItems buffer.
+// According to their types, the actions are distributed to the appropriate internal sub-buffers.
+func (wi *WorkItems) AddActions(actions *statemachine.ActionList) {
+	iter := actions.Iterator()
+	for action := iter.Next(); action != nil; action = iter.Next() {
+		switch t := action.Type.(type) {
+		case *state.Action_Send:
+			walDependent := false
+			// TODO, make sure this switch captures all the safe ones
+			switch t.Send.Msg.Type.(type) {
+			case *msgs.Msg_RequestAck:
+			case *msgs.Msg_Checkpoint:
+			case *msgs.Msg_FetchBatch:
+			case *msgs.Msg_ForwardBatch:
+			default:
+				walDependent = true
+			}
+			if walDependent {
+				wi.WALActions().PushBack(action)
+			} else {
+				wi.NetActions().PushBack(action)
+			}
+		case *state.Action_Hash:
+			wi.HashActions().PushBack(action)
+		case *state.Action_AppendWriteAhead,
+			*state.Action_TruncateWriteAhead:
+			wi.WALActions().PushBack(action)
+		case *state.Action_Commit,
+			*state.Action_Checkpoint,
+			*state.Action_StateTransfer:
+			wi.AppActions().PushBack(action)
+		case *state.Action_AllocatedRequest,
+			*state.Action_CorrectRequest,
+			*state.Action_StateApplied:
+			wi.ClientActions().PushBack(action)
+			// TODO, create replicas
+		case *state.Action_ForwardRequest:
+			// XXX address
+		default:
+			panic(fmt.Sprintf("unknown event type %T", t))
+		}
+	}
+}
+
+// AddEvents adds events produced by modules to the WorkItems buffer.
+// According to their types, the events are distributed to the appropriate internal sub-buffers.
+func (wi *WorkItems) AddEvents(events *statemachine.EventList) {
+	iter := events.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
+		switch t := event.Type.(type) {
+		case *state.Event_HashResult:
+			wi.ResultEvents().PushBack(event)
+		default:
+			panic(fmt.Sprintf("unknown event type %T", t))
+		}
 	}
 }
 
@@ -97,7 +158,8 @@ func (wi *WorkItems) ClearResultEvents() {
 	wi.resultEvents = &statemachine.EventList{}
 }
 
-// Methods for adding items to the buffers.
+// Legacy methods for adding items to the buffers.
+// TODO: handle all these cases in the AddActions() and AddEvents methods and remove those functions.
 
 func (wi *WorkItems) AddHashResults(events *statemachine.EventList) {
 	wi.ResultEvents().PushBackList(events)
@@ -121,50 +183,4 @@ func (wi *WorkItems) AddWALResults(actions *statemachine.ActionList) {
 
 func (wi *WorkItems) AddReqStoreResults(events *statemachine.EventList) {
 	wi.ResultEvents().PushBackList(events)
-}
-
-func (wi *WorkItems) AddStateMachineResults(actions *statemachine.ActionList) {
-	// First we'll handle everything that's not a network send
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_Send:
-			walDependent := false
-			// TODO, make sure this switch captures all the safe ones
-			switch t.Send.Msg.Type.(type) {
-			case *msgs.Msg_RequestAck:
-			case *msgs.Msg_Checkpoint:
-			case *msgs.Msg_FetchBatch:
-			case *msgs.Msg_ForwardBatch:
-			default:
-				walDependent = true
-			}
-			if walDependent {
-				wi.WALActions().PushBack(action)
-			} else {
-				wi.NetActions().PushBack(action)
-			}
-		case *state.Action_Hash:
-			wi.HashActions().PushBack(action)
-		case *state.Action_AppendWriteAhead:
-			wi.WALActions().PushBack(action)
-		case *state.Action_TruncateWriteAhead:
-			wi.WALActions().PushBack(action)
-		case *state.Action_Commit:
-			wi.AppActions().PushBack(action)
-		case *state.Action_Checkpoint:
-			wi.AppActions().PushBack(action)
-		case *state.Action_AllocatedRequest:
-			wi.ClientActions().PushBack(action)
-		case *state.Action_CorrectRequest:
-			wi.ClientActions().PushBack(action)
-		case *state.Action_StateApplied:
-			wi.ClientActions().PushBack(action)
-			// TODO, create replicas
-		case *state.Action_ForwardRequest:
-			// XXX address
-		case *state.Action_StateTransfer:
-			wi.AppActions().PushBack(action)
-		}
-	}
 }
