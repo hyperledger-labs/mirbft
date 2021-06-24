@@ -2,6 +2,8 @@
 Copyright IBM Corp. All Rights Reserved.
 
 SPDX-License-Identifier: Apache-2.0
+
+Refactored: 1
 */
 
 package mirbft_test
@@ -16,6 +18,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+// TODO: Reassess the following comment, the need for ContextTimeout itself, and the contents of the init() function.
 // ContextTimeout is an unfortunate parameter included for executing
 // the stress related tests.  Most of the testing we try to make deterministic
 // and independent of time (for instance, by specifying step counts), but for
@@ -48,9 +51,11 @@ func init() {
 	}
 }
 
+// Runs the tests specified (in separate files) using the Ginkgo testing framework.
 func TestMirbft(t *testing.T) {
 	RegisterFailHandler(Fail)
 
+	// Override the ContextTimeout value based on an environment variable.
 	val := os.Getenv("MIRBFT_TEST_CONTEXT_TIMEOUT")
 	if val != "" {
 		dur, err := time.ParseDuration(val)

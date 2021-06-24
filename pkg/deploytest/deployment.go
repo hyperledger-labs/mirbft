@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
@@ -79,7 +80,7 @@ func NewDeployment(testConfig TestConfig, doneC <-chan struct{}) (*Deployment, e
 		// Configure the test replica's node.
 		config := &mirbft.NodeConfig{
 			BufferSize: TestMsgBufSize,
-			Logger:     mirbft.ConsoleWarnLogger,
+			Logger:     logger.ConsoleWarnLogger,
 		}
 
 		// Create instance of test replica.
@@ -181,7 +182,7 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 			App:          tr.App,
 			WAL:          wal,
 			Interceptor:  interceptor,
-			StateMachine: NewDummySM(mirbft.LogAdapter{Logger: tr.Config.Logger}),
+			StateMachine: NewDummySM(tr.Config.Logger),
 			//StateMachine: &statemachine.StateMachine{
 			//	Logger: mirbft.LogAdapter{Logger: tr.Config.Logger},
 			//},

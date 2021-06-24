@@ -1,3 +1,11 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+
+Refactored: 1
+*/
+
 package mirbft
 
 import (
@@ -8,24 +16,37 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Input and output channels for the modules within the Node.
+// the Node.process() method reads and writes actions and events
+// to and from these channels to rout them between the Node's modules.
+// TODO: Get rid of actions and results and only use events as input and output of all modules.
+// TODO: Rename these variables to be consistent with the action/event terminology.
 type workChans struct {
-	walActions      chan *statemachine.ActionList
-	walResults      chan *statemachine.ActionList
-	clientActions   chan *statemachine.ActionList
-	clientEvents    chan *statemachine.EventList
-	hashActions     chan *statemachine.ActionList
-	hashResults     chan *statemachine.EventList
-	netActions      chan *statemachine.ActionList
-	netResults      chan *statemachine.EventList
-	appActions      chan *statemachine.ActionList
-	appResults      chan *statemachine.EventList
+	walActions chan *statemachine.ActionList
+	walResults chan *statemachine.ActionList
+
+	clientActions chan *statemachine.ActionList
+	clientEvents  chan *statemachine.EventList
+
+	hashActions chan *statemachine.ActionList
+	hashResults chan *statemachine.EventList
+
+	netActions chan *statemachine.ActionList
+	netResults chan *statemachine.EventList
+
+	appActions chan *statemachine.ActionList
+	appResults chan *statemachine.EventList
+
 	reqStoreEvents  chan *statemachine.EventList
 	reqStoreResults chan *statemachine.EventList
-	resultEvents    chan *statemachine.EventList
-	resultResults   chan *statemachine.ActionList
-	externalEvents  chan *statemachine.EventList
+
+	resultEvents  chan *statemachine.EventList
+	resultResults chan *statemachine.ActionList
+
+	externalEvents chan *statemachine.EventList
 }
 
+// Allocate and return a new workChans structure.
 func newWorkChans() workChans {
 	return workChans{
 		walActions:      make(chan *statemachine.ActionList),
@@ -46,8 +67,16 @@ func newWorkChans() workChans {
 	}
 }
 
+// A function type used for performing the work of a module.
+// It usually reads events/actions from a work channel and writes the output to another work channel.
+// Any error that occurs while performing the work is returned.
+// When the exitC channel is closed the function should return ErrStopped
+// TODO: Consider unifying the reading from and writing to channels
+//       (currently repeated inside each workFunc) outside of the workFunc.
 type workFunc func(exitC <-chan struct{}) error
 
+// Calls the passed work function repeatedly in an infinite loop until the work function returns an non-nil error.
+// doUntilErr then sets the error in the Node's workErrNotifier and returns.
 func (n *Node) doUntilErr(work workFunc) {
 	for {
 		err := work(n.workErrNotifier.ExitC())
@@ -58,23 +87,32 @@ func (n *Node) doUntilErr(work workFunc) {
 	}
 }
 
+// Reads a single list of WAL actions from the corresponding work channel and processes its contents.
+// If any results are generated for further processing,
+// writes a list of those results to the corresponding work channel.
+// If exitC is closed, returns ErrStopped.
 func (n *Node) doWALWork(exitC <-chan struct{}) error {
 	var actions *statemachine.ActionList
+
+	// Read input.
 	select {
 	case actions = <-n.workChans.walActions:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	walResults, err := ProcessWALActions(n.modules.WAL, actions)
+	// Process actions.
+	walResults, err := processWALActions(n.modules.WAL, actions)
 	if err != nil {
 		return errors.WithMessage(err, "could not perform WAL actions")
 	}
 
+	// Return if no output was generated.
 	if walResults.Len() == 0 {
 		return nil
 	}
 
+	// Write output.
 	select {
 	case n.workChans.walResults <- walResults:
 	case <-exitC:
@@ -84,23 +122,32 @@ func (n *Node) doWALWork(exitC <-chan struct{}) error {
 	return nil
 }
 
+// Reads a single list of Client actions from the corresponding work channel and processes its contents.
+// If any events are generated for further processing,
+// writes a list of those events to the corresponding work channel.
+// If exitC is closed, returns ErrStopped.
 func (n *Node) doClientWork(exitC <-chan struct{}) error {
 	var actions *statemachine.ActionList
+
+	// Read input.
 	select {
 	case actions = <-n.workChans.clientActions:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	clientEvents, err := ProcessClientActions(n.clients, actions)
+	// Process actions.
+	clientEvents, err := processClientActions(n.clients, actions)
 	if err != nil {
 		return errors.WithMessage(err, "could not perform client actions")
 	}
 
+	// Return if no output was generated.
 	if clientEvents.Len() == 0 {
 		return nil
 	}
 
+	// Write output.
 	select {
 	case n.workChans.clientEvents <- clientEvents:
 	case <-exitC:
@@ -109,19 +156,26 @@ func (n *Node) doClientWork(exitC <-chan struct{}) error {
 	return nil
 }
 
+// Reads a single list of hash actions (hashes to be computed) from the corresponding work channel,
+// processes its contents (computes the hashes) and writes a list of hash results to the corresponding work channel.
+// If exitC is closed, returns ErrStopped.
 func (n *Node) doHashWork(exitC <-chan struct{}) error {
 	var actions *statemachine.ActionList
+
+	// Read input.
 	select {
 	case actions = <-n.workChans.hashActions:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	hashResults, err := ProcessHashActions(n.modules.Hasher, actions)
+	// Process actions.
+	hashResults, err := processHashActions(n.modules.Hasher, actions)
 	if err != nil {
 		return errors.WithMessage(err, "could not perform hash actions")
 	}
 
+	// Write output.
 	select {
 	case n.workChans.hashResults <- hashResults:
 	case <-exitC:
@@ -131,19 +185,32 @@ func (n *Node) doHashWork(exitC <-chan struct{}) error {
 	return nil
 }
 
+// Reads a single list of send actions from the corresponding work channel and processes its contents.
+// If any events are generated for further processing,
+// writes a list of those events to the corresponding work channel.
+// If exitC is closed, returns ErrStopped.
 func (n *Node) doNetWork(exitC <-chan struct{}) error {
 	var actions *statemachine.ActionList
+
+	// Read input.
 	select {
 	case actions = <-n.workChans.netActions:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	netResults, err := ProcessNetActions(n.ID, n.modules.Net, actions)
+	// Process actions.
+	netResults, err := processNetActions(n.ID, n.modules.Net, actions)
 	if err != nil {
 		return errors.WithMessage(err, "could not perform net actions")
 	}
 
+	// Return if no output was generated.
+	if netResults.Len() == 0 {
+		return nil
+	}
+
+	// Write output.
 	select {
 	case n.workChans.netResults <- netResults:
 	case <-exitC:
@@ -153,19 +220,32 @@ func (n *Node) doNetWork(exitC <-chan struct{}) error {
 	return nil
 }
 
+// Reads a single list of app actions from the corresponding work channel and processes its contents.
+// If any events are generated for further processing,
+// writes a list of those events to the corresponding work channel.
+// If exitC is closed, returns ErrStopped.
 func (n *Node) doAppWork(exitC <-chan struct{}) error {
 	var actions *statemachine.ActionList
+
+	// Read input.
 	select {
 	case actions = <-n.workChans.appActions:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	appResults, err := ProcessAppActions(n.modules.App, actions)
+	// Process actions.
+	appResults, err := processAppActions(n.modules.App, actions)
 	if err != nil {
 		return errors.WithMessage(err, "could not perform app actions")
 	}
 
+	// Return if no output was generated.
+	if appResults.Len() == 0 {
+		return nil
+	}
+
+	// Write output.
 	select {
 	case n.workChans.appResults <- appResults:
 	case <-exitC:
@@ -175,19 +255,32 @@ func (n *Node) doAppWork(exitC <-chan struct{}) error {
 	return nil
 }
 
+// Reads a single list of request store events from the corresponding work channel and processes its contents.
+// If any results are generated for further processing,
+// writes a list of those results to the corresponding work channel.
+// If exitC is closed, returns ErrStopped.
 func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
 	var events *statemachine.EventList
+
+	// Read input.
 	select {
 	case events = <-n.workChans.reqStoreEvents:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	reqStoreResults, err := ProcessReqStoreEvents(n.modules.RequestStore, events)
+	// Process events.
+	reqStoreResults, err := processReqStoreEvents(n.modules.RequestStore, events)
 	if err != nil {
 		return errors.WithMessage(err, "could not perform reqstore actions")
 	}
 
+	// Return if no output was generated.
+	if reqStoreResults.Len() == 0 {
+		return nil
+	}
+
+	// Write output.
 	select {
 	case n.workChans.reqStoreResults <- reqStoreResults:
 	case <-exitC:
@@ -197,6 +290,11 @@ func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
 	return nil
 }
 
+// Reads a single list of state machine events from the corresponding work channel and processes its contents.
+// If any actions are generated by the state machine,
+// writes a list of those results to the corresponding work channel.
+// If exitC is closed, returns ErrStopped.
+// On returning, sets the exit status of the state machine in the work error notifier.
 func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 	defer func() {
 		if err != nil {
@@ -206,24 +304,32 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 	}()
 
 	var events *statemachine.EventList
+
+	// Read input.
 	select {
 	case events = <-n.workChans.resultEvents:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	actions, err := ProcessStateMachineEvents(n.modules.StateMachine, n.modules.Interceptor, events)
+	// Process events.
+	actions, err := processStateMachineEvents(n.modules.StateMachine, n.modules.Interceptor, events)
 	if err != nil {
 		return err
 	}
 
+	// Return if no output was generated.
 	if actions.Len() == 0 {
 		return nil
 	}
 
+	// Write output.
 	select {
 	case n.workChans.resultResults <- actions:
-		n.modules.Interceptor.Intercept(statemachine.EventActionsReceived())
+		// Log a special event marking the reception of the actions from the state machine by the Node.
+		if err := n.modules.Interceptor.Intercept(statemachine.EventActionsReceived()); err != nil {
+			return err
+		}
 	case <-exitC:
 		return ErrStopped
 	}
@@ -231,7 +337,9 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 	return nil
 }
 
-func ProcessWALActions(wal modules.WAL, actions *statemachine.ActionList) (*statemachine.ActionList, error) {
+// TODO: Document the functions below.
+
+func processWALActions(wal modules.WAL, actions *statemachine.ActionList) (*statemachine.ActionList, error) {
 	netActions := &statemachine.ActionList{}
 	iter := actions.Iterator()
 	for action := iter.Next(); action != nil; action = iter.Next() {
@@ -261,7 +369,7 @@ func ProcessWALActions(wal modules.WAL, actions *statemachine.ActionList) (*stat
 	return netActions, nil
 }
 
-func ProcessClientActions(c modules.Clients, actions *statemachine.ActionList) (*statemachine.EventList, error) {
+func processClientActions(c modules.Clients, actions *statemachine.ActionList) (*statemachine.EventList, error) {
 	events := &statemachine.EventList{}
 	iter := actions.Iterator()
 	for action := iter.Next(); action != nil; action = iter.Next() {
@@ -300,7 +408,7 @@ func ProcessClientActions(c modules.Clients, actions *statemachine.ActionList) (
 	return events, nil
 }
 
-func ProcessHashActions(hasher modules.Hasher, actions *statemachine.ActionList) (*statemachine.EventList, error) {
+func processHashActions(hasher modules.Hasher, actions *statemachine.ActionList) (*statemachine.EventList, error) {
 	events := &statemachine.EventList{}
 	iter := actions.Iterator()
 	for action := iter.Next(); action != nil; action = iter.Next() {
@@ -320,7 +428,7 @@ func ProcessHashActions(hasher modules.Hasher, actions *statemachine.ActionList)
 	return events, nil
 }
 
-func ProcessNetActions(selfID uint64, net modules.Net, actions *statemachine.ActionList) (*statemachine.EventList, error) {
+func processNetActions(selfID uint64, net modules.Net, actions *statemachine.ActionList) (*statemachine.EventList, error) {
 	events := &statemachine.EventList{}
 
 	iter := actions.Iterator()
@@ -342,7 +450,7 @@ func ProcessNetActions(selfID uint64, net modules.Net, actions *statemachine.Act
 	return events, nil
 }
 
-func ProcessAppActions(app modules.App, actions *statemachine.ActionList) (*statemachine.EventList, error) {
+func processAppActions(app modules.App, actions *statemachine.ActionList) (*statemachine.EventList, error) {
 	events := &statemachine.EventList{}
 	iter := actions.Iterator()
 	for action := iter.Next(); action != nil; action = iter.Next() {
@@ -353,18 +461,18 @@ func ProcessAppActions(app modules.App, actions *statemachine.ActionList) (*stat
 			}
 		case *state.Action_Checkpoint:
 			cp := t.Checkpoint
-			value, pendingReconf, err := app.Snap(cp.NetworkConfig, cp.ClientStates)
+			value, pendingReconf, err := app.Snapshot(cp.NetworkConfig, cp.ClientStates)
 			if err != nil {
 				return nil, errors.WithMessage(err, "app failed to generate snapshot")
 			}
 			events.CheckpointResult(value, pendingReconf, cp)
 		case *state.Action_StateTransfer:
 			stateTarget := t.StateTransfer
-			state, err := app.TransferTo(stateTarget.SeqNo, stateTarget.Value)
+			appState, err := app.TransferTo(stateTarget.SeqNo, stateTarget.Value)
 			if err != nil {
 				events.StateTransferFailed(stateTarget)
 			} else {
-				events.StateTransferComplete(state, stateTarget)
+				events.StateTransferComplete(appState, stateTarget)
 			}
 		default:
 			return nil, errors.Errorf("unexpected type for Hash action: %T", action.Type)
@@ -374,7 +482,7 @@ func ProcessAppActions(app modules.App, actions *statemachine.ActionList) (*stat
 	return events, nil
 }
 
-func ProcessReqStoreEvents(reqStore modules.RequestStore, events *statemachine.EventList) (*statemachine.EventList, error) {
+func processReqStoreEvents(reqStore modules.RequestStore, events *statemachine.EventList) (*statemachine.EventList, error) {
 	// Then we sync the request store
 	if err := reqStore.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
@@ -383,7 +491,7 @@ func ProcessReqStoreEvents(reqStore modules.RequestStore, events *statemachine.E
 	return events, nil
 }
 
-func ProcessStateMachineEvents(sm modules.StateMachine, i modules.EventInterceptor, events *statemachine.EventList) (*statemachine.ActionList, error) {
+func processStateMachineEvents(sm modules.StateMachine, i modules.EventInterceptor, events *statemachine.EventList) (*statemachine.ActionList, error) {
 	actions := &statemachine.ActionList{}
 	iter := events.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {

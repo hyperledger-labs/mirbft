@@ -8,6 +8,7 @@ package statemachine
 
 import (
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
@@ -23,7 +24,7 @@ type activeEpoch struct {
 	epochConfig   *msgs.EpochConfig
 	networkConfig *msgs.NetworkState_Config
 	myConfig      *state.EventInitialParameters
-	logger        Logger
+	logger        logger.Logger
 
 	outstandingReqs *allOutstandingReqs
 	proposer        *proposer
@@ -42,13 +43,13 @@ type activeEpoch struct {
 	ticksSinceProgress  uint32
 }
 
-func newActiveEpoch(epochConfig *msgs.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *state.EventInitialParameters, logger Logger) *activeEpoch {
+func newActiveEpoch(epochConfig *msgs.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *state.EventInitialParameters, l logger.Logger) *activeEpoch {
 	networkConfig := commitState.activeState.Config
 	startingSeqNo := commitState.highestCommit
 
-	logger.Log(LevelInfo, "starting new active epoch", "epoch_no", epochConfig.Number, "seq_no", startingSeqNo)
+	l.Log(logger.LevelInfo, "starting new active epoch", "epoch_no", epochConfig.Number, "seq_no", startingSeqNo)
 
-	outstandingReqs := newOutstandingReqs(clientTracker, commitState.activeState, logger)
+	outstandingReqs := newOutstandingReqs(clientTracker, commitState.activeState, l)
 
 	buckets := map[bucketID]nodeID{}
 
@@ -117,7 +118,7 @@ func newActiveEpoch(epochConfig *msgs.EpochConfig, persisted *persisted, nodeBuf
 		lowestUnallocated: lowestUnallocated,
 		lowestUncommitted: lowestUncommitted,
 		outstandingReqs:   outstandingReqs,
-		logger:            logger,
+		logger:            l,
 	}
 }
 
@@ -328,7 +329,7 @@ func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*ActionList, bool) {
 	actions := e.advance()
 
 	for seqNo > e.lowWatermark() {
-		e.logger.Log(LevelDebug, "moved active epoch low watermarks", "low_watermark", e.lowWatermark(), "high_watermark", e.highWatermark())
+		e.logger.Log(logger.LevelDebug, "moved active epoch low watermarks", "low_watermark", e.lowWatermark(), "high_watermark", e.highWatermark())
 
 		e.sequences = e.sequences[1:]
 	}
@@ -455,7 +456,7 @@ func (e *activeEpoch) tick() *ActionList {
 			},
 		})
 		actions.concat(e.persisted.addSuspect(suspect))
-		e.logger.Log(LevelDebug, "suspect epoch to have failed due to lack of active progress", "epoch_no", e.epochConfig.Number)
+		e.logger.Log(logger.LevelDebug, "suspect epoch to have failed due to lack of active progress", "epoch_no", e.epochConfig.Number)
 	}
 
 	if e.myConfig.HeartbeatTicks == 0 || e.ticksSinceProgress%e.myConfig.HeartbeatTicks != 0 {

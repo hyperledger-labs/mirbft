@@ -1,3 +1,9 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
 package deploytest
 
 import (
@@ -18,7 +24,7 @@ func (fa *FakeApp) Apply(entry *msgs.QEntry) error {
 	return nil
 }
 
-func (fa *FakeApp) Snap(*msgs.NetworkState_Config, []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error) {
+func (fa *FakeApp) Snapshot(*msgs.NetworkState_Config, []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error) {
 	return uint64ToBytes(fa.RequestsProcessed), nil, nil
 }
 

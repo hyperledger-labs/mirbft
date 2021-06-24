@@ -8,13 +8,14 @@ package statemachine
 
 import (
 	"container/list"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 )
 
 type clientTracker struct {
-	logger   Logger
+	logger   logger.Logger
 	myConfig *state.EventInitialParameters
 
 	networkConfig *msgs.NetworkState_Config
@@ -23,7 +24,7 @@ type clientTracker struct {
 	clientStates  []*msgs.NetworkState_Client
 }
 
-func newClientTracker(myConfig *state.EventInitialParameters, logger Logger) *clientTracker {
+func newClientTracker(myConfig *state.EventInitialParameters, logger logger.Logger) *clientTracker {
 	return &clientTracker{
 		logger:   logger,
 		myConfig: myConfig,

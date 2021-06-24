@@ -2,19 +2,23 @@
 Copyright IBM Corp. All Rights Reserved.
 
 SPDX-License-Identifier: Apache-2.0
+
+Refactored: 1
 */
 
 package mirbft
+
+import "github.com/hyperledger-labs/mirbft/pkg/logger"
 
 // The NodeConfig struct represents configuration parameters of the node
 // that are independent of the protocol the Node is executing.
 // Th
 //ese parameters include various buffer sizes, the choice of the logger, etc.
-// TODO: Move the protocol-related parameters (Heartbeat, Suspect, an NewEpoch timeouts and BatchSize)
+// TODO: Move the protocol-related parameters (Heartbeat, Suspect, NewEpoch timeouts and BatchSize)
 //       to a different data structure.
 type NodeConfig struct {
 	// Logger provides the logging functions.
-	Logger Logger
+	Logger logger.Logger
 
 	// BufferSize is the total size of messages which can be held by the state
 	// machine, pending application, for each node.  This is necessary because

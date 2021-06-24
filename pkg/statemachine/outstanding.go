@@ -8,6 +8,7 @@ package statemachine
 
 import (
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 )
@@ -26,7 +27,7 @@ func ackToKey(ack *msgs.RequestAck) ackKey {
 	}
 }
 
-func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.NetworkState, logger Logger) *allOutstandingReqs {
+func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.NetworkState, l logger.Logger) *allOutstandingReqs {
 	clientTracker.availableList.resetIterator()
 
 	ao := &allOutstandingReqs{
@@ -61,7 +62,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.Network
 			}
 			cors.skipPreviouslyCommitted()
 
-			logger.Log(LevelDebug, "initializing outstanding reqs for client", "client_id", client.Id, "bucket_id", i, "low_watermark", client.LowWatermark, "next_req_no", cors.nextReqNo)
+			l.Log(logger.LevelDebug, "initializing outstanding reqs for client", "client_id", client.Id, "bucket_id", i, "low_watermark", client.LowWatermark, "next_req_no", cors.nextReqNo)
 			bo.clients[client.Id] = cors
 		}
 	}

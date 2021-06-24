@@ -8,6 +8,7 @@ package statemachine
 
 import (
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
@@ -20,7 +21,7 @@ type epochTracker struct {
 	nodeBuffers            *nodeBuffers
 	commitState            *commitState
 	networkConfig          *msgs.NetworkState_Config
-	logger                 Logger
+	logger                 logger.Logger
 	myConfig               *state.EventInitialParameters
 	batchTracker           *batchTracker
 	clientTracker          *clientTracker
@@ -38,7 +39,7 @@ func newEpochTracker(
 	nodeBuffers *nodeBuffers,
 	commitState *commitState,
 	networkConfig *msgs.NetworkState_Config,
-	logger Logger,
+	logger logger.Logger,
 	myConfig *state.EventInitialParameters,
 	batchTracker *batchTracker,
 	clientTracker *clientTracker,
@@ -125,7 +126,7 @@ func (et *epochTracker) reinitialize() *ActionList {
 
 	switch {
 	case lastNEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastNEntry.EpochConfig.Number):
-		et.logger.Log(LevelDebug, "reinitializing during a currently active epoch")
+		et.logger.Log(logger.LevelDebug, "reinitializing during a currently active epoch")
 
 		et.currentEpoch = newEpochTarget(
 			lastNEntry.EpochConfig.Number,
@@ -163,7 +164,7 @@ func (et *epochTracker) reinitialize() *ActionList {
 			},
 		})
 	case lastFEntry != nil && (lastECEntry == nil || lastECEntry.EpochNumber <= lastFEntry.EndsEpochConfig.Number):
-		et.logger.Log(LevelDebug, "reinitializing immediately after graceful epoch end, but before epoch change sent, creating epoch change")
+		et.logger.Log(logger.LevelDebug, "reinitializing immediately after graceful epoch end, but before epoch change sent, creating epoch change")
 		// An epoch has just gracefully ended, and we have not yet tried to move to the next
 		lastECEntry = &msgs.ECEntry{
 			EpochNumber: lastFEntry.EndsEpochConfig.Number + 1,
@@ -173,7 +174,7 @@ func (et *epochTracker) reinitialize() *ActionList {
 	case lastECEntry != nil:
 		// An epoch has ended (ungracefully or otherwise), and we have sent our epoch change
 
-		et.logger.Log(LevelDebug, "reinitializing after epoch change persisted")
+		et.logger.Log(logger.LevelDebug, "reinitializing after epoch change persisted")
 
 		if et.currentEpoch != nil && et.currentEpoch.number == lastECEntry.EpochNumber {
 			// We have been reinitialized during an epoch change, no need to start fresh

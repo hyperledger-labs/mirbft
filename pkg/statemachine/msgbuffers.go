@@ -9,6 +9,7 @@ package statemachine
 import (
 	"container/list"
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
@@ -17,12 +18,12 @@ import (
 )
 
 type nodeBuffers struct {
-	logger   Logger
+	logger   logger.Logger
 	myConfig *state.EventInitialParameters
 	nodeMap  map[nodeID]*nodeBuffer
 }
 
-func newNodeBuffers(myConfig *state.EventInitialParameters, logger Logger) *nodeBuffers {
+func newNodeBuffers(myConfig *state.EventInitialParameters, logger logger.Logger) *nodeBuffers {
 	return &nodeBuffers{
 		logger:   logger,
 		myConfig: myConfig,
@@ -61,7 +62,7 @@ func (nbs *nodeBuffers) status() []*status.NodeBuffer {
 
 type nodeBuffer struct {
 	id        nodeID
-	logger    Logger
+	logger    logger.Logger
 	myConfig  *state.EventInitialParameters
 	totalSize int
 
@@ -71,7 +72,7 @@ type nodeBuffer struct {
 }
 
 func (nb *nodeBuffer) logDrop(component string, msg *msgs.Msg) {
-	nb.logger.Log(LevelWarn, "dropping buffered msg", "component", component, "type", fmt.Sprintf("%T", msg.Type))
+	nb.logger.Log(logger.LevelWarn, "dropping buffered msg", "component", component, "type", fmt.Sprintf("%T", msg.Type))
 }
 
 func (nb *nodeBuffer) msgRemoved(msg *msgs.Msg) {
