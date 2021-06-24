@@ -8,6 +8,7 @@ package statemachine
 
 import (
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 )
@@ -36,10 +37,10 @@ type persisted struct {
 	logHead   *logEntry
 	logTail   *logEntry
 
-	logger Logger
+	logger logger.Logger
 }
 
-func newPersisted(logger Logger) *persisted {
+func newPersisted(logger logger.Logger) *persisted {
 	return &persisted{
 		logger: logger,
 	}
@@ -171,7 +172,7 @@ func (p *persisted) truncate(lowWatermark uint64) *ActionList {
 			continue
 		}
 
-		p.logger.Log(LevelDebug, "truncating WAL", "seq_no", lowWatermark, "index", logEntry.index)
+		p.logger.Log(logger.LevelDebug, "truncating WAL", "seq_no", lowWatermark, "index", logEntry.index)
 
 		if p.logHead == logEntry {
 			break
@@ -190,9 +191,9 @@ var _ = (&persisted{}).logEntries
 // logWAL is not called in the course of normal operation but it can be extremely useful
 // to call from other parts of the code in debugging situations
 func (p *persisted) logEntries() {
-	p.logger.Log(LevelDebug, "printing persisted log entries")
+	p.logger.Log(logger.LevelDebug, "printing persisted log entries")
 	for logEntry := p.logHead; logEntry != nil; logEntry = logEntry.next {
-		p.logger.Log(LevelDebug, "  log entry", "type", fmt.Sprintf("%T", logEntry.entry.Type), "index", logEntry.index, "value", fmt.Sprintf("%+v", logEntry.entry))
+		p.logger.Log(logger.LevelDebug, "  log entry", "type", fmt.Sprintf("%T", logEntry.entry.Type), "index", logEntry.index, "value", fmt.Sprintf("%+v", logEntry.entry))
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"container/list"
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 	"sort"
 
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
@@ -38,10 +39,10 @@ type checkpointTracker struct {
 
 	nodeBuffers *nodeBuffers
 	myConfig    *state.EventInitialParameters
-	logger      Logger
+	logger      logger.Logger
 }
 
-func newCheckpointTracker(seqNo uint64, networkState *msgs.NetworkState, persisted *persisted, nodeBuffers *nodeBuffers, myConfig *state.EventInitialParameters, logger Logger) *checkpointTracker {
+func newCheckpointTracker(seqNo uint64, networkState *msgs.NetworkState, persisted *persisted, nodeBuffers *nodeBuffers, myConfig *state.EventInitialParameters, logger logger.Logger) *checkpointTracker {
 	ct := &checkpointTracker{
 		myConfig:    myConfig,
 		state:       cpsIdle,
@@ -259,7 +260,7 @@ type checkpoint struct {
 	seqNo         uint64
 	myConfig      *state.EventInitialParameters
 	networkConfig *msgs.NetworkState_Config
-	logger        Logger
+	logger        logger.Logger
 
 	values         map[string][]nodeID
 	committedValue []byte
@@ -297,7 +298,7 @@ func (cw *checkpoint) applyCheckpointMsg(source nodeID, value []byte) {
 		// Note, this must be >= (not ==) because my agreement could come after 2f+1 from the network.
 		if agreements >= intersectionQuorum(cw.networkConfig) {
 			if !cw.stable {
-				cw.logger.Log(LevelDebug, "checkpoint is now stable", "seq_no", cw.seqNo)
+				cw.logger.Log(logger.LevelDebug, "checkpoint is now stable", "seq_no", cw.seqNo)
 			}
 			cw.stable = true
 		}

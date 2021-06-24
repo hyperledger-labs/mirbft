@@ -8,6 +8,7 @@ package statemachine
 
 import (
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 
 	"github.com/pkg/errors"
 
@@ -97,7 +98,7 @@ const (
 // This structure should almost never be initialized directly but should instead
 // be allocated via StartNode.
 type StateMachine struct {
-	Logger Logger
+	Logger logger.Logger
 
 	state stateMachineState
 
@@ -208,12 +209,12 @@ func (sm *StateMachine) applyEvent(stateEvent *state.Event) *ActionList {
 			event.RequestPersisted.RequestAck,
 		))
 	case *state.Event_StateTransferFailed:
-		sm.Logger.Log(LevelDebug, "state transfer failed", "seq_no", event.StateTransferFailed.SeqNo)
+		sm.Logger.Log(logger.LevelDebug, "state transfer failed", "seq_no", event.StateTransferFailed.SeqNo)
 		panic("XXX handle state transfer failure")
 	case *state.Event_StateTransferComplete:
 		assertEqualf(sm.commitState.transferring, true, "state transfer event received but the state machine did not request transfer")
 
-		sm.Logger.Log(LevelDebug, "state transfer completed", "seq_no", event.StateTransferComplete.SeqNo)
+		sm.Logger.Log(logger.LevelDebug, "state transfer completed", "seq_no", event.StateTransferComplete.SeqNo)
 
 		actions.concat(sm.persisted.addCEntry(&msgs.CEntry{
 			SeqNo:           event.StateTransferComplete.SeqNo,
@@ -238,7 +239,7 @@ func (sm *StateMachine) applyEvent(stateEvent *state.Event) *ActionList {
 	// the next checkpoint.)
 	if sm.checkpointTracker.state == cpsGarbageCollectable {
 		newLow := sm.checkpointTracker.garbageCollect()
-		sm.Logger.Log(LevelDebug, "garbage collecting through", "seq_no", newLow)
+		sm.Logger.Log(logger.LevelDebug, "garbage collecting through", "seq_no", newLow)
 
 		sm.persisted.truncate(newLow)
 
@@ -274,7 +275,7 @@ func (sm *StateMachine) applyEvent(stateEvent *state.Event) *ActionList {
 // the clientTracker retains in-window ACKs for still-extant clients.  The checkpointTracker
 // retains checkpoint messages sent by other replicas, etc.
 func (sm *StateMachine) reinitialize() *ActionList {
-	defer sm.Logger.Log(LevelInfo, "state machine reinitialized (either due to start, state transfer, or reconfiguration)")
+	defer sm.Logger.Log(logger.LevelInfo, "state machine reinitialized (either due to start, state transfer, or reconfiguration)")
 
 	actions := sm.recoverLog()
 	actions.concat(sm.commitState.reinitialize())

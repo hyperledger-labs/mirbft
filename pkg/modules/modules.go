@@ -22,13 +22,14 @@ type Hasher interface {
 	New() hash.Hash
 }
 
+// The Net
 type Net interface {
 	Send(dest uint64, msg *msgs.Msg)
 }
 
 type App interface {
 	Apply(*msgs.QEntry) error
-	Snap(networkConfig *msgs.NetworkState_Config, clientsState []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error)
+	Snapshot(networkConfig *msgs.NetworkState_Config, clientsState []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error)
 	TransferTo(seqNo uint64, snap []byte) (*msgs.NetworkState, error)
 }
 
@@ -64,8 +65,15 @@ type Client interface {
 }
 
 type StateMachine interface {
+
+	// ApplyEvent applies an event to the state machine, making it advance its state
+	// and potentially output a list of actions that the application of this event results in.
 	// TODO: move the ActionList type out of the statemachine package.
 	ApplyEvent(stateEvent *state.Event) *statemachine.ActionList
+
+	// Status returns the current state of the state machine.
+	// TODO: Make the data type protocol-independent,
+	//       as we aim for the possibility to use different state machines implementing different protocols.
 	Status() (s *status.StateMachine, err error)
 }
 

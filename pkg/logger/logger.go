@@ -2,13 +2,24 @@
 Copyright IBM Corp. All Rights Reserved.
 
 SPDX-License-Identifier: Apache-2.0
+
+Refactored: 1
 */
 
-package statemachine
+package logger
 
 import (
 	"fmt"
 )
+
+// Logger is minimal logging interface designed to be easily adaptable to any
+// logging library.
+type Logger interface {
+	// Log is invoked with the log level, the log message, and key/value pairs
+	// of any relevant log details. The keys are always strings, while the
+	// values are unspecified.
+	Log(level LogLevel, text string, args ...interface{})
+}
 
 type LogLevel int
 
@@ -19,8 +30,13 @@ const (
 	LevelError
 )
 
+// Simple console logger writing log messages directly to standard output.
 type consoleLogger LogLevel
 
+// Log is invoked with the log level, the log message, and key/value pairs
+// of any relevant log details. The keys are always strings, while the
+// values are unspecified. If the level is greater of equal than this consoleLogger,
+// Log() writes the log message to standard output.
 func (l consoleLogger) Log(level LogLevel, text string, args ...interface{}) {
 	if level < LogLevel(l) {
 		return
@@ -31,8 +47,10 @@ func (l consoleLogger) Log(level LogLevel, text string, args ...interface{}) {
 		if i+1 < len(args) {
 			switch args[i+1].(type) {
 			case []byte:
+				// Print byte arrays in base 16 encoding.
 				fmt.Printf(" %s=%x", args[i], args[i+1])
 			default:
+				// Print all other types using the Go default format.
 				fmt.Printf(" %s=%v", args[i], args[i+1])
 			}
 			i++
@@ -56,12 +74,3 @@ var (
 	// ConsoleErrorLogger implements Logger and writes all LevelError log messages to stdout.
 	ConsoleErrorLogger Logger = consoleLogger(LevelError)
 )
-
-// Logger is minimal logging interface designed to be easily adaptable to any
-// logging library.
-type Logger interface {
-	// Log is invoked with the log level, the log message, and key/value pairs
-	// of any relevant log details.  The keys are always strings, while the
-	// values are unspecified.
-	Log(level LogLevel, text string, args ...interface{})
-}
