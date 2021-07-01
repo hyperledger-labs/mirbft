@@ -65,7 +65,6 @@ type configuration struct {
 
 	// Network Configuration
 	UseTLS                 bool `yaml:"useTLS"` // Use TLS for both peer-to-peer and client-to-peer communication
-	ServerConnectionBuffer int  `yaml:"serverConnectionBuffer"`
 	SignatureVerification  bool `yaml:"signatureVerification"` // request signature verification
 
 	// Requests load
@@ -136,7 +135,6 @@ func LoadFile(configFileName string) {
 	log.Debugf("ByzantineAfter: %d", Config.ByzantineAfter)
 	log.Debugf("ByzantineUntil: %d", Config.ByzantineUntil)
 	log.Debugf("UseTLS: %t", Config.UseTLS)
-	log.Debugf("ServerConfigurationBuffer: %d", Config.ServerConnectionBuffer)
 	log.Debugf("SignatureVerification: %t", Config.SignatureVerification)
 	log.Debugf("RequestSize: %d", Config.RequestSize)
 	log.Debugf("RequestsPerClient: %d", Config.RequestsPerClient)

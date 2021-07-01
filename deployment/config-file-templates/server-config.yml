@@ -34,7 +34,6 @@ requestSize: 500
 requestsPerClientCore: 0
 
 useTLS: true                          # Use TLS for both peer-to-peer and client-to-peer communication
-serverConnectionBuffer: 2
 self:
   listen: "LISTEN_ENDPOINT"
   caCertFile: "/opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/ca.pem"
