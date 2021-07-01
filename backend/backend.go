@@ -58,6 +58,8 @@ type Backend struct {
 	receivers map[string]mir.Receiver
 	batches   map[string][]*pb.Batch
 	ledger    map[string]map[string]*pb.Batch
+
+	wg sync.WaitGroup	// used to wait until all peer connections are established
 }
 
 type clientInfo struct {
@@ -191,6 +193,7 @@ func (b *Backend) connectWorker(peer *PeerInfo, conn *connection.Manager) {
 			continue
 		}
 		log.Noticef("connection to replica %d (%s) established", peer.id, peer.info)
+		b.wg.Done()
 
 		for {
 			msg, err := consensus.Recv()

@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
-
 	"os"
 
 	"github.com/IBM/mirbft/config"
@@ -127,6 +125,8 @@ func StartServer(outFilePrefix string, txNo int) {
 		return
 	}
 
+
+
 	// Create communication-related variables
 	dispatchers := make([]*mir.Dispatcher, D-2) // -2 for managerDispatcher and requestHandlingDispatcher
 	connections := make([]*connection.Manager, D)
@@ -172,6 +172,8 @@ func StartServer(outFilePrefix string, txNo int) {
 
 	tracing.MainTrace.Start(fmt.Sprintf("%s-%03d.trc", outFilePrefix, id), int32(id))
 	tracing.MainTrace.StopOnSignal(os.Interrupt, true)
+
+	system.wg.Add(N*D)
 
 	// Create message dispatchers
 	for i := 0; i < D; i++ {
@@ -270,56 +272,10 @@ func StartServer(outFilePrefix string, txNo int) {
 
 	// Wait for all the connections to be established
 	// TODO: See if we can catch the event of completion of peer-to-peer connection establishment
-	time.Sleep(time.Duration(config.Config.ServerConnectionBuffer) * time.Second)
+	system.wg.Wait()
 
 	go managerDispatcher.RunManager()
 	go requestHandlingDispatcher.RunRequestProcessor()
-
-	// Local client request generation
-	// TODO: Delete this or factor it out to some other abstraction
-	// TODO: client implementation
-	//cert, err := tls.LoadX509KeyPair(config.Config.("client.CertFile"), config.GetString("client.KeyFile"))
-	//if err != nil {
-	//	log.Errorf("could not load client key pair: %s", err)
-	//}
-	//
-	//sk := cert.PrivateKey
-	//certBytes, err := ioutil.ReadFile(config.GetString("client.CertFile"))
-	//fatal(err)
-	//block, _ := pem.Decode(certBytes)
-	//certX509, err := x509.ParseCertificate(block.Bytes)
-	//fatal(err)
-	//pk := certX509.PublicKey
-	//pkBytes, err := crypto.PublicKeyToBytes(pk)
-	//
-	//requestSize := config.GetInt("RequestSize")
-	//payload := make([]byte, requestSize, requestSize)
-	////srcBytes := make([]byte, 4)
-	//binary.LittleEndian.PutUint32(srcBytes, uint32(config.GetInt("id")))
-	//payload = append(payload, srcBytes...)
-
-	//time.Sleep(time.Duration(5) * time.Second)
-	//log.Infof("START")
-	//signed := config.GetBool("SignatureVerification")
-	//for i := 0; i < txNo; i++ {
-	//	var signature []byte
-	//	if signed {
-	//		hashed := mir.RequestHash(payload, uint64(i), pkBytes)
-	//		signature, err = crypto.Sign(hashed, sk)
-	//		if err != nil {
-	//			fatal(err)
-	//		}
-	//	}
-	//	request := &pb.Request{
-	//		Payload:   payload,
-	//		PubKey:    pkBytes,
-	//		Signature: signature,
-	//	}
-	//	request.Seq = uint64(i)
-	//	m := &pb.Msg{Type: &pb.Msg_Request{Request: request}}
-	//	requestHandlingDispatcher.Request(m, uint64(config.GetInt("id")))
-	//}
-	//log.Infof("END")
 
 	// Wait for completion
 	for i := 0; i < D; i++ {
