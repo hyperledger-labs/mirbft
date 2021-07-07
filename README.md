@@ -125,6 +125,5 @@ You can also drop an email to the active maintainer(s).
 
 ## License
 
-The MirBFT library source code is made available under the Apache License, version 2.0 (Apache-2.0).
-
-TODO: Add a license file and link to it.
+The MirBFT library source code is made available under the Apache License, version 2.0 (Apache-2.0), located in the
+[LICENSE file](LICENSE).
