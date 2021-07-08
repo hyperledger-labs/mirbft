@@ -94,8 +94,7 @@ TODO: Refer to the sample application when it is integrated in this repository.
 
 **Contributions are more than welcome!**
 
-If you want to contribute, have a look at Contributor's guide
-(TODO: create a contributor's guide link when there is a contributor's guide.)
+If you want to contribute, have a look at our [Contributor's guide](CONTRIBUTING.md)
 and at the open [issues](https://github.com/hyperledger-labs/mirbft/issues).
 If you have any questions (specific or general),
 do not hesitate to post them on [MirBFT's Rocket.Chat channel](https://chat.hyperledger.org/channel/mirbft).
