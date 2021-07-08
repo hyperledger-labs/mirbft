@@ -1,7 +1,6 @@
-<!---
-Licensed under Creative Commons Attribution 4.0 International License
-https://creativecommons.org/licenses/by/4.0/
---->
+
+[//]: # (SPDX-License-Identifier: CC-BY-4.0)
+
 ## Contributing
 
 We appreciate your contributions to MirBFT.
@@ -11,7 +10,7 @@ We adopt Fabric's developer guidelines where possible. Please visit Fabric's [co
 docs to learn more about it.
 
 Note that we follow the Hyperledger [Charter](https://www.hyperledger.org/about/charter), particularly,
-all new inbound code contributions to Fabric Private Chaincode shall be made under the Apache License, Version 2.0.
+all new inbound code contributions to MirBFT shall be made under the Apache License, Version 2.0.
 All outbound code will be made available under the Apache License, Version 2.0.
 
 ### A brief contribution guide
@@ -23,7 +22,7 @@ If you are reporting a bug, please try to provide enough information to allow so
 For instance, tell us which version of the code (i.e., which commit or release) you are using, etc. 
 If you are proposing a new feature or enhancement, please describe the problem you are trying to solve with enough details.
 Explain the solution you have in mind. Try to formulate a clear and concise description of what you want to happen. Have you considered any alternatives?
-Next, it is time to trigger a discussion on your new issue and to make this an interactive process to reach agreement on a solution. Feel free to post your issue also on #mirbft Rocket Chat and asked for feedback.
+Next, it is time to trigger a discussion on your new issue and to make this an interactive process to reach agreement on a solution. Feel free to post your issue also on #mirbft Rocket Chat and ask for feedback.
 
 #### Let's code
 
