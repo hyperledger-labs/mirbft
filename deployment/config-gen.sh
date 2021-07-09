@@ -1,11 +1,19 @@
 #!/bin/bash -e
 
 getIP() {
-	grep -w $1 cloud-instance.info | awk '{ print $2}'
+    if [ "$local" = "true" ]; then
+        echo 127.0.0.1
+    else
+	    grep -w $1 cloud-instance.info | awk '{ print $2}'
+	fi
 }
 
 getPrivIP(){
-	grep -w $1 cloud-instance.info | awk '{ print $3}'
+    if [ "$local" = "true" ]; then
+        echo 127.0.0.1
+    else
+	    grep -w $1 cloud-instance.info | awk '{ print $3}'
+	fi
 }
 
 genCert(){
@@ -20,9 +28,33 @@ genCert(){
 if [ "$1" = "--local" ] || [ "$1" = "-l" ]; then
   local=true
   shift
+
+  N=$1
+  F=$(((N-1)/3))
+  shift
+
+  C=$1
+  shift
+
+  servers=""
+  clients=""
+  for i in $(seq 1 $N); do
+    servers+="server$i "
+  done
+  for i in $(seq 1 $C); do
+      clients+="client$i "
+  done
 else
   local=false
+  shift
+
+  servers=$(grep server cloud-instance.info | awk '{ print $1}')
+  clients=$(grep client cloud-instance.info | awk '{ print $1}')
+  N=$(grep -c server cloud-instance.info)
+  F=$(((N-1)/3))
+  C=$(grep -c client cloud-instance.info)
 fi
+
 if [ "$1" = "--config-only" ] || [ "$1" = "-c" ]; then
   config_only=true
   shift
@@ -30,14 +62,6 @@ else
   config_only=false
 fi
 
-
-servers=$(grep server cloud-instance.info | awk '{ print $1}')
-clients=$(grep client cloud-instance.info | awk '{ print $1}')
-N=$(grep -c server cloud-instance.info)
-F=$(((N-1)/3))
-C=$(grep -c client cloud-instance.info)
-echo "Nodes: $N"
-echo "Clients: $C"
 
 echo "Removing old configuration"
 rm -rf temp
