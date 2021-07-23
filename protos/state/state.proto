@@ -17,16 +17,20 @@ message Event {
     // TODO, normalize naming, for instance Complete/Completed
     oneof type {
         EventInitialParameters initialize = 1;
-	EventLoadPersistedEntry load_persisted_entry = 2;
-	EventLoadCompleted complete_initialization = 3;
+        EventLoadPersistedEntry load_persisted_entry = 2;
+        EventLoadCompleted complete_initialization = 3;
         EventHashResult hash_result = 4;
         EventCheckpointResult checkpoint_result = 5;
         EventRequestPersisted request_persisted = 6;
         EventStateTransferComplete state_transfer_complete = 7;
         EventStateTransferFailed state_transfer_failed = 8;
         EventStep step = 9;
-	EventTickElapsed tick_elapsed = 10;
-	EventActionsReceived actions_received = 11;
+        EventTickElapsed tick_elapsed = 10;
+        EventActionsReceived actions_received = 11;
+
+        // Refactored. TODO: clean up the rest.
+        EventMessage message = 12;
+        msgs.Request request = 13;
     }
 }
 
@@ -175,3 +179,9 @@ message ActionStateTarget {
     bytes value = 2;
 }
 
+// Refactored. TODO: Clean up the rest.
+
+message EventMessage {
+    uint64 source = 1;
+    msgs.Msg msg = 2;
+}

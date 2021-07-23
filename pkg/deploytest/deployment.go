@@ -17,7 +17,6 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
 	"github.com/hyperledger-labs/mirbft/pkg/logger"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
-	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 	"io/ioutil"
@@ -145,17 +144,17 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 
-	// Initialize the request store.
-	reqStorePath := filepath.Join(tr.TmpDir, "reqstore")
-	err := os.MkdirAll(reqStorePath, 0700)
-	Expect(err).NotTo(HaveOccurred())
-	reqStore, err := reqstore.Open(reqStorePath)
-	Expect(err).NotTo(HaveOccurred())
-	defer reqStore.Close()
+	//// Initialize the request store.
+	//reqStorePath := filepath.Join(tr.TmpDir, "reqstore")
+	//err := os.MkdirAll(reqStorePath, 0700)
+	//Expect(err).NotTo(HaveOccurred())
+	//reqStore, err := reqstore.Open(reqStorePath)
+	//Expect(err).NotTo(HaveOccurred())
+	//defer reqStore.Close()
 
 	// Initialize the write-ahead log.
 	walPath := filepath.Join(tr.TmpDir, "wal")
-	err = os.MkdirAll(walPath, 0700)
+	err := os.MkdirAll(walPath, 0700)
 	Expect(err).NotTo(HaveOccurred())
 	wal, err := simplewal.Open(walPath)
 	Expect(err).NotTo(HaveOccurred())
@@ -178,7 +177,7 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 		&modules.Modules{
 			Net:          tr.FakeTransport.Link(tr.ID),
 			Hasher:       crypto.SHA256,
-			RequestStore: reqStore,
+			RequestStore: NewVolatileRequestStore(),
 			App:          tr.App,
 			WAL:          wal,
 			Interceptor:  interceptor,
@@ -241,8 +240,12 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 
 	// Run the node until it stops and obtain the node's final status.
 	err = node.Run(tr.DoneC, ticker.C)
+	if err != mirbft.ErrStopped {
+		Expect(err).NotTo(HaveOccurred())
+	}
 
 	finalStatus, statusErr := node.Status(context.Background())
+	Expect(statusErr).NotTo(HaveOccurred())
 
 	return finalStatus, err, statusErr
 }

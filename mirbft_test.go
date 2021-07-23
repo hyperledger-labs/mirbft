@@ -61,7 +61,9 @@ var _ = Describe("Basic test", func() {
 			wg.Done()
 		}()
 
-		// Stop the deployment after 5 seconds and wait for it to terminate.
+		// Submit one request to the system
+
+		// Stop the deployment after 2 seconds and wait for it to terminate.
 		// TODO: Make the stop condition configurable.
 		time.Sleep(2 * time.Second)
 		close(stopC)

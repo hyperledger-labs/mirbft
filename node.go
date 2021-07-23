@@ -16,7 +16,6 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
-	"github.com/pkg/errors"
 	"sync"
 	"time"
 )
@@ -32,14 +31,14 @@ type Node struct {
 	// The state machine is also a module of the node.
 	modules *modules.Modules
 
-	// A buffer for storing outstanding actions and events that need to be processed by the node.
-	// It contains a separate sub-buffer for each type of action / event.
+	// A buffer for storing outstanding events that need to be processed by the node.
+	// It contains a separate sub-buffer for each type of event.
 	workItems *WorkItems
 
 	// Channels for routing work items between modules.
-	// Whenever workItems contains actions or events, those actions/events will be written (by the process() method)
+	// Whenever workItems contains events, those events will be written (by the process() method)
 	// to the corresponding channel in workChans. When processed by the corresponding module,
-	// the result of that processing (also a list of actions / events) will also be written
+	// the result of that processing (also a list of events) will also be written
 	// to the appropriate channel in workChans, from which the process() method moves them to the workItems buffer.
 	workChans workChans
 
@@ -48,7 +47,7 @@ type Node struct {
 
 	// Clients that this node considers to be part of the system.
 	// TODO: Generalize this to be part of a general "system state", along with the App state.
-	clients modules.Clients
+	clientTracker *clients.ClientTracker
 
 	// Channel for receiving status requests.
 	// A status request is itself represented as a channel,
@@ -72,10 +71,11 @@ func NewNode(
 		workChans: newWorkChans(),
 		modules:   modules,
 
-		clients: &clients.Clients{
-			RequestStore: modules.RequestStore,
-			Hasher:       modules.Hasher,
-		},
+		clientTracker: &clients.ClientTracker{Hasher: modules.Hasher},
+		//clients: &clients.Clients{
+		//	RequestStore: modules.RequestStore,
+		//	Hasher:       modules.Hasher,
+		//},
 
 		workItems:       NewWorkItems(),
 		workErrNotifier: newWorkErrNotifier(),
@@ -121,10 +121,11 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 
 	// Pre-process the incoming message and return an error if pre-processing fails.
-	err := preProcess(msg)
-	if err != nil {
-		return errors.WithMessage(err, "pre-processing message failed")
-	}
+	// TODO: Re-enable pre-processing.
+	//err := preProcess(msg)
+	//if err != nil {
+	//	return errors.WithMessage(err, "pre-processing message failed")
+	//}
 
 	// Create a Step event
 	e := (&statemachine.EventList{}).Step(source, msg)
@@ -141,23 +142,13 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 }
 
 // SubmitRequest submits a new client request to the Node.
-// clientID and reqNo uniquely identify the request the request.
+// clientID and reqNo uniquely identify the request.
 // data constitutes the (opaque) payload of the request.
 func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64, data []byte) error {
 
-	// TODO: Create a "curried" version of this function
-	//       with the client already looked up to avoid lookup on every request.
-	c := n.clients.Client(clientID)
-
-	// Insert the new request to the client module, generating events for further processing.
-	clEvents, err := c.Propose(reqNo, data)
-	if err != nil {
-		return err
-	}
-
 	// Enqueue the generated events in a work channel to be handled by the processing thread.
 	select {
-	case n.workChans.clientEvents <- clEvents:
+	case n.workChans.clientIn <- (&statemachine.EventList{}).ClientRequest(clientID, reqNo, data):
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -181,7 +172,7 @@ func (n *Node) Run(exitC <-chan struct{}, tickC <-chan time.Time) error {
 }
 
 // Performs all internal work of the node,
-// which mostly consists of routing events and actions between the node's modules.
+// which mostly consists of routing events between the node's modules.
 // Stops and returns when exitC is closed.
 // Logical time ticks need to be written to tickC by the calling code.
 func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
@@ -190,8 +181,8 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 	defer wg.Wait()
 
 	// Start all worker functions in separate threads.
-	// Those functions mostly read actions/events from their respective channels in n.workChans,
-	// process them correspondingly, and write the results in the appropriate channels.
+	// Those functions mostly read events from their respective channels in n.workChans,
+	// process them correspondingly, and write the results (also represented as events) in the appropriate channels.
 	// Each workFunc reads a single work item, processes it and writes its results.
 	// The looping behavior is implemented in doUntilErr.
 	// TODO: Consider unifying the reading from and writing to channels
@@ -214,103 +205,107 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		}(work)
 	}
 
-	// These variables hold the respective channels into which actions are written
-	// whenever actions are requested by the node's respective modules.
+	// These variables hold the respective channels into which events consumed by the respective modules are written.
 	// Those variables are set to nil by default, making any writes to them block,
-	// preventing them to be selected in the big select statement below.
-	// When there are outstanding actions (produced by som module) to be written in a workChan,
+	// preventing them from being selected in the big select statement below.
+	// When there are outstanding events to be written in a workChan,
 	// the workChan is saved in the corresponding channel variable, making it available to the select statement.
-	// When writing to the workChan (saved in one of these variables) is selected and the actions written,
-	// The variable is set to nil again until new actions are ready.
-	// This complicated construction is necessary to prevent writing empty action lists or nil values to the workChans
-	// when no actions are pending.
-	var walActionsC, clientActionsC, hashActionsC, netActionsC, appActionsC chan<- *statemachine.ActionList
+	// When writing to the workChan (saved in one of these variables) is selected and the events written,
+	// the variable is set to nil again until new events are ready.
+	// This complicated construction is necessary to prevent writing empty event lists to the workChans
+	// when no events are pending.
+	var (
+		walEvents,
+		clientEvents,
+		hashEvents,
+		netEvents,
+		appEvents,
+		reqStoreEvents,
+		stateMachineEvents chan<- *statemachine.EventList
+	)
 
-	// Same as above for event channels.
-	var reqStoreEventsC, resultEventsC chan<- *statemachine.EventList
-
-	// This loop shovels actions and events between the appropriate channels, until a stopping condition is satisfied.
+	// This loop shovels events between the appropriate channels, until a stopping condition is satisfied.
 	for {
 
-		// Wait until any actions/events are ready and write them to the appropriate location.
+		// Wait until any events are ready and write them to the appropriate location.
 		select {
-		case resultEventsC <- n.workItems.ResultEvents():
-			n.workItems.ClearResultEvents()
-			resultEventsC = nil
-		case walActionsC <- n.workItems.WALActions():
-			n.workItems.ClearWALActions()
-			walActionsC = nil
-		case walResultsC := <-n.workChans.walResults:
-			n.workItems.AddWALResults(walResultsC)
-		case clientActionsC <- n.workItems.ClientActions():
-			n.workItems.ClearClientActions()
-			clientActionsC = nil
-		case hashActionsC <- n.workItems.HashActions():
-			n.workItems.ClearHashActions()
-			hashActionsC = nil
-		case netActionsC <- n.workItems.NetActions():
-			n.workItems.ClearNetActions()
-			netActionsC = nil
-		case appActionsC <- n.workItems.AppActions():
-			n.workItems.ClearAppActions()
-			appActionsC = nil
-		case reqStoreEventsC <- n.workItems.ReqStoreEvents():
-			n.workItems.ClearReqStoreEvents()
-			reqStoreEventsC = nil
-		case clientResults := <-n.workChans.clientEvents:
-			n.workItems.AddClientResults(clientResults)
-		case hashResults := <-n.workChans.hashResults:
-			n.workItems.AddHashResults(hashResults)
-		case netResults := <-n.workChans.netResults:
-			n.workItems.AddNetResults(netResults)
-		case appResults := <-n.workChans.appResults:
-			n.workItems.AddAppResults(appResults)
-		case reqStoreResults := <-n.workChans.reqStoreResults:
-			n.workItems.AddReqStoreResults(reqStoreResults)
-		case actions := <-n.workChans.resultResults:
-			n.workItems.AddActions(actions)
-		case stepEvents := <-n.workChans.externalEvents:
-			// TODO, once request forwarding works, we'll
+		case stateMachineEvents <- n.workItems.StateMachine():
+			n.workItems.ClearStateMachine()
+			stateMachineEvents = nil
+		case walEvents <- n.workItems.WAL():
+			n.workItems.ClearWAL()
+			walEvents = nil
+		case clientEvents <- n.workItems.Client():
+			n.workItems.ClearClient()
+			clientEvents = nil
+		case hashEvents <- n.workItems.Hash():
+			n.workItems.ClearHash()
+			hashEvents = nil
+		case netEvents <- n.workItems.Net():
+			n.workItems.ClearNet()
+			netEvents = nil
+		case appEvents <- n.workItems.App():
+			n.workItems.ClearApp()
+			appEvents = nil
+		case reqStoreEvents <- n.workItems.ReqStore():
+			n.workItems.ClearReqStore()
+			reqStoreEvents = nil
+		case clientOut := <-n.workChans.clientOut:
+			n.workItems.AddEvents(clientOut)
+		case walOut := <-n.workChans.walOut:
+			n.workItems.AddEvents(walOut)
+		case hashOut := <-n.workChans.hashOut:
+			n.workItems.AddEvents(hashOut)
+		case netOut := <-n.workChans.netOut:
+			n.workItems.AddEvents(netOut)
+		case appOut := <-n.workChans.appOut:
+			n.workItems.AddEvents(appOut)
+		case reqStoreOut := <-n.workChans.reqStoreOut:
+			n.workItems.AddEvents(reqStoreOut)
+		case stateMachineOut := <-n.workChans.stateMachineOut:
+			n.workItems.AddEvents(stateMachineOut)
+		case externalEvents := <-n.workChans.externalEvents:
+			// TODO (Jason), once request forwarding works, we'll
 			// need to split this into the req store component
 			// and 'other' that goes into the result events.
-			n.workItems.ResultEvents().PushBackList(stepEvents)
+			n.workItems.AddEvents(externalEvents)
 		case <-n.workErrNotifier.ExitC():
 			return n.workErrNotifier.Err()
 		case <-tickC:
-			n.workItems.ResultEvents().TickElapsed()
+			n.workItems.AddEvents((&statemachine.EventList{}).TickElapsed())
 		case <-exitC:
 			n.workErrNotifier.Fail(ErrStopped)
 		}
 
-		// If any actions/results have been added to the work items,
+		// If any events have been added to the work items,
 		// update the corresponding channel variables accordingly.
 
-		if resultEventsC == nil && n.workItems.ResultEvents().Len() > 0 {
-			resultEventsC = n.workChans.resultEvents
+		if stateMachineEvents == nil && n.workItems.StateMachine().Len() > 0 {
+			stateMachineEvents = n.workChans.stateMachineIn
 		}
 
-		if walActionsC == nil && n.workItems.WALActions().Len() > 0 {
-			walActionsC = n.workChans.walActions
+		if walEvents == nil && n.workItems.WAL().Len() > 0 {
+			walEvents = n.workChans.walIn
 		}
 
-		if clientActionsC == nil && n.workItems.ClientActions().Len() > 0 {
-			clientActionsC = n.workChans.clientActions
+		if clientEvents == nil && n.workItems.Client().Len() > 0 {
+			clientEvents = n.workChans.clientIn
 		}
 
-		if hashActionsC == nil && n.workItems.HashActions().Len() > 0 {
-			hashActionsC = n.workChans.hashActions
+		if hashEvents == nil && n.workItems.Hash().Len() > 0 {
+			hashEvents = n.workChans.hashIn
 		}
 
-		if netActionsC == nil && n.workItems.NetActions().Len() > 0 {
-			netActionsC = n.workChans.netActions
+		if netEvents == nil && n.workItems.Net().Len() > 0 {
+			netEvents = n.workChans.netIn
 		}
 
-		if appActionsC == nil && n.workItems.AppActions().Len() > 0 {
-			appActionsC = n.workChans.appActions
+		if appEvents == nil && n.workItems.App().Len() > 0 {
+			appEvents = n.workChans.appIn
 		}
 
-		if reqStoreEventsC == nil && n.workItems.ReqStoreEvents().Len() > 0 {
-			reqStoreEventsC = n.workChans.reqStoreEvents
+		if reqStoreEvents == nil && n.workItems.ReqStore().Len() > 0 {
+			reqStoreEvents = n.workChans.reqStoreIn
 		}
 	}
 }

@@ -27,11 +27,22 @@ func NewDummySM(logger logger.Logger) *DummySM {
 	return &DummySM{logger: logger}
 }
 
-// ApplyEvent simply creates a debug-level log entry for each incoming event and ignores it.
-func (dsm *DummySM) ApplyEvent(stateEvent *state.Event) *statemachine.ActionList {
+// ApplyEvent applies an event to the state machine, deterministically advancing its state
+// and generating a (possibly empty) list of output events.
+func (dsm *DummySM) ApplyEvent(event *state.Event) *statemachine.EventList {
 	dsm.logger.Log(logger.LevelDebug, "Ignoring event",
-		"type", fmt.Sprintf("%T", stateEvent.Type))
-	return &statemachine.ActionList{}
+		"type", fmt.Sprintf("%T", event.Type))
+
+	switch event.Type.(type) {
+	case *state.Event_Message:
+		dsm.logger.Log(logger.LevelDebug, "Message event.")
+	case *state.Event_TickElapsed:
+		dsm.logger.Log(logger.LevelDebug, "Tick elapsed.")
+	default:
+		panic(fmt.Sprintf("unknown state machine event type: %T", event.Type))
+	}
+
+	return &statemachine.EventList{}
 }
 
 // Status returns an empty state machine state.
