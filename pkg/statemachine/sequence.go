@@ -8,6 +8,7 @@ package statemachine
 
 import (
 	"bytes"
+	"github.com/hyperledger-labs/mirbft/pkg/logger"
 
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
@@ -44,7 +45,7 @@ type sequence struct {
 	epoch uint64
 
 	myConfig      *state.EventInitialParameters
-	logger        Logger
+	logger        logger.Logger
 	networkConfig *msgs.NetworkState_Config
 
 	state sequenceState
@@ -74,7 +75,7 @@ type sequence struct {
 	commits  map[string]int
 }
 
-func newSequence(owner nodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *msgs.NetworkState_Config, myConfig *state.EventInitialParameters, logger Logger) *sequence {
+func newSequence(owner nodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *msgs.NetworkState_Config, myConfig *state.EventInitialParameters, logger logger.Logger) *sequence {
 	return &sequence{
 		owner:         owner,
 		seqNo:         seqNo,

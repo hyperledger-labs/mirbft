@@ -51,6 +51,15 @@ func (el *EventList) Len() int {
 	return el.list.Len()
 }
 
+func (el *EventList) ClientRequest(clientID uint64, reqNo uint64, data []byte) *EventList {
+	el.PushBack(&state.Event{Type: &state.Event_Request{Request: &msgs.Request{
+		ClientId: clientID,
+		ReqNo:    reqNo,
+		Data:     data,
+	}}})
+	return el
+}
+
 func (el *EventList) Initialize(initialParms *state.EventInitialParameters) *EventList {
 	el.PushBack(EventInitialize(initialParms))
 	return el
