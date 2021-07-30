@@ -12,9 +12,9 @@ import (
 	"fmt"
 	"math/rand"
 
+	"github.com/hyperledger-labs/mirbft/pkg/legacy_statemachine"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 )
 
 type Event struct {
@@ -23,13 +23,13 @@ type Event struct {
 	Initialize            *EventInitialize
 	MsgReceived           *EventMsgReceived
 	ClientProposal        *EventClientProposal
-	ProcessWALActions     *statemachine.ActionList
-	ProcessNetActions     *statemachine.ActionList
-	ProcessHashActions    *statemachine.ActionList
-	ProcessClientActions  *statemachine.ActionList
-	ProcessAppActions     *statemachine.ActionList
-	ProcessReqStoreEvents *statemachine.EventList
-	ProcessResultEvents   *statemachine.EventList
+	ProcessWALActions     *legacy_statemachine.ActionList
+	ProcessNetActions     *legacy_statemachine.ActionList
+	ProcessHashActions    *legacy_statemachine.ActionList
+	ProcessClientActions  *legacy_statemachine.ActionList
+	ProcessAppActions     *legacy_statemachine.ActionList
+	ProcessReqStoreEvents *legacy_statemachine.EventList
+	ProcessResultEvents   *legacy_statemachine.EventList
 	Tick                  *EventTick
 }
 
@@ -48,9 +48,9 @@ type EventClientProposal struct {
 	Data     []byte
 }
 
-type EventProcessActions statemachine.ActionList
+type EventProcessActions legacy_statemachine.ActionList
 
-type EventProcessEvents statemachine.EventList
+type EventProcessEvents legacy_statemachine.EventList
 
 type EventTick struct{}
 
@@ -147,7 +147,7 @@ func (l *EventQueue) InsertClientProposal(target, clientID, reqNo uint64, data [
 	)
 }
 
-func (l *EventQueue) InsertProcessReqStoreEvents(target uint64, events *statemachine.EventList, fromNow int64) {
+func (l *EventQueue) InsertProcessReqStoreEvents(target uint64, events *legacy_statemachine.EventList, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target:                target,
@@ -157,7 +157,7 @@ func (l *EventQueue) InsertProcessReqStoreEvents(target uint64, events *statemac
 	)
 }
 
-func (l *EventQueue) InsertProcessResultEvents(target uint64, events *statemachine.EventList, fromNow int64) {
+func (l *EventQueue) InsertProcessResultEvents(target uint64, events *legacy_statemachine.EventList, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target:              target,
@@ -167,7 +167,7 @@ func (l *EventQueue) InsertProcessResultEvents(target uint64, events *statemachi
 	)
 }
 
-func (l *EventQueue) InsertProcessWALActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+func (l *EventQueue) InsertProcessWALActions(target uint64, actions *legacy_statemachine.ActionList, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target:            target,
@@ -177,7 +177,7 @@ func (l *EventQueue) InsertProcessWALActions(target uint64, actions *statemachin
 	)
 }
 
-func (l *EventQueue) InsertProcessNetActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+func (l *EventQueue) InsertProcessNetActions(target uint64, actions *legacy_statemachine.ActionList, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target:            target,
@@ -187,7 +187,7 @@ func (l *EventQueue) InsertProcessNetActions(target uint64, actions *statemachin
 	)
 }
 
-func (l *EventQueue) InsertProcessClientActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+func (l *EventQueue) InsertProcessClientActions(target uint64, actions *legacy_statemachine.ActionList, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target:               target,
@@ -197,7 +197,7 @@ func (l *EventQueue) InsertProcessClientActions(target uint64, actions *statemac
 	)
 }
 
-func (l *EventQueue) InsertProcessHashActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+func (l *EventQueue) InsertProcessHashActions(target uint64, actions *legacy_statemachine.ActionList, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target:             target,
@@ -207,7 +207,7 @@ func (l *EventQueue) InsertProcessHashActions(target uint64, actions *statemachi
 	)
 }
 
-func (l *EventQueue) InsertProcessAppActions(target uint64, actions *statemachine.ActionList, fromNow int64) {
+func (l *EventQueue) InsertProcessAppActions(target uint64, actions *legacy_statemachine.ActionList, fromNow int64) {
 	l.InsertEvent(
 		&Event{
 			Target:            target,

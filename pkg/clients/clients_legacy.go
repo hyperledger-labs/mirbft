@@ -9,13 +9,13 @@ package clients
 import (
 	"bytes"
 	"container/list"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"sync"
 
 	"github.com/pkg/errors"
 
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 )
 
 var ErrClientNotExist error = errors.New("client does not exist")
@@ -148,7 +148,7 @@ func (c *Client) NextReqNo() (uint64, error) {
 	return c.nextReqNo, nil
 }
 
-func (c *Client) Propose(reqNo uint64, data []byte) (*statemachine.EventList, error) {
+func (c *Client) Propose(reqNo uint64, data []byte) (*events.EventList, error) {
 	h := c.hasher.New()
 	h.Write(data)
 	digest := h.Sum(nil)
@@ -160,7 +160,7 @@ func (c *Client) Propose(reqNo uint64, data []byte) (*statemachine.EventList, er
 	}
 
 	if reqNo < c.nextReqNo {
-		return &statemachine.EventList{}, nil
+		return &events.EventList{}, nil
 	}
 
 	if reqNo == c.nextReqNo {
@@ -193,7 +193,7 @@ func (c *Client) Propose(reqNo uint64, data []byte) (*statemachine.EventList, er
 
 	if cr.localAllocationDigest != nil {
 		if bytes.Equal(cr.localAllocationDigest, digest) {
-			return &statemachine.EventList{}, nil
+			return &events.EventList{}, nil
 		}
 
 		return nil, errors.Errorf("cannot store request with digest %x, already stored request with different digest %x", digest, cr.localAllocationDigest)
@@ -238,8 +238,8 @@ func (c *Client) Propose(reqNo uint64, data []byte) (*statemachine.EventList, er
 	cr.localAllocationDigest = digest
 
 	if previouslyAllocated {
-		return (&statemachine.EventList{}).RequestPersisted(ack), nil
+		return (&events.EventList{}).RequestPersisted(ack), nil
 	}
 
-	return &statemachine.EventList{}, nil
+	return &events.EventList{}, nil
 }

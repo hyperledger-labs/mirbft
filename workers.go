@@ -10,9 +10,9 @@ package mirbft
 
 import (
 	"github.com/hyperledger-labs/mirbft/pkg/clients"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 	"github.com/pkg/errors"
 )
 
@@ -20,43 +20,43 @@ import (
 // the Node.process() method reads and writes events
 // to and from these channels to rout them between the Node's modules.
 type workChans struct {
-	clientIn        chan *statemachine.EventList
-	clientOut       chan *statemachine.EventList
-	stateMachineIn  chan *statemachine.EventList
-	stateMachineOut chan *statemachine.EventList
-	walIn           chan *statemachine.EventList
-	walOut          chan *statemachine.EventList
-	hashIn          chan *statemachine.EventList
-	hashOut         chan *statemachine.EventList
-	netIn           chan *statemachine.EventList
-	netOut          chan *statemachine.EventList
-	appIn           chan *statemachine.EventList
-	appOut          chan *statemachine.EventList
-	reqStoreIn      chan *statemachine.EventList
-	reqStoreOut     chan *statemachine.EventList
+	clientIn        chan *events.EventList
+	clientOut       chan *events.EventList
+	stateMachineIn  chan *events.EventList
+	stateMachineOut chan *events.EventList
+	walIn           chan *events.EventList
+	walOut          chan *events.EventList
+	hashIn          chan *events.EventList
+	hashOut         chan *events.EventList
+	netIn           chan *events.EventList
+	netOut          chan *events.EventList
+	appIn           chan *events.EventList
+	appOut          chan *events.EventList
+	reqStoreIn      chan *events.EventList
+	reqStoreOut     chan *events.EventList
 
-	externalEvents chan *statemachine.EventList
+	externalEvents chan *events.EventList
 }
 
 // Allocate and return a new workChans structure.
 func newWorkChans() workChans {
 	return workChans{
-		clientIn:        make(chan *statemachine.EventList),
-		clientOut:       make(chan *statemachine.EventList),
-		stateMachineIn:  make(chan *statemachine.EventList),
-		stateMachineOut: make(chan *statemachine.EventList),
-		walIn:           make(chan *statemachine.EventList),
-		walOut:          make(chan *statemachine.EventList),
-		hashIn:          make(chan *statemachine.EventList),
-		hashOut:         make(chan *statemachine.EventList),
-		netIn:           make(chan *statemachine.EventList),
-		netOut:          make(chan *statemachine.EventList),
-		appIn:           make(chan *statemachine.EventList),
-		appOut:          make(chan *statemachine.EventList),
-		reqStoreIn:      make(chan *statemachine.EventList),
-		reqStoreOut:     make(chan *statemachine.EventList),
+		clientIn:        make(chan *events.EventList),
+		clientOut:       make(chan *events.EventList),
+		stateMachineIn:  make(chan *events.EventList),
+		stateMachineOut: make(chan *events.EventList),
+		walIn:           make(chan *events.EventList),
+		walOut:          make(chan *events.EventList),
+		hashIn:          make(chan *events.EventList),
+		hashOut:         make(chan *events.EventList),
+		netIn:           make(chan *events.EventList),
+		netOut:          make(chan *events.EventList),
+		appIn:           make(chan *events.EventList),
+		appOut:          make(chan *events.EventList),
+		reqStoreIn:      make(chan *events.EventList),
+		reqStoreOut:     make(chan *events.EventList),
 
-		externalEvents: make(chan *statemachine.EventList),
+		externalEvents: make(chan *events.EventList),
 	}
 }
 
@@ -85,7 +85,7 @@ func (n *Node) doUntilErr(work workFunc) {
 // writes a list of those results to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doWALWork(exitC <-chan struct{}) error {
-	var eventsIn *statemachine.EventList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
@@ -120,7 +120,7 @@ func (n *Node) doWALWork(exitC <-chan struct{}) error {
 // writes a list of those events to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doClientWork(exitC <-chan struct{}) error {
-	var inputEvents *statemachine.EventList
+	var inputEvents *events.EventList
 
 	// Read input.
 	select {
@@ -153,7 +153,7 @@ func (n *Node) doClientWork(exitC <-chan struct{}) error {
 // processes its contents (computes the hashes) and writes a list of hash results to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doHashWork(exitC <-chan struct{}) error {
-	var eventsIn *statemachine.EventList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
@@ -183,7 +183,7 @@ func (n *Node) doHashWork(exitC <-chan struct{}) error {
 // writes a list of those events to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doNetWork(exitC <-chan struct{}) error {
-	var eventsIn *statemachine.EventList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
@@ -218,7 +218,7 @@ func (n *Node) doNetWork(exitC <-chan struct{}) error {
 // writes a list of those events to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doAppWork(exitC <-chan struct{}) error {
-	var eventsIn *statemachine.EventList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
@@ -253,7 +253,7 @@ func (n *Node) doAppWork(exitC <-chan struct{}) error {
 // writes a list of those results to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
-	var eventsIn *statemachine.EventList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
@@ -296,7 +296,7 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 		}
 	}()
 
-	var eventsIn *statemachine.EventList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
@@ -320,7 +320,7 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 	select {
 	case n.workChans.stateMachineOut <- eventsOut:
 		// Log a special event marking the reception of the generated events from the state machine by the Node.
-		if err := n.modules.Interceptor.Intercept(statemachine.EventActionsReceived()); err != nil {
+		if err := n.modules.Interceptor.Intercept(events.EventActionsReceived()); err != nil {
 			return err
 		}
 	case <-exitC:
@@ -332,8 +332,8 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 
 // TODO: Document the functions below.
 
-func processWALEvents(wal modules.WAL, eventsIn *statemachine.EventList) (*statemachine.EventList, error) {
-	EventsOut := &statemachine.EventList{}
+func processWALEvents(wal modules.WAL, eventsIn *events.EventList) (*events.EventList, error) {
+	EventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		switch event.Type.(type) {
@@ -362,9 +362,9 @@ func processWALEvents(wal modules.WAL, eventsIn *statemachine.EventList) (*state
 	return EventsOut, nil
 }
 
-func processClientEvents(c *clients.ClientTracker, eventsIn *statemachine.EventList) (*statemachine.EventList, error) {
+func processClientEvents(c *clients.ClientTracker, eventsIn *events.EventList) (*events.EventList, error) {
 
-	eventsOut := &statemachine.EventList{}
+	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		newEvents, err := safeApplyClientEvent(c, event)
@@ -377,19 +377,21 @@ func processClientEvents(c *clients.ClientTracker, eventsIn *statemachine.EventL
 	return eventsOut, nil
 }
 
-func processHashEvents(hasher modules.Hasher, eventsIn *statemachine.EventList) (*statemachine.EventList, error) {
-	eventsOut := &statemachine.EventList{}
+func processHashEvents(hasher modules.Hasher, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
-		switch event.Type.(type) {
-		//case *state.Action_Hash:
-		//	h := hasher.New()
-		//	for _, data := range t.Hash.Data {
-		//		h.Write(data)
-		//	}
-		//
-		//	events.HashResult(h.Sum(nil), t.Hash.Origin)
+		switch e := event.Type.(type) {
+		case *state.Event_HashRequest:
+			// HashRequest is the only event understood by the hasher module.
+			// Hash all the data and create a hashResult event.
+			h := hasher.New()
+			for _, data := range e.HashRequest.Data {
+				h.Write(data)
+			}
+			eventsOut.PushBack(events.HashResult(h.Sum(nil), e.HashRequest.Origin))
 		default:
+			// Complain about all other incoming event types.
 			return nil, errors.Errorf("unexpected type for Hash event: %T", event.Type)
 		}
 	}
@@ -397,8 +399,8 @@ func processHashEvents(hasher modules.Hasher, eventsIn *statemachine.EventList) 
 	return eventsOut, nil
 }
 
-func processNetEvents(selfID uint64, net modules.Net, eventsIn *statemachine.EventList) (*statemachine.EventList, error) {
-	eventsOut := &statemachine.EventList{}
+func processNetEvents(selfID uint64, net modules.Net, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
 
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
@@ -419,8 +421,8 @@ func processNetEvents(selfID uint64, net modules.Net, eventsIn *statemachine.Eve
 	return eventsOut, nil
 }
 
-func processAppEvents(app modules.App, eventsIn *statemachine.EventList) (*statemachine.EventList, error) {
-	eventsOut := &statemachine.EventList{}
+func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		switch event.Type.(type) {
@@ -451,7 +453,7 @@ func processAppEvents(app modules.App, eventsIn *statemachine.EventList) (*state
 	return eventsOut, nil
 }
 
-func processReqStoreEvents(reqStore modules.RequestStore, events *statemachine.EventList) (*statemachine.EventList, error) {
+func processReqStoreEvents(reqStore modules.RequestStore, events *events.EventList) (*events.EventList, error) {
 	// Then we sync the request store
 	if err := reqStore.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
@@ -460,8 +462,8 @@ func processReqStoreEvents(reqStore modules.RequestStore, events *statemachine.E
 	return events, nil
 }
 
-func processStateMachineEvents(sm modules.StateMachine, i modules.EventInterceptor, eventsIn *statemachine.EventList) (*statemachine.EventList, error) {
-	eventsOut := &statemachine.EventList{}
+func processStateMachineEvents(sm modules.StateMachine, i modules.EventInterceptor, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		if i != nil {
@@ -477,7 +479,7 @@ func processStateMachineEvents(sm modules.StateMachine, i modules.EventIntercept
 		eventsOut.PushBackList(newEvents)
 	}
 	if i != nil {
-		err := i.Intercept(statemachine.EventActionsReceived())
+		err := i.Intercept(events.EventActionsReceived())
 		if err != nil {
 			return nil, errors.WithMessage(err, "err intercepting close event")
 		}
@@ -486,7 +488,7 @@ func processStateMachineEvents(sm modules.StateMachine, i modules.EventIntercept
 	return eventsOut, nil
 }
 
-func safeApplySMEvent(sm modules.StateMachine, event *state.Event) (result *statemachine.EventList, err error) {
+func safeApplySMEvent(sm modules.StateMachine, event *state.Event) (result *events.EventList, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if rErr, ok := r.(error); ok {
@@ -500,7 +502,7 @@ func safeApplySMEvent(sm modules.StateMachine, event *state.Event) (result *stat
 	return sm.ApplyEvent(event), nil
 }
 
-func safeApplyClientEvent(c *clients.ClientTracker, event *state.Event) (result *statemachine.EventList, err error) {
+func safeApplyClientEvent(c *clients.ClientTracker, event *state.Event) (result *events.EventList, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if rErr, ok := r.(error); ok {

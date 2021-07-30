@@ -23,11 +23,11 @@ import (
 
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
+	"github.com/hyperledger-labs/mirbft/pkg/legacy_statemachine"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/recording"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 	"github.com/hyperledger-labs/mirbft/pkg/processor"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 )
 
 func uint64ToBytes(value uint64) []byte {
@@ -218,10 +218,10 @@ type Node struct {
 	ProcessHashActionsPending    bool
 	ProcessAppActionsPending     bool
 	ProcessClientActionsPending  bool
-	StateMachine                 *statemachine.StateMachine
+	StateMachine                 *legacy_statemachine.StateMachine
 }
 
-func (n *Node) Initialize(initParms *state.EventInitialParameters, logger statemachine.Logger) error {
+func (n *Node) Initialize(initParms *state.EventInitialParameters, logger legacy_statemachine.Logger) error {
 	n.WorkItems = processor.NewWorkItems()
 
 	n.Clients = &processor.Clients{
@@ -229,7 +229,7 @@ func (n *Node) Initialize(initParms *state.EventInitialParameters, logger statem
 		Hasher:       n.Hasher,
 	}
 
-	n.StateMachine = &statemachine.StateMachine{
+	n.StateMachine = &legacy_statemachine.StateMachine{
 		Logger: logger,
 	}
 
@@ -511,7 +511,7 @@ func (r *Recording) Step() error {
 			event.Initialize.InitParms,
 			NamedLogger{
 				Output: r.LogOutput,
-				Level:  statemachine.LevelInfo,
+				Level:  legacy_statemachine.LevelInfo,
 				Name:   fmt.Sprintf("node%d", nodeID),
 			},
 		)

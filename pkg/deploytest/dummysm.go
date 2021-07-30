@@ -10,9 +10,9 @@ package deploytest
 
 import (
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/logger"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 )
 
@@ -29,7 +29,7 @@ func NewDummySM(logger logger.Logger) *DummySM {
 
 // ApplyEvent applies an event to the state machine, deterministically advancing its state
 // and generating a (possibly empty) list of output events.
-func (dsm *DummySM) ApplyEvent(event *state.Event) *statemachine.EventList {
+func (dsm *DummySM) ApplyEvent(event *state.Event) *events.EventList {
 	dsm.logger.Log(logger.LevelDebug, "Ignoring event",
 		"type", fmt.Sprintf("%T", event.Type))
 
@@ -42,7 +42,7 @@ func (dsm *DummySM) ApplyEvent(event *state.Event) *statemachine.EventList {
 		panic(fmt.Sprintf("unknown state machine event type: %T", event.Type))
 	}
 
-	return &statemachine.EventList{}
+	return &events.EventList{}
 }
 
 // Status returns an empty state machine state.

@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package statemachine_test
+package legacy_statemachine_test
 
 import (
 	"compress/gzip"

@@ -1,9 +1,9 @@
 package modules
 
 import (
+	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 	"hash"
 )
@@ -117,7 +117,7 @@ type Client interface {
 
 	// TODO: Make sure this function is useful. If not, remove it.
 	NextReqNo() (uint64, error)
-	Propose(reqNo uint64, data []byte) (*statemachine.EventList, error)
+	Propose(reqNo uint64, data []byte) (*events.EventList, error)
 }
 
 type StateMachine interface {
@@ -125,7 +125,7 @@ type StateMachine interface {
 	// ApplyEvent applies an event to the state machine, making it advance its state
 	// and potentially output a list of actions that the application of this event results in.
 	// TODO: move the ActionList type out of the statemachine package.
-	ApplyEvent(stateEvent *state.Event) *statemachine.EventList
+	ApplyEvent(stateEvent *state.Event) *events.EventList
 
 	// Status returns the current state of the state machine.
 	// TODO: Make the data type protocol-independent,

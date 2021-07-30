@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package statemachine
+package legacy_statemachine
 
 import (
 	. "github.com/onsi/ginkgo"

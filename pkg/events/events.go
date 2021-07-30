@@ -4,7 +4,7 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package statemachine
+package events
 
 import (
 	"container/list"
@@ -27,21 +27,24 @@ func (el *EventList) Iterator() *EventListIterator {
 	}
 }
 
-func (el *EventList) PushBack(action *state.Event) {
+func (el *EventList) PushBack(action *state.Event) *EventList {
 	if el.list == nil {
 		el.list = list.New()
 	}
 
 	el.list.PushBack(action)
+	return el
 }
 
-func (el *EventList) PushBackList(actionList *EventList) {
+func (el *EventList) PushBackList(actionList *EventList) *EventList {
 	if actionList.list != nil {
 		if el.list == nil {
 			el.list = list.New()
 		}
 		el.list.PushBackList(actionList.list)
 	}
+
+	return el
 }
 
 func (el *EventList) Len() int {
@@ -102,12 +105,7 @@ func EventCompleteInitialization() *state.Event {
 	}
 }
 
-func (el *EventList) HashResult(digest []byte, origin *state.HashOrigin) *EventList {
-	el.PushBack(EventHashResult(digest, origin))
-	return el
-}
-
-func EventHashResult(digest []byte, origin *state.HashOrigin) *state.Event {
+func HashResult(digest []byte, origin *state.HashOrigin) *state.Event {
 	return &state.Event{
 		Type: &state.Event_HashResult{
 			HashResult: &state.EventHashResult{

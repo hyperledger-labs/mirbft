@@ -19,7 +19,6 @@ message Event {
         EventInitialParameters initialize = 1;
         EventLoadPersistedEntry load_persisted_entry = 2;
         EventLoadCompleted complete_initialization = 3;
-        EventHashResult hash_result = 4;
         EventCheckpointResult checkpoint_result = 5;
         EventRequestPersisted request_persisted = 6;
         EventStateTransferComplete state_transfer_complete = 7;
@@ -29,8 +28,11 @@ message Event {
         EventActionsReceived actions_received = 11;
 
         // Refactored. TODO: clean up the rest.
+        //             TODO: polish the numbers.
         EventMessage message = 12;
         msgs.Request request = 13;
+        EventHashRequest hash_request = 14;
+        EventHashResult hash_result = 15;
     }
 }
 
@@ -78,39 +80,6 @@ message EventStep {
 }
 
 message EventTickElapsed {}
-
-message HashOrigin {
-    message Batch {
-        uint64 source = 1;
-        uint64 epoch = 2;
-        uint64 seq_no = 3;
-        repeated msgs.RequestAck request_acks = 5;
-    }
-
-    message VerifyBatch { 
-        uint64 source = 1;
-        uint64 seq_no = 2;
-        repeated msgs.RequestAck request_acks = 3;
-        bytes expected_digest = 4;
-    }
-
-    message EpochChange {
-        uint64 source = 1;
-        uint64 origin = 2;
-        msgs.EpochChange epoch_change = 3;
-    }
-
-    oneof type {
-        Batch batch = 1;
-        EpochChange epoch_change = 2;
-        VerifyBatch verify_batch = 3;
-    }
-}
-
-message EventHashResult {
-    bytes digest = 1;
-    HashOrigin origin = 2;
-}
 
 message EventActionsReceived{}
 
@@ -184,4 +153,46 @@ message ActionStateTarget {
 message EventMessage {
     uint64 source = 1;
     msgs.Msg msg = 2;
+}
+
+message EventHashRequest {
+    repeated bytes data = 1;
+    HashOrigin origin = 2;
+}
+
+message EventHashResult {
+    bytes digest = 1;
+    HashOrigin origin = 2;
+}
+
+message HashOrigin {
+    oneof type {
+        msgs.Request request = 1;
+
+        // TODO: Get rid of these.
+        Batch batch = 991;
+        EpochChange epoch_change = 992;
+        VerifyBatch verify_batch = 993;
+    }
+
+    // TODO: Get rid of Batch, VerifyBatch, and EpochChange
+    message Batch {
+        uint64 source = 1;
+        uint64 epoch = 2;
+        uint64 seq_no = 3;
+        repeated msgs.RequestAck request_acks = 5;
+    }
+
+    message VerifyBatch {
+        uint64 source = 1;
+        uint64 seq_no = 2;
+        repeated msgs.RequestAck request_acks = 3;
+        bytes expected_digest = 4;
+    }
+
+    message EpochChange {
+        uint64 source = 1;
+        uint64 origin = 2;
+        msgs.EpochChange epoch_change = 3;
+    }
 }

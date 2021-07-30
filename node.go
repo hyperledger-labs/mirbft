@@ -12,9 +12,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/clients"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 	"sync"
 	"time"
@@ -71,7 +71,7 @@ func NewNode(
 		workChans: newWorkChans(),
 		modules:   modules,
 
-		clientTracker: &clients.ClientTracker{Hasher: modules.Hasher},
+		clientTracker: &clients.ClientTracker{},
 		//clients: &clients.Clients{
 		//	RequestStore: modules.RequestStore,
 		//	Hasher:       modules.Hasher,
@@ -128,7 +128,7 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 	//}
 
 	// Create a Step event
-	e := (&statemachine.EventList{}).Step(source, msg)
+	e := (&events.EventList{}).Step(source, msg)
 
 	// Enqueue event in a work channel to be handled by the processing thread.
 	select {
@@ -148,7 +148,7 @@ func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64,
 
 	// Enqueue the generated events in a work channel to be handled by the processing thread.
 	select {
-	case n.workChans.clientIn <- (&statemachine.EventList{}).ClientRequest(clientID, reqNo, data):
+	case n.workChans.clientIn <- (&events.EventList{}).ClientRequest(clientID, reqNo, data):
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -221,7 +221,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		netEvents,
 		appEvents,
 		reqStoreEvents,
-		stateMachineEvents chan<- *statemachine.EventList
+		stateMachineEvents chan<- *events.EventList
 	)
 
 	// This loop shovels events between the appropriate channels, until a stopping condition is satisfied.
@@ -272,7 +272,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		case <-n.workErrNotifier.ExitC():
 			return n.workErrNotifier.Err()
 		case <-tickC:
-			n.workItems.AddEvents((&statemachine.EventList{}).TickElapsed())
+			n.workItems.AddEvents((&events.EventList{}).TickElapsed())
 		case <-exitC:
 			n.workErrNotifier.Fail(ErrStopped)
 		}

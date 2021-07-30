@@ -10,16 +10,16 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
+	"github.com/hyperledger-labs/mirbft/pkg/legacy_statemachine"
 )
 
 type NamedLogger struct {
-	Level  statemachine.LogLevel
+	Level  legacy_statemachine.LogLevel
 	Name   string
 	Output io.Writer
 }
 
-func (nl NamedLogger) Log(level statemachine.LogLevel, msg string, args ...interface{}) {
+func (nl NamedLogger) Log(level legacy_statemachine.LogLevel, msg string, args ...interface{}) {
 	if level < nl.Level {
 		return
 	}

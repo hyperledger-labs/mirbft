@@ -1,4 +1,4 @@
-package statemachine_test
+package legacy_statemachine_test
 
 import (
 	"testing"
