@@ -5,9 +5,28 @@ The implementation for  [Mir-BFT: High-Throughput Robust BFT for Decentralized N
 **DISCLAIMER**: The deployment has been tested on machines running Ubuntu 18.04
 
 ## Local Deployment
-### Dependencies
+Create a GOPATH directory and make sure you are the owner of it:
 
-Go to the deployment directory:
+`sudo mkdir -p /opt/gopath/`
+
+`sudo chown -R $user:$group  /opt/gopath/`
+
+where `$user` and `$group` your user and group respectively.
+
+Create a directory to clone the repository into:
+
+`mkdir -p /opt/gopath/src/github.com/IBM/`
+
+Clone this repository unter the directory you created:
+
+`cd /opt/gopath/src/github.com/IBM/`.
+
+`git clone https://github.com/hyperledger-labs/mirbft.git`
+
+Checkout the`research` branch.
+
+### Dependencies
+With `/opt/gopath/src/github.com/IBM/mirbft` as working directory, go to the deployment directory:
 
 `cd deployment`
 
@@ -15,18 +34,14 @@ Configure the `user` and `group` in `vars.sh`
 
 To install Golang and requirements: 
 
-`./install-local.sh`
+`source install-local.sh`
 
-**DISCLAIMER**: The `./install-local.sh` script, among other dependencies, installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.profile`.
+**DISCLAIMER**: The `./install-local.sh` script, among other dependencies, installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.bashrc`.
 
 The default path to the repository is set to: `/opt/gopath/src/github.com/IBM/mirbft/`.
 
 
 ### Installation
-
-Clone this repository under `/opt/gopath/src/github.com/IBM/`.
-
-Checkout the`research` branch.
 
 Build the protobufs with `/opt/gopath/src/github.com/IBM/mirbft` as working directory:
 
@@ -34,13 +49,13 @@ Build the protobufs with `/opt/gopath/src/github.com/IBM/mirbft` as working dire
 
 To compile the server:
 
-`cd server`
+`cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
 `go build`
 
 To compile the client:
 
-`cd client`
+`cd /opt/gopath/src/github.com/IBM/mirbft/client`
 
 `go build`
 
@@ -54,7 +69,7 @@ To start locally a setup with 4 server and 1 client:
 
 On each server:
 
-`cd server`
+`cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
 `./server ../sampleconfig/serverconfig/config$id.yml server$id`
 where `$id` is `1 2 3 4` for each of the 4 server.
@@ -64,7 +79,7 @@ The first argument is the path to the server configuration and the second argume
 
 On the client:
 
-`cd client`
+`cd /opt/gopath/src/github.com/IBM/mirbft/client`
 
 `./client ../sampleconfig/clientconfig/4peer-config.yml client`
 
@@ -75,13 +90,13 @@ Again, the first argument is the path to the server configuration and the second
 
 On the server:
 
-`cd server`
+`cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
 `./server ../sampleconfig/serverconfig/config.yml server`
 
 On the client:
 
-`cd client`
+`cd /opt/gopath/src/github.com/IBM/mirbft/client`
 
 `./client ../sampleconfig/clientconfig/1peer-config.yml client`
 
@@ -104,18 +119,19 @@ Run `config-gen.sh` to generate certificates and configuration files:
 
 On each server:
 
-`cd server`
+`cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
 `./server ../deployment/config/serverconfig/config_server$id.yml server$id` where `$id` is `1..N`.
 
 On each client:
 
-`cd client`
+`cd /opt/gopath/src/github.com/IBM/mirbft/client`
 
 `./client ../deployment/config/clientconfig/config_client1.yml client$id` where `$id` is `1..C`.
 
 
 ## Remote Deployment
+Change working directory to `/opt/gopath/src/github.com/IBM/mirbft/deployment`
 
 First, add information for your cloud setup `cloud-instance.info` file.
  

@@ -91,35 +91,34 @@ else
 fi
 
 if [ "$config_only" = "false" ]; then
-    ./generate-ca.sh -f
+    cd temp
+    ../generate-ca.sh -f
 
     echo "Generating Certificates"
     for p in $servers; do
         pub=$(getIP $p)
         priv=$(getIP $p)
-        cat config-file-templates/openssl-template.conf | sed "s/PUB-IP/$pub/ ; s/PRIV-IP/$priv/"> openssl.conf
+        cat ../config-file-templates/openssl-template.conf | sed "s/PUB-IP/$pub/ ; s/PRIV-IP/$priv/"> openssl.conf
         genCert $p
     done
 
     rm openssl.conf
-    mv *csr temp
-    mv *key temp
-    mv *pem temp
-    mv *srl temp
+
 
     echo "Copying Certificates"
     if [ "$local" = "true" ]; then
-        cp temp/* /opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
+        cp * /opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
     else
         for p in $servers $clients; do
             pub=$(getIP $p)
-            scp $ssh_options temp/*.pem $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
+            scp $ssh_options *.pem $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
         done
         for p in $servers; do
             pub=$(getIP $p)
-            scp $ssh_options temp/$p.key $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
+            scp $ssh_options $p.key $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
         done
     fi
+    cd ..
 fi
 
 echo "Generating configuration files"

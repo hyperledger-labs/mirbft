@@ -20,6 +20,7 @@ fi
 
 echo
 echo "Generating CA key."
+touch ~/.rnd
 openssl ecparam -genkey -name prime256v1 -out "$keyfile"
 
 echo
