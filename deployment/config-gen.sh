@@ -46,7 +46,6 @@ if [ "$1" = "--local" ] || [ "$1" = "-l" ]; then
   done
 else
   local=false
-  shift
 
   servers=$(grep server cloud-instance.info | awk '{ print $1}')
   clients=$(grep client cloud-instance.info | awk '{ print $1}')
@@ -91,21 +90,19 @@ else
 fi
 
 if [ "$config_only" = "false" ]; then
-    ./generate-ca.sh -f
+    cd temp
+    ../generate-ca.sh -f
+    cd ..
 
     echo "Generating Certificates"
     for p in $servers; do
         pub=$(getIP $p)
         priv=$(getIP $p)
-        cat config-file-templates/openssl-template.conf | sed "s/PUB-IP/$pub/ ; s/PRIV-IP/$priv/"> openssl.conf
+        cd temp
+        cat ../config-file-templates/openssl-template.conf | sed "s/PUB-IP/$pub/ ; s/PRIV-IP/$priv/"> openssl.conf
         genCert $p
+        cd ..
     done
-
-    rm openssl.conf
-    mv *csr temp
-    mv *key temp
-    mv *pem temp
-    mv *srl temp
 
     echo "Copying Certificates"
     if [ "$local" = "true" ]; then

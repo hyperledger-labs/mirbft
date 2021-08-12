@@ -22,7 +22,7 @@ export PATH=$PATH:~/go/bin/:/opt/gopath/bin/
 export GOPATH=/opt/gopath
 export GOROOT=~/go
 
-cat << EOF >> ~/.profile
+cat << EOF >> ~/.bashrc
 export PATH=$PATH:~/go/bin/:/opt/gopath/bin/
 export GOPATH=/opt/gopath
 export GOROOT=~/go
