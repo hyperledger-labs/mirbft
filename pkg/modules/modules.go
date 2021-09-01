@@ -24,7 +24,7 @@ type Hasher interface {
 
 // The Net
 type Net interface {
-	Send(dest uint64, msg *msgs.Msg)
+	Send(dest uint64, msg *msgs.Message)
 }
 
 type App interface {
@@ -34,10 +34,11 @@ type App interface {
 }
 
 type WAL interface {
-	Write(index uint64, entry *msgs.Persistent) error
+	Write(index uint64, entry *state.Event) error
+	Append(entry *state.Event) error
 	Truncate(index uint64) error
 	Sync() error
-	LoadAll(forEach func(index uint64, p *msgs.Persistent)) error
+	LoadAll(forEach func(index uint64, p *state.Event)) error
 }
 
 // The RequestStore store persistently stores the payloads and authentication attributes of received requests.
@@ -54,13 +55,14 @@ type WAL interface {
 // about the request's authenticity (e.g. if the local node received the request over an authenticated channel).
 // Note that the authenticated flag cannot be cleared, as this would not be meaningful given its semantics.
 //
-// For purpose of convincing the rest of the system about a request's authenticity,
+// For the purpose of convincing the rest of the system about a request's authenticity,
 // an authenticator (e.g. a cryptographic signature) may be attached to the request.
 // The authenticator is stored and retrieved using PutAuthenticator() and GetAuthenticator(), respectively.
 // Note in particular that, in the context of a BFT TOB system, a node may accept a proposed request
 // if the request is authenticated, even though the node does not have an authenticator
 // (e.g. if the request has ben obtained directly from the client, but is not signed).
 // For proposing a request, an authenticator is necessary to make sure that other correct nodes will accept the request.
+//
 // All effects of method invocations that change the state of the RequestStore can only be guaranteed to be persisted
 // When a subsequent invocation of Sync() returns. Without a call to Sync(), the effects may or may not be persisted.
 //

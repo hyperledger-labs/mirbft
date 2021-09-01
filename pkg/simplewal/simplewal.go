@@ -10,9 +10,9 @@ SPDX-License-Identifier: Apache-2.0
 package simplewal
 
 import (
+	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 	"sync"
-
-	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 
 	"github.com/pkg/errors"
 	"github.com/tidwall/wal"
@@ -22,6 +22,7 @@ import (
 type WAL struct {
 	mutex sync.Mutex
 	log   *wal.Log
+	idx   uint64
 }
 
 func Open(path string) (*WAL, error) {
@@ -47,7 +48,7 @@ func (w *WAL) IsEmpty() (bool, error) {
 	return firstIndex == 0, nil
 }
 
-func (w *WAL) LoadAll(forEach func(index uint64, p *msgs.Persistent)) error {
+func (w *WAL) LoadAll(forEach func(index uint64, p *state.Event)) error {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 	firstIndex, err := w.log.FirstIndex()
@@ -71,7 +72,7 @@ func (w *WAL) LoadAll(forEach func(index uint64, p *msgs.Persistent)) error {
 			return errors.WithMessagef(err, "could not read index %d", i)
 		}
 
-		result := &msgs.Persistent{}
+		result := &state.Event{}
 		err = proto.Unmarshal(data, result)
 		if err != nil {
 			return errors.WithMessage(err, "error decoding to proto, is the WAL corrupt?")
@@ -83,7 +84,7 @@ func (w *WAL) LoadAll(forEach func(index uint64, p *msgs.Persistent)) error {
 	return nil
 }
 
-func (w *WAL) Write(index uint64, p *msgs.Persistent) error {
+func (w *WAL) Write(index uint64, p *state.Event) error {
 	data, err := proto.Marshal(p)
 	if err != nil {
 		return errors.WithMessage(err, "could not marshal")
@@ -91,7 +92,14 @@ func (w *WAL) Write(index uint64, p *msgs.Persistent) error {
 
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
-	return w.log.Write(index, data)
+
+	w.idx = index + 1
+	fmt.Printf("Writing index %d\n", index)
+	return w.log.Write(index+1, data) // The log implementation seems to be indexing starting with 1.
+}
+
+func (w *WAL) Append(event *state.Event) error {
+	return w.Write(w.idx, event)
 }
 
 func (w *WAL) Truncate(index uint64) error {

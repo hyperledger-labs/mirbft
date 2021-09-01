@@ -35,11 +35,20 @@ func (ct *ClientTracker) ApplyEvent(event *state.Event) *events.EventList {
 	case *state.Event_HashResult:
 		// Digest for a client request.
 		// Persist request and insert it into the state machine.
-		// TODO: Implement request number watermarks.
+		// TODO: Implement request number watermarks and authentication.
 
 		digest := e.HashResult.Digest
 		fmt.Printf("Received digest: %x\n", digest)
-		return &events.EventList{}
+
+		// Create a request reference and submit it to the protocol state machine as a request ready to be processed.
+		// TODO: postpone this until the request is stored and authenticated.
+		req := e.HashResult.Origin.Type.(*state.HashOrigin_Request).Request
+		reqRef := &msgs.RequestRef{
+			ClientId: req.ClientId,
+			ReqNo:    req.ReqNo,
+			Digest:   digest,
+		}
+		return (&events.EventList{}).PushBack(events.RequestReady(reqRef))
 
 	default:
 		panic(fmt.Sprintf("unknown event: %T", event.Type))
@@ -61,8 +70,8 @@ func hashRequest(req *msgs.Request) *state.Event {
 	binary.LittleEndian.PutUint64(reqNoBuf, req.ReqNo)
 
 	// Return hash request event.
-	return &state.Event{Type: &state.Event_HashRequest{HashRequest: &state.EventHashRequest{
-		Data:   [][]byte{clientIDBuf, reqNoBuf, req.Data},
-		Origin: &state.HashOrigin{Type: &state.HashOrigin_Request{Request: req}},
-	}}}
+	return events.HashRequest(
+		[][]byte{clientIDBuf, reqNoBuf, req.Data},
+		&state.HashOrigin{Type: &state.HashOrigin_Request{Request: req}},
+	)
 }

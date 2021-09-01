@@ -41,10 +41,13 @@ func NewWorkItems() *WorkItems {
 
 // AddEvents adds events produced by modules to the WorkItems buffer.
 // According to their types, the events are distributed to the appropriate internal sub-buffers.
-func (wi *WorkItems) AddEvents(events *events.EventList) {
+// When AddEvents returns a non-nil error, any subset of the events may have been added.
+func (wi *WorkItems) AddEvents(events *events.EventList) error {
 	iter := events.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		switch t := event.Type.(type) {
+		case *state.Event_SendMessage:
+			wi.net.PushBack(event)
 		case *state.Event_HashRequest:
 			wi.hash.PushBack(event)
 		case *state.Event_HashResult:
@@ -55,13 +58,22 @@ func (wi *WorkItems) AddEvents(events *events.EventList) {
 				// it is the client tracker that created the request and the result goes back to it.
 				wi.client.PushBack(event)
 			}
-		case *state.Event_TickElapsed:
-			wi.StateMachine().PushBack(event)
-			// TODO: Should the TickElapsed event also go elsewhere?
+		case *state.Event_Tick:
+			wi.stateMachine.PushBack(event)
+			// TODO: Should the Tick event also go elsewhere? Clients?
+		case *state.Event_RequestReady:
+			wi.stateMachine.PushBack(event)
+
+		// TODO: Remove these eventually.
+		case *state.Event_PersistDummyBatch:
+			wi.wal.PushBack(event)
+		case *state.Event_AnnounceDummyBatch:
+			wi.app.PushBack(event)
 		default:
-			panic(fmt.Sprintf("unknown event type %T", t))
+			return fmt.Errorf("cannot add event of unknown type %T", t)
 		}
 	}
+	return nil
 }
 
 // Getters.

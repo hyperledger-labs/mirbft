@@ -9,6 +9,7 @@ Refactored: 1
 package mirbft
 
 import (
+	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/clients"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
@@ -333,10 +334,21 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 // TODO: Document the functions below.
 
 func processWALEvents(wal modules.WAL, eventsIn *events.EventList) (*events.EventList, error) {
-	EventsOut := &events.EventList{}
+	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
+
 	for event := iter.Next(); event != nil; event = iter.Next() {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		// Perform the necessary action based on event type.
 		switch event.Type.(type) {
+		case *state.Event_PersistDummyBatch:
+			if err := wal.Append(event); err != nil {
+				return nil, fmt.Errorf("could not persist dummy batch: %w", err)
+			}
+
 		//case *state.Action_Send:
 		//	netActions.PushBack(action)
 		//case *state.Action_AppendWriteAhead:
@@ -359,7 +371,7 @@ func processWALEvents(wal modules.WAL, eventsIn *events.EventList) (*events.Even
 		return nil, errors.WithMessage(err, "failed to sync WAL")
 	}
 
-	return EventsOut, nil
+	return eventsOut, nil
 }
 
 func processClientEvents(c *clients.ClientTracker, eventsIn *events.EventList) (*events.EventList, error) {
@@ -367,6 +379,10 @@ func processClientEvents(c *clients.ClientTracker, eventsIn *events.EventList) (
 	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
 		newEvents, err := safeApplyClientEvent(c, event)
 		if err != nil {
 			return nil, errors.WithMessage(err, "err applying client event")
@@ -381,6 +397,10 @@ func processHashEvents(hasher modules.Hasher, eventsIn *events.EventList) (*even
 	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
 		switch e := event.Type.(type) {
 		case *state.Event_HashRequest:
 			// HashRequest is the only event understood by the hasher module.
@@ -404,7 +424,20 @@ func processNetEvents(selfID uint64, net modules.Net, eventsIn *events.EventList
 
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
-		switch event.Type.(type) {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		switch e := event.Type.(type) {
+		case *state.Event_SendMessage:
+			for _, destId := range e.SendMessage.Destinations {
+				if destId == selfID {
+					eventsOut.PushBack(events.MessageReceived(selfID, e.SendMessage.Msg))
+				} else {
+					net.Send(destId, e.SendMessage.Msg)
+				}
+			}
+
 		//case *state.Action_Send:
 		//	for _, replica := range t.Send.Targets {
 		//		if replica == selfID {
@@ -425,7 +458,14 @@ func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.Even
 	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
-		switch event.Type.(type) {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		switch e := event.Type.(type) {
+		case *state.Event_AnnounceDummyBatch:
+			fmt.Printf("Announcing Dummy Batch: %d (%d requests)\n",
+				e.AnnounceDummyBatch.Sn, len(e.AnnounceDummyBatch.Batch.Requests))
 		//case *state.Action_Commit:
 		//	if err := app.Apply(t.Commit.Batch); err != nil {
 		//		return nil, errors.WithMessage(err, "app failed to commit")
@@ -454,6 +494,9 @@ func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.Even
 }
 
 func processReqStoreEvents(reqStore modules.RequestStore, events *events.EventList) (*events.EventList, error) {
+
+	// TODO: IMOLEMENT THIS!
+
 	// Then we sync the request store
 	if err := reqStore.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
@@ -466,6 +509,10 @@ func processStateMachineEvents(sm modules.StateMachine, i modules.EventIntercept
 	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
 		if i != nil {
 			err := i.Intercept(event)
 			if err != nil {

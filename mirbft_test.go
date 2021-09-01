@@ -35,7 +35,7 @@ var _ = Describe("Basic test", func() {
 	It("Does nothing", func() {
 		// Create configuration for the test.
 		testConfig := deploytest.TestConfig{
-			NumReplicas:   1,
+			NumReplicas:   4,
 			NumClients:    0, // TODO: Implement and use this parameter.
 			ClientWMWidth: 0, // TODO: Implement and use this parameter.
 			NumRequests:   10,
@@ -69,6 +69,13 @@ var _ = Describe("Basic test", func() {
 		close(stopC)
 		wg.Wait()
 		Expect(finalStatuses).NotTo(BeNil())
+		for _, status := range finalStatuses {
+			if status.ExitErr != mirbft.ErrStopped {
+				Expect(status.StatusErr).NotTo(HaveOccurred())
+				Expect(status.ExitErr).NotTo(HaveOccurred())
+			}
+
+		}
 
 		// TODO: check whether the fake app processed all requests
 

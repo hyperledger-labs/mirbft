@@ -33,7 +33,23 @@ message Event {
         msgs.Request request = 13;
         EventHashRequest hash_request = 14;
         EventHashResult hash_result = 15;
+        EventTick tick = 16;
+        EventRequestReady request_ready = 17;
+        EventSendMessage send_message = 18;
+        EventMessageReceived message_received = 19;
+
+        // Dummy events for testing purposes only.
+        EventPersistDummyBatch persist_dummy_batch = 101;
+        EventAnnounceDummyBatch announce_dummy_batch = 102;
     }
+
+    // A list of follow-up events to process after this event has been processed.
+    // This field is used if events need to be processed in a particular order.
+    // For example, a message sending event must only be processed
+    // after the corresponding entry has been persisted in the write-ahead log (WAL).
+    // In this case, the WAL append event would be this event
+    // and the next field would contain the message sending event.
+    repeated Event next = 100;
 }
 
 message EventInitialParameters {
@@ -148,7 +164,9 @@ message ActionStateTarget {
     bytes value = 2;
 }
 
-// Refactored. TODO: Clean up the rest.
+// Refactored. TODO: Clean up the rest above.
+
+message EventTick {}
 
 message EventMessage {
     uint64 source = 1;
@@ -195,4 +213,28 @@ message HashOrigin {
         uint64 origin = 2;
         msgs.EpochChange epoch_change = 3;
     }
+}
+
+message EventRequestReady {
+    msgs.RequestRef request_ref = 1;
+}
+
+message EventPersistDummyBatch {
+    uint64 sn = 1;
+    msgs.Batch batch = 2;
+}
+
+message EventAnnounceDummyBatch {
+    uint64 sn = 1;
+    msgs.Batch batch = 2;
+}
+
+message EventSendMessage {
+    repeated uint64 destinations = 1;
+    msgs.Message msg = 2;
+}
+
+message EventMessageReceived {
+    uint64 from = 1;
+    msgs.Message msg = 2;
 }

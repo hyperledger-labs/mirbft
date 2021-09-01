@@ -118,7 +118,7 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 // The Node assumes the message to be authenticated and it is the caller's responsibility
 // to make sure that msg has indeed been sent by source,
 // for example by using an authenticated communication channel (e.g. TLS) with the source node.
-func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
+func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Message) error {
 
 	// Pre-process the incoming message and return an error if pre-processing fails.
 	// TODO: Re-enable pre-processing.
@@ -127,8 +127,8 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 	//	return errors.WithMessage(err, "pre-processing message failed")
 	//}
 
-	// Create a Step event
-	e := (&events.EventList{}).Step(source, msg)
+	// Create a MessageReceived event
+	e := (&events.EventList{}).PushBack(events.MessageReceived(source, msg))
 
 	// Enqueue event in a work channel to be handled by the processing thread.
 	select {
@@ -148,7 +148,7 @@ func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64,
 
 	// Enqueue the generated events in a work channel to be handled by the processing thread.
 	select {
-	case n.workChans.clientIn <- (&events.EventList{}).ClientRequest(clientID, reqNo, data):
+	case n.workChans.clientIn <- (&events.EventList{}).PushBack(events.ClientRequest(clientID, reqNo, data)):
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -178,7 +178,7 @@ func (n *Node) Run(exitC <-chan struct{}, tickC <-chan time.Time) error {
 func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
 	var wg sync.WaitGroup // Synchronizes all the worker functions
-	defer wg.Wait()
+	defer wg.Wait()       // Watch out! If process() terminates unexpectedly (e.g. by panicking), this might get stuck!
 
 	// Start all worker functions in separate threads.
 	// Those functions mostly read events from their respective channels in n.workChans,
@@ -251,28 +251,46 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 			n.workItems.ClearReqStore()
 			reqStoreEvents = nil
 		case clientOut := <-n.workChans.clientOut:
-			n.workItems.AddEvents(clientOut)
+			if err := n.workItems.AddEvents(clientOut); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 		case walOut := <-n.workChans.walOut:
-			n.workItems.AddEvents(walOut)
+			if err := n.workItems.AddEvents(walOut); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 		case hashOut := <-n.workChans.hashOut:
-			n.workItems.AddEvents(hashOut)
+			if err := n.workItems.AddEvents(hashOut); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 		case netOut := <-n.workChans.netOut:
-			n.workItems.AddEvents(netOut)
+			if err := n.workItems.AddEvents(netOut); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 		case appOut := <-n.workChans.appOut:
-			n.workItems.AddEvents(appOut)
+			if err := n.workItems.AddEvents(appOut); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 		case reqStoreOut := <-n.workChans.reqStoreOut:
-			n.workItems.AddEvents(reqStoreOut)
+			if err := n.workItems.AddEvents(reqStoreOut); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 		case stateMachineOut := <-n.workChans.stateMachineOut:
-			n.workItems.AddEvents(stateMachineOut)
+			if err := n.workItems.AddEvents(stateMachineOut); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 		case externalEvents := <-n.workChans.externalEvents:
 			// TODO (Jason), once request forwarding works, we'll
 			// need to split this into the req store component
 			// and 'other' that goes into the result events.
-			n.workItems.AddEvents(externalEvents)
+			if err := n.workItems.AddEvents(externalEvents); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 		case <-n.workErrNotifier.ExitC():
 			return n.workErrNotifier.Err()
 		case <-tickC:
-			n.workItems.AddEvents((&events.EventList{}).TickElapsed())
+			if err := n.workItems.AddEvents((&events.EventList{}).PushBack(events.Tick())); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 		case <-exitC:
 			n.workErrNotifier.Fail(ErrStopped)
 		}

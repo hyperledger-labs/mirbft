@@ -2,66 +2,124 @@
 Copyright IBM Corp. All Rights Reserved.
 
 SPDX-License-Identifier: Apache-2.0
+
+Refactored: 1
 */
 
 package events
 
 import (
-	"container/list"
-
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 )
 
-type EventList struct {
-	list *list.List
-}
+// TODO: Change the package of protobuf generated events from state to event.
 
-func (el *EventList) Iterator() *EventListIterator {
-	if el.list == nil {
-		return &EventListIterator{}
+// Strip removes the follow-up events from event (stored under event.Next) and sets event.Next to nil.
+// The removed events are stored in a new EventList that Strip returns a pointer to.
+func Strip(event *state.Event) *EventList {
+
+	// Create new EventList.
+	nextList := &EventList{}
+
+	// Add all follow-up events to the new EventList.
+	for _, e := range event.Next {
+		nextList.PushBack(e)
 	}
 
-	return &EventListIterator{
-		currentElement: el.list.Front(),
-	}
+	// Delete follow-up events from original event.
+	event.Next = nil
+
+	// Return new EventList.
+	return nextList
 }
 
-func (el *EventList) PushBack(action *state.Event) *EventList {
-	if el.list == nil {
-		el.list = list.New()
-	}
+// ============================================================
+// Event Constructors
+// ============================================================
 
-	el.list.PushBack(action)
-	return el
+// Tick returns an event representing a tick - the event of one step of logical time having elapsed.
+func Tick() *state.Event {
+	return &state.Event{Type: &state.Event_Tick{Tick: &state.EventTick{}}}
 }
 
-func (el *EventList) PushBackList(actionList *EventList) *EventList {
-	if actionList.list != nil {
-		if el.list == nil {
-			el.list = list.New()
-		}
-		el.list.PushBackList(actionList.list)
-	}
-
-	return el
+// SendMessage returns an event of sending the message message to destinations.
+// destinations is a slice of replica IDs that will be translated to actual addresses later.
+func SendMessage(message *msgs.Message, destinations []uint64) *state.Event {
+	return &state.Event{Type: &state.Event_SendMessage{SendMessage: &state.EventSendMessage{
+		Destinations: destinations,
+		Msg:          message,
+	}}}
 }
 
-func (el *EventList) Len() int {
-	if el.list == nil {
-		return 0
-	}
-	return el.list.Len()
+// MessageReceived returns an event representing the reception of a message from another node.
+// The from parameter is the ID of the node the message was received from.
+func MessageReceived(from uint64, message *msgs.Message) *state.Event {
+	return &state.Event{Type: &state.Event_MessageReceived{MessageReceived: &state.EventMessageReceived{
+		From: from,
+		Msg:  message,
+	}}}
 }
 
-func (el *EventList) ClientRequest(clientID uint64, reqNo uint64, data []byte) *EventList {
-	el.PushBack(&state.Event{Type: &state.Event_Request{Request: &msgs.Request{
+// ClientRequest returns an event representing the reception of a request from a client.
+func ClientRequest(clientID uint64, reqNo uint64, data []byte) *state.Event {
+	return &state.Event{Type: &state.Event_Request{Request: &msgs.Request{
 		ClientId: clientID,
 		ReqNo:    reqNo,
 		Data:     data,
-	}}})
-	return el
+	}}}
 }
+
+// HashRequest returns an event representing a request to the hashing module for computing the hash of data.
+// the origin is an object used to maintain the context for the requesting module and will be included in the
+// HashResult produced by the hashing module.
+func HashRequest(data [][]byte, origin *state.HashOrigin) *state.Event {
+	return &state.Event{Type: &state.Event_HashRequest{HashRequest: &state.EventHashRequest{
+		Data:   data,
+		Origin: origin,
+	}}}
+}
+
+// HashResult returns an event representing the computation of a hash by the hashing module.
+// It contains the computed digest and the HashOrigin, an object used to maintain the context for the requesting module,
+// i.e., information about what to do with the contained digest.
+func HashResult(digest []byte, origin *state.HashOrigin) *state.Event {
+	return &state.Event{Type: &state.Event_HashResult{HashResult: &state.EventHashResult{
+		Digest: digest,
+		Origin: origin,
+	}}}
+}
+
+// RequestReady returns an event signifying that a new request is ready to be inserted into the protocol state machine.
+// This normally occurs when the request has been received, persisted, authenticated, and an authenticator is available.
+func RequestReady(requestRef *msgs.RequestRef) *state.Event {
+	return &state.Event{Type: &state.Event_RequestReady{RequestReady: &state.EventRequestReady{
+		RequestRef: requestRef,
+	}}}
+}
+
+// ============================================================
+// DUMMY EVENTS FOR TESTING PURPOSES ONLY.
+// ============================================================
+
+func PersistDummyBatch(sn uint64, batch *msgs.Batch) *state.Event {
+	return &state.Event{Type: &state.Event_PersistDummyBatch{PersistDummyBatch: &state.EventPersistDummyBatch{
+		Sn:    sn,
+		Batch: batch,
+	}}}
+}
+
+func AnnounceDummyBatch(sn uint64, batch *msgs.Batch) *state.Event {
+	return &state.Event{Type: &state.Event_AnnounceDummyBatch{AnnounceDummyBatch: &state.EventAnnounceDummyBatch{
+		Sn:    sn,
+		Batch: batch,
+	}}}
+}
+
+// ============================================================
+// LEGACY EVENTS.
+// ============================================================
+// TODO: Clean this up.
 
 func (el *EventList) Initialize(initialParms *state.EventInitialParameters) *EventList {
 	el.PushBack(EventInitialize(initialParms))
@@ -101,17 +159,6 @@ func EventCompleteInitialization() *state.Event {
 	return &state.Event{
 		Type: &state.Event_CompleteInitialization{
 			CompleteInitialization: &state.EventLoadCompleted{},
-		},
-	}
-}
-
-func HashResult(digest []byte, origin *state.HashOrigin) *state.Event {
-	return &state.Event{
-		Type: &state.Event_HashResult{
-			HashResult: &state.EventHashResult{
-				Digest: digest,
-				Origin: origin,
-			},
 		},
 	}
 }
@@ -225,21 +272,4 @@ func EventActionsReceived() *state.Event {
 			ActionsReceived: &state.EventActionsReceived{},
 		},
 	}
-}
-
-type EventListIterator struct {
-	currentElement *list.Element
-}
-
-// Next will return the next value until the end of the list is encountered.
-// Thereafter, it will return nil.
-func (ali *EventListIterator) Next() *state.Event {
-	if ali.currentElement == nil {
-		return nil
-	}
-
-	result := ali.currentElement.Value.(*state.Event)
-	ali.currentElement = ali.currentElement.Next()
-
-	return result
 }

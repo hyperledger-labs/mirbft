@@ -22,7 +22,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -72,6 +71,12 @@ func NewDeployment(testConfig TestConfig, doneC <-chan struct{}) (*Deployment, e
 	// Create a simulated network transport to route messages between replicas.
 	transport := NewFakeTransport(testConfig.NumReplicas)
 
+	// Create a dummy static membership with replica IDs from 0 to len(replicas) - 1
+	membership := make([]uint64, testConfig.NumReplicas)
+	for i := 0; i < len(membership); i++ {
+		membership[i] = uint64(i)
+	}
+
 	// Create all TestReplicas for this deployment.
 	replicas := make([]*TestReplica, testConfig.NumReplicas)
 	for i := range replicas {
@@ -79,13 +84,14 @@ func NewDeployment(testConfig TestConfig, doneC <-chan struct{}) (*Deployment, e
 		// Configure the test replica's node.
 		config := &mirbft.NodeConfig{
 			BufferSize: TestMsgBufSize,
-			Logger:     logger.ConsoleWarnLogger,
+			Logger:     logger.ConsoleDebugLogger,
 		}
 
 		// Create instance of test replica.
 		replicas[i] = &TestReplica{
 			ID:              uint64(i),
 			Config:          config,
+			Membership:      membership,
 			TmpDir:          filepath.Join(tmpDir, fmt.Sprintf("node%d", i)),
 			App:             &FakeApp{},
 			FakeTransport:   transport,
@@ -118,6 +124,9 @@ type TestReplica struct {
 
 	// Configuration of the node corresponding to this replica.
 	Config *mirbft.NodeConfig
+
+	// List of replica IDs constituting the (static) membership.
+	Membership []uint64
 
 	// Simulated network transport subsystem.
 	FakeTransport *FakeTransport
@@ -181,7 +190,7 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 			App:          tr.App,
 			WAL:          wal,
 			Interceptor:  interceptor,
-			StateMachine: NewDummySM(tr.Config.Logger),
+			StateMachine: NewDummySM(tr.Config.Logger, tr.Membership, tr.ID),
 			//StateMachine: &statemachine.StateMachine{
 			//	Logger: mirbft.LogAdapter{Logger: tr.Config.Logger},
 			//},
@@ -191,7 +200,6 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 
 	// Initialize WaitGroup for the replica's threads.
 	var wg sync.WaitGroup
-	defer wg.Wait()
 
 	// Start thread inserting incoming messages in the replica's mirbft node.
 	wg.Add(1)
@@ -240,13 +248,11 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 
 	// Run the node until it stops and obtain the node's final status.
 	err = node.Run(tr.DoneC, ticker.C)
-	if err != mirbft.ErrStopped {
-		Expect(err).NotTo(HaveOccurred())
-	}
 
 	finalStatus, statusErr := node.Status(context.Background())
 	Expect(statusErr).NotTo(HaveOccurred())
 
+	wg.Wait()
 	return finalStatus, err, statusErr
 }
 
@@ -282,13 +288,6 @@ func (d *Deployment) Run(tickInterval time.Duration) []*NodeStatus {
 		go func(i int, testReplica *TestReplica) {
 			defer GinkgoRecover()
 			defer wg.Done()
-			defer func() {
-				fmt.Printf("Node %d: shutting down\n", i)
-				if r := recover(); r != nil {
-					fmt.Printf("  Node %d: received panic %s\n%s\n", i, r, debug.Stack())
-					panic(r)
-				}
-			}()
 
 			fmt.Printf("Node %d: running\n", i)
 			nodeStatus.Status, nodeStatus.ExitErr, nodeStatus.StatusErr = testReplica.Run(tickInterval)
