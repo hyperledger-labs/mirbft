@@ -1,4 +1,13 @@
-package testengine_test
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+// TODO: This is LEGACY CODE It is not intended to be used as-is.
+//       Use this code as an inspiration for implementing similar functionnality
+
+package legacy_testengine_test
 
 import (
 	"compress/gzip"
@@ -15,8 +24,8 @@ import (
 
 var _ = Describe("Recorder", func() {
 	var (
-		recorder      *testengine.Recorder
-		recording     *testengine.Recording
+		recorder      *legacy_testengine.Recorder
+		recording     *legacy_testengine.Recording
 		recordingFile *os.File
 		gzWriter      *gzip.Writer
 	)
@@ -69,7 +78,7 @@ var _ = Describe("Recorder", func() {
 
 	When("There is a four node network", func() {
 		BeforeEach(func() {
-			recorder = (&testengine.Spec{
+			recorder = (&legacy_testengine.Spec{
 				NodeCount:     4,
 				ClientCount:   4,
 				ReqsPerClient: 200,
@@ -102,7 +111,7 @@ var _ = Describe("Recorder", func() {
 
 	When("A single-node network is selected", func() {
 		BeforeEach(func() {
-			recorder = (&testengine.Spec{
+			recorder = (&legacy_testengine.Spec{
 				NodeCount:     1,
 				ClientCount:   1,
 				ReqsPerClient: 3,

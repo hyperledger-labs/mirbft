@@ -13,7 +13,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/clients"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/pkg/errors"
 )
 
@@ -21,43 +21,34 @@ import (
 // the Node.process() method reads and writes events
 // to and from these channels to rout them between the Node's modules.
 type workChans struct {
-	clientIn        chan *events.EventList
-	clientOut       chan *events.EventList
-	stateMachineIn  chan *events.EventList
-	stateMachineOut chan *events.EventList
-	walIn           chan *events.EventList
-	walOut          chan *events.EventList
-	hashIn          chan *events.EventList
-	hashOut         chan *events.EventList
-	netIn           chan *events.EventList
-	netOut          chan *events.EventList
-	appIn           chan *events.EventList
-	appOut          chan *events.EventList
-	reqStoreIn      chan *events.EventList
-	reqStoreOut     chan *events.EventList
 
-	externalEvents chan *events.EventList
+	// There is one channel per module to feed events into the module.
+	clients  chan *events.EventList
+	protocol chan *events.EventList
+	wal      chan *events.EventList
+	hash     chan *events.EventList
+	net      chan *events.EventList
+	app      chan *events.EventList
+	reqStore chan *events.EventList
+
+	// All modules write their output events in a common channel, from where the node processor reads and redistributes
+	// the events to their respective workItems buffers.
+	// External events are also funneled through this channel towards the workItems buffers.
+	workItemInput chan *events.EventList
 }
 
 // Allocate and return a new workChans structure.
 func newWorkChans() workChans {
 	return workChans{
-		clientIn:        make(chan *events.EventList),
-		clientOut:       make(chan *events.EventList),
-		stateMachineIn:  make(chan *events.EventList),
-		stateMachineOut: make(chan *events.EventList),
-		walIn:           make(chan *events.EventList),
-		walOut:          make(chan *events.EventList),
-		hashIn:          make(chan *events.EventList),
-		hashOut:         make(chan *events.EventList),
-		netIn:           make(chan *events.EventList),
-		netOut:          make(chan *events.EventList),
-		appIn:           make(chan *events.EventList),
-		appOut:          make(chan *events.EventList),
-		reqStoreIn:      make(chan *events.EventList),
-		reqStoreOut:     make(chan *events.EventList),
+		clients:  make(chan *events.EventList),
+		protocol: make(chan *events.EventList),
+		wal:      make(chan *events.EventList),
+		hash:     make(chan *events.EventList),
+		net:      make(chan *events.EventList),
+		app:      make(chan *events.EventList),
+		reqStore: make(chan *events.EventList),
 
-		externalEvents: make(chan *events.EventList),
+		workItemInput: make(chan *events.EventList),
 	}
 }
 
@@ -90,7 +81,7 @@ func (n *Node) doWALWork(exitC <-chan struct{}) error {
 
 	// Read input.
 	select {
-	case eventsIn = <-n.workChans.walIn:
+	case eventsIn = <-n.workChans.wal:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -108,7 +99,7 @@ func (n *Node) doWALWork(exitC <-chan struct{}) error {
 
 	// Write output.
 	select {
-	case n.workChans.walOut <- eventsOut:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -125,7 +116,7 @@ func (n *Node) doClientWork(exitC <-chan struct{}) error {
 
 	// Read input.
 	select {
-	case inputEvents = <-n.workChans.clientIn:
+	case inputEvents = <-n.workChans.clients:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -143,7 +134,7 @@ func (n *Node) doClientWork(exitC <-chan struct{}) error {
 
 	// Write output.
 	select {
-	case n.workChans.clientOut <- outputEvents:
+	case n.workChans.workItemInput <- outputEvents:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -158,7 +149,7 @@ func (n *Node) doHashWork(exitC <-chan struct{}) error {
 
 	// Read input.
 	select {
-	case eventsIn = <-n.workChans.hashIn:
+	case eventsIn = <-n.workChans.hash:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -171,7 +162,7 @@ func (n *Node) doHashWork(exitC <-chan struct{}) error {
 
 	// Write output.
 	select {
-	case n.workChans.hashOut <- eventsOut:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -188,7 +179,7 @@ func (n *Node) doNetWork(exitC <-chan struct{}) error {
 
 	// Read input.
 	select {
-	case eventsIn = <-n.workChans.netIn:
+	case eventsIn = <-n.workChans.net:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -206,7 +197,7 @@ func (n *Node) doNetWork(exitC <-chan struct{}) error {
 
 	// Write output.
 	select {
-	case n.workChans.netOut <- eventsOut:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -223,7 +214,7 @@ func (n *Node) doAppWork(exitC <-chan struct{}) error {
 
 	// Read input.
 	select {
-	case eventsIn = <-n.workChans.appIn:
+	case eventsIn = <-n.workChans.app:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -241,7 +232,7 @@ func (n *Node) doAppWork(exitC <-chan struct{}) error {
 
 	// Write output.
 	select {
-	case n.workChans.appOut <- eventsOut:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -258,7 +249,7 @@ func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
 
 	// Read input.
 	select {
-	case eventsIn = <-n.workChans.reqStoreIn:
+	case eventsIn = <-n.workChans.reqStore:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -276,7 +267,7 @@ func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
 
 	// Write output.
 	select {
-	case n.workChans.reqStoreOut <- eventsOut:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -284,15 +275,15 @@ func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
 	return nil
 }
 
-// Reads a single list of state machine events from the corresponding work channel and processes its contents.
-// If any new events are generated by the state machine,
+// Reads a single list of protocol events from the corresponding work channel and processes its contents.
+// If any new events are generated by the protocol state machine,
 // writes a list of those events to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
-// On returning, sets the exit status of the state machine in the work error notifier.
-func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
+// On returning, sets the exit status of the protocol state machine in the work error notifier.
+func (n *Node) doProtocolWork(exitC <-chan struct{}) (err error) {
 	defer func() {
 		if err != nil {
-			s, err := n.modules.StateMachine.Status()
+			s, err := n.modules.Protocol.Status()
 			n.workErrNotifier.SetExitStatus(s, err)
 		}
 	}()
@@ -301,13 +292,13 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 
 	// Read input.
 	select {
-	case eventsIn = <-n.workChans.stateMachineIn:
+	case eventsIn = <-n.workChans.protocol:
 	case <-exitC:
 		return ErrStopped
 	}
 
 	// Process events.
-	eventsOut, err := processStateMachineEvents(n.modules.StateMachine, n.modules.Interceptor, eventsIn)
+	eventsOut, err := processProtocolEvents(n.modules.Protocol, eventsIn)
 	if err != nil {
 		return err
 	}
@@ -319,11 +310,7 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 
 	// Write output.
 	select {
-	case n.workChans.stateMachineOut <- eventsOut:
-		// Log a special event marking the reception of the generated events from the state machine by the Node.
-		if err := n.modules.Interceptor.Intercept(events.EventActionsReceived()); err != nil {
-			return err
-		}
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -344,7 +331,7 @@ func processWALEvents(wal modules.WAL, eventsIn *events.EventList) (*events.Even
 
 		// Perform the necessary action based on event type.
 		switch event.Type.(type) {
-		case *state.Event_PersistDummyBatch:
+		case *eventpb.Event_PersistDummyBatch:
 			if err := wal.Append(event); err != nil {
 				return nil, fmt.Errorf("could not persist dummy batch: %w", err)
 			}
@@ -402,7 +389,7 @@ func processHashEvents(hasher modules.Hasher, eventsIn *events.EventList) (*even
 		eventsOut.PushBackList(events.Strip(event))
 
 		switch e := event.Type.(type) {
-		case *state.Event_HashRequest:
+		case *eventpb.Event_HashRequest:
 			// HashRequest is the only event understood by the hasher module.
 			// Hash all the data and create a hashResult event.
 			h := hasher.New()
@@ -429,7 +416,7 @@ func processNetEvents(selfID uint64, net modules.Net, eventsIn *events.EventList
 		eventsOut.PushBackList(events.Strip(event))
 
 		switch e := event.Type.(type) {
-		case *state.Event_SendMessage:
+		case *eventpb.Event_SendMessage:
 			for _, destId := range e.SendMessage.Destinations {
 				if destId == selfID {
 					eventsOut.PushBack(events.MessageReceived(selfID, e.SendMessage.Msg))
@@ -463,9 +450,10 @@ func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.Even
 		eventsOut.PushBackList(events.Strip(event))
 
 		switch e := event.Type.(type) {
-		case *state.Event_AnnounceDummyBatch:
-			fmt.Printf("Announcing Dummy Batch: %d (%d requests)\n",
-				e.AnnounceDummyBatch.Sn, len(e.AnnounceDummyBatch.Batch.Requests))
+		case *eventpb.Event_AnnounceDummyBatch:
+			if err := app.Apply(e.AnnounceDummyBatch.Batch); err != nil {
+				return nil, fmt.Errorf("app error: %w", err)
+			}
 		//case *state.Action_Commit:
 		//	if err := app.Apply(t.Commit.Batch); err != nil {
 		//		return nil, errors.WithMessage(err, "app failed to commit")
@@ -495,7 +483,7 @@ func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.Even
 
 func processReqStoreEvents(reqStore modules.RequestStore, events *events.EventList) (*events.EventList, error) {
 
-	// TODO: IMOLEMENT THIS!
+	// TODO: IMPLEMENT THIS!
 
 	// Then we sync the request store
 	if err := reqStore.Sync(); err != nil {
@@ -505,7 +493,7 @@ func processReqStoreEvents(reqStore modules.RequestStore, events *events.EventLi
 	return events, nil
 }
 
-func processStateMachineEvents(sm modules.StateMachine, i modules.EventInterceptor, eventsIn *events.EventList) (*events.EventList, error) {
+func processProtocolEvents(sm modules.Protocol, eventsIn *events.EventList) (*events.EventList, error) {
 	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
@@ -513,35 +501,23 @@ func processStateMachineEvents(sm modules.StateMachine, i modules.EventIntercept
 		// Remove the follow-up events from event and add them directly to the output.
 		eventsOut.PushBackList(events.Strip(event))
 
-		if i != nil {
-			err := i.Intercept(event)
-			if err != nil {
-				return nil, errors.WithMessage(err, "err intercepting event")
-			}
-		}
 		newEvents, err := safeApplySMEvent(sm, event)
 		if err != nil {
-			return nil, errors.WithMessage(err, "err applying state machine event")
+			return nil, errors.WithMessage(err, "error applying protocol event")
 		}
 		eventsOut.PushBackList(newEvents)
-	}
-	if i != nil {
-		err := i.Intercept(events.EventActionsReceived())
-		if err != nil {
-			return nil, errors.WithMessage(err, "err intercepting close event")
-		}
 	}
 
 	return eventsOut, nil
 }
 
-func safeApplySMEvent(sm modules.StateMachine, event *state.Event) (result *events.EventList, err error) {
+func safeApplySMEvent(sm modules.Protocol, event *eventpb.Event) (result *events.EventList, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if rErr, ok := r.(error); ok {
-				err = errors.WithMessage(rErr, "panic in state machine")
+				err = errors.WithMessage(rErr, "panic in protocol state machine")
 			} else {
-				err = errors.Errorf("panic in state machine: %v", r)
+				err = errors.Errorf("panic in protocol state machine: %v", r)
 			}
 		}
 	}()
@@ -549,7 +525,7 @@ func safeApplySMEvent(sm modules.StateMachine, event *state.Event) (result *even
 	return sm.ApplyEvent(event), nil
 }
 
-func safeApplyClientEvent(c *clients.ClientTracker, event *state.Event) (result *events.EventList, err error) {
+func safeApplyClientEvent(c *clients.ClientTracker, event *eventpb.Event) (result *events.EventList, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if rErr, ok := r.(error); ok {

@@ -1,8 +1,14 @@
-package deploytest
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+package reqstore
 
 import (
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 )
 
 // VolatileRequestStore is an in-memory implementation of modules.RequestStore.
@@ -28,7 +34,7 @@ type requestInfo struct {
 }
 
 // Returns the string representation of a request reference.
-func reqKey(ref *msgs.RequestRef) string {
+func requestKey(ref *messagepb.RequestRef) string {
 	return fmt.Sprintf("r-%d.%d.%x", ref.ClientId, ref.ReqNo, ref.Digest)
 }
 
@@ -38,7 +44,7 @@ func idKey(clientId, reqNo uint64) string {
 }
 
 // Adds a digest to the request ID index.
-func (vrs *VolatileRequestStore) updateIdIndex(reqRef *msgs.RequestRef) {
+func (vrs *VolatileRequestStore) updateIdIndex(reqRef *messagepb.RequestRef) {
 	// Compute string key.
 	key := idKey(reqRef.ClientId, reqRef.ReqNo)
 
@@ -57,10 +63,10 @@ func (vrs *VolatileRequestStore) updateIdIndex(reqRef *msgs.RequestRef) {
 
 // Looks up a stored entry and returns a pointer to it.
 // Allocates a new one if none is present.
-func (vrs *VolatileRequestStore) reqInfo(reqRef *msgs.RequestRef) *requestInfo {
+func (vrs *VolatileRequestStore) reqInfo(reqRef *messagepb.RequestRef) *requestInfo {
 
 	// Look up the entry holding the information about this request
-	key := reqKey(reqRef)
+	key := requestKey(reqRef)
 	reqInfo, ok := vrs.requests[key]
 	if !ok {
 		// If none is present, allocate a new one
@@ -86,7 +92,7 @@ func NewVolatileRequestStore() *VolatileRequestStore {
 }
 
 // PutRequest stores request the passed request data associated with the request reference.
-func (vrs *VolatileRequestStore) PutRequest(reqRef *msgs.RequestRef, data []byte) error {
+func (vrs *VolatileRequestStore) PutRequest(reqRef *messagepb.RequestRef, data []byte) error {
 
 	// Look up entry for this request, creating a new one if necessary.
 	reqInfo := vrs.reqInfo(reqRef)
@@ -101,9 +107,9 @@ func (vrs *VolatileRequestStore) PutRequest(reqRef *msgs.RequestRef, data []byte
 
 // GetRequest returns the stored request data associated with the passed request reference.
 // If no data is stored under the given reference, the returned error will be non-nil.
-func (vrs *VolatileRequestStore) GetRequest(reqRef *msgs.RequestRef) ([]byte, error) {
+func (vrs *VolatileRequestStore) GetRequest(reqRef *messagepb.RequestRef) ([]byte, error) {
 
-	if reqInfo, ok := vrs.requests[reqKey(reqRef)]; !ok {
+	if reqInfo, ok := vrs.requests[requestKey(reqRef)]; !ok {
 		// If an entry for the referenced request is present.
 
 		if reqInfo.data != nil {
@@ -130,7 +136,7 @@ func (vrs *VolatileRequestStore) GetRequest(reqRef *msgs.RequestRef) ([]byte, er
 // the request has indeed been sent by the client. This does not necessarily mean, however,
 // that the local node can convince other nodes about the request's authenticity
 // (e.g. if the local node received the request over an authenticated channel but the request is not signed).
-func (vrs *VolatileRequestStore) SetAuthenticated(reqRef *msgs.RequestRef) error {
+func (vrs *VolatileRequestStore) SetAuthenticated(reqRef *messagepb.RequestRef) error {
 
 	// Look up entry for this request, creating a new one if necessary.
 	reqInfo := vrs.reqInfo(reqRef)
@@ -142,9 +148,9 @@ func (vrs *VolatileRequestStore) SetAuthenticated(reqRef *msgs.RequestRef) error
 }
 
 // IsAuthenticated returns true if the request is authenticated, false otherwise.
-func (vrs *VolatileRequestStore) IsAuthenticated(reqRef *msgs.RequestRef) (bool, error) {
+func (vrs *VolatileRequestStore) IsAuthenticated(reqRef *messagepb.RequestRef) (bool, error) {
 
-	if reqInfo, ok := vrs.requests[reqKey(reqRef)]; !ok {
+	if reqInfo, ok := vrs.requests[requestKey(reqRef)]; !ok {
 		// If an entry for the referenced request is present, return the authenticated flag.
 		return reqInfo.authenticated, nil
 	} else {
@@ -156,7 +162,7 @@ func (vrs *VolatileRequestStore) IsAuthenticated(reqRef *msgs.RequestRef) (bool,
 
 // PutAuthenticator stores an authenticator associated with the referenced request.
 // If an authenticator is already stored under the same reference, it will be overwritten.
-func (vrs *VolatileRequestStore) PutAuthenticator(reqRef *msgs.RequestRef, auth []byte) error {
+func (vrs *VolatileRequestStore) PutAuthenticator(reqRef *messagepb.RequestRef, auth []byte) error {
 
 	// Look up entry for this request, creating a new one if necessary.
 	reqInfo := vrs.reqInfo(reqRef)
@@ -172,9 +178,9 @@ func (vrs *VolatileRequestStore) PutAuthenticator(reqRef *msgs.RequestRef, auth 
 
 // GetAuthenticator returns the stored authenticator associated with the passed request reference.
 // If no authenticator is stored under the given reference, the returned error will be non-nil.
-func (vrs *VolatileRequestStore) GetAuthenticator(reqRef *msgs.RequestRef) ([]byte, error) {
+func (vrs *VolatileRequestStore) GetAuthenticator(reqRef *messagepb.RequestRef) ([]byte, error) {
 
-	if reqInfo, ok := vrs.requests[reqKey(reqRef)]; !ok {
+	if reqInfo, ok := vrs.requests[requestKey(reqRef)]; !ok {
 		// If an entry for the referenced request is present.
 
 		if reqInfo.authenticator != nil {
@@ -221,14 +227,4 @@ func (vrs *VolatileRequestStore) GetDigestsByID(clientId, reqNo uint64) ([][]byt
 // Sync does nothing in this volatile (in-memory) RequestStore implementation.
 func (vrs *VolatileRequestStore) Sync() error {
 	return nil
-}
-
-// DEBUG
-
-func (s *VolatileRequestStore) PutAllocation(clientID, reqNo uint64, digest []byte) error {
-	return nil
-}
-
-func (s *VolatileRequestStore) GetAllocation(clientID, reqNo uint64) ([]byte, error) {
-	return make([]byte, 0), nil
 }

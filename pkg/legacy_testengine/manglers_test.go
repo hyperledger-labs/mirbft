@@ -1,4 +1,13 @@
-package testengine
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+// TODO: This is LEGACY CODE It is not intended to be used as-is.
+//       Use this code as an inspiration for implementing similar functionnality
+
+package legacy_testengine
 
 import (
 	. "github.com/onsi/ginkgo"

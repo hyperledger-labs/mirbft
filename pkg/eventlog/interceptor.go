@@ -4,6 +4,9 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
+// TODO: Properly comment all the code in this file.
+//       Also revise the existing comments and make sure they are consistent and understandable.
+
 package eventlog
 
 import (
@@ -12,22 +15,21 @@ import (
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/recordingpb"
 	"io"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
-
-	"github.com/hyperledger-labs/mirbft/pkg/pb/recording"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 )
 
 type RecorderOpt interface{}
 
 type timeSourceOpt func() int64
 
-// TimeSource can be used to override the default time source
+// TimeSourceOpt can be used to override the default time source
 // for an interceptor.  This can be useful for changing the
 // granularity of the timestamps, or picking some externally
 // supplied sync point when trying to synchronize logs.
@@ -127,19 +129,19 @@ func NewRecorder(nodeID uint64, dest io.Writer, opts ...RecorderOpt) *Recorder {
 }
 
 type eventTime struct {
-	event *state.Event
-	time  int64
+	events *events.EventList
+	time   int64
 }
 
 // Intercept takes an event and enqueues it into the event buffer.
 // If there is no room in the buffer, it blocks.  If draining the buffer
 // to the output stream has completed (successfully or otherwise), Intercept
 // returns an error.
-func (i *Recorder) Intercept(event *state.Event) error {
+func (i *Recorder) Intercept(events *events.EventList) error {
 	select {
 	case i.eventC <- eventTime{
-		event: event,
-		time:  i.timeSource(),
+		events: events,
+		time:   i.timeSource(),
 	}:
 		return nil
 	case <-i.exitC:
@@ -180,10 +182,10 @@ func (i *Recorder) run(dest io.Writer) (exitErr error) {
 	defer gzWriter.Close()
 
 	write := func(eventTime eventTime) error {
-		return WriteRecordedEvent(gzWriter, &recording.Event{
-			NodeId:     i.nodeID,
-			Time:       eventTime.time,
-			StateEvent: eventTime.event,
+		return WriteRecordedEvent(gzWriter, &recordingpb.Entry{
+			NodeId: i.nodeID,
+			Time:   eventTime.time,
+			Events: eventTime.events.Slice(),
 		})
 	}
 
@@ -209,8 +211,8 @@ func (i *Recorder) run(dest io.Writer) (exitErr error) {
 	}
 }
 
-func WriteRecordedEvent(writer io.Writer, event *recording.Event) error {
-	return writeSizePrefixedProto(writer, event)
+func WriteRecordedEvent(writer io.Writer, entry *recordingpb.Entry) error {
+	return writeSizePrefixedProto(writer, entry)
 }
 
 func writeSizePrefixedProto(dest io.Writer, msg proto.Message) error {
@@ -251,8 +253,8 @@ func NewReader(source io.Reader) (*Reader, error) {
 	}, nil
 }
 
-func (r *Reader) ReadEvent() (*recording.Event, error) {
-	re := &recording.Event{}
+func (r *Reader) ReadEntry() (*recordingpb.Entry, error) {
+	re := &recordingpb.Entry{}
 	err := readSizePrefixedProto(r.source, re, r.buffer)
 	if err == io.EOF {
 		r.gzReader.Close()

@@ -4,6 +4,9 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
+// TODO: This is the original old code with very few modifications.
+//       Go through all of it, comment what is to be kept and delete what is not needed.
+
 // Package reqstore is an implementation of the RequestStore utilized by the samples.
 // Depending on your application, it may or may not be appropriate.  In particular, if your
 // application wants to retain the requests rather than simply apply and discard them, you may
@@ -12,12 +15,12 @@ package reqstore
 
 import (
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	badger "github.com/dgraph-io/badger/v2"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"github.com/pkg/errors"
 )
 
-func reqKey(ack *msgs.RequestAck) []byte {
+func reqKey(ack *messagepb.RequestRef) []byte {
 	return []byte(fmt.Sprintf("req-%d.%d.%x", ack.ClientId, ack.ReqNo, ack.Digest))
 }
 
@@ -72,16 +75,16 @@ func (s *Store) GetAllocation(clientID, reqNo uint64) ([]byte, error) {
 	return valCopy, err
 }
 
-func (s *Store) PutRequest(requestAck *msgs.RequestAck, data []byte) error {
+func (s *Store) PutRequest(requestRef *messagepb.RequestRef, data []byte) error {
 	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Set(reqKey(requestAck), data)
+		return txn.Set(reqKey(requestRef), data)
 	})
 }
 
-func (s *Store) GetRequest(requestAck *msgs.RequestAck) ([]byte, error) {
+func (s *Store) GetRequest(requestRef *messagepb.RequestRef) ([]byte, error) {
 	var valCopy []byte
 	err := s.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(reqKey(requestAck))
+		item, err := txn.Get(reqKey(requestRef))
 		if err != nil {
 			return err
 		}
@@ -97,7 +100,7 @@ func (s *Store) GetRequest(requestAck *msgs.RequestAck) ([]byte, error) {
 	return valCopy, err
 }
 
-func (s *Store) Commit(ack *msgs.RequestAck) error {
+func (s *Store) Commit(ack *messagepb.RequestRef) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(reqKey(ack))
 	})

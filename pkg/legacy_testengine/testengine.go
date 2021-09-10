@@ -4,6 +4,9 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
+// TODO: This is LEGACY CODE It is not intended to be used as-is.
+//       Use this code as an inspiration for implementing similar functionnality
+
 // Package testengine provides a way to write deterministic, repeatable,
 // serializable, and analyzable tests.  Tests are deterministic because
 // all time is fake, there is only ever a single go routine executing,
@@ -14,4 +17,4 @@ SPDX-License-Identifier: Apache-2.0
 // because the serialized representation of the test actions may be analyzed
 // in tooling after the test has executed.
 // TODO, the above is the plan, but, nothing is implemented at this point.
-package testengine
+package legacy_testengine

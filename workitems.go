@@ -11,31 +11,31 @@ package mirbft
 import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 )
 
 // WorkItems is a buffer for storing outstanding events that need to be processed by the node.
 // It contains a separate list for each type of event.
 type WorkItems struct {
-	wal          *events.EventList
-	net          *events.EventList
-	hash         *events.EventList
-	client       *events.EventList
-	app          *events.EventList
-	reqStore     *events.EventList
-	stateMachine *events.EventList
+	wal      *events.EventList
+	net      *events.EventList
+	hash     *events.EventList
+	client   *events.EventList
+	app      *events.EventList
+	reqStore *events.EventList
+	protocol *events.EventList
 }
 
 // NewWorkItems allocates and returns a pointer to a new WorkItems object.
 func NewWorkItems() *WorkItems {
 	return &WorkItems{
-		wal:          &events.EventList{},
-		net:          &events.EventList{},
-		hash:         &events.EventList{},
-		client:       &events.EventList{},
-		app:          &events.EventList{},
-		reqStore:     &events.EventList{},
-		stateMachine: &events.EventList{},
+		wal:      &events.EventList{},
+		net:      &events.EventList{},
+		hash:     &events.EventList{},
+		client:   &events.EventList{},
+		app:      &events.EventList{},
+		reqStore: &events.EventList{},
+		protocol: &events.EventList{},
 	}
 }
 
@@ -46,28 +46,39 @@ func (wi *WorkItems) AddEvents(events *events.EventList) error {
 	iter := events.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		switch t := event.Type.(type) {
-		case *state.Event_SendMessage:
+		case *eventpb.Event_SendMessage:
 			wi.net.PushBack(event)
-		case *state.Event_HashRequest:
+		case *eventpb.Event_MessageReceived:
+			wi.protocol.PushBack(event)
+		case *eventpb.Event_Request:
+			wi.client.PushBack(event)
+		case *eventpb.Event_HashRequest:
 			wi.hash.PushBack(event)
-		case *state.Event_HashResult:
+		case *eventpb.Event_HashResult:
 			// For hash results, their origin determines the destination.
 			switch t.HashResult.Origin.Type.(type) {
-			case *state.HashOrigin_Request:
+			case *eventpb.HashOrigin_Request:
 				// If the origin is a request received directly from a client,
 				// it is the client tracker that created the request and the result goes back to it.
 				wi.client.PushBack(event)
 			}
-		case *state.Event_Tick:
-			wi.stateMachine.PushBack(event)
+		case *eventpb.Event_Tick:
+			wi.protocol.PushBack(event)
 			// TODO: Should the Tick event also go elsewhere? Clients?
-		case *state.Event_RequestReady:
-			wi.stateMachine.PushBack(event)
+		case *eventpb.Event_RequestReady:
+			wi.protocol.PushBack(event)
+		case *eventpb.Event_WalEntry:
+			switch walEntry := t.WalEntry.Event.Type.(type) {
+			case *eventpb.Event_PersistDummyBatch:
+				wi.protocol.PushBack(t.WalEntry.Event)
+			default:
+				return fmt.Errorf("unsupported WAL entry event type %T", walEntry)
+			}
 
 		// TODO: Remove these eventually.
-		case *state.Event_PersistDummyBatch:
+		case *eventpb.Event_PersistDummyBatch:
 			wi.wal.PushBack(event)
-		case *state.Event_AnnounceDummyBatch:
+		case *eventpb.Event_AnnounceDummyBatch:
 			wi.app.PushBack(event)
 		default:
 			return fmt.Errorf("cannot add event of unknown type %T", t)
@@ -102,36 +113,43 @@ func (wi *WorkItems) ReqStore() *events.EventList {
 	return wi.reqStore
 }
 
-func (wi *WorkItems) StateMachine() *events.EventList {
-	return wi.stateMachine
+func (wi *WorkItems) Protocol() *events.EventList {
+	return wi.protocol
 }
 
 // Methods for clearing the buffers.
+// Each of them returns the list of events that have been removed from WorkItems.
 
-func (wi *WorkItems) ClearWAL() {
-	wi.wal = &events.EventList{}
+func (wi *WorkItems) ClearWAL() *events.EventList {
+	return clearEventList(&wi.wal)
 }
 
-func (wi *WorkItems) ClearNet() {
-	wi.net = &events.EventList{}
+func (wi *WorkItems) ClearNet() *events.EventList {
+	return clearEventList(&wi.net)
 }
 
-func (wi *WorkItems) ClearHash() {
-	wi.hash = &events.EventList{}
+func (wi *WorkItems) ClearHash() *events.EventList {
+	return clearEventList(&wi.hash)
 }
 
-func (wi *WorkItems) ClearClient() {
-	wi.client = &events.EventList{}
+func (wi *WorkItems) ClearClient() *events.EventList {
+	return clearEventList(&wi.client)
 }
 
-func (wi *WorkItems) ClearApp() {
-	wi.app = &events.EventList{}
+func (wi *WorkItems) ClearApp() *events.EventList {
+	return clearEventList(&wi.app)
 }
 
-func (wi *WorkItems) ClearReqStore() {
-	wi.reqStore = &events.EventList{}
+func (wi *WorkItems) ClearReqStore() *events.EventList {
+	return clearEventList(&wi.reqStore)
 }
 
-func (wi *WorkItems) ClearStateMachine() {
-	wi.stateMachine = &events.EventList{}
+func (wi *WorkItems) ClearProtocol() *events.EventList {
+	return clearEventList(&wi.protocol)
+}
+
+func clearEventList(listPtr **events.EventList) *events.EventList {
+	oldList := *listPtr
+	*listPtr = &events.EventList{}
+	return oldList
 }
