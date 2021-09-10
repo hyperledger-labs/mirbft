@@ -4,10 +4,14 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
+// TODO: Properly comment all the code in this file.
+
 package eventlog_test
 
 import (
 	"bytes"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"io"
 
 	. "github.com/onsi/ginkgo"
@@ -17,14 +21,9 @@ import (
 
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/recording"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
 )
 
-var tickEvent = &state.Event{
-	Type: &state.Event_TickElapsed{
-		TickElapsed: &state.EventTickElapsed{},
-	},
-}
+var tickEvent = events.Tick()
 
 var _ = Describe("Recorder", func() {
 	var (
@@ -42,8 +41,8 @@ var _ = Describe("Recorder", func() {
 			eventlog.TimeSourceOpt(func() int64 { return 2 }),
 			eventlog.BufferSizeOpt(3),
 		)
-		interceptor.Intercept(tickEvent)
-		interceptor.Intercept(tickEvent)
+		interceptor.Intercept((&events.EventList{}).PushBack(tickEvent))
+		interceptor.Intercept((&events.EventList{}).PushBack(tickEvent))
 		err := interceptor.Stop()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(output.Len()).To(Equal(46))
@@ -65,8 +64,8 @@ var _ = Describe("Reader", func() {
 			output,
 			eventlog.TimeSourceOpt(func() int64 { return 2 }),
 		)
-		interceptor.Intercept(tickEvent)
-		interceptor.Intercept(tickEvent)
+		interceptor.Intercept((&events.EventList{}).PushBack(tickEvent))
+		interceptor.Intercept((&events.EventList{}).PushBack(tickEvent))
 		err := interceptor.Stop()
 		Expect(err).NotTo(HaveOccurred())
 	})
@@ -75,21 +74,21 @@ var _ = Describe("Reader", func() {
 		reader, err := eventlog.NewReader(output)
 		Expect(err).NotTo(HaveOccurred())
 
-		recordedTickEvent := &recording.Event{
-			NodeId:     1,
-			Time:       2,
-			StateEvent: tickEvent,
+		recordedTickEvent := &recording.Entry{
+			NodeId: 1,
+			Time:   2,
+			Events: []*eventpb.Event{tickEvent},
 		}
 
-		se, err := reader.ReadEvent()
+		se, err := reader.ReadEntry()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(proto.Equal(se, recordedTickEvent)).To(BeTrue())
 
-		se, err = reader.ReadEvent()
+		se, err = reader.ReadEntry()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(proto.Equal(se, recordedTickEvent)).To(BeTrue())
 
-		_, err = reader.ReadEvent()
+		_, err = reader.ReadEntry()
 		Expect(err).To(Equal(io.EOF))
 	})
 

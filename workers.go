@@ -9,66 +9,51 @@ Refactored: 1
 package mirbft
 
 import (
+	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/clients"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/pkg/errors"
 )
 
 // Input and output channels for the modules within the Node.
-// the Node.process() method reads and writes actions and events
+// the Node.process() method reads and writes events
 // to and from these channels to rout them between the Node's modules.
-// TODO: Get rid of actions and results and only use events as input and output of all modules.
-// TODO: Rename these variables to be consistent with the action/event terminology.
 type workChans struct {
-	walActions chan *statemachine.ActionList
-	walResults chan *statemachine.ActionList
 
-	clientActions chan *statemachine.ActionList
-	clientEvents  chan *statemachine.EventList
+	// There is one channel per module to feed events into the module.
+	clients  chan *events.EventList
+	protocol chan *events.EventList
+	wal      chan *events.EventList
+	hash     chan *events.EventList
+	net      chan *events.EventList
+	app      chan *events.EventList
+	reqStore chan *events.EventList
 
-	hashActions chan *statemachine.ActionList
-	hashResults chan *statemachine.EventList
-
-	netActions chan *statemachine.ActionList
-	netResults chan *statemachine.EventList
-
-	appActions chan *statemachine.ActionList
-	appResults chan *statemachine.EventList
-
-	reqStoreEvents  chan *statemachine.EventList
-	reqStoreResults chan *statemachine.EventList
-
-	resultEvents  chan *statemachine.EventList
-	resultResults chan *statemachine.ActionList
-
-	externalEvents chan *statemachine.EventList
+	// All modules write their output events in a common channel, from where the node processor reads and redistributes
+	// the events to their respective workItems buffers.
+	// External events are also funneled through this channel towards the workItems buffers.
+	workItemInput chan *events.EventList
 }
 
 // Allocate and return a new workChans structure.
 func newWorkChans() workChans {
 	return workChans{
-		walActions:      make(chan *statemachine.ActionList),
-		walResults:      make(chan *statemachine.ActionList),
-		clientActions:   make(chan *statemachine.ActionList),
-		clientEvents:    make(chan *statemachine.EventList),
-		hashActions:     make(chan *statemachine.ActionList),
-		hashResults:     make(chan *statemachine.EventList),
-		netActions:      make(chan *statemachine.ActionList),
-		netResults:      make(chan *statemachine.EventList),
-		appActions:      make(chan *statemachine.ActionList),
-		appResults:      make(chan *statemachine.EventList),
-		reqStoreEvents:  make(chan *statemachine.EventList),
-		reqStoreResults: make(chan *statemachine.EventList),
-		resultEvents:    make(chan *statemachine.EventList),
-		resultResults:   make(chan *statemachine.ActionList),
-		externalEvents:  make(chan *statemachine.EventList),
+		clients:  make(chan *events.EventList),
+		protocol: make(chan *events.EventList),
+		wal:      make(chan *events.EventList),
+		hash:     make(chan *events.EventList),
+		net:      make(chan *events.EventList),
+		app:      make(chan *events.EventList),
+		reqStore: make(chan *events.EventList),
+
+		workItemInput: make(chan *events.EventList),
 	}
 }
 
 // A function type used for performing the work of a module.
-// It usually reads events/actions from a work channel and writes the output to another work channel.
+// It usually reads events from a work channel and writes the output to another work channel.
 // Any error that occurs while performing the work is returned.
 // When the exitC channel is closed the function should return ErrStopped
 // TODO: Consider unifying the reading from and writing to channels
@@ -87,34 +72,34 @@ func (n *Node) doUntilErr(work workFunc) {
 	}
 }
 
-// Reads a single list of WAL actions from the corresponding work channel and processes its contents.
+// Reads a single list of WAL input events from the corresponding work channel and processes its contents.
 // If any results are generated for further processing,
 // writes a list of those results to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doWALWork(exitC <-chan struct{}) error {
-	var actions *statemachine.ActionList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
-	case actions = <-n.workChans.walActions:
+	case eventsIn = <-n.workChans.wal:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	// Process actions.
-	walResults, err := processWALActions(n.modules.WAL, actions)
+	// Process events.
+	eventsOut, err := processWALEvents(n.modules.WAL, eventsIn)
 	if err != nil {
-		return errors.WithMessage(err, "could not perform WAL actions")
+		return errors.WithMessage(err, "could not process WAL events")
 	}
 
 	// Return if no output was generated.
-	if walResults.Len() == 0 {
+	if eventsOut.Len() == 0 {
 		return nil
 	}
 
 	// Write output.
 	select {
-	case n.workChans.walResults <- walResults:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -122,62 +107,62 @@ func (n *Node) doWALWork(exitC <-chan struct{}) error {
 	return nil
 }
 
-// Reads a single list of Client actions from the corresponding work channel and processes its contents.
+// Reads a single list of Client input events from the corresponding work channel and processes its contents.
 // If any events are generated for further processing,
 // writes a list of those events to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doClientWork(exitC <-chan struct{}) error {
-	var actions *statemachine.ActionList
+	var inputEvents *events.EventList
 
 	// Read input.
 	select {
-	case actions = <-n.workChans.clientActions:
+	case inputEvents = <-n.workChans.clients:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	// Process actions.
-	clientEvents, err := processClientActions(n.clients, actions)
+	// Process events.
+	outputEvents, err := processClientEvents(n.clientTracker, inputEvents)
 	if err != nil {
-		return errors.WithMessage(err, "could not perform client actions")
+		return errors.WithMessage(err, "could not process client events")
 	}
 
 	// Return if no output was generated.
-	if clientEvents.Len() == 0 {
+	if outputEvents.Len() == 0 {
 		return nil
 	}
 
 	// Write output.
 	select {
-	case n.workChans.clientEvents <- clientEvents:
+	case n.workChans.workItemInput <- outputEvents:
 	case <-exitC:
 		return ErrStopped
 	}
 	return nil
 }
 
-// Reads a single list of hash actions (hashes to be computed) from the corresponding work channel,
+// Reads a single list of hash events (hashes to be computed) from the corresponding work channel,
 // processes its contents (computes the hashes) and writes a list of hash results to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doHashWork(exitC <-chan struct{}) error {
-	var actions *statemachine.ActionList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
-	case actions = <-n.workChans.hashActions:
+	case eventsIn = <-n.workChans.hash:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	// Process actions.
-	hashResults, err := processHashActions(n.modules.Hasher, actions)
+	// Process events.
+	eventsOut, err := processHashEvents(n.modules.Hasher, eventsIn)
 	if err != nil {
-		return errors.WithMessage(err, "could not perform hash actions")
+		return errors.WithMessage(err, "could not process hash events")
 	}
 
 	// Write output.
 	select {
-	case n.workChans.hashResults <- hashResults:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -185,34 +170,34 @@ func (n *Node) doHashWork(exitC <-chan struct{}) error {
 	return nil
 }
 
-// Reads a single list of send actions from the corresponding work channel and processes its contents.
+// Reads a single list of send events from the corresponding work channel and processes its contents.
 // If any events are generated for further processing,
 // writes a list of those events to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doNetWork(exitC <-chan struct{}) error {
-	var actions *statemachine.ActionList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
-	case actions = <-n.workChans.netActions:
+	case eventsIn = <-n.workChans.net:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	// Process actions.
-	netResults, err := processNetActions(n.ID, n.modules.Net, actions)
+	// Process events.
+	eventsOut, err := processNetEvents(n.ID, n.modules.Net, eventsIn)
 	if err != nil {
-		return errors.WithMessage(err, "could not perform net actions")
+		return errors.WithMessage(err, "could not process net events")
 	}
 
 	// Return if no output was generated.
-	if netResults.Len() == 0 {
+	if eventsOut.Len() == 0 {
 		return nil
 	}
 
 	// Write output.
 	select {
-	case n.workChans.netResults <- netResults:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -220,34 +205,34 @@ func (n *Node) doNetWork(exitC <-chan struct{}) error {
 	return nil
 }
 
-// Reads a single list of app actions from the corresponding work channel and processes its contents.
+// Reads a single list of app input events from the corresponding work channel and processes its contents.
 // If any events are generated for further processing,
 // writes a list of those events to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doAppWork(exitC <-chan struct{}) error {
-	var actions *statemachine.ActionList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
-	case actions = <-n.workChans.appActions:
+	case eventsIn = <-n.workChans.app:
 	case <-exitC:
 		return ErrStopped
 	}
 
-	// Process actions.
-	appResults, err := processAppActions(n.modules.App, actions)
+	// Process events.
+	eventsOut, err := processAppEvents(n.modules.App, eventsIn)
 	if err != nil {
-		return errors.WithMessage(err, "could not perform app actions")
+		return errors.WithMessage(err, "could not process app events")
 	}
 
 	// Return if no output was generated.
-	if appResults.Len() == 0 {
+	if eventsOut.Len() == 0 {
 		return nil
 	}
 
 	// Write output.
 	select {
-	case n.workChans.appResults <- appResults:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -260,29 +245,29 @@ func (n *Node) doAppWork(exitC <-chan struct{}) error {
 // writes a list of those results to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
 func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
-	var events *statemachine.EventList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
-	case events = <-n.workChans.reqStoreEvents:
+	case eventsIn = <-n.workChans.reqStore:
 	case <-exitC:
 		return ErrStopped
 	}
 
 	// Process events.
-	reqStoreResults, err := processReqStoreEvents(n.modules.RequestStore, events)
+	eventsOut, err := processReqStoreEvents(n.modules.RequestStore, eventsIn)
 	if err != nil {
-		return errors.WithMessage(err, "could not perform reqstore actions")
+		return errors.WithMessage(err, "could not process reqstore events")
 	}
 
 	// Return if no output was generated.
-	if reqStoreResults.Len() == 0 {
+	if eventsOut.Len() == 0 {
 		return nil
 	}
 
 	// Write output.
 	select {
-	case n.workChans.reqStoreResults <- reqStoreResults:
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -290,46 +275,42 @@ func (n *Node) doReqStoreWork(exitC <-chan struct{}) error {
 	return nil
 }
 
-// Reads a single list of state machine events from the corresponding work channel and processes its contents.
-// If any actions are generated by the state machine,
-// writes a list of those results to the corresponding work channel.
+// Reads a single list of protocol events from the corresponding work channel and processes its contents.
+// If any new events are generated by the protocol state machine,
+// writes a list of those events to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
-// On returning, sets the exit status of the state machine in the work error notifier.
-func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
+// On returning, sets the exit status of the protocol state machine in the work error notifier.
+func (n *Node) doProtocolWork(exitC <-chan struct{}) (err error) {
 	defer func() {
 		if err != nil {
-			s, err := n.modules.StateMachine.Status()
+			s, err := n.modules.Protocol.Status()
 			n.workErrNotifier.SetExitStatus(s, err)
 		}
 	}()
 
-	var events *statemachine.EventList
+	var eventsIn *events.EventList
 
 	// Read input.
 	select {
-	case events = <-n.workChans.resultEvents:
+	case eventsIn = <-n.workChans.protocol:
 	case <-exitC:
 		return ErrStopped
 	}
 
 	// Process events.
-	actions, err := processStateMachineEvents(n.modules.StateMachine, n.modules.Interceptor, events)
+	eventsOut, err := processProtocolEvents(n.modules.Protocol, eventsIn)
 	if err != nil {
 		return err
 	}
 
 	// Return if no output was generated.
-	if actions.Len() == 0 {
+	if eventsOut.Len() == 0 {
 		return nil
 	}
 
 	// Write output.
 	select {
-	case n.workChans.resultResults <- actions:
-		// Log a special event marking the reception of the actions from the state machine by the Node.
-		if err := n.modules.Interceptor.Intercept(statemachine.EventActionsReceived()); err != nil {
-			return err
-		}
+	case n.workChans.workItemInput <- eventsOut:
 	case <-exitC:
 		return ErrStopped
 	}
@@ -339,25 +320,36 @@ func (n *Node) doStateMachineWork(exitC <-chan struct{}) (err error) {
 
 // TODO: Document the functions below.
 
-func processWALActions(wal modules.WAL, actions *statemachine.ActionList) (*statemachine.ActionList, error) {
-	netActions := &statemachine.ActionList{}
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_Send:
-			netActions.PushBack(action)
-		case *state.Action_AppendWriteAhead:
-			write := t.AppendWriteAhead
-			if err := wal.Write(write.Index, write.Data); err != nil {
-				return nil, errors.WithMessagef(err, "failed to write entry to WAL at index %d", write.Index)
+func processWALEvents(wal modules.WAL, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
+	iter := eventsIn.Iterator()
+
+	for event := iter.Next(); event != nil; event = iter.Next() {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		// Perform the necessary action based on event type.
+		switch event.Type.(type) {
+		case *eventpb.Event_PersistDummyBatch:
+			if err := wal.Append(event); err != nil {
+				return nil, fmt.Errorf("could not persist dummy batch: %w", err)
 			}
-		case *state.Action_TruncateWriteAhead:
-			truncate := t.TruncateWriteAhead
-			if err := wal.Truncate(truncate.Index); err != nil {
-				return nil, errors.WithMessagef(err, "failed to truncate WAL to index %d", truncate.Index)
-			}
+
+		//case *state.Action_Send:
+		//	netActions.PushBack(action)
+		//case *state.Action_AppendWriteAhead:
+		//	write := t.AppendWriteAhead
+		//	if err := wal.Write(write.Index, write.Data); err != nil {
+		//		return nil, errors.WithMessagef(err, "failed to write entry to WAL at index %d", write.Index)
+		//	}
+		//case *state.Action_TruncateWriteAhead:
+		//	truncate := t.TruncateWriteAhead
+		//	if err := wal.Truncate(truncate.Index); err != nil {
+		//		return nil, errors.WithMessagef(err, "failed to truncate WAL to index %d", truncate.Index)
+		//	}
 		default:
-			return nil, errors.Errorf("unexpected type for WAL action: %T", action.Type)
+			return nil, errors.Errorf("unexpected type for WAL event: %T", event.Type)
 		}
 	}
 
@@ -366,123 +358,133 @@ func processWALActions(wal modules.WAL, actions *statemachine.ActionList) (*stat
 		return nil, errors.WithMessage(err, "failed to sync WAL")
 	}
 
-	return netActions, nil
+	return eventsOut, nil
 }
 
-func processClientActions(c modules.Clients, actions *statemachine.ActionList) (*statemachine.EventList, error) {
-	events := &statemachine.EventList{}
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_AllocatedRequest:
-			r := t.AllocatedRequest
-			client := c.Client(r.ClientId)
-			digest, err := client.Allocate(r.ReqNo)
-			if err != nil {
-				return nil, err
-			}
+func processClientEvents(c *clients.ClientTracker, eventsIn *events.EventList) (*events.EventList, error) {
 
-			if digest == nil {
-				continue
-			}
+	eventsOut := &events.EventList{}
+	iter := eventsIn.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
 
-			events.RequestPersisted(&msgs.RequestAck{
-				ClientId: r.ClientId,
-				ReqNo:    r.ReqNo,
-				Digest:   digest,
-			})
-		case *state.Action_CorrectRequest:
-			client := c.Client(t.CorrectRequest.ClientId)
-			err := client.AddCorrectDigest(t.CorrectRequest.ReqNo, t.CorrectRequest.Digest)
-			if err != nil {
-				return nil, err
-			}
-		case *state.Action_StateApplied:
-			for _, client := range t.StateApplied.NetworkState.Clients {
-				c.Client(client.Id).StateApplied(client)
-			}
-		default:
-			return nil, errors.Errorf("unexpected type for client action: %T", action.Type)
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		newEvents, err := safeApplyClientEvent(c, event)
+		if err != nil {
+			return nil, errors.WithMessage(err, "err applying client event")
 		}
+		eventsOut.PushBackList(newEvents)
 	}
-	return events, nil
+
+	return eventsOut, nil
 }
 
-func processHashActions(hasher modules.Hasher, actions *statemachine.ActionList) (*statemachine.EventList, error) {
-	events := &statemachine.EventList{}
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_Hash:
+func processHashEvents(hasher modules.Hasher, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
+	iter := eventsIn.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		switch e := event.Type.(type) {
+		case *eventpb.Event_HashRequest:
+			// HashRequest is the only event understood by the hasher module.
+			// Hash all the data and create a hashResult event.
 			h := hasher.New()
-			for _, data := range t.Hash.Data {
+			for _, data := range e.HashRequest.Data {
 				h.Write(data)
 			}
-
-			events.HashResult(h.Sum(nil), t.Hash.Origin)
+			eventsOut.PushBack(events.HashResult(h.Sum(nil), e.HashRequest.Origin))
 		default:
-			return nil, errors.Errorf("unexpected type for Hash action: %T", action.Type)
+			// Complain about all other incoming event types.
+			return nil, errors.Errorf("unexpected type for Hash event: %T", event.Type)
 		}
 	}
 
-	return events, nil
+	return eventsOut, nil
 }
 
-func processNetActions(selfID uint64, net modules.Net, actions *statemachine.ActionList) (*statemachine.EventList, error) {
-	events := &statemachine.EventList{}
+func processNetEvents(selfID uint64, net modules.Net, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
 
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_Send:
-			for _, replica := range t.Send.Targets {
-				if replica == selfID {
-					events.Step(replica, t.Send.Msg)
+	iter := eventsIn.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		switch e := event.Type.(type) {
+		case *eventpb.Event_SendMessage:
+			for _, destId := range e.SendMessage.Destinations {
+				if destId == selfID {
+					eventsOut.PushBack(events.MessageReceived(selfID, e.SendMessage.Msg))
 				} else {
-					net.Send(replica, t.Send.Msg)
+					net.Send(destId, e.SendMessage.Msg)
 				}
 			}
+
+		//case *state.Action_Send:
+		//	for _, replica := range t.Send.Targets {
+		//		if replica == selfID {
+		//			events.Step(replica, t.Send.Msg)
+		//		} else {
+		//			net.Send(replica, t.Send.Msg)
+		//		}
+		//	}
 		default:
-			return nil, errors.Errorf("unexpected type for Net action: %T", action.Type)
+			return nil, errors.Errorf("unexpected type for Net event: %T", event.Type)
 		}
 	}
 
-	return events, nil
+	return eventsOut, nil
 }
 
-func processAppActions(app modules.App, actions *statemachine.ActionList) (*statemachine.EventList, error) {
-	events := &statemachine.EventList{}
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_Commit:
-			if err := app.Apply(t.Commit.Batch); err != nil {
-				return nil, errors.WithMessage(err, "app failed to commit")
+func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
+	iter := eventsIn.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		switch e := event.Type.(type) {
+		case *eventpb.Event_AnnounceDummyBatch:
+			if err := app.Apply(e.AnnounceDummyBatch.Batch); err != nil {
+				return nil, fmt.Errorf("app error: %w", err)
 			}
-		case *state.Action_Checkpoint:
-			cp := t.Checkpoint
-			value, pendingReconf, err := app.Snapshot(cp.NetworkConfig, cp.ClientStates)
-			if err != nil {
-				return nil, errors.WithMessage(err, "app failed to generate snapshot")
-			}
-			events.CheckpointResult(value, pendingReconf, cp)
-		case *state.Action_StateTransfer:
-			stateTarget := t.StateTransfer
-			appState, err := app.TransferTo(stateTarget.SeqNo, stateTarget.Value)
-			if err != nil {
-				events.StateTransferFailed(stateTarget)
-			} else {
-				events.StateTransferComplete(appState, stateTarget)
-			}
+		//case *state.Action_Commit:
+		//	if err := app.Apply(t.Commit.Batch); err != nil {
+		//		return nil, errors.WithMessage(err, "app failed to commit")
+		//	}
+		//case *state.Action_Checkpoint:
+		//	cp := t.Checkpoint
+		//	value, pendingReconf, err := app.Snapshot(cp.NetworkConfig, cp.ClientStates)
+		//	if err != nil {
+		//		return nil, errors.WithMessage(err, "app failed to generate snapshot")
+		//	}
+		//	events.CheckpointResult(value, pendingReconf, cp)
+		//case *state.Action_StateTransfer:
+		//	stateTarget := t.StateTransfer
+		//	appState, err := app.TransferTo(stateTarget.SeqNo, stateTarget.Value)
+		//	if err != nil {
+		//		events.StateTransferFailed(stateTarget)
+		//	} else {
+		//		events.StateTransferComplete(appState, stateTarget)
+		//	}
 		default:
-			return nil, errors.Errorf("unexpected type for Hash action: %T", action.Type)
+			return nil, errors.Errorf("unexpected type for Hash event: %T", event.Type)
 		}
 	}
 
-	return events, nil
+	return eventsOut, nil
 }
 
-func processReqStoreEvents(reqStore modules.RequestStore, events *statemachine.EventList) (*statemachine.EventList, error) {
+func processReqStoreEvents(reqStore modules.RequestStore, events *events.EventList) (*events.EventList, error) {
+
+	// TODO: IMPLEMENT THIS!
+
 	// Then we sync the request store
 	if err := reqStore.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
@@ -491,42 +493,48 @@ func processReqStoreEvents(reqStore modules.RequestStore, events *statemachine.E
 	return events, nil
 }
 
-func processStateMachineEvents(sm modules.StateMachine, i modules.EventInterceptor, events *statemachine.EventList) (*statemachine.ActionList, error) {
-	actions := &statemachine.ActionList{}
-	iter := events.Iterator()
+func processProtocolEvents(sm modules.Protocol, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
+	iter := eventsIn.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
-		if i != nil {
-			err := i.Intercept(event)
-			if err != nil {
-				return nil, errors.WithMessage(err, "err intercepting event")
-			}
-		}
-		events, err := safeApplyEvent(sm, event)
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		newEvents, err := safeApplySMEvent(sm, event)
 		if err != nil {
-			return nil, errors.WithMessage(err, "err applying state machine event")
+			return nil, errors.WithMessage(err, "error applying protocol event")
 		}
-		actions.PushBackList(events)
-	}
-	if i != nil {
-		err := i.Intercept(statemachine.EventActionsReceived())
-		if err != nil {
-			return nil, errors.WithMessage(err, "err intercepting close event")
-		}
+		eventsOut.PushBackList(newEvents)
 	}
 
-	return actions, nil
+	return eventsOut, nil
 }
 
-func safeApplyEvent(sm modules.StateMachine, event *state.Event) (result *statemachine.ActionList, err error) {
+func safeApplySMEvent(sm modules.Protocol, event *eventpb.Event) (result *events.EventList, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if rErr, ok := r.(error); ok {
-				err = errors.WithMessage(rErr, "panic in state machine")
+				err = errors.WithMessage(rErr, "panic in protocol state machine")
 			} else {
-				err = errors.Errorf("panic in state machine: %v", r)
+				err = errors.Errorf("panic in protocol state machine: %v", r)
 			}
 		}
 	}()
 
 	return sm.ApplyEvent(event), nil
+}
+
+func safeApplyClientEvent(c *clients.ClientTracker, event *eventpb.Event) (result *events.EventList, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if rErr, ok := r.(error); ok {
+				err = errors.WithMessage(rErr, "panic in client tracker")
+			} else {
+				err = errors.Errorf("panic in client tracker: %v", r)
+			}
+		}
+	}()
+
+	return c.ApplyEvent(event), nil
 }

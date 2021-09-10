@@ -9,27 +9,31 @@ package deploytest
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 )
 
-// TODO: Make the Fake app only deal with request payloads
-//       and hide implementation-specific things like QEntries from it.
-
+// FakeApp represents a dummy stub application used for testing only.
 type FakeApp struct {
+
+	// The state of the FakeApp only consists of a counter of processed requests.
 	RequestsProcessed uint64
 }
 
-func (fa *FakeApp) Apply(entry *msgs.QEntry) error {
-	fa.RequestsProcessed += uint64(len(entry.Requests))
+// Apply
+func (fa *FakeApp) Apply(batch *messagepb.Batch) error {
+	for range batch.Requests {
+		fa.RequestsProcessed++
+		fmt.Printf("Processed requests: %d\n", fa.RequestsProcessed)
+	}
 	return nil
 }
 
-func (fa *FakeApp) Snapshot(*msgs.NetworkState_Config, []*msgs.NetworkState_Client) ([]byte, []*msgs.Reconfiguration, error) {
-	return uint64ToBytes(fa.RequestsProcessed), nil, nil
+func (fa *FakeApp) Snapshot() ([]byte, error) {
+	return uint64ToBytes(fa.RequestsProcessed), nil
 }
 
-func (fa *FakeApp) TransferTo(seqNo uint64, snap []byte) (*msgs.NetworkState, error) {
-	return nil, fmt.Errorf("we don't support state transfer in this test (yet)")
+func (fa *FakeApp) RestoreState(snapshot []byte) error {
+	return fmt.Errorf("we don't support state transfer in this test (yet)")
 }
 
 func uint64ToBytes(value uint64) []byte {

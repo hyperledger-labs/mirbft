@@ -1,0 +1,93 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package eventpb;
+
+import "messagepb/messagepb.proto";
+
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/eventpb";
+
+// Event represents a state event to be injected into the state machine
+message Event {
+  // TODO, normalize naming, for instance Complete/Completed
+  oneof type {
+    EventMessage message = 1;
+    messagepb.Request request = 2;
+    EventHashRequest hash_request = 3;
+    EventHashResult hash_result = 4;
+    EventTick tick = 5;
+    EventRequestReady request_ready = 6;
+    EventSendMessage send_message = 7;
+    EventMessageReceived message_received = 8;
+    EventWALEntry wal_entry = 9;
+
+    // Dummy events for testing purposes only.
+    EventPersistDummyBatch persist_dummy_batch = 101;
+    EventAnnounceDummyBatch announce_dummy_batch = 102;
+  }
+
+  // A list of follow-up events to process after this event has been processed.
+  // This field is used if events need to be processed in a particular order.
+  // For example, a message sending event must only be processed
+  // after the corresponding entry has been persisted in the write-ahead log (WAL).
+  // In this case, the WAL append event would be this event
+  // and the next field would contain the message sending event.
+  repeated Event next = 100;
+}
+
+
+message EventTick {}
+
+message EventMessage {
+  uint64 source = 1;
+  messagepb.Message msg = 2;
+}
+
+message EventHashRequest {
+  repeated bytes data = 1;
+  HashOrigin origin = 2;
+}
+
+message EventHashResult {
+  bytes digest = 1;
+  HashOrigin origin = 2;
+}
+
+message HashOrigin {
+  oneof type {
+    messagepb.Request request = 1;
+  }
+}
+
+message EventRequestReady {
+  messagepb.RequestRef request_ref = 1;
+}
+
+message EventPersistDummyBatch {
+  uint64 sn = 1;
+  messagepb.Batch batch = 2;
+}
+
+message EventAnnounceDummyBatch {
+  uint64 sn = 1;
+  messagepb.Batch batch = 2;
+}
+
+message EventSendMessage {
+  repeated uint64 destinations = 1;
+  messagepb.Message msg = 2;
+}
+
+message EventMessageReceived {
+  uint64 from = 1;
+  messagepb.Message msg = 2;
+}
+
+message EventWALEntry {
+  Event event = 1;
+}

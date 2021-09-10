@@ -10,177 +10,146 @@ package mirbft
 
 import (
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 )
 
-// WorkItems is a buffer for storing outstanding actions and events that need to be processed by the node.
-// It contains a separate list for each type of action / event.
+// WorkItems is a buffer for storing outstanding events that need to be processed by the node.
+// It contains a separate list for each type of event.
 type WorkItems struct {
-	walActions     *statemachine.ActionList
-	netActions     *statemachine.ActionList
-	hashActions    *statemachine.ActionList
-	clientActions  *statemachine.ActionList
-	appActions     *statemachine.ActionList
-	reqStoreEvents *statemachine.EventList // TODO: Check whether the name is appropriate
-	resultEvents   *statemachine.EventList // TODO: Rename this
+	wal      *events.EventList
+	net      *events.EventList
+	hash     *events.EventList
+	client   *events.EventList
+	app      *events.EventList
+	reqStore *events.EventList
+	protocol *events.EventList
 }
 
 // NewWorkItems allocates and returns a pointer to a new WorkItems object.
 func NewWorkItems() *WorkItems {
 	return &WorkItems{
-		walActions:     &statemachine.ActionList{},
-		netActions:     &statemachine.ActionList{},
-		hashActions:    &statemachine.ActionList{},
-		clientActions:  &statemachine.ActionList{},
-		appActions:     &statemachine.ActionList{},
-		reqStoreEvents: &statemachine.EventList{},
-		resultEvents:   &statemachine.EventList{},
-	}
-}
-
-// AddActions adds actions produced by modules to the WorkItems buffer.
-// According to their types, the actions are distributed to the appropriate internal sub-buffers.
-func (wi *WorkItems) AddActions(actions *statemachine.ActionList) {
-	iter := actions.Iterator()
-	for action := iter.Next(); action != nil; action = iter.Next() {
-		switch t := action.Type.(type) {
-		case *state.Action_Send:
-			walDependent := false
-			// TODO, make sure this switch captures all the safe ones
-			switch t.Send.Msg.Type.(type) {
-			case *msgs.Msg_RequestAck:
-			case *msgs.Msg_Checkpoint:
-			case *msgs.Msg_FetchBatch:
-			case *msgs.Msg_ForwardBatch:
-			default:
-				walDependent = true
-			}
-			if walDependent {
-				wi.WALActions().PushBack(action)
-			} else {
-				wi.NetActions().PushBack(action)
-			}
-		case *state.Action_Hash:
-			wi.HashActions().PushBack(action)
-		case *state.Action_AppendWriteAhead,
-			*state.Action_TruncateWriteAhead:
-			wi.WALActions().PushBack(action)
-		case *state.Action_Commit,
-			*state.Action_Checkpoint,
-			*state.Action_StateTransfer:
-			wi.AppActions().PushBack(action)
-		case *state.Action_AllocatedRequest,
-			*state.Action_CorrectRequest,
-			*state.Action_StateApplied:
-			wi.ClientActions().PushBack(action)
-			// TODO, create replicas
-		case *state.Action_ForwardRequest:
-			// XXX address
-		default:
-			panic(fmt.Sprintf("unknown event type %T", t))
-		}
+		wal:      &events.EventList{},
+		net:      &events.EventList{},
+		hash:     &events.EventList{},
+		client:   &events.EventList{},
+		app:      &events.EventList{},
+		reqStore: &events.EventList{},
+		protocol: &events.EventList{},
 	}
 }
 
 // AddEvents adds events produced by modules to the WorkItems buffer.
 // According to their types, the events are distributed to the appropriate internal sub-buffers.
-func (wi *WorkItems) AddEvents(events *statemachine.EventList) {
+// When AddEvents returns a non-nil error, any subset of the events may have been added.
+func (wi *WorkItems) AddEvents(events *events.EventList) error {
 	iter := events.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		switch t := event.Type.(type) {
-		case *state.Event_HashResult:
-			wi.ResultEvents().PushBack(event)
+		case *eventpb.Event_SendMessage:
+			wi.net.PushBack(event)
+		case *eventpb.Event_MessageReceived:
+			wi.protocol.PushBack(event)
+		case *eventpb.Event_Request:
+			wi.client.PushBack(event)
+		case *eventpb.Event_HashRequest:
+			wi.hash.PushBack(event)
+		case *eventpb.Event_HashResult:
+			// For hash results, their origin determines the destination.
+			switch t.HashResult.Origin.Type.(type) {
+			case *eventpb.HashOrigin_Request:
+				// If the origin is a request received directly from a client,
+				// it is the client tracker that created the request and the result goes back to it.
+				wi.client.PushBack(event)
+			}
+		case *eventpb.Event_Tick:
+			wi.protocol.PushBack(event)
+			// TODO: Should the Tick event also go elsewhere? Clients?
+		case *eventpb.Event_RequestReady:
+			wi.protocol.PushBack(event)
+		case *eventpb.Event_WalEntry:
+			switch walEntry := t.WalEntry.Event.Type.(type) {
+			case *eventpb.Event_PersistDummyBatch:
+				wi.protocol.PushBack(t.WalEntry.Event)
+			default:
+				return fmt.Errorf("unsupported WAL entry event type %T", walEntry)
+			}
+
+		// TODO: Remove these eventually.
+		case *eventpb.Event_PersistDummyBatch:
+			wi.wal.PushBack(event)
+		case *eventpb.Event_AnnounceDummyBatch:
+			wi.app.PushBack(event)
 		default:
-			panic(fmt.Sprintf("unknown event type %T", t))
+			return fmt.Errorf("cannot add event of unknown type %T", t)
 		}
 	}
+	return nil
 }
 
 // Getters.
 
-func (wi *WorkItems) WALActions() *statemachine.ActionList {
-	return wi.walActions
+func (wi *WorkItems) WAL() *events.EventList {
+	return wi.wal
 }
 
-func (wi *WorkItems) NetActions() *statemachine.ActionList {
-	return wi.netActions
+func (wi *WorkItems) Net() *events.EventList {
+	return wi.net
 }
 
-func (wi *WorkItems) HashActions() *statemachine.ActionList {
-	return wi.hashActions
+func (wi *WorkItems) Hash() *events.EventList {
+	return wi.hash
 }
 
-func (wi *WorkItems) ClientActions() *statemachine.ActionList {
-	return wi.clientActions
+func (wi *WorkItems) Client() *events.EventList {
+	return wi.client
 }
 
-func (wi *WorkItems) AppActions() *statemachine.ActionList {
-	return wi.appActions
+func (wi *WorkItems) App() *events.EventList {
+	return wi.app
 }
 
-func (wi *WorkItems) ReqStoreEvents() *statemachine.EventList {
-	return wi.reqStoreEvents
+func (wi *WorkItems) ReqStore() *events.EventList {
+	return wi.reqStore
 }
 
-func (wi *WorkItems) ResultEvents() *statemachine.EventList {
-	return wi.resultEvents
+func (wi *WorkItems) Protocol() *events.EventList {
+	return wi.protocol
 }
 
 // Methods for clearing the buffers.
+// Each of them returns the list of events that have been removed from WorkItems.
 
-func (wi *WorkItems) ClearWALActions() {
-	wi.walActions = &statemachine.ActionList{}
+func (wi *WorkItems) ClearWAL() *events.EventList {
+	return clearEventList(&wi.wal)
 }
 
-func (wi *WorkItems) ClearNetActions() {
-	wi.netActions = &statemachine.ActionList{}
+func (wi *WorkItems) ClearNet() *events.EventList {
+	return clearEventList(&wi.net)
 }
 
-func (wi *WorkItems) ClearHashActions() {
-	wi.hashActions = &statemachine.ActionList{}
+func (wi *WorkItems) ClearHash() *events.EventList {
+	return clearEventList(&wi.hash)
 }
 
-func (wi *WorkItems) ClearClientActions() {
-	wi.clientActions = &statemachine.ActionList{}
+func (wi *WorkItems) ClearClient() *events.EventList {
+	return clearEventList(&wi.client)
 }
 
-func (wi *WorkItems) ClearAppActions() {
-	wi.appActions = &statemachine.ActionList{}
+func (wi *WorkItems) ClearApp() *events.EventList {
+	return clearEventList(&wi.app)
 }
 
-func (wi *WorkItems) ClearReqStoreEvents() {
-	wi.reqStoreEvents = &statemachine.EventList{}
+func (wi *WorkItems) ClearReqStore() *events.EventList {
+	return clearEventList(&wi.reqStore)
 }
 
-func (wi *WorkItems) ClearResultEvents() {
-	wi.resultEvents = &statemachine.EventList{}
+func (wi *WorkItems) ClearProtocol() *events.EventList {
+	return clearEventList(&wi.protocol)
 }
 
-// Legacy methods for adding items to the buffers.
-// TODO: handle all these cases in the AddActions() and AddEvents methods and remove those functions.
-
-func (wi *WorkItems) AddHashResults(events *statemachine.EventList) {
-	wi.ResultEvents().PushBackList(events)
-}
-
-func (wi *WorkItems) AddNetResults(events *statemachine.EventList) {
-	wi.ResultEvents().PushBackList(events)
-}
-
-func (wi *WorkItems) AddAppResults(events *statemachine.EventList) {
-	wi.ResultEvents().PushBackList(events)
-}
-
-func (wi *WorkItems) AddClientResults(events *statemachine.EventList) {
-	wi.ReqStoreEvents().PushBackList(events)
-}
-
-func (wi *WorkItems) AddWALResults(actions *statemachine.ActionList) {
-	wi.NetActions().PushBackList(actions)
-}
-
-func (wi *WorkItems) AddReqStoreResults(events *statemachine.EventList) {
-	wi.ResultEvents().PushBackList(events)
+func clearEventList(listPtr **events.EventList) *events.EventList {
+	oldList := *listPtr
+	*listPtr = &events.EventList{}
+	return oldList
 }

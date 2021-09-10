@@ -2,8 +2,6 @@
 Copyright IBM Corp. All Rights Reserved.
 
 SPDX-License-Identifier: Apache-2.0
-
-Refactored: 1
 */
 
 package mirbft
@@ -12,11 +10,11 @@ import (
 	"context"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/clients"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
-	"github.com/pkg/errors"
 	"sync"
 	"time"
 )
@@ -32,14 +30,14 @@ type Node struct {
 	// The state machine is also a module of the node.
 	modules *modules.Modules
 
-	// A buffer for storing outstanding actions and events that need to be processed by the node.
-	// It contains a separate sub-buffer for each type of action / event.
+	// A buffer for storing outstanding events that need to be processed by the node.
+	// It contains a separate sub-buffer for each type of event.
 	workItems *WorkItems
 
 	// Channels for routing work items between modules.
-	// Whenever workItems contains actions or events, those actions/events will be written (by the process() method)
+	// Whenever workItems contains events, those events will be written (by the process() method)
 	// to the corresponding channel in workChans. When processed by the corresponding module,
-	// the result of that processing (also a list of actions / events) will also be written
+	// the result of that processing (also a list of events) will also be written
 	// to the appropriate channel in workChans, from which the process() method moves them to the workItems buffer.
 	workChans workChans
 
@@ -48,7 +46,7 @@ type Node struct {
 
 	// Clients that this node considers to be part of the system.
 	// TODO: Generalize this to be part of a general "system state", along with the App state.
-	clients modules.Clients
+	clientTracker *clients.ClientTracker
 
 	// Channel for receiving status requests.
 	// A status request is itself represented as a channel,
@@ -72,10 +70,11 @@ func NewNode(
 		workChans: newWorkChans(),
 		modules:   modules,
 
-		clients: &clients.Clients{
-			RequestStore: modules.RequestStore,
-			Hasher:       modules.Hasher,
-		},
+		clientTracker: &clients.ClientTracker{},
+		//clients: &clients.Clients{
+		//	RequestStore: modules.RequestStore,
+		//	Hasher:       modules.Hasher,
+		//},
 
 		workItems:       NewWorkItems(),
 		workErrNotifier: newWorkErrNotifier(),
@@ -118,20 +117,21 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 // The Node assumes the message to be authenticated and it is the caller's responsibility
 // to make sure that msg has indeed been sent by source,
 // for example by using an authenticated communication channel (e.g. TLS) with the source node.
-func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
+func (n *Node) Step(ctx context.Context, source uint64, msg *messagepb.Message) error {
 
 	// Pre-process the incoming message and return an error if pre-processing fails.
-	err := preProcess(msg)
-	if err != nil {
-		return errors.WithMessage(err, "pre-processing message failed")
-	}
+	// TODO: Re-enable pre-processing.
+	//err := preProcess(msg)
+	//if err != nil {
+	//	return errors.WithMessage(err, "pre-processing message failed")
+	//}
 
-	// Create a Step event
-	e := (&statemachine.EventList{}).Step(source, msg)
+	// Create a MessageReceived event
+	e := (&events.EventList{}).PushBack(events.MessageReceived(source, msg))
 
 	// Enqueue event in a work channel to be handled by the processing thread.
 	select {
-	case n.workChans.externalEvents <- e:
+	case n.workChans.workItemInput <- e:
 		return nil
 	case <-n.workErrNotifier.ExitStatusC():
 		return n.workErrNotifier.Err()
@@ -141,23 +141,13 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 }
 
 // SubmitRequest submits a new client request to the Node.
-// clientID and reqNo uniquely identify the request the request.
+// clientID and reqNo uniquely identify the request.
 // data constitutes the (opaque) payload of the request.
 func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64, data []byte) error {
 
-	// TODO: Create a "curried" version of this function
-	//       with the client already looked up to avoid lookup on every request.
-	c := n.clients.Client(clientID)
-
-	// Insert the new request to the client module, generating events for further processing.
-	clEvents, err := c.Propose(reqNo, data)
-	if err != nil {
-		return err
-	}
-
 	// Enqueue the generated events in a work channel to be handled by the processing thread.
 	select {
-	case n.workChans.clientEvents <- clEvents:
+	case n.workChans.workItemInput <- (&events.EventList{}).PushBack(events.ClientRequest(clientID, reqNo, data)):
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -167,31 +157,59 @@ func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64,
 }
 
 // Run starts the Node.
-// It launches the processing of incoming messages, time ticks, and internal events.
+// First, loads the contents of the WAL and enqueues all its contents for processing.
+// This makes sure that the WAL events end up first in all the modules' processing queues.
+// Run then launches the processing of incoming messages, time ticks, and internal events.
 // The node stops when exitC is closed.
 // Logical time ticks need to be written to tickC by the calling code.
 // The function call is blocking and only returns when the node stops.
 func (n *Node) Run(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
-	// TODO: Get rid of ProcessAsNewNode and RestartProcessing.
-	//       Instead, check the WAL for potential necessary initialization here.
-	//       Perform recovery from the WAL here.
+	// Load the contents of the WAL and enqueue it for processing.
+	if err := n.processWAL(); err != nil {
+		n.workErrNotifier.Fail(err)
+		n.workErrNotifier.SetExitStatus(nil, fmt.Errorf("node not started"))
+		return fmt.Errorf("could not process WAL: %w", err)
+	}
 
+	// Start processing of events.
 	return n.process(exitC, tickC)
 }
 
+// Loads all events stored in the WAL and enqueues them in the node's processing queues.
+func (n *Node) processWAL() error {
+
+	// Create empty EventList to hold all the WAL events.
+	walEvents := &events.EventList{}
+
+	// Add all events from the WAL to the new EventList.
+	if err := n.modules.WAL.LoadAll(func(_ uint64, event *eventpb.Event) {
+		walEvents.PushBack(events.WALEntry(event))
+	}); err != nil {
+		return fmt.Errorf("could not load WAL events: %w", err)
+	}
+
+	// Enqueue all events to the workItems buffers.
+	if err := n.workItems.AddEvents(walEvents); err != nil {
+		return fmt.Errorf("could not enqueue WAL events for processing: %w", err)
+	}
+
+	// If we made it all the way here, no error occurred.
+	return nil
+}
+
 // Performs all internal work of the node,
-// which mostly consists of routing events and actions between the node's modules.
+// which mostly consists of routing events between the node's modules.
 // Stops and returns when exitC is closed.
 // Logical time ticks need to be written to tickC by the calling code.
 func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
 	var wg sync.WaitGroup // Synchronizes all the worker functions
-	defer wg.Wait()
+	defer wg.Wait()       // Watch out! If process() terminates unexpectedly (e.g. by panicking), this might get stuck!
 
 	// Start all worker functions in separate threads.
-	// Those functions mostly read actions/events from their respective channels in n.workChans,
-	// process them correspondingly, and write the results in the appropriate channels.
+	// Those functions mostly read events from their respective channels in n.workChans,
+	// process them correspondingly, and write the results (also represented as events) in the appropriate channels.
 	// Each workFunc reads a single work item, processes it and writes its results.
 	// The looping behavior is implemented in doUntilErr.
 	// TODO: Consider unifying the reading from and writing to channels
@@ -203,7 +221,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		n.doNetWork,
 		n.doAppWork,
 		n.doReqStoreWork,
-		n.doStateMachineWork,
+		n.doProtocolWork,
 	} {
 		// Each function is executed by a separate thread.
 		// The wg is waited on before n.process() returns.
@@ -214,103 +232,112 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		}(work)
 	}
 
-	// These variables hold the respective channels into which actions are written
-	// whenever actions are requested by the node's respective modules.
+	// These variables hold the respective channels into which events consumed by the respective modules are written.
 	// Those variables are set to nil by default, making any writes to them block,
-	// preventing them to be selected in the big select statement below.
-	// When there are outstanding actions (produced by som module) to be written in a workChan,
+	// preventing them from being selected in the big select statement below.
+	// When there are outstanding events to be written in a workChan,
 	// the workChan is saved in the corresponding channel variable, making it available to the select statement.
-	// When writing to the workChan (saved in one of these variables) is selected and the actions written,
-	// The variable is set to nil again until new actions are ready.
-	// This complicated construction is necessary to prevent writing empty action lists or nil values to the workChans
-	// when no actions are pending.
-	var walActionsC, clientActionsC, hashActionsC, netActionsC, appActionsC chan<- *statemachine.ActionList
+	// When writing to the workChan (saved in one of these variables) is selected and the events written,
+	// the variable is set to nil again until new events are ready.
+	// This complicated construction is necessary to prevent writing empty event lists to the workChans
+	// when no events are pending.
+	var (
+		walEvents,
+		clientEvents,
+		hashEvents,
+		netEvents,
+		appEvents,
+		reqStoreEvents,
+		protocolEvents chan<- *events.EventList
+	)
 
-	// Same as above for event channels.
-	var reqStoreEventsC, resultEventsC chan<- *statemachine.EventList
-
-	// This loop shovels actions and events between the appropriate channels, until a stopping condition is satisfied.
+	// This loop shovels events between the appropriate channels, until a stopping condition is satisfied.
 	for {
 
-		// Wait until any actions/events are ready and write them to the appropriate location.
+		// Wait until any events are ready and write them to the appropriate location.
 		select {
-		case resultEventsC <- n.workItems.ResultEvents():
-			n.workItems.ClearResultEvents()
-			resultEventsC = nil
-		case walActionsC <- n.workItems.WALActions():
-			n.workItems.ClearWALActions()
-			walActionsC = nil
-		case walResultsC := <-n.workChans.walResults:
-			n.workItems.AddWALResults(walResultsC)
-		case clientActionsC <- n.workItems.ClientActions():
-			n.workItems.ClearClientActions()
-			clientActionsC = nil
-		case hashActionsC <- n.workItems.HashActions():
-			n.workItems.ClearHashActions()
-			hashActionsC = nil
-		case netActionsC <- n.workItems.NetActions():
-			n.workItems.ClearNetActions()
-			netActionsC = nil
-		case appActionsC <- n.workItems.AppActions():
-			n.workItems.ClearAppActions()
-			appActionsC = nil
-		case reqStoreEventsC <- n.workItems.ReqStoreEvents():
-			n.workItems.ClearReqStoreEvents()
-			reqStoreEventsC = nil
-		case clientResults := <-n.workChans.clientEvents:
-			n.workItems.AddClientResults(clientResults)
-		case hashResults := <-n.workChans.hashResults:
-			n.workItems.AddHashResults(hashResults)
-		case netResults := <-n.workChans.netResults:
-			n.workItems.AddNetResults(netResults)
-		case appResults := <-n.workChans.appResults:
-			n.workItems.AddAppResults(appResults)
-		case reqStoreResults := <-n.workChans.reqStoreResults:
-			n.workItems.AddReqStoreResults(reqStoreResults)
-		case actions := <-n.workChans.resultResults:
-			n.workItems.AddActions(actions)
-		case stepEvents := <-n.workChans.externalEvents:
-			// TODO, once request forwarding works, we'll
-			// need to split this into the req store component
-			// and 'other' that goes into the result events.
-			n.workItems.ResultEvents().PushBackList(stepEvents)
+
+		// Write pending events to module input channels.
+		// This is also the only place events are (potentially) intercepted.
+		// Since only a single goroutine executes this loop, the exact sequence of the intercepted events
+		// can be replayed later.
+
+		case protocolEvents <- n.workItems.Protocol():
+			n.interceptEvents(n.workItems.ClearProtocol())
+			protocolEvents = nil
+		case walEvents <- n.workItems.WAL():
+			n.interceptEvents(n.workItems.ClearWAL())
+			walEvents = nil
+		case clientEvents <- n.workItems.Client():
+			n.interceptEvents(n.workItems.ClearClient())
+			clientEvents = nil
+		case hashEvents <- n.workItems.Hash():
+			n.interceptEvents(n.workItems.ClearHash())
+			hashEvents = nil
+		case netEvents <- n.workItems.Net():
+			n.interceptEvents(n.workItems.ClearNet())
+			netEvents = nil
+		case appEvents <- n.workItems.App():
+			n.interceptEvents(n.workItems.ClearApp())
+			appEvents = nil
+		case reqStoreEvents <- n.workItems.ReqStore():
+			n.interceptEvents(n.workItems.ClearReqStore())
+			reqStoreEvents = nil
+
+		// Add events produced by modules to the workItems buffers and handle logical time.
+
+		case clientOut := <-n.workChans.workItemInput:
+			if err := n.workItems.AddEvents(clientOut); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
+		case <-tickC:
+			if err := n.workItems.AddEvents((&events.EventList{}).PushBack(events.Tick())); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
+
+		// Handle termination of the node.
+
 		case <-n.workErrNotifier.ExitC():
 			return n.workErrNotifier.Err()
-		case <-tickC:
-			n.workItems.ResultEvents().TickElapsed()
 		case <-exitC:
 			n.workErrNotifier.Fail(ErrStopped)
 		}
 
-		// If any actions/results have been added to the work items,
+		// If any events have been added to the work items,
 		// update the corresponding channel variables accordingly.
 
-		if resultEventsC == nil && n.workItems.ResultEvents().Len() > 0 {
-			resultEventsC = n.workChans.resultEvents
+		if protocolEvents == nil && n.workItems.Protocol().Len() > 0 {
+			protocolEvents = n.workChans.protocol
 		}
-
-		if walActionsC == nil && n.workItems.WALActions().Len() > 0 {
-			walActionsC = n.workChans.walActions
+		if walEvents == nil && n.workItems.WAL().Len() > 0 {
+			walEvents = n.workChans.wal
 		}
-
-		if clientActionsC == nil && n.workItems.ClientActions().Len() > 0 {
-			clientActionsC = n.workChans.clientActions
+		if clientEvents == nil && n.workItems.Client().Len() > 0 {
+			clientEvents = n.workChans.clients
 		}
-
-		if hashActionsC == nil && n.workItems.HashActions().Len() > 0 {
-			hashActionsC = n.workChans.hashActions
+		if hashEvents == nil && n.workItems.Hash().Len() > 0 {
+			hashEvents = n.workChans.hash
 		}
-
-		if netActionsC == nil && n.workItems.NetActions().Len() > 0 {
-			netActionsC = n.workChans.netActions
+		if netEvents == nil && n.workItems.Net().Len() > 0 {
+			netEvents = n.workChans.net
 		}
-
-		if appActionsC == nil && n.workItems.AppActions().Len() > 0 {
-			appActionsC = n.workChans.appActions
+		if appEvents == nil && n.workItems.App().Len() > 0 {
+			appEvents = n.workChans.app
 		}
+		if reqStoreEvents == nil && n.workItems.ReqStore().Len() > 0 {
+			reqStoreEvents = n.workChans.reqStore
+		}
+	}
+}
 
-		if reqStoreEventsC == nil && n.workItems.ReqStoreEvents().Len() > 0 {
-			reqStoreEventsC = n.workChans.reqStoreEvents
+// If the interceptor module is present, passes events to it. Otherwise, does nothing.
+// If an error occurs passing events to the interceptor, notifies the node by means of the workErrorNotifier.
+func (n *Node) interceptEvents(events *events.EventList) {
+	if n.modules.Interceptor != nil {
+		// TODO: In case the size of follow-up events becomes significant, ignore them when intercepting
+		//       (this will probably be best implemented inside the interceptor).
+		if err := n.modules.Interceptor.Intercept(events); err != nil {
+			n.workErrNotifier.Fail(err)
 		}
 	}
 }

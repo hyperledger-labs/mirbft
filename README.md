@@ -46,6 +46,10 @@ The provided request dissemination method, however, does guarantee the availabil
 
 ## Design
 
+To be added very soon.
+
+<!---
+
 The high level structure of the MirBFT library
 is inspired by [etcdraft](https://github.com/etcd-io/etcd/tree/master/raft).
 The protocol logic is implemented as a state machine that is mutated by short-lived, non-blocking operations.
@@ -89,6 +93,7 @@ To increase performance, the user of the library may provide their own optimized
 ## Using Mir
  
 TODO: Refer to the sample application when it is integrated in this repository.
+--->
 
 ## Contributing
 

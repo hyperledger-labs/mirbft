@@ -21,7 +21,7 @@ var _ = Describe("Parsing", func() {
 		gzWriter := gzip.NewWriter(logBytes)
 		defer gzWriter.Close()
 
-		recorder := (&testengine.Spec{
+		recorder := (&legacy_testengine.Spec{
 			NodeCount:     4,
 			ClientCount:   4,
 			ReqsPerClient: 20,
@@ -101,7 +101,7 @@ var _ = Describe("Execution", func() {
 		gzWriter := gzip.NewWriter(logBytes)
 		defer gzWriter.Close()
 
-		recorder := (&testengine.Spec{
+		recorder := (&legacy_testengine.Spec{
 			NodeCount:     4,
 			ClientCount:   4,
 			ReqsPerClient: 20,

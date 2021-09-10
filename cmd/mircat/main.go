@@ -23,10 +23,10 @@ import (
 	"gopkg.in/alecthomas/kingpin.v2"
 
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
+	"github.com/hyperledger-labs/mirbft/pkg/legacy_statemachine"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/recording"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/state"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 )
 
@@ -103,7 +103,7 @@ type arguments struct {
 	input         io.ReadCloser
 	interactive   bool
 	printActions  bool
-	logLevel      statemachine.LogLevel
+	logLevel      legacy_statemachine.LogLevel
 	nodeIDs       []uint64
 	eventTypes    []string
 	notEventTypes []string
@@ -114,12 +114,12 @@ type arguments struct {
 }
 
 type namedLogger struct {
-	level  statemachine.LogLevel
+	level  legacy_statemachine.LogLevel
 	name   string
 	output io.Writer
 }
 
-func (nl namedLogger) Log(level statemachine.LogLevel, msg string, args ...interface{}) {
+func (nl namedLogger) Log(level legacy_statemachine.LogLevel, msg string, args ...interface{}) {
 	if level < nl.level {
 		return
 	}
@@ -144,19 +144,19 @@ func (nl namedLogger) Log(level statemachine.LogLevel, msg string, args ...inter
 }
 
 type stateMachines struct {
-	logLevel statemachine.LogLevel
+	logLevel legacy_statemachine.LogLevel
 	nodes    map[uint64]*stateMachine
 	output   io.Writer
 }
 
 // Wrapper for a state machine keeping track of pending actions and execution time.
 type stateMachine struct {
-	machine        *statemachine.StateMachine
-	pendingActions *statemachine.ActionList
+	machine        *legacy_statemachine.StateMachine
+	pendingActions *legacy_statemachine.ActionList
 	executionTime  time.Duration
 }
 
-func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMachines {
+func newStateMachines(output io.Writer, logLevel legacy_statemachine.LogLevel) *stateMachines {
 	return &stateMachines{
 		output:   output,
 		logLevel: logLevel,
@@ -169,7 +169,7 @@ func newStateMachines(output io.Writer, logLevel statemachine.LogLevel) *stateMa
 // the state machine when applying event.
 // For state.Event_ActionsReceived, returns all accumulated actions
 // produced since last state.Event_ActionsReceived event.
-func (s *stateMachines) apply(event *recording.Event) (result *statemachine.ActionList, err error) {
+func (s *stateMachines) apply(event *recording.Event) (result *legacy_statemachine.ActionList, err error) {
 	var node *stateMachine
 
 	// Select state machine to apply event to.
@@ -177,14 +177,14 @@ func (s *stateMachines) apply(event *recording.Event) (result *statemachine.Acti
 		// If the event is an initialization event, create a new state machine.
 		delete(s.nodes, event.NodeId)
 		node = &stateMachine{
-			machine: &statemachine.StateMachine{
+			machine: &legacy_statemachine.StateMachine{
 				Logger: namedLogger{
 					name:   fmt.Sprintf("node%d", event.NodeId),
 					output: s.output,
 					level:  s.logLevel,
 				},
 			},
-			pendingActions: &statemachine.ActionList{},
+			pendingActions: &legacy_statemachine.ActionList{},
 		}
 		s.nodes[event.NodeId] = node
 	} else {
@@ -219,7 +219,7 @@ func (s *stateMachines) apply(event *recording.Event) (result *statemachine.Acti
 	switch event.StateEvent.Type.(type) {
 	case *state.Event_ActionsReceived:
 		result := node.pendingActions
-		node.pendingActions = &statemachine.ActionList{}
+		node.pendingActions = &legacy_statemachine.ActionList{}
 		return result, nil
 	default:
 		return actions, nil
@@ -480,17 +480,17 @@ func parseArgs(args []string) (*arguments, error) {
 		return nil, errors.Errorf("cannot print actions for non-interactive playback")
 	}
 
-	mirLogLevel := statemachine.LevelInfo
+	mirLogLevel := legacy_statemachine.LevelInfo
 
 	switch *logLevel {
 	case "debug":
-		mirLogLevel = statemachine.LevelDebug
+		mirLogLevel = legacy_statemachine.LevelDebug
 	case "info":
-		mirLogLevel = statemachine.LevelInfo
+		mirLogLevel = legacy_statemachine.LevelInfo
 	case "warn":
-		mirLogLevel = statemachine.LevelWarn
+		mirLogLevel = legacy_statemachine.LevelWarn
 	case "error":
-		mirLogLevel = statemachine.LevelError
+		mirLogLevel = legacy_statemachine.LevelError
 	}
 
 	return &arguments{
