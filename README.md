@@ -2,12 +2,31 @@
 The implementation for  [Mir-BFT: High-Throughput Robust BFT for Decentralized Networks
 ](https://arxiv.org/abs/1906.05552) paper.
 
-**DISCLAIMER**: The deployment has been tested on machines running Ubuntu 18.04
+ The deployment has been tested on machines running Ubuntu 18.04
 
 ## Local Deployment
-### Dependencies
+Create a GOPATH directory and make sure you are the owner of it:
 
-Go to the deployment directory:
+`sudo mkdir -p /opt/gopath/`
+
+`sudo chown -R $user:$group  /opt/gopath/`
+
+where `$user` and `$group` your user and group respectively.
+
+Create a directory to clone the repository into:
+
+`mkdir -p /opt/gopath/src/github.com/IBM/`
+
+Clone this repository unter the directory you created:
+
+`cd /opt/gopath/src/github.com/IBM/`.
+
+`git clone https://github.com/hyperledger-labs/mirbft.git`
+
+Checkout the`research` branch.
+
+### Dependencies
+With `/opt/gopath/src/github.com/IBM/mirbft` as working directory, go to the deployment directory:
 
 `cd deployment`
 
@@ -15,18 +34,14 @@ Configure the `user` and `group` in `vars.sh`
 
 To install Golang and requirements: 
 
-`./install-local.sh`
+`source install-local.sh`
 
-**DISCLAIMER**: The `./install-local.sh` script, among other dependencies, installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.profile`.
+**DISCLAIMER**: The `./install-local.sh` script, among other dependencies, installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.bashrc`.
 
 The default path to the repository is set to: `/opt/gopath/src/github.com/IBM/mirbft/`.
 
 
 ### Installation
-
-Clone this repository under `/opt/gopath/src/github.com/IBM/`.
-
-Checkout the`research` branch.
 
 Build the protobufs with `/opt/gopath/src/github.com/IBM/mirbft` as working directory:
 
@@ -34,13 +49,13 @@ Build the protobufs with `/opt/gopath/src/github.com/IBM/mirbft` as working dire
 
 To compile the server:
 
-`cd server`
+`cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
 `go build`
 
 To compile the client:
 
-`cd client`
+`cd /opt/gopath/src/github.com/IBM/mirbft/client`
 
 `go build`
 
@@ -54,7 +69,7 @@ To start locally a setup with 4 server and 1 client:
 
 On each server:
 
-`cd server`
+`cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
 `./server ../sampleconfig/serverconfig/config$id.yml server$id`
 where `$id` is `1 2 3 4` for each of the 4 server.
@@ -64,7 +79,7 @@ The first argument is the path to the server configuration and the second argume
 
 On the client:
 
-`cd client`
+`cd /opt/gopath/src/github.com/IBM/mirbft/client`
 
 `./client ../sampleconfig/clientconfig/4peer-config.yml client`
 
@@ -75,13 +90,13 @@ Again, the first argument is the path to the server configuration and the second
 
 On the server:
 
-`cd server`
+`cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
 `./server ../sampleconfig/serverconfig/config.yml server`
 
 On the client:
 
-`cd client`
+`cd /opt/gopath/src/github.com/IBM/mirbft/client`
 
 `./client ../sampleconfig/clientconfig/1peer-config.yml client`
 
@@ -104,20 +119,21 @@ Run `config-gen.sh` to generate certificates and configuration files:
 
 On each server:
 
-`cd server`
+`cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
 `./server ../deployment/config/serverconfig/config_server$id.yml server$id` where `$id` is `1..N`.
 
 On each client:
 
-`cd client`
+`cd /opt/gopath/src/github.com/IBM/mirbft/client`
 
 `./client ../deployment/config/clientconfig/config_client1.yml client$id` where `$id` is `1..C`.
 
 
 ## Remote Deployment
+Change working directory to `/opt/gopath/src/github.com/IBM/mirbft/deployment`
 
-First, add information for your cloud setup `cloud-instance.info` file.
+Add information for your cloud setup `cloud-instance.info` file.
  
 Each line must have the following format:
 
@@ -162,7 +178,7 @@ Each server (node) has:
  * a certificate: `server.pem`
  * 2 listening ports: `server-to-server-port`, `server-to-client-port` such that `server-to-client-port`=`server-to-server-port+2`
  
- Comments in `sampleconfig/serverconfig/config*.yml` files describe how to configure a server.
+ Comments in `/opt/gopath/src/github.com/IBM/mirbft/sampleconfig/serverconfig/config*.yml` files describe how to configure a server.
  
  Please bare in mind:
  
@@ -185,7 +201,7 @@ Each server (node) has:
     * make sure the port number `server-to-server-port` matches the port number in the `self` section of each server.
  
 ### Client configuration
- Comments in `sampleconfig/serverconfig/config*.yml` files describe how to configure a server.
+ Comments in `/opt/gopath/src/github.com/IBM/mirbft/sampleconfig/clientconfig/*peer-config.yml` files describe how to configure a client.
 
  In `servers` section:
  * `addresses`:
@@ -218,7 +234,7 @@ Each machine (server, client):
 
 The following steps need to be followed for each experiment run:
 
-1. Add the servers and clients of the experiment  in `deployment/cloud-instance.info`.
+1. Add the servers and clients of the experiment  in `/opt/gopath/src/github.com/IBM/mirbft/deployment/cloud-instance.info`.
     * If the experiment is run locally, skip this step.
 2. Edit the experiment specific parameters in configuration template files under `deployment/config-file-templates`
 3. Run `config-gen.sh` to generate TLS certificates and configuration files for servers and clients.
@@ -246,7 +262,7 @@ Configure the servers with the parameters in `Byzantine behavior` section of the
 In `Byzantine behavior` section, set `byzantineDuplication` to true.
 
 ### Performance Evaluation Tool
-Performance evaluation metrics *throughput* and *latency* can be calculated with the `tools/perf-eval.py` with the logs generated by the `server/server` and traces generated by the `client/client` binaries.
+Performance evaluation metrics *throughput* and *latency* can be calculated with the `/opt/gopath/src/github.com/IBM/mirbft/tools/perf-eval.py` with the logs generated by the `/opt/gopath/src/github.com/IBM/mirbft/server/server` and traces generated by the `/opt/gopath/src/github.com/IBM/mirbft/client/client` binaries.
 
 The script should be called as follows:
 `python tools/perf-eval.py n m [server_1.out ... server_m.out] [client_001.trc ... client_m.trc] x y`
