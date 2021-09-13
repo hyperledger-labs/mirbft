@@ -189,6 +189,7 @@ Each server (node) has:
  * `watermarkDist`: should be also greater than or equal to the number of nodes.
  * `bucketRotationPeriod`: should be greater than or equal to `watermarkDist`
  * `clientWatermarkDist`: should be set to a very large value to allow few clients saturate throughput. Otherwise the setup would require many client machines.
+ * `serverConnectionBuffer`: might need to be increased for large deployments to allow enough time to all servers to connect to each other
 
  In `self` section:
  * `listen` should always be set to `"0.0.0.0:server-to-server-port"`
@@ -268,8 +269,8 @@ The script should be called as follows:
 `python tools/perf-eval.py n m [server_1.out ... server_m.out] [client_001.trc ... client_m.trc] x y`
 * `n`: the number of server log files
 * `m`: the number of client log files
-* `[server_1.out ... server_m.out]`: list of server log files
-* `[client_001.trc ... client_m.trc]`: list of client trace files
+* `[server_1.out ... server_m.out]`: list of server *log* files
+* `[client_001.trc ... client_m.trc]`: list of client *trace* files
 * `x`: number of requests to ignore at the beginning of the experiment for throughput calculation
 * `y`: number of requests to ignore at the end of the experiment for throughput calculation
 
@@ -282,3 +283,5 @@ Throughput: #### r/s
 Requests: ####
 ```
 Moreover the script generates a file `latency.out` with latency CDF.
+
+**IMPORTANT: The evaluation script works only with python 2**

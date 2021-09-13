@@ -34,6 +34,8 @@ requestSize: 500
 requestsPerClientCore: 0
 
 useTLS: true                          # Use TLS for both peer-to-peer and client-to-peer communication
+serverConnectionBuffer: 2             # Number of seconds the servers need to wait for each-other to establish all connections
+
 self:
   listen: "0.0.0.0:8023"
   caCertFile: "/opt/gopath/src/github.com/IBM/mirbft/sampleconfig/certs/ecdsa/ca.pem"
