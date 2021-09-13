@@ -10,44 +10,53 @@ C=$(grep -c client cloud-instance.info)
 
 . vars.sh
 
-for p in $clients; do
-    pub=$(getIP $p)
-    scp $ssh_options run-client.sh $user@$pub:
-    ssh $user@$pub $ssh_options "source run-client.sh"
-done
+if [ "$1" = "--copy-only" ] || [ "$1" = "-c" ]; then
+  copy_only=true
+  shift
+else
+  copy_only=false
+fi
 
-for p in $servers; do
-    pub=$(getIP $p)
-    scp $ssh_options run-server.sh $user@$pub:
-    scp $ssh_options stop.sh $user@$pub:
-done
-
-for p in $servers; do
-    pub=$(getIP $p)
-    ssh $user@$pub $ssh_options "source run-server.sh" &
-done
-
-ready="0"
-while [ $ready -lt $C ]; do
+if [ "$copy_only" = "false" ]; then
     for p in $clients; do
         pub=$(getIP $p)
-        scp $ssh_options $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/client/STATUS.sh .
-        . STATUS.sh
-        echo $p $status
-        if [ "$status" = "FINISHED" ]; then
-            ready=$[$ready+1]
-        fi
+        scp $ssh_options run-client.sh $user@$pub:
+        ssh $user@$pub $ssh_options "source run-client.sh"
     done
-    if [ $ready -lt $C ]; then
-        ready="0"
-    fi
-    echo "Experiment still running"
-    sleep 5
-done
 
-rm STATUS.sh
+    for p in $servers; do
+        pub=$(getIP $p)
+        scp $ssh_options run-server.sh $user@$pub:
+        scp $ssh_options stop.sh $user@$pub:
+    done
 
-echo "All clients finished"
+    for p in $servers; do
+        pub=$(getIP $p)
+        ssh $user@$pub $ssh_options "source run-server.sh  > /dev/null 2>&1 & " &
+    done
+
+    ready="0"
+    while [ $ready -lt $C ]; do
+        for p in $clients; do
+            pub=$(getIP $p)
+            scp $ssh_options $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/client/STATUS.sh .
+            . STATUS.sh
+            echo $p $status
+            if [ "$status" = "FINISHED" ]; then
+                ready=$[$ready+1]
+            fi
+        done
+        if [ $ready -lt $C ]; then
+            ready="0"
+        fi
+        echo "Experiment still running"
+        sleep 5
+    done
+
+    rm STATUS.sh
+
+    echo "All clients finished"
+fi
 
 mkdir -p experiment-output
 
@@ -62,7 +71,11 @@ echo "All servers stopped, server log files are copied in deployment/experiment-
 for p in $clients; do
     pub=$(getIP $p)
     scp $ssh_options $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/client/client.out experiment-output/$p.out
-    scp $ssh_options $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/client/*trc experiment-output
+    if ssh $user@$pub $ssh_options stat /opt/gopath/src/github.com/IBM/mirbft/client/*trc \> /dev/null 2\>\&1; then
+        scp -r $ssh_options $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/client/*trc experiment-output
+    else
+        echo "Client trace file does not exist. Client $p did not finish gracefully."
+    fi
 done
 
-echo "All servers stopped, client trace and log files are copied in deployment/experiment-output/"
+echo "All clients stopped, client trace and log files are copied in deployment/experiment-output/"
