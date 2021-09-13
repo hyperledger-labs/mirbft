@@ -5,9 +5,10 @@ go 1.15
 replace github.com/hyperledger-labs/mirbft => ../../github.com/matejpavlovic/mirbft
 
 require (
+	github.com/DataDog/zstd v1.4.1 // indirect
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
-	github.com/dgraph-io/badger/v2 v2.2007.2
+	github.com/dgraph-io/badger/v2 v2.2007.4
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/onsi/ginkgo v1.8.0
 	github.com/onsi/gomega v1.5.0
