@@ -30,6 +30,7 @@ import (
 	"github.com/IBM/mirbft/persist"
 	"github.com/IBM/mirbft/tracing"
 	"github.com/op/go-logging"
+	"time"
 )
 
 const numRequestCount = 0
@@ -273,6 +274,8 @@ func StartServer(outFilePrefix string, txNo int) {
 	// Wait for all the connections to be established
 	// TODO: See if we can catch the event of completion of peer-to-peer connection establishment
 	system.wg.Wait()
+
+	time.Sleep(time.Duration(config.Config.ServerConnectionBuffer) * time.Second)
 
 	go managerDispatcher.RunManager()
 	go requestHandlingDispatcher.RunRequestProcessor()
