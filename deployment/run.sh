@@ -70,9 +70,16 @@ echo "All servers stopped, server log files are copied in deployment/experiment-
 
 for p in $clients; do
     pub=$(getIP $p)
-    scp $ssh_options $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/client/client.out experiment-output/$p.out
-    if ssh $user@$pub $ssh_options stat /opt/gopath/src/github.com/IBM/mirbft/client/*trc \> /dev/null 2\>\&1; then
-        scp -r $ssh_options $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/client/*trc experiment-output
+    if ssh $user@$pub $ssh_options stat /opt/gopath/src/github.com/IBM/mirbft/client/client.out \> /dev/null 2\>\&1; then
+        scp $ssh_options $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/client/client.out experiment-output/$p.out
+    else
+        echo "Client log file does not exist. Client $p did not start."
+    fi
+    clientNum="${p:6}"
+    clientNum=$((clientNum-1))
+    traceFileSufix=$(printf %03d $clientNum)
+    if ssh $user@$pub $ssh_options stat /opt/gopath/src/github.com/IBM/mirbft/client/client-$traceFileSufix.trc \> /dev/null 2\>\&1; then
+        scp -r $ssh_options $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/client/client-$traceFileSufix.trc experiment-output
     else
         echo "Client trace file does not exist. Client $p did not finish gracefully."
     fi
