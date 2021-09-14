@@ -146,10 +146,13 @@ def main(argv):
     f = open("latency.out", "w")
     for i in range(len(latency)):
         f.write(str(latency[i])+" "+str(float(i)/(len(latency)))+"\n")
-    latency_avg = np.mean(latency)
-    print "End to end latency: " + str(latency_avg) + " ms"
-    rate_avg = np.mean(rate)
-    print "Average request rate per client: " + str(rate_avg) + " r/s"
+    if len(latency)>0:
+        latency_avg = np.mean(latency)
+        print "End to end latency: " + str(latency_avg) + " ms"
+        rate_avg = np.mean(rate)
+        print "Average request rate per client: " + str(rate_avg) + " r/s"
+
+
 
     if len(delivery) > 0:
         delivery.sort()
