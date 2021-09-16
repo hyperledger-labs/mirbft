@@ -61,11 +61,13 @@ def main(argv):
     for i in range(clients):
         clientLogs.append(argv[2+servers+i])
     offset = 0 # from where to start
-    tail = 1 # how many to omit
+    tail = 0 # how many to omit
     if len(argv) > servers+clients+2 :
-        offset = int(argv[servers+clients+2])
+        if int(argv[servers+clients+2]) > 0:
+            offset = int(argv[servers+clients+2])
     if len(argv) > servers+clients+3 :
-        tail = int(argv[servers+clients+3])
+        if int(argv[servers+clients+3]) > 0:
+            tail = int(argv[servers+clients+3])
     transactions = {}
     blocks = {}
     for sl in serverLogs:
@@ -149,6 +151,7 @@ def main(argv):
     if len(latency)>0:
         latency_avg = np.mean(latency)
         print "End to end latency: " + str(latency_avg) + " ms"
+    if len(rate)>0:
         rate_avg = np.mean(rate)
         print "Average request rate per client: " + str(rate_avg) + " r/s"
 
@@ -156,13 +159,20 @@ def main(argv):
 
     if len(delivery) > 0:
         delivery.sort()
-        delivery = delivery[offset:0-tail]
-        thr = float(len(delivery))/(delivery[-1]-delivery[0]).total_seconds()
-        print "Experiment duration: "+str((delivery[-1]-delivery[0]).total_seconds())+" s"
-        print "Throughput: " + str(thr)  + " r/s"
+        if len(serverLogs) < len(delivery):
+            delivery = delivery[len(serverLogs):len(delivery)]
+        if (tail + offset + 1) < len(delivery):
+            delivery = delivery[offset:len(delivery)-tail]
+        else:
+            print "Too many requests removed"
+        duration = (delivery[-1]-delivery[0]).total_seconds()
+        if duration <= 0 :
+            print "Too many requests removed"
+        else:
+            thr = float(len(delivery))/duration
+            print "Experiment duration: "+str(duration)+" s"
+            print "Throughput: " + str(thr)  + " r/s"
         print "Requests: " + str(len(delivery))
-    # inst_thr = np.mean(throughput)
-    # print "Avg instant throughput: " + str(inst_thr)  + " tps"
 
 if __name__ == "__main__":
     main(sys.argv[1:])
