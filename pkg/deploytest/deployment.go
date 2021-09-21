@@ -8,7 +8,6 @@ package deploytest
 
 import (
 	"context"
-	"crypto"
 	"encoding/binary"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
@@ -16,7 +15,6 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/logger"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/ordering"
-	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 	"os"
@@ -183,16 +181,11 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 		tr.ID,
 		tr.Config,
 		&modules.Modules{
-			Net:          tr.FakeTransport.Link(tr.ID),
-			Hasher:       crypto.SHA256,
-			RequestStore: reqstore.NewVolatileRequestStore(),
-			App:          tr.App,
-			WAL:          wal,
-			Interceptor:  interceptor,
-			Protocol:     ordering.NewDummyProtocol(tr.Config.Logger, tr.Membership, tr.ID),
-			//StateMachine: &statemachine.StateMachine{
-			//	Logger: mirbft.LogAdapter{Logger: tr.Config.Logger},
-			//},
+			Net:         tr.FakeTransport.Link(tr.ID),
+			App:         tr.App,
+			WAL:         wal,
+			Protocol:    ordering.NewDummyProtocol(tr.Config.Logger, tr.Membership, tr.ID),
+			Interceptor: interceptor,
 		},
 	)
 	Expect(err).NotTo(HaveOccurred())
