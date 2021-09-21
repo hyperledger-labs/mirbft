@@ -10,7 +10,6 @@ package mirbft
 
 import (
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/clients"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
@@ -122,7 +121,7 @@ func (n *Node) doClientWork(exitC <-chan struct{}) error {
 	}
 
 	// Process events.
-	outputEvents, err := processClientEvents(n.clientTracker, inputEvents)
+	outputEvents, err := processClientEvents(n.modules.ClientTracker, inputEvents)
 	if err != nil {
 		return errors.WithMessage(err, "could not process client events")
 	}
@@ -361,7 +360,7 @@ func processWALEvents(wal modules.WAL, eventsIn *events.EventList) (*events.Even
 	return eventsOut, nil
 }
 
-func processClientEvents(c *clients.ClientTracker, eventsIn *events.EventList) (*events.EventList, error) {
+func processClientEvents(c modules.ClientTracker, eventsIn *events.EventList) (*events.EventList, error) {
 
 	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
@@ -525,7 +524,8 @@ func safeApplySMEvent(sm modules.Protocol, event *eventpb.Event) (result *events
 	return sm.ApplyEvent(event), nil
 }
 
-func safeApplyClientEvent(c *clients.ClientTracker, event *eventpb.Event) (result *events.EventList, err error) {
+func safeApplyClientEvent(c modules.ClientTracker, event *eventpb.Event) (result *events.EventList, err error) {
+
 	defer func() {
 		if r := recover(); r != nil {
 			if rErr, ok := r.(error); ok {

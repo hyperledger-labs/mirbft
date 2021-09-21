@@ -4,43 +4,66 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-// TODO: Write comments and factor out the modules in this file in their proper files.
-
 // Package modules provides interfaces of modules that serve as building blocks of a Node.
 // Implementations of those interfaces are not contained by this package
 // and are expected to be provided by other packages.
 package modules
 
 import (
-	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
-	"hash"
+	"crypto"
+	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/clients"
+	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
 )
 
 // The Modules structs groups the modules a Node consists of.
 type Modules struct {
-	Net          Net
-	Hasher       Hasher
-	App          App
-	WAL          WAL
-	RequestStore RequestStore
-	Protocol     Protocol
-	Interceptor  EventInterceptor
+	Net           Net              // Sends messages produced by MirBFT through the network.
+	Hasher        Hasher           // Computes hashes of requests and other data.
+	App           App              // Implements user application logic. The user is expected to provide this module.
+	WAL           WAL              // Implements a persistent write-ahead log for the case of crashes and restarts.
+	ClientTracker ClientTracker    // Keeps the state related to clients and validates submitted requests.
+	RequestStore  RequestStore     // Provides persistent storage for request data.
+	Protocol      Protocol         // Implements the logic of the distributed protocol.
+	Interceptor   EventInterceptor // Intercepts and logs all internal _Events_ for debugging purposes.
 }
 
-type Hasher interface {
-	New() hash.Hash
-}
+// Defaults takes a Modules object (as a value, not a pointer to it) and returns a pointer to a new Modules object
+// with default modules inserted in fields where no module has been specified.
+func Defaults(m Modules) (*Modules, error) {
+	if m.Net == nil {
+		// TODO: Change this when a Net implementation exists.
+		panic("no default Net implementation")
+	}
 
-// The Net module provides a simple abstract interface for sending messages to other nodes.
-type Net interface {
-	Send(dest uint64, msg *messagepb.Message)
-}
+	if m.Hasher == nil {
+		m.Hasher = crypto.SHA256
+	}
 
-type WAL interface {
-	Write(index uint64, entry *eventpb.Event) error
-	Append(entry *eventpb.Event) error
-	Truncate(index uint64) error
-	Sync() error
-	LoadAll(forEach func(index uint64, p *eventpb.Event)) error
+	if m.App == nil {
+		return nil, fmt.Errorf("no default App implementation")
+	}
+
+	if m.WAL == nil {
+		// TODO: Use some default configuration of SimpleWAL here.
+		return nil, fmt.Errorf("no default WAL implementation")
+	}
+
+	if m.ClientTracker == nil {
+		// TODO: Change this to the real default client tracker once implemented.
+		m.ClientTracker = &clients.DummyClientTracker{}
+	}
+
+	if m.RequestStore == nil {
+		m.RequestStore = reqstore.NewVolatileRequestStore()
+	}
+
+	if m.Protocol == nil {
+		// TODO: Use default protocol once implemented.
+		return nil, fmt.Errorf("no default protocol implementation")
+	}
+
+	// The Interceptor can stay nil, in which case Events will simply not be intercepted.
+
+	return &m, nil
 }

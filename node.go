@@ -9,7 +9,6 @@ package mirbft
 import (
 	"context"
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/clients"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
@@ -44,10 +43,6 @@ type Node struct {
 	// Used to synchronize the exit of the node's worker go routines.
 	workErrNotifier *workErrNotifier
 
-	// Clients that this node considers to be part of the system.
-	// TODO: Generalize this to be part of a general "system state", along with the App state.
-	clientTracker *clients.ClientTracker
-
 	// Channel for receiving status requests.
 	// A status request is itself represented as a channel,
 	// to which the state machine status needs to be written once the status is obtained.
@@ -61,20 +56,22 @@ type Node struct {
 func NewNode(
 	id uint64,
 	config *NodeConfig,
-	modules *modules.Modules,
+	m *modules.Modules,
 ) (*Node, error) {
+
+	// Create default modules for those not specified by the user.
+	modulesWithDefaults, err := modules.Defaults(*m)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Node.
 	return &Node{
 		ID:     id,
 		Config: config,
 
 		workChans: newWorkChans(),
-		modules:   modules,
-
-		clientTracker: &clients.ClientTracker{},
-		//clients: &clients.Clients{
-		//	RequestStore: modules.RequestStore,
-		//	Hasher:       modules.Hasher,
-		//},
+		modules:   modulesWithDefaults,
 
 		workItems:       NewWorkItems(),
 		workErrNotifier: newWorkErrNotifier(),
@@ -83,16 +80,16 @@ func NewNode(
 	}, nil
 }
 
-// Status returns a static snapshot in time of the internal state of the state machine.
-// This method necessarily exposes some of the internal architecture of the system, and
-// especially while the library is in development, the data structures may change substantially.
-// This method returns a nil status and an error if the context ends. If the serializer go routine
-// exits for any other reason, then a best effort is made to return the last (and final) status.
-// This final status may be relied upon if it is non-nil. If the serializer exited at the user's
-// request (because the done channel was closed), then ErrStopped is returned.
+// Status returns a static snapshot in time of the internal state of the Node.
+// TODO: Currently a call to Status blocks until the node is stopped, as obtaining status is not yet implemented.
+//       Also change the return type to be a protobuf object that contains a field for each module
+//       with module-specific contents.
 func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 
-	//
+	// Submit status request for processing by the process() function.
+	// A status request is represented as a channel  to which the state machine status needs to be written
+	// once the status is obtained.
+	// Return an error if the node shuts down before the request is read or if the context ends.
 	statusC := make(chan *status.StateMachine, 1)
 	select {
 	case <-ctx.Done():
@@ -102,6 +99,8 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 	case n.statusC <- statusC:
 	}
 
+	// Read the obtained status and return it.
+	// Return an error if the node shuts down before the request is read or if the context ends.
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()

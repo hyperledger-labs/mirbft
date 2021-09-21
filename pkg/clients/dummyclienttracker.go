@@ -15,12 +15,12 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 )
 
-type ClientTracker struct {
+type DummyClientTracker struct {
 }
 
 // ApplyEvent processes an event incoming to the ClientTracker module
 // and produces a (potentially empty) list of new events to be processed by the node.
-func (ct *ClientTracker) ApplyEvent(event *eventpb.Event) *events.EventList {
+func (ct *DummyClientTracker) ApplyEvent(event *eventpb.Event) *events.EventList {
 	switch e := event.Type.(type) {
 
 	case *eventpb.Event_Request:
@@ -54,7 +54,7 @@ func (ct *ClientTracker) ApplyEvent(event *eventpb.Event) *events.EventList {
 }
 
 // TODO: Implement and document.
-func (ct *ClientTracker) Status() (s *status.StateMachine, err error) {
+func (ct *DummyClientTracker) Status() (s *status.StateMachine, err error) {
 	return nil, nil
 }
 
