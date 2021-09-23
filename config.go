@@ -17,7 +17,7 @@ type NodeConfig struct {
 	// Logger provides the logging functions.
 	Logger logger.Logger
 
-	// BufferSize is the total size of messages which can be held by the state
+	// BufferSize is the total size of messages which can be held by the protocol state
 	// machine, pending application, for each node. This is necessary because
 	// there may be dependencies between messages (for instance, until a checkpoint
 	// result is computed, watermarks cannot advance). This should be set
