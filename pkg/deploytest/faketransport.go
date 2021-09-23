@@ -29,6 +29,13 @@ func (fl *FakeLink) Send(dest uint64, msg *messagepb.Message) {
 	fl.FakeTransport.Send(fl.Source, dest, msg)
 }
 
+func (fl *FakeLink) Receive(stopChan <-chan struct{}) (source uint64, msg *messagepb.Message, err error) {
+	// FakeLink does not support receiving messages, those need to be received by the user code directly
+	// From FakeTransport (using RecvC) and injected manually in the Node (using Node.Step).
+	<-stopChan
+	return 0, nil, nil
+}
+
 type FakeTransport struct {
 	// Buffers is source x dest
 	Buffers   [][]chan *messagepb.Message
