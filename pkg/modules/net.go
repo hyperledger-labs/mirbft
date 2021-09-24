@@ -8,6 +8,18 @@ package modules
 
 import "github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 
+// ReceivedMessage represents a message received over the network.
+// This is the type of structures written to the channel returned by Net.ReceiveChan().
+type ReceivedMessage struct {
+
+	// Numeric ID of the node that sent the message.
+	// Since the message is already authenticated by the Net module implementation, this information can be relied on.
+	Sender uint64
+
+	// The received message itself.
+	Msg *messagepb.Message
+}
+
 // The Net module provides a simple abstract interface for sending messages to and receiving messages from other nodes.
 // It abstracts away all network-related data and only deals with abstract numeric node IDs of senders and receivers
 // at the interface. The messages returned from the Receive() must be (the library assumes them to be) authenticated.
@@ -22,14 +34,9 @@ type Net interface {
 
 	// Send sends msg to the node with ID dest.
 	// Concurrent calls to Send are not (yet? TODO) supported.
-	Send(dest uint64, msg *messagepb.Message)
+	Send(dest uint64, msg *messagepb.Message) error
 
-	// Receive blocks until a message is received by the Net module and returns
-	// the numeric ID of the sender and the message itself.
-	// If an error occurs, Receive() returns (0, nil, non-nil error).
-	// Receive() can be interrupted by closing stopChan, in which case it returns immediately.
-	// In this case, it may either return a sender ID and a non-nil message
-	// (if a message arrived concurrently with closing stopChan),
-	// or (more probably) the tuple (0, nil, nil).
-	Receive(stopChan <-chan struct{}) (source uint64, msg *messagepb.Message, err error)
+	// ReceiveChan returns a channel to which the Net module writes all received messages and sender IDs
+	// (Both the message itself and the sender ID are part of the ReceivedMessage struct.)
+	ReceiveChan() <-chan ReceivedMessage
 }

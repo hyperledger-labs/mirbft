@@ -11,42 +11,41 @@ package deploytest
 
 import (
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"sync"
 )
 
-type SourceMsg struct {
-	Source uint64
-	Msg    *messagepb.Message
-}
+//type SourceMsg struct {
+//	Source uint64
+//	Msg    *messagepb.Message
+//}
 
 type FakeLink struct {
 	FakeTransport *FakeTransport
 	Source        uint64
 }
 
-func (fl *FakeLink) Send(dest uint64, msg *messagepb.Message) {
+func (fl *FakeLink) Send(dest uint64, msg *messagepb.Message) error {
 	fl.FakeTransport.Send(fl.Source, dest, msg)
+	return nil
 }
 
-func (fl *FakeLink) Receive(stopChan <-chan struct{}) (source uint64, msg *messagepb.Message, err error) {
-	// FakeLink does not support receiving messages, those need to be received by the user code directly
-	// From FakeTransport (using RecvC) and injected manually in the Node (using Node.Step).
-	<-stopChan
-	return 0, nil, nil
+func (fl *FakeLink) ReceiveChan() <-chan modules.ReceivedMessage {
+	return fl.FakeTransport.NodeSinks[fl.Source]
 }
 
 type FakeTransport struct {
 	// Buffers is source x dest
 	Buffers   [][]chan *messagepb.Message
-	NodeSinks []chan SourceMsg
+	NodeSinks []chan modules.ReceivedMessage
 	WaitGroup sync.WaitGroup
 	DoneC     chan struct{}
 }
 
 func NewFakeTransport(nodes int) *FakeTransport {
 	buffers := make([][]chan *messagepb.Message, nodes)
-	nodeSinks := make([]chan SourceMsg, nodes)
+	nodeSinks := make([]chan modules.ReceivedMessage, nodes)
 	for i := 0; i < nodes; i++ {
 		buffers[i] = make([]chan *messagepb.Message, nodes)
 		for j := 0; j < nodes; j++ {
@@ -55,7 +54,7 @@ func NewFakeTransport(nodes int) *FakeTransport {
 			}
 			buffers[i][j] = make(chan *messagepb.Message, 10000)
 		}
-		nodeSinks[i] = make(chan SourceMsg)
+		nodeSinks[i] = make(chan modules.ReceivedMessage)
 	}
 
 	return &FakeTransport{
@@ -80,7 +79,7 @@ func (ft *FakeTransport) Link(source uint64) *FakeLink {
 	}
 }
 
-func (ft *FakeTransport) RecvC(dest uint64) <-chan SourceMsg {
+func (ft *FakeTransport) RecvC(dest uint64) <-chan modules.ReceivedMessage {
 	return ft.NodeSinks[int(dest)]
 }
 
@@ -100,8 +99,8 @@ func (ft *FakeTransport) Start() {
 					case msg := <-buffer:
 						// fmt.Printf("Sending message from %d to %d\n", i, j)
 						select {
-						case ft.NodeSinks[j] <- SourceMsg{
-							Source: uint64(i),
+						case ft.NodeSinks[j] <- modules.ReceivedMessage{
+							Sender: uint64(i),
 							Msg:    msg,
 						}:
 						case <-ft.DoneC:
