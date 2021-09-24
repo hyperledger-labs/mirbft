@@ -169,11 +169,12 @@ func (n *Node) doHashWork(exitC <-chan struct{}) error {
 	return nil
 }
 
-// Reads a single list of send events from the corresponding work channel and processes its contents.
+// Reads a single list of send events from the corresponding work channel and processes its contents
+// by sending the contained messages over the network.
 // If any events are generated for further processing,
 // writes a list of those events to the corresponding work channel.
 // If exitC is closed, returns ErrStopped.
-func (n *Node) doNetWork(exitC <-chan struct{}) error {
+func (n *Node) doSendingWork(exitC <-chan struct{}) error {
 	var eventsIn *events.EventList
 
 	// Read input.
@@ -184,7 +185,7 @@ func (n *Node) doNetWork(exitC <-chan struct{}) error {
 	}
 
 	// Process events.
-	eventsOut, err := processNetEvents(n.ID, n.modules.Net, eventsIn)
+	eventsOut, err := processSendEvents(n.ID, n.modules.Net, eventsIn)
 	if err != nil {
 		return errors.WithMessage(err, "could not process net events")
 	}
@@ -405,7 +406,7 @@ func processHashEvents(hasher modules.Hasher, eventsIn *events.EventList) (*even
 	return eventsOut, nil
 }
 
-func processNetEvents(selfID uint64, net modules.Net, eventsIn *events.EventList) (*events.EventList, error) {
+func processSendEvents(selfID uint64, net modules.Net, eventsIn *events.EventList) (*events.EventList, error) {
 	eventsOut := &events.EventList{}
 
 	iter := eventsIn.Iterator()

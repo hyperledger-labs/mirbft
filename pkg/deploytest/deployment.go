@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
+	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
 	"github.com/hyperledger-labs/mirbft/pkg/logger"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/ordering"
@@ -30,6 +31,11 @@ const (
 
 	// TestMsgBufSize is the number of bytes each test replica uses for the buffer for backlogging messages.
 	TestMsgBufSize = 5 * 1024 * 1024 // 5 MB
+
+	// BaseListenPort defines the starting port number on which test replicas will be listening
+	// in case the test is being run with the "grpc" setting for networking.
+	// A node with numeric ID id will listen on port (BaseListenPort + id)
+	BaseListenPort = 10000
 )
 
 // TestConfig contains the parameters of the deployment to be tested.
@@ -41,8 +47,9 @@ type TestConfig struct {
 	// Number of clients in the tested deployment.
 	NumClients int
 
-	// The width of the client watermark window.
-	ClientWMWidth int
+	// Type of networking to use.
+	// Current possible values: "fake", "grpc"
+	Transport string
 
 	// The number of requests each client submits during the execution of the deployment.
 	NumRequests int
@@ -57,7 +64,13 @@ type TestConfig struct {
 
 // The Deployment represents a list of replicas interconnected by a simulated network transport.
 type Deployment struct {
-	Transport    *FakeTransport
+
+	// The fake transport layer is only used if the deployment is configured to use it
+	// by setting testConfig.Net to "fake".
+	// Otherwise, the fake transport might be created, but will not be used.
+	FakeTransport *FakeTransport
+
+	// The replicas of the deployment.
 	TestReplicas []*TestReplica
 }
 
@@ -66,7 +79,7 @@ type Deployment struct {
 func NewDeployment(testConfig *TestConfig, doneC <-chan struct{}) (*Deployment, error) {
 
 	// Create a simulated network transport to route messages between replicas.
-	transport := NewFakeTransport(testConfig.NumReplicas)
+	fakeTransport := NewFakeTransport(testConfig.NumReplicas)
 
 	// Create a dummy static membership with replica IDs from 0 to len(replicas) - 1
 	membership := make([]uint64, testConfig.NumReplicas)
@@ -84,6 +97,15 @@ func NewDeployment(testConfig *TestConfig, doneC <-chan struct{}) (*Deployment, 
 			Logger:     logger.ConsoleDebugLogger,
 		}
 
+		// Create network transport module
+		var transport modules.Net
+		switch testConfig.Transport {
+		case "fake":
+			transport = fakeTransport.Link(uint64(i))
+		case "grpc":
+			transport = createLocalGrpcTransport(membership, uint64(i))
+		}
+
 		// Create instance of test replica.
 		replicas[i] = &TestReplica{
 			ID:              uint64(i),
@@ -91,15 +113,15 @@ func NewDeployment(testConfig *TestConfig, doneC <-chan struct{}) (*Deployment, 
 			Membership:      membership,
 			Dir:             filepath.Join(testConfig.Directory, fmt.Sprintf("node%d", i)),
 			App:             &FakeApp{},
-			FakeTransport:   transport,
+			Net:             transport,
 			DoneC:           doneC,
 			NumFakeRequests: testConfig.NumRequests,
 		}
 	}
 
 	return &Deployment{
-		Transport:    transport,
-		TestReplicas: replicas,
+		FakeTransport: fakeTransport,
+		TestReplicas:  replicas,
 	}, nil
 }
 
@@ -125,8 +147,8 @@ type TestReplica struct {
 	// List of replica IDs constituting the (static) membership.
 	Membership []uint64
 
-	// Simulated network transport subsystem.
-	FakeTransport *FakeTransport
+	// Network transport subsystem.
+	Net modules.Net
 
 	// Number of simulated requests inserted in the test replica by a hypothetical client.
 	NumFakeRequests int
@@ -181,7 +203,7 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 		tr.ID,
 		tr.Config,
 		&modules.Modules{
-			Net:         tr.FakeTransport.Link(tr.ID),
+			Net:         tr.Net,
 			App:         tr.App,
 			WAL:         wal,
 			Protocol:    ordering.NewDummyProtocol(tr.Config.Logger, tr.Membership, tr.ID),
@@ -192,22 +214,6 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 
 	// Initialize WaitGroup for the replica's threads.
 	var wg sync.WaitGroup
-
-	// Start thread inserting incoming messages in the replica's mirbft node.
-	wg.Add(1)
-	go func() {
-		defer GinkgoRecover()
-		defer wg.Done()
-		recvC := tr.FakeTransport.RecvC(node.ID)
-		for {
-			select {
-			case sourceMsg := <-recvC:
-				node.Step(context.Background(), sourceMsg.Source, sourceMsg.Msg)
-			case <-tr.DoneC:
-				return
-			}
-		}
-	}()
 
 	// Start thread submitting requests from a (single) hypothetical client.
 	// The client submits a predefined number of requests and then stops.
@@ -238,6 +244,15 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 		}
 	}()
 
+	// ATTENTION! This is hacky!
+	// If the test replica used the GRPC transport, initialize the Net module.
+	switch transport := tr.Net.(type) {
+	case *grpctransport.GrpcTransport:
+		err := transport.Start()
+		Expect(err).NotTo(HaveOccurred())
+		transport.Connect()
+	}
+
 	// Run the node until it stops and obtain the node's final status.
 	err = node.Run(tr.DoneC, ticker.C)
 	fmt.Println("Run returned!")
@@ -245,6 +260,14 @@ func (tr *TestReplica) Run(tickInterval time.Duration) (*status.StateMachine, er
 	finalStatus, statusErr := node.Status(context.Background())
 
 	wg.Wait()
+
+	// ATTENTION! This is hacky!
+	// If the test replica used the GRPC transport, stop the Net module.
+	switch transport := tr.Net.(type) {
+	case *grpctransport.GrpcTransport:
+		transport.Stop()
+	}
+
 	return finalStatus, err, statusErr
 }
 
@@ -288,8 +311,8 @@ func (d *Deployment) Run(tickInterval time.Duration) []*NodeStatus {
 	}
 
 	// Start the message transport subsystem
-	d.Transport.Start()
-	defer d.Transport.Stop()
+	d.FakeTransport.Start()
+	defer d.FakeTransport.Stop()
 
 	// Wait for all replicas to terminate
 	wg.Wait()
@@ -304,4 +327,18 @@ func clientReq(clientID, reqNo uint64) []byte {
 	binary.BigEndian.PutUint64(res, clientID)
 	binary.BigEndian.PutUint64(res[8:], reqNo)
 	return res
+}
+
+// Creates an instance of GrpcTransport based on the numeric IDs of test replicas.
+// The network address of each test replica is the loopback 127.0.0.1
+func createLocalGrpcTransport(nodeIds []uint64, ownId uint64) *grpctransport.GrpcTransport {
+
+	// Compute network addresses and ports for all test replicas.
+	// Each test replica is on the local machine - 127.0.0.1
+	membership := make(map[uint64]string, len(nodeIds))
+	for _, id := range nodeIds {
+		membership[id] = fmt.Sprintf("127.0.0.1:%d", BaseListenPort+id)
+	}
+
+	return grpctransport.NewGrpcTransport(membership, ownId)
 }

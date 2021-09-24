@@ -13,8 +13,9 @@ require (
 	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/tidwall/wal v0.1.3
 	golang.org/x/sys v0.0.0-20200821140526-fda516888d29 // indirect
+	google.golang.org/grpc v1.40.0
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
-	honnef.co/go/tools v0.0.1-2020.1.5
+	honnef.co/go/tools v0.0.1-2020.1.5 // indirect
 )

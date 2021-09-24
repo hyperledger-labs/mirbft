@@ -217,7 +217,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		n.doWALWork,
 		n.doClientWork,
 		n.doHashWork, // TODO (Jason), spawn more of these
-		n.doNetWork,
+		n.doSendingWork,
 		n.doAppWork,
 		n.doReqStoreWork,
 		n.doProtocolWork,
@@ -282,6 +282,14 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		case reqStoreEvents <- n.workItems.ReqStore():
 			n.interceptEvents(n.workItems.ClearReqStore())
 			reqStoreEvents = nil
+
+		// Handle messages received over the network, as obtained by the Net module.
+
+		case receivedMessage := <-n.modules.Net.ReceiveChan():
+			if err := n.workItems.AddEvents((&events.EventList{}).
+				PushBack(events.MessageReceived(receivedMessage.Sender, receivedMessage.Msg))); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
 
 		// Add events produced by modules to the workItems buffers and handle logical time.
 
