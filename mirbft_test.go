@@ -40,7 +40,7 @@ var _ = Describe("Basic test", func() {
 		stopC = make(chan struct{})
 
 		// When the deployment stops, the final node statuses will be written here.
-		finalStatuses []*deploytest.NodeStatus
+		finalStatuses []deploytest.NodeStatus
 
 		// Map of all the directories accessed by the tests.
 		// All of those will be deleted after the tests complete.
@@ -69,7 +69,7 @@ var _ = Describe("Basic test", func() {
 		tempDirs[testConfig.Directory] = struct{}{}
 
 		// Create new test deployment.
-		deployment, err := deploytest.NewDeployment(testConfig, stopC)
+		deployment, err := deploytest.NewDeployment(testConfig)
 		Expect(err).NotTo(HaveOccurred())
 
 		// Schedule shutdown of test deployment
@@ -81,7 +81,7 @@ var _ = Describe("Basic test", func() {
 		}
 
 		// Run deployment until it stops and returns final node statuses.
-		finalStatuses = deployment.Run(tickInterval)
+		finalStatuses = deployment.Run(tickInterval, stopC)
 
 		// Check whether all the test replicas exited correctly.
 		Expect(finalStatuses).NotTo(BeNil())
@@ -138,52 +138,68 @@ var _ = Describe("Basic test", func() {
 
 	table.DescribeTable("Simple tests", testFunc,
 		table.Entry("Does nothing with 1 node", &deploytest.TestConfig{
-			NumReplicas: 1,
-			NumClients:  0,
-			Transport:   "fake",
-			NumRequests: 0,
-			Directory:   "",
-			Duration:    2 * time.Second,
+			NumReplicas:     1,
+			NumClients:      0,
+			Transport:       "fake",
+			NumFakeRequests: 0,
+			Directory:       "",
+			Duration:        2 * time.Second,
 		}),
 		table.Entry("Does nothing with 4 nodes", &deploytest.TestConfig{
-			NumReplicas: 4,
-			NumClients:  0,
-			Transport:   "fake",
-			NumRequests: 0,
-			Directory:   "",
-			Duration:    2 * time.Second,
+			NumReplicas:     4,
+			NumClients:      0,
+			Transport:       "fake",
+			NumFakeRequests: 0,
+			Directory:       "",
+			Duration:        2 * time.Second,
 		}),
-		table.Entry("Submits 10 requests with 1 node", &deploytest.TestConfig{
-			NumReplicas: 1,
-			NumClients:  1,
-			Transport:   "fake",
-			NumRequests: 10,
-			Directory:   "mirbft-deployment-test",
-			Duration:    2 * time.Second,
+		table.Entry("Submits 10 fake requests with 1 node", &deploytest.TestConfig{
+			NumReplicas:     1,
+			NumClients:      1,
+			Transport:       "fake",
+			NumFakeRequests: 10,
+			Directory:       "mirbft-deployment-test",
+			Duration:        2 * time.Second,
 		}),
-		table.Entry("Submits 10 requests with 1 node, loading WAL", &deploytest.TestConfig{
-			NumReplicas: 1,
-			NumClients:  1,
-			Transport:   "fake",
-			NumRequests: 10,
-			Directory:   "mirbft-deployment-test",
-			Duration:    2 * time.Second,
+		table.Entry("Submits 10 fake requests with 1 node, loading WAL", &deploytest.TestConfig{
+			NumReplicas:     1,
+			NumClients:      1,
+			Transport:       "fake",
+			NumFakeRequests: 10,
+			Directory:       "mirbft-deployment-test",
+			Duration:        2 * time.Second,
 		}),
-		table.Entry("Submits 10 requests with 4 nodes", &deploytest.TestConfig{
-			NumReplicas: 4,
-			NumClients:  1,
-			Transport:   "fake",
-			NumRequests: 10,
-			Directory:   "",
-			Duration:    2 * time.Second,
+		table.Entry("Submits 10 fake requests with 4 nodes", &deploytest.TestConfig{
+			NumReplicas:     4,
+			NumClients:      1,
+			Transport:       "fake",
+			NumFakeRequests: 10,
+			Directory:       "",
+			Duration:        2 * time.Second,
+		}),
+		table.Entry("Submits 10 fake requests with 4 nodes and actual networking", &deploytest.TestConfig{
+			NumReplicas:     4,
+			NumClients:      1,
+			Transport:       "grpc",
+			NumFakeRequests: 10,
+			Directory:       "",
+			Duration:        2 * time.Second,
+		}),
+		table.Entry("Submits 10 requests with 1 node and actual networking", &deploytest.TestConfig{
+			NumReplicas:    1,
+			NumClients:     1,
+			Transport:      "grpc",
+			NumNetRequests: 10,
+			Directory:      "",
+			Duration:       2 * time.Second,
 		}),
 		table.Entry("Submits 10 requests with 4 nodes and actual networking", &deploytest.TestConfig{
-			NumReplicas: 4,
-			NumClients:  1,
-			Transport:   "grpc",
-			NumRequests: 10,
-			Directory:   "",
-			Duration:    2 * time.Second,
+			NumReplicas:    4,
+			NumClients:     1,
+			Transport:      "grpc",
+			NumNetRequests: 10,
+			Directory:      "",
+			Duration:       2 * time.Second,
 		}),
 	)
 

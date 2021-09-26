@@ -36,7 +36,7 @@ func (ct *DummyClientTracker) ApplyEvent(event *eventpb.Event) *events.EventList
 		// TODO: Implement request number watermarks and authentication.
 
 		digest := e.HashResult.Digest
-		fmt.Printf("Received digest: %x\n", digest)
+		//fmt.Printf("Received digest: %x\n", digest)
 
 		// Create a request reference and submit it to the protocol state machine as a request ready to be processed.
 		// TODO: postpone this until the request is stored and authenticated.

@@ -97,7 +97,7 @@ func (gt *GrpcTransport) Listen(srv GrpcTransport_ListenServer) error {
 		return fmt.Errorf("failed to get grpc peer info from context")
 	}
 
-	// Declare loop variables outside, since err is checked also after the loop finishes.
+	// Declare loop variables outside, since err is used also after the loop finishes.
 	var err error
 	var grpcMsg *GrpcMessage
 
@@ -131,7 +131,7 @@ func (gt *GrpcTransport) Start() error {
 	// Start listening on the network
 	conn, err := net.Listen("tcp", ":"+strconv.Itoa(ownPort))
 	if err != nil {
-		return fmt.Errorf("failed to listen for connections on port %d", ownPort)
+		return fmt.Errorf("failed to listen for connections on port %d: %w", ownPort, err)
 	}
 
 	// Start the gRPC server in a separate goroutine.
@@ -147,18 +147,20 @@ func (gt *GrpcTransport) Start() error {
 // Stop closes all open connections to other nodes and stops the own gRPC server
 // (preventing further incoming connections).
 // After Stop() returns, the error returned by the gRPC server's Serve() call
-// can be obtained through the Error() method.
+// can be obtained through the ServerError() method.
 func (gt *GrpcTransport) Stop() {
 
 	// Close connections to other nodes.
 	for id, connection := range gt.connections {
 		if _, err := connection.CloseAndRecv(); err != nil {
-			fmt.Printf("Could not close connection to node %d\n", id)
+			fmt.Printf("Could not close connection to node %d: %v\n", id, err)
 		}
 	}
 
 	// Stop own gRPC server.
 	gt.grpcServer.GracefulStop()
+
+	fmt.Printf("GrpcTransport stopped.\n")
 }
 
 // ServerError returns the error returned by the gRPC server's Serve() call.
@@ -170,7 +172,7 @@ func (gt *GrpcTransport) ServerError() error {
 // Connect establishes (in parallel) network connections to all nodes in the system.
 // The other nodes' GrpcTransport modules must be running.
 // Only after Connect() returns, sending messages over this GrpcTransport is possible.
-// TODO: Deal with errors, e.g. when the connection times out (make sure the RPC call in connectToPeer() has a timeout).
+// TODO: Deal with errors, e.g. when the connection times out (make sure the RPC call in connectToNode() has a timeout).
 func (gt *GrpcTransport) Connect() {
 
 	// Initialize wait group used by the connecting goroutines
@@ -181,34 +183,34 @@ func (gt *GrpcTransport) Connect() {
 	lock := sync.Mutex{}
 
 	// For each node in the membership
-	for peerId, peerAddr := range gt.membership {
+	for nodeId, nodeAddr := range gt.membership {
 
 		// Launch a goroutine that connects to the node.
 		go func(id uint64, addr string) {
 			defer wg.Done()
 
 			// Create and store connection
-			connection, err := connectToPeer(addr) // May take long time, execute before acquiring the lock.
+			connection, err := connectToNode(addr) // May take long time, execute before acquiring the lock.
 			lock.Lock()
 			gt.connections[id] = connection
 			lock.Unlock()
 
 			// Print debug info.
 			if err != nil {
-				fmt.Printf("Failed to connect to peer %d (%s) connected.\n", id, addr)
+				fmt.Printf("Failed to connect to node %d (%s): %v\n", id, addr, err)
 			} else {
-				fmt.Printf("Peer %d (%s) connected.\n", id, addr)
+				fmt.Printf("Node %d (%s) connected.\n", id, addr)
 			}
 
-		}(peerId, peerAddr)
+		}(nodeId, nodeAddr)
 	}
 
 	// Wait for connecting goroutines to finish.
 	wg.Wait()
 }
 
-// Establishes a connection to a single peer at address addrString.
-func connectToPeer(addrString string) (GrpcTransport_ListenClient, error) {
+// Establishes a connection to a single node at address addrString.
+func connectToNode(addrString string) (GrpcTransport_ListenClient, error) {
 
 	fmt.Printf("Connecting to node: %s\n", addrString)
 
@@ -238,7 +240,7 @@ func connectToPeer(addrString string) (GrpcTransport_ListenClient, error) {
 		return nil, err
 	}
 
-	// Return the message sink connected to the peer.
+	// Return the message sink connected to the node.
 	return msgSink, nil
 }
 
@@ -256,7 +258,7 @@ func splitAddrPort(addrString string) (string, int, error) {
 
 	// Convert the part after the colon to an integer.
 	if port, err := strconv.Atoi(s[1]); err != nil {
-		return "", 0, fmt.Errorf("port must be a valid number")
+		return "", 0, fmt.Errorf("failed parsing port number: %v", err)
 	} else {
 
 		// If conversion succeeds, return parsed values.
