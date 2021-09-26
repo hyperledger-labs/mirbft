@@ -142,6 +142,7 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *messagepb.Message) 
 // SubmitRequest submits a new client request to the Node.
 // clientID and reqNo uniquely identify the request.
 // data constitutes the (opaque) payload of the request.
+// SubmitRequest is safe to be called concurrently by multiple threads.
 func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64, data []byte) error {
 
 	// Enqueue the generated events in a work channel to be handled by the processing thread.
