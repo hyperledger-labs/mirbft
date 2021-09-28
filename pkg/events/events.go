@@ -117,3 +117,10 @@ func AnnounceDummyBatch(sn uint64, batch *messagepb.Batch) *eventpb.Event {
 		Batch: batch,
 	}}}
 }
+
+func StoreDummyRequest(reqRef *messagepb.RequestRef, data []byte) *eventpb.Event {
+	return &eventpb.Event{Type: &eventpb.Event_StoreDummyRequest{StoreDummyRequest: &eventpb.StoreDummyRequest{
+		RequestRef: reqRef,
+		Data:       data,
+	}}}
+}

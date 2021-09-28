@@ -29,6 +29,7 @@ message Event {
     // Dummy events for testing purposes only.
     PersistDummyBatch persist_dummy_batch = 101;
     AnnounceDummyBatch announce_dummy_batch = 102;
+    StoreDummyRequest store_dummy_request = 103;
   }
 
   // A list of follow-up events to process after this event has been processed.
@@ -80,6 +81,15 @@ message MessageReceived {
 
 message WALEntry {
   Event event = 1;
+}
+
+//==================================================
+// Dummy events for testing purposes only.
+//==================================================
+
+message StoreDummyRequest {
+  messagepb.RequestRef request_ref = 1;
+  bytes data = 2;
 }
 
 message PersistDummyBatch {

@@ -78,6 +78,8 @@ The dependencies should be downloaded and installed automatically.
 
 For a description of the design and inner workings of the library, see [MirBFT Library Architecture](/docs).
 
+For a small demo application, see [/cmd/chat-demo](/cmd/chat-demo)
+
 TODO: Write a document on how to use the library and link it here.
 
 
