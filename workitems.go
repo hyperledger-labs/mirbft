@@ -80,6 +80,8 @@ func (wi *WorkItems) AddEvents(events *events.EventList) error {
 			wi.wal.PushBack(event)
 		case *eventpb.Event_AnnounceDummyBatch:
 			wi.app.PushBack(event)
+		case *eventpb.Event_StoreDummyRequest:
+			wi.reqStore.PushBack(event)
 		default:
 			return fmt.Errorf("cannot add event of unknown type %T", t)
 		}

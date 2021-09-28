@@ -8,6 +8,10 @@ package mirbft
 
 import "github.com/hyperledger-labs/mirbft/pkg/logger"
 
+const (
+	defaultMsgBufferSize = 2 * 1024 * 1024 // 2 MB
+)
+
 // The NodeConfig struct represents configuration parameters of the node
 // that are independent of the protocol the Node is executing.
 // These parameters include various buffer sizes, the choice of the logger, etc.
@@ -23,4 +27,13 @@ type NodeConfig struct {
 	// result is computed, watermarks cannot advance). This should be set
 	// to a minimum of a few MB.
 	BufferSize uint32
+}
+
+// DefaultNodeConfig returns the default node configuration.
+// It can be used as a base for creating more specific configurations when instantiating a Node.
+func DefaultNodeConfig() *NodeConfig {
+	return &NodeConfig{
+		Logger:     logger.ConsoleInfoLogger,
+		BufferSize: defaultMsgBufferSize,
+	}
 }

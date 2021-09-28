@@ -1,0 +1,15 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package chat_demo;
+
+option go_package = "github.com/hyperledger-labs/mirbft/cmd/main";
+
+message AppState {
+  repeated string messages = 1;
+}

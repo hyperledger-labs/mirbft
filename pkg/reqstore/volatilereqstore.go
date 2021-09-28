@@ -109,7 +109,7 @@ func (vrs *VolatileRequestStore) PutRequest(reqRef *messagepb.RequestRef, data [
 // If no data is stored under the given reference, the returned error will be non-nil.
 func (vrs *VolatileRequestStore) GetRequest(reqRef *messagepb.RequestRef) ([]byte, error) {
 
-	if reqInfo, ok := vrs.requests[requestKey(reqRef)]; !ok {
+	if reqInfo, ok := vrs.requests[requestKey(reqRef)]; ok {
 		// If an entry for the referenced request is present.
 
 		if reqInfo.data != nil {

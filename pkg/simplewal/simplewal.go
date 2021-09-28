@@ -118,7 +118,6 @@ func (w *WAL) Write(index uint64, p *eventpb.Event) error {
 	defer w.mutex.Unlock()
 
 	w.idx = index + 1
-	fmt.Printf("Writing index %d\n", index)
 	return w.log.Write(index+1, data) // The log implementation seems to be indexing starting with 1.
 }
 

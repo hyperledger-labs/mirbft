@@ -481,16 +481,44 @@ func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.Even
 	return eventsOut, nil
 }
 
-func processReqStoreEvents(reqStore modules.RequestStore, events *events.EventList) (*events.EventList, error) {
+func processReqStoreEvents(reqStore modules.RequestStore, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
+	iter := eventsIn.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
 
-	// TODO: IMPLEMENT THIS!
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
 
-	// Then we sync the request store
+		// Process event based on its type.
+		switch e := event.Type.(type) {
+		case *eventpb.Event_StoreDummyRequest:
+			storeEvent := e.StoreDummyRequest // Helper variable for convenience
+
+			// Store request data.
+			if err := reqStore.PutRequest(storeEvent.RequestRef, storeEvent.Data); err != nil {
+				return nil, fmt.Errorf("cannot store dummy request data: %w", err)
+			}
+
+			// Mark request as authenticated.
+			if err := reqStore.SetAuthenticated(storeEvent.RequestRef); err != nil {
+				return nil, fmt.Errorf("cannot mark dummy request as authenticated: %w", err)
+			}
+
+			// Associate a dummy authenticator with the request
+			if err := reqStore.PutAuthenticator(storeEvent.RequestRef, []byte{0}); err != nil {
+				return nil, fmt.Errorf("cannot store authenticator of dummy request: %w", err)
+			}
+
+			eventsOut.PushBack(events.RequestReady(storeEvent.RequestRef))
+		}
+	}
+
+	// Then sync the request store, ensuring that all updates to its state are persisted.
 	if err := reqStore.Sync(); err != nil {
 		return nil, errors.WithMessage(err, "could not sync request store, unsafe to continue")
 	}
 
-	return events, nil
+	return eventsOut, nil
 }
 
 func processProtocolEvents(sm modules.Protocol, eventsIn *events.EventList) (*events.EventList, error) {

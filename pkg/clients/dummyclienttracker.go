@@ -27,7 +27,6 @@ func (ct *DummyClientTracker) ApplyEvent(event *eventpb.Event) *events.EventList
 		// Request received from a client. Have the digest computed.
 
 		req := e.Request
-		fmt.Println("Received request.")
 		return (&events.EventList{}).PushBack(hashRequest(req))
 
 	case *eventpb.Event_HashResult:
@@ -46,7 +45,7 @@ func (ct *DummyClientTracker) ApplyEvent(event *eventpb.Event) *events.EventList
 			ReqNo:    req.ReqNo,
 			Digest:   digest,
 		}
-		return (&events.EventList{}).PushBack(events.RequestReady(reqRef))
+		return (&events.EventList{}).PushBack(events.StoreDummyRequest(reqRef, req.Data))
 
 	default:
 		panic(fmt.Sprintf("unknown event: %T", event.Type))
