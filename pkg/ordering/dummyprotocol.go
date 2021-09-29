@@ -24,6 +24,14 @@ type DummyProtocol struct {
 	otherReplicas []uint64 // List of all replica IDs except the own ID
 
 	nextSn uint64 // Sequence number to assign to the next batch.
+
+	// Set (represented as a map indexed by "clientId-reqNo.hash") of requests received from the clients.
+	requestsReceived map[string]*messagepb.RequestRef
+
+	// Preprepare messages in order of reception (and thus, in the dummy protocol, in the order of sequence numbers).
+	// When all requests contained in a preprepare at the head of this list have been received, they can be announced
+	// and the preprepare is removed from the head.
+	prepreparesReceived []*messagepb.DummyPreprepare
 }
 
 // NewDummyProtocol creates and returns a pointer to a new instance of DummyProtocol.
@@ -40,27 +48,27 @@ func NewDummyProtocol(logger logger.Logger, initialMembership []uint64, ownId ui
 
 	// Return an initialized DummyProtocol
 	return &DummyProtocol{
-		logger:        logger,
-		membership:    initialMembership,
-		ownId:         ownId,
-		otherReplicas: otherReplicas,
+		logger:              logger,
+		membership:          initialMembership,
+		ownId:               ownId,
+		otherReplicas:       otherReplicas,
+		requestsReceived:    make(map[string]*messagepb.RequestRef),
+		prepreparesReceived: make([]*messagepb.DummyPreprepare, 0),
 	}
 }
 
 // ApplyEvent applies an event to the protocol state machine, deterministically advancing its state
 // and generating a (possibly empty) list of output events.
-func (dsm *DummyProtocol) ApplyEvent(event *eventpb.Event) *events.EventList {
+func (dp *DummyProtocol) ApplyEvent(event *eventpb.Event) *events.EventList {
 	switch e := event.Type.(type) {
 	case *eventpb.Event_PersistDummyBatch:
-		dsm.logger.Log(logger.LevelDebug, "Loading dummy batch from WAL.")
-	case *eventpb.Event_Message:
-		dsm.logger.Log(logger.LevelDebug, "Message event.")
+		dp.logger.Log(logger.LevelDebug, "Loading dummy batch from WAL.")
 	case *eventpb.Event_Tick:
 		// Do nothing in the dummy SM.
 	case *eventpb.Event_RequestReady:
-		return dsm.handleRequest(e.RequestReady.RequestRef)
+		return dp.handleRequest(e.RequestReady.RequestRef)
 	case *eventpb.Event_MessageReceived:
-		return dsm.handleMessage(e.MessageReceived.Msg, e.MessageReceived.From)
+		return dp.handleMessage(e.MessageReceived.Msg, e.MessageReceived.From)
 	default:
 		panic(fmt.Sprintf("unknown state machine event type: %T", event.Type))
 	}
@@ -69,7 +77,7 @@ func (dsm *DummyProtocol) ApplyEvent(event *eventpb.Event) *events.EventList {
 }
 
 // Status returns an empty protocol state. This function a stub in the dummy protocol implementation.
-func (dsm *DummyProtocol) Status() (s *status.StateMachine, err error) {
+func (dp *DummyProtocol) Status() (s *status.StateMachine, err error) {
 	return &status.StateMachine{}, nil
 }
 
@@ -77,15 +85,15 @@ func (dsm *DummyProtocol) Status() (s *status.StateMachine, err error) {
 // In the DummyProtocol, the leader (always node 0) commits it directly
 // and forwards it to all replicas, also persisting these steps in the WAL.
 // Non-leaders ignore incoming requests.
-func (dsm *DummyProtocol) handleRequest(ref *messagepb.RequestRef) *events.EventList {
+func (dp *DummyProtocol) handleRequest(ref *messagepb.RequestRef) *events.EventList {
 
-	if dsm.ownId == 0 {
+	if dp.ownId == 0 {
 		// If I am the leader, handle request.
-		dsm.logger.Log(logger.LevelDebug, "Handling Request.", "clientId", ref.ClientId, "reqNo", ref.ReqNo)
+		dp.logger.Log(logger.LevelDebug, "Handling Request.", "clientId", ref.ClientId, "reqNo", ref.ReqNo)
 
 		// Get the sequence number for the new batch
-		sn := dsm.nextSn
-		dsm.nextSn++
+		sn := dp.nextSn
+		dp.nextSn++
 
 		// Create a dummy wrapper batch containing only this request.
 		batch := &messagepb.Batch{Requests: []*messagepb.RequestRef{ref}}
@@ -102,33 +110,79 @@ func (dsm *DummyProtocol) handleRequest(ref *messagepb.RequestRef) *events.Event
 				Sn:    sn,
 				Batch: batch,
 			},
-		}}, dsm.otherReplicas)
+		}}, dp.otherReplicas)
 
 		// First the dummy batch needs to be persisted to the WAL, and only then it can be committed and sent to others.
 		walEvent.Next = []*eventpb.Event{announceEvent, msgSendEvent}
 		return (&events.EventList{}).PushBack(walEvent)
 	} else {
-		// If I am not the leader (node 0 is always the leader in DummyProtocol), ignore incoming requests.
+		// If I am not the leader (node 0 is always the leader in DummyProtocol),
+		// record the reception of the request.
+		dp.requestsReceived[reqStrKey(ref)] = ref
 
-		dsm.logger.Log(logger.LevelDebug, "Non-leader ignoring request.",
+		dp.logger.Log(logger.LevelDebug, "Non-leader received request.",
 			"clientId", ref.ClientId, "reqNo", ref.ReqNo)
-		return &events.EventList{}
+
+		// Announce all pending requests
+		return dp.announceRequests()
 	}
 }
 
 // Handles an incoming protocol message.
 // This dummy implementation only knows one type of message - a direct message from the leader containing a batch.
 // handleMessage directly announces each batch to the application.
-func (dsm *DummyProtocol) handleMessage(message *messagepb.Message, from uint64) *events.EventList {
+func (dp *DummyProtocol) handleMessage(message *messagepb.Message, from uint64) *events.EventList {
 	switch msg := message.Type.(type) {
 
 	case *messagepb.Message_DummyPreprepare:
-		// Announce incoming batch directly.
-		return (&events.EventList{}).PushBack(
-			events.AnnounceDummyBatch(msg.DummyPreprepare.Sn, msg.DummyPreprepare.Batch))
+		return dp.handleDummyPreprepare(msg.DummyPreprepare)
 
 	default:
 		// Panic if message type is not known.
 		panic(fmt.Sprintf("unknown DummyProtocol message type (from %d): %T", from, message.Type))
 	}
+}
+
+func (dp *DummyProtocol) handleDummyPreprepare(preprepare *messagepb.DummyPreprepare) *events.EventList {
+	dp.prepreparesReceived = append(dp.prepreparesReceived, preprepare)
+
+	return dp.announceRequests()
+}
+
+func (dp *DummyProtocol) announceRequests() *events.EventList {
+
+	// Initialize the list of output events.
+	eventsOut := &events.EventList{}
+
+	// As long as there is at least one preprepare message that has been received.
+	for len(dp.prepreparesReceived) > 0 {
+
+		// Take the oldest preprepare message.
+		preprepare := dp.prepreparesReceived[0]
+
+		// Check if all the requests in the oldest preprepare message can be announced.
+		for _, reqRef := range preprepare.Batch.Requests {
+
+			// If any of the requests has not been received yet (and thus the batch cannot be announced yet),
+			// return immediately.
+			if _, ok := dp.requestsReceived[reqStrKey(reqRef)]; !ok {
+				return eventsOut
+			}
+		}
+
+		// If the batch in the oldest preprepare can be announced,
+		// announce it and forget about it (including the received requests).
+		eventsOut.PushBack(events.AnnounceDummyBatch(preprepare.Sn, preprepare.Batch))
+		for _, reqRef := range preprepare.Batch.Requests {
+			delete(dp.requestsReceived, reqStrKey(reqRef))
+		}
+		dp.prepreparesReceived = dp.prepreparesReceived[1:]
+	}
+
+	return eventsOut
+}
+
+// Takes a request reference and transforms it to a string for using as a map key.
+func reqStrKey(reqRef *messagepb.RequestRef) string {
+	return fmt.Sprintf("%d-%d.%v", reqRef.ClientId, reqRef.ReqNo, reqRef.Digest)
 }
