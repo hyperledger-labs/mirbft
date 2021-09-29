@@ -121,12 +121,12 @@ func (vrs *VolatileRequestStore) GetRequest(reqRef *messagepb.RequestRef) ([]byt
 			return data, nil
 		} else {
 			// If the entry exists, but contains no data, return an error.
-			return nil, fmt.Errorf(fmt.Sprintf("request (%d.%d.%x) not present",
+			return nil, fmt.Errorf(fmt.Sprintf("request (%d-%d.%x) not present",
 				reqRef.ClientId, reqRef.ReqNo, reqRef.Digest))
 		}
 	} else {
 		// If the entry does not exist, return an error.
-		return nil, fmt.Errorf(fmt.Sprintf("request (%d.%d.%x) not present",
+		return nil, fmt.Errorf(fmt.Sprintf("request (%d-%d.%x) not present",
 			reqRef.ClientId, reqRef.ReqNo, reqRef.Digest))
 	}
 }
