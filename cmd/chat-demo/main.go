@@ -1,6 +1,20 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+// ********************************************************************************
+//       Chat demo application for demonstrating the usage of MirBFT             //
+//                             (main executable)                                 //
+//                                                                               //
+//                     Run with --help flag for usage info.                      //
+// ********************************************************************************
+
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/dummyclient"
@@ -54,17 +68,17 @@ func main() {
 	nodeIds := []uint64{0, 1, 2, 3}
 
 	// Generate addresses and ports of participating nodes.
-	// All machines are on the local machine, but listen on different port numbers.
+	// All nodes are on the local machine, but listen on different port numbers.
 	nodeAddrs := make(map[uint64]string)
 	for _, i := range nodeIds {
-		nodeAddrs[uint64(i)] = fmt.Sprintf("127.0.0.1:%d", nodeBasePort+i)
+		nodeAddrs[i] = fmt.Sprintf("127.0.0.1:%d", nodeBasePort+i)
 	}
 
 	// Generate addresses and ports for receiving requests from clients.
 	// Each node uses different ports for receiving protocol messages and requests.
 	reqReceiverAddrs := make(map[uint64]string)
-	for i := 0; i < 4; i++ {
-		reqReceiverAddrs[uint64(i)] = fmt.Sprintf("127.0.0.1:%d", reqReceiverBasePort+i)
+	for _, i := range nodeIds {
+		reqReceiverAddrs[i] = fmt.Sprintf("127.0.0.1:%d", reqReceiverBasePort+i)
 	}
 
 	// ================================================================================
@@ -75,6 +89,8 @@ func main() {
 	// This is where the MirBFT library will continuously persist its state
 	// for the case of restarts / crash-recovery events.
 	// At the time of writing this comment, restarts / crash-recovery is not yet implemented though.
+	// Nevertheless, running this code will create a directory with the WAL file in it.
+	// Those need to be manually removed.
 	walPath := filepath.Join(".", "chat-demo-wal")
 	writeAheadLog, err := simplewal.Open(walPath)
 	if err != nil {
@@ -100,11 +116,11 @@ func main() {
 	// Create a new request store. Request payloads will be stored in it.
 	// Generally, the request store should be a persistent one,
 	// but for this dummy example we use a simple in-memory implementation,
-	// as restarts and crash-recovery (where persistence is necessary) are not implemented yet anyway.
+	// as restarts and crash-recovery (where persistence is necessary) are not yet implemented anyway.
 	reqStore := reqstore.NewVolatileRequestStore()
 
 	// ================================================================================
-	// Create a MirBFT Node, attaching the ChanApp implementation and other modules.
+	// Create a MirBFT Node, attaching the ChatApp implementation and other modules.
 	// ================================================================================
 
 	// Create a MirBFT Node, using a default configuration and passing the modules initialized just above.
@@ -112,7 +128,11 @@ func main() {
 		Net:          net,
 		WAL:          writeAheadLog,
 		RequestStore: reqStore,
-		Protocol:     ordering.NewDummyProtocol(logger.ConsoleInfoLogger, nodeIds, args.OwnId),
+
+		// The DummyProtocol is the only protocol implemented so far.
+		// This protocol stub is not fault-tolerant and only serves demonstration purposes.
+		// In the future, a choice of multiple protocols should be available.
+		Protocol: ordering.NewDummyProtocol(logger.ConsoleInfoLogger, nodeIds, args.OwnId),
 
 		// This is the application logic MirBFT is going to deliver requests to.
 		// It requires to have access to the request store, as MirBFT only passes request references to it.
@@ -125,7 +145,7 @@ func main() {
 	// Start the Node by establishing network connections and launching necessary processing threads
 	// ================================================================================
 
-	// Define variables to synchronize Node startup and shutdown.
+	// Initialize variables to synchronize Node startup and shutdown.
 	stopC := make(chan struct{}) // Closing this channel will signal the Node to stop.
 	var nodeErr error            // The error returned from running the Node will be stored here.
 	var wg sync.WaitGroup        // The Node will call Done() on this WaitGroup when it actually stops.
@@ -140,7 +160,7 @@ func main() {
 	}()
 
 	// Create a request receiver and start receiving requests.
-	// Node that the RequestReceiver is _not_ part of the Node as its module.
+	// Note that the RequestReceiver is _not_ part of the Node as its module.
 	// It is external to the Node and only submits requests it receives to the node.
 	reqReceiver := requestreceiver.NewRequestReceiver(node)
 	if err := reqReceiver.Start(reqReceiverBasePort + int(args.OwnId)); err != nil {
@@ -159,16 +179,27 @@ func main() {
 	// Create network connections to all Nodes' request receivers.
 	client.Connect(reqReceiverAddrs)
 
-	// Send 3 chat messages by submitting them as requests.
-	// In this simple example we simply wait one second before sending each message,
-	// but this can / will be replaced by reading the messages from stdin, so the user can type them in.
-	for i := 0; i < 3; i++ {
-		time.Sleep(time.Second)
+	// ================================================================================
+	// Read chat messages from stdin and submit them as requests.
+	// ================================================================================
+
+	scanner := bufio.NewScanner(os.Stdin)
+
+	// Prompt for chat message input.
+	fmt.Println("Type in your messages and press 'Enter' to send.")
+
+	// Read chat message from stdin.
+	for scanner.Scan() {
+
+		// Submit the chat message as request payload.
 		if err := client.SubmitRequest(
-			[]byte(fmt.Sprintf("Chat message %d from client %d", i, args.OwnId)),
+			scanner.Bytes(),
 		); err != nil {
 			panic(err)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("Error reading input: %v\n", err)
 	}
 
 	// ================================================================================
@@ -178,9 +209,6 @@ func main() {
 	// After sending a few messages, we disconnect the client,
 	fmt.Println("Done sending messages.")
 	client.Disconnect()
-
-	// wait a moment
-	time.Sleep(3 * time.Second)
 
 	// and stop the server.
 	fmt.Println("Stopping server.")
@@ -194,7 +222,7 @@ func parseArgs(args []string) *params {
 	ownId := app.Arg("id", "Numeric ID of this node").Required().Uint64()
 
 	if _, err := app.Parse(args); err != nil {
-		panic(err)
+		app.FatalUsage("could not parse arguments: %v\n", err)
 	}
 
 	return &params{
