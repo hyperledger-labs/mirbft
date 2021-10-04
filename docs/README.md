@@ -78,13 +78,13 @@ The following modules constitute the MirBFT implementation (not all of them are 
 
 ### Net
 
-The [Net](/pkg/modules/net.go) module provides a simple interface for node to send messages to other nodes.
+The [Net](/pkg/modules/net.go) module provides a simple interface for a node to exchange messages with other nodes.
 Currently, it only deals with numeric node IDs
 that it has to translate to network addresses based on some (static) initial configuration
 provided by the user at instantiation.
-Then Net module does _not_ (yet - TODO) provide any interface for receiving messages.
-The messages the Net module sends have to be received by user code on the other end of the line
-and injected to the _Node_ using the `Node.Step()` function.
+The messages the Net module sends can either be received by user code on the other end of the line
+and manually injected to the _Node_ using the `Node.Step()` function,
+or received by the corresponding remote Net module that in turn makes them available to the remote _Node_.
 
 ### Hasher
 
