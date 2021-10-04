@@ -16,7 +16,7 @@ inspired by the architecture of [etcdraft](https://github.com/etcd-io/etcd/tree/
 interact through [_Events_](/protos/eventpb/eventpb.proto), also borrowing concepts from the actor model.
 
 
-##_Events_
+## _Events_
 
 _Events_ are serializable objects (implemented using Protocol Buffers) that internally serve as messages
 (not to be confused with [protocol messages](/protos/messagepb/messagepb.proto)) passed between the _Node_'s modules.
