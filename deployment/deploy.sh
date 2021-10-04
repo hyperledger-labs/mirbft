@@ -18,7 +18,7 @@ fi
 
 for p in $servers $clients; do
          pub=$(getIP $p)
-         if [ "$pull_only" = "false" ]; then
+         if [ "$pull" = "false" ]; then
             scp $ssh_options clone.sh $user@$pub:
             scp $ssh_options install-local.sh $user@$pub:
             scp $ssh_options vars.sh $user@$pub:
