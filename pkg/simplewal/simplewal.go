@@ -28,7 +28,16 @@ import (
 type WAL struct {
 	mutex sync.Mutex
 	log   *wal.Log
-	idx   uint64
+
+	// Index of the next entry to append at the level of the underlying wal.
+	idx uint64
+
+	// Retention index as defined by the semantics of the WAL.
+	// It needs to be persisted as well, because the WAL entries are not necessarily ordered by retention index.
+	// It is required to skip outdated entries when loading.
+	// Otherwise it could be completely ephemeral.
+	// TODO: Implement persisting and loading the retentionIndex
+	retentionIndex uint64
 }
 
 func Open(path string) (*WAL, error) {
@@ -49,6 +58,8 @@ func Open(path string) (*WAL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed obtaining last WAL index: %w", err)
 	}
+
+	// TODO: Load retentionIndex from a (probably separate) file.
 
 	// Return new object implementing the WAL abstraction.
 	return &WAL{
@@ -90,26 +101,28 @@ func (w *WAL) LoadAll(forEach func(index uint64, p *eventpb.Event)) error {
 			return errors.WithMessagef(err, "could not read index %d", i)
 		}
 
-		result := &eventpb.Event{}
+		result := &WALEntry{}
 		err = proto.Unmarshal(data, result)
 		if err != nil {
 			return errors.WithMessage(err, "error decoding to proto, is the WAL corrupt?")
 		}
 
-		forEach(i, result)
+		if result.RetentionIndex >= w.retentionIndex {
+			forEach(result.RetentionIndex, result.Event)
+		}
 	}
 
 	return nil
 }
 
-func (w *WAL) Write(index uint64, p *eventpb.Event) error {
+func (w *WAL) write(index uint64, entry *WALEntry) error {
 
 	// Check whether the index corresponds to the next index
 	if w.idx != index {
 		return fmt.Errorf("invalid wal index: expected %d, got %d", w.idx, index)
 	}
 
-	data, err := proto.Marshal(p)
+	data, err := proto.Marshal(entry)
 	if err != nil {
 		return errors.WithMessage(err, "could not marshal")
 	}
@@ -121,14 +134,20 @@ func (w *WAL) Write(index uint64, p *eventpb.Event) error {
 	return w.log.Write(index+1, data) // The log implementation seems to be indexing starting with 1.
 }
 
-func (w *WAL) Append(event *eventpb.Event) error {
-	return w.Write(w.idx, event)
+func (w *WAL) Append(event *eventpb.Event, retentionIndex uint64) error {
+	return w.write(w.idx, &WALEntry{
+		RetentionIndex: retentionIndex,
+		Event:          event,
+	})
 }
 
-func (w *WAL) Truncate(index uint64) error {
+func (w *WAL) Truncate(retentionIndex uint64) error {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
-	return w.log.TruncateFront(index)
+
+	// TODO: Persist retention index first, probably in a separate file in the same directory.
+
+	return w.log.TruncateFront(retentionIndex)
 }
 
 func (w *WAL) Sync() error {
