@@ -332,7 +332,7 @@ func processWALEvents(wal modules.WAL, eventsIn *events.EventList) (*events.Even
 		// Perform the necessary action based on event type.
 		switch event.Type.(type) {
 		case *eventpb.Event_PersistDummyBatch:
-			if err := wal.Append(event); err != nil {
+			if err := wal.Append(event, 0); err != nil {
 				return nil, fmt.Errorf("could not persist dummy batch: %w", err)
 			}
 
