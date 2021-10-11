@@ -27,7 +27,6 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
 	"gopkg.in/alecthomas/kingpin.v2"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 )
@@ -91,7 +90,7 @@ func main() {
 	// At the time of writing this comment, restarts / crash-recovery is not yet implemented though.
 	// Nevertheless, running this code will create a directory with the WAL file in it.
 	// Those need to be manually removed.
-	walPath := filepath.Join(".", "chat-demo-wal")
+	walPath := fmt.Sprintf("./chat-demo-wal/%d", args.OwnId)
 	writeAheadLog, err := simplewal.Open(walPath)
 	if err != nil {
 		panic(err)
