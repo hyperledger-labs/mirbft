@@ -10,8 +10,9 @@ import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/deploytest"
+	"github.com/onsi/ginkgo/extensions/table"
+	"io/ioutil"
 	"os"
-	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -32,61 +33,88 @@ var (
 // correctly.
 var _ = Describe("Basic test", func() {
 
-	It("Does nothing", func() {
-		// Create configuration for the test.
-		testConfig := deploytest.TestConfig{
-			NumReplicas:   1,
-			NumClients:    0, // TODO: Implement and use this parameter.
-			ClientWMWidth: 0, // TODO: Implement and use this parameter.
-			NumRequests:   10,
+	var (
+		currentTestConfig *deploytest.TestConfig
+
+		// Channel used to stop the deployment.
+		stopC = make(chan struct{})
+
+		// When the deployment stops, the final node statuses will be written here.
+		finalStatuses []deploytest.NodeStatus
+
+		// Map of all the directories accessed by the tests.
+		// All of those will be deleted after the tests complete.
+		// We are not deleting them on the fly, to make it possible for a test
+		// to access a directory created by a previous test.
+		tempDirs = make(map[string]struct{})
+	)
+
+	// Before each run, clear the test state variables.
+	BeforeEach(func() {
+		finalStatuses = nil
+		stopC = make(chan struct{})
+	})
+
+	// Define what happens when the test runs.
+	// Each run is parametrized with a TestConfig
+	testFunc := func(testConfig *deploytest.TestConfig) {
+
+		// Set current test config so it can be accessed after the test is complete.
+		currentTestConfig = testConfig
+
+		// Create a directory for the deployment-generated files
+		// and s the test directory name, for later deletion.
+		err := createDeploymentDir(testConfig)
+		Expect(err).NotTo(HaveOccurred())
+		tempDirs[testConfig.Directory] = struct{}{}
+
+		// Create new test deployment.
+		deployment, err := deploytest.NewDeployment(testConfig)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Schedule shutdown of test deployment
+		if testConfig.Duration != 0 {
+			go func() {
+				time.Sleep(testConfig.Duration)
+				close(stopC)
+			}()
 		}
 
-		var (
-			// Channel used to stop the deployment.
-			stopC = make(chan struct{})
+		// Run deployment until it stops and returns final node statuses.
+		finalStatuses = deployment.Run(tickInterval, stopC)
 
-			// When the deployment stops, the final node statuses will be written here.
-			finalStatuses []*deploytest.NodeStatus
-
-			// WaitGroup used for waiting for the deployment to stop.
-			wg sync.WaitGroup
-		)
-
-		// Start the deployment
-		deployment, err := deploytest.NewDeployment(testConfig, stopC)
-		Expect(err).NotTo(HaveOccurred())
-		wg.Add(1)
-		go func() {
-			finalStatuses = deployment.Run(tickInterval)
-			wg.Done()
-		}()
-
-		// Submit one request to the system
-
-		// Stop the deployment after 2 seconds and wait for it to terminate.
-		// TODO: Make the stop condition configurable.
-		time.Sleep(2 * time.Second)
-		close(stopC)
-		wg.Wait()
+		// Check whether all the test replicas exited correctly.
 		Expect(finalStatuses).NotTo(BeNil())
+		for _, status := range finalStatuses {
+			if status.ExitErr != mirbft.ErrStopped {
+				Expect(status.ExitErr).NotTo(HaveOccurred())
+			}
+			Expect(status.StatusErr).NotTo(HaveOccurred())
+		}
+
+		fmt.Printf("Test finished.\n\n")
+	}
+
+	// After each test, check for errors and print them if any occurred.
+	AfterEach(func() {
 
 		// TODO: check whether the fake app processed all requests
 
-		if !CurrentGinkgoTestDescription().Failed {
-			// Clean up if test succeeded, delete all output produced by the test.
+		// If the test failed
+		if CurrentGinkgoTestDescription().Failed {
 
-			for _, replica := range deployment.TestReplicas {
-				os.RemoveAll(replica.TmpDir)
-			}
+			// Keep the generated data
+			retainedDir := fmt.Sprintf("failed-test-data/%s", currentTestConfig.Directory)
+			os.MkdirAll(retainedDir, 0777)
+			os.Rename(currentTestConfig.Directory, retainedDir)
+			fmt.Printf("Test failed. Moved deployment data to: %s\n", retainedDir)
 
-		} else {
-			// Otherwise, print the status of each replica
+			// Print final status of the system.
+			fmt.Printf("\n\nPrinting status because of failed test in %s\n",
+				CurrentGinkgoTestDescription().TestText)
 
-			fmt.Printf("\n\nPrinting state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
-
-			for nodeIndex, replica := range deployment.TestReplicas {
+			for nodeIndex, nodeStatus := range finalStatuses {
 				fmt.Printf("\nStatus for node %d\n", nodeIndex)
-				nodeStatus := finalStatuses[nodeIndex]
 
 				// ErrStopped indicates normal termination.
 				// If another error is detected, print it.
@@ -102,124 +130,110 @@ var _ = Describe("Basic test", func() {
 					fmt.Printf("Could not obtain final status of node %d: %v", nodeIndex, nodeStatus.StatusErr)
 				} else {
 					// Otherwise, print the status.
-					//fmt.Printf("%s\n", nodeStatus.Status.Pretty())
+					fmt.Printf("%s\n", nodeStatus.Status.Pretty())
 				}
-
-				fmt.Printf("\nFakeApp processed %d of %d requests\n", replica.App.RequestsProcessed, testConfig.NumRequests)
-				fmt.Printf("\nLog available at %s\n", replica.EventLogFile())
 			}
 		}
 	})
 
-	//var (
-	//	doneC                 chan struct{}
-	//	expectedProposalCount int
-	//	proposals             map[uint64]*msgs.Request
-	//	nodeStatusesC         chan []*deploytest.NodeStatus
-	//
-	//	network *deploytest.Deployment
-	//)
-	//
-	//BeforeEach(func() {
-	//	proposals = map[uint64]*msgs.Request{}
-	//
-	//	doneC = make(chan struct{})
-	//
-	//})
-	//
-	//AfterEach(func() {
-	//	close(doneC)
-	//	wg.Wait()
-	//
-	//	if nodeStatusesC == nil {
-	//		fmt.Printf("Unexpected network status is nil, skipping status!\n")
-	//		return
-	//	}
-	//
-	//	nodeStatuses := <-nodeStatusesC
-	//
-	//	if !CurrentGinkgoTestDescription().Failed {
-	//		for _, replica := range network.TestReplicas {
-	//			os.RemoveAll(replica.TmpDir)
-	//		}
-	//		return
-	//	}
-	//
-	//	fmt.Printf("\n\nPrinting state machine status because of failed test in %s\n", CurrentGinkgoTestDescription().TestText)
-	//
-	//	for nodeIndex, replica := range network.TestReplicas {
-	//		fmt.Printf("\nStatus for node %d\n", nodeIndex)
-	//		nodeStatus := nodeStatuses[nodeIndex]
-	//
-	//		if nodeStatus.ExitErr == mirbft.ErrStopped {
-	//			fmt.Printf("\nStopped normally\n")
-	//		} else {
-	//			fmt.Printf("\nStopped with error: %+v\n", nodeStatus.ExitErr)
-	//		}
-	//
-	//		if nodeStatus.Status == nil {
-	//			fmt.Printf("Could not get status for node %d", nodeIndex)
-	//		} else {
-	//			fmt.Printf("%s\n", nodeStatus.Status.Pretty())
-	//		}
-	//
-	//		fmt.Printf("\nFakeApp has %d messages\n", len(replica.App.Entries))
-	//
-	//		if expectedProposalCount > len(replica.App.Entries) {
-	//			fmt.Printf("Expected %d entries, but only got %d\n", len(proposals), len(replica.App.Entries))
-	//		}
-	//
-	//		fmt.Printf("\nLog available at %s\n", replica.EventLogFile())
-	//	}
-	//
-	//})
-	//
-	//DescribeTable("commits all messages", func(testConfig *deploytest.TestConfig) {
-	//
-	//	nodeStatusesC = make(chan []*deploytest.NodeStatus, 1)
-	//
-	//	observations := map[uint64]struct{}{}
-	//	for j, replica := range network.TestReplicas {
-	//		By(fmt.Sprintf("checking for node %d that each message only commits once", j))
-	//		for len(observations) < testConfig.MsgCount {
-	//			entry := &msgs.QEntry{}
-	//			Eventually(replica.App.CommitC, 10*time.Second).Should(Receive(&entry))
-	//
-	//			for _, req := range entry.Requests {
-	//				Expect(req.ReqNo).To(BeNumerically("<", testConfig.MsgCount))
-	//				_, ok := observations[req.ReqNo]
-	//				Expect(ok).To(BeFalse())
-	//				observations[req.ReqNo] = struct{}{}
-	//			}
-	//		}
-	//	}
-	//},
-	//	Entry("SingleNode greenpath", &deploytest.TestConfig{
-	//		NodeCount: 1,
-	//		MsgCount:  1000,
-	//	}),
-	//
-	//	Entry("FourNodeBFT greenpath", &deploytest.TestConfig{
-	//		NodeCount:          4,
-	//		CheckpointInterval: 20,
-	//		MsgCount:           1000,
-	//	}),
-	//
-	//	Entry("FourNodeBFT single bucket greenpath", &deploytest.TestConfig{
-	//		NodeCount:          4,
-	//		BucketCount:        1,
-	//		CheckpointInterval: 10,
-	//		MsgCount:           1000,
-	//	}),
-	//
-	//	Entry("FourNodeBFT single bucket big batch greenpath", &deploytest.TestConfig{
-	//		NodeCount:          4,
-	//		BucketCount:        1,
-	//		CheckpointInterval: 10,
-	//		BatchSize:          10,
-	//		ClientWidth:        1000,
-	//		MsgCount:           10000,
-	//		// ParallelProcess:    true, // TODO, re-enable once parallel processing exists again
-	//	}),
-	//)
+	table.DescribeTable("Simple tests", testFunc,
+		table.Entry("Does nothing with 1 node", &deploytest.TestConfig{
+			NumReplicas:     1,
+			NumClients:      0,
+			Transport:       "fake",
+			NumFakeRequests: 0,
+			Directory:       "",
+			Duration:        2 * time.Second,
+		}),
+		table.Entry("Does nothing with 4 nodes", &deploytest.TestConfig{
+			NumReplicas:     4,
+			NumClients:      0,
+			Transport:       "fake",
+			NumFakeRequests: 0,
+			Directory:       "",
+			Duration:        2 * time.Second,
+		}),
+		table.Entry("Submits 10 fake requests with 1 node", &deploytest.TestConfig{
+			NumReplicas:     1,
+			NumClients:      1,
+			Transport:       "fake",
+			NumFakeRequests: 10,
+			Directory:       "mirbft-deployment-test",
+			Duration:        2 * time.Second,
+		}),
+		table.Entry("Submits 10 fake requests with 1 node, loading WAL", &deploytest.TestConfig{
+			NumReplicas:     1,
+			NumClients:      1,
+			Transport:       "fake",
+			NumFakeRequests: 10,
+			Directory:       "mirbft-deployment-test",
+			Duration:        2 * time.Second,
+		}),
+		table.Entry("Submits 10 fake requests with 4 nodes", &deploytest.TestConfig{
+			NumReplicas:     4,
+			NumClients:      1,
+			Transport:       "fake",
+			NumFakeRequests: 10,
+			Directory:       "",
+			Duration:        2 * time.Second,
+		}),
+		table.Entry("Submits 10 fake requests with 4 nodes and actual networking", &deploytest.TestConfig{
+			NumReplicas:     4,
+			NumClients:      1,
+			Transport:       "grpc",
+			NumFakeRequests: 10,
+			Directory:       "",
+			Duration:        2 * time.Second,
+		}),
+		table.Entry("Submits 10 requests with 1 node and actual networking", &deploytest.TestConfig{
+			NumReplicas:    1,
+			NumClients:     1,
+			Transport:      "grpc",
+			NumNetRequests: 10,
+			Directory:      "",
+			Duration:       2 * time.Second,
+		}),
+		table.Entry("Submits 10 requests with 4 nodes and actual networking", &deploytest.TestConfig{
+			NumReplicas:    4,
+			NumClients:     1,
+			Transport:      "grpc",
+			NumNetRequests: 10,
+			Directory:      "",
+			Duration:       2 * time.Second,
+		}),
+	)
+
+	// Remove all temporary data produced by the tests at the end.
+	AfterSuite(func() {
+		for dir := range tempDirs {
+			fmt.Printf("Removing temporary test directory: %v\n", dir)
+			if err := os.RemoveAll(dir); err != nil {
+				fmt.Printf("Could not remove directory: %v\n", err)
+			}
+		}
+	})
 })
+
+// If config.Directory is not empty, creates a directory with that path if it does not yet exist.
+// If config.Directory is empty, creates a directory in the OS-default temporary path
+// and sets config.Directory to that path.
+// If an error occurs, it is returned without modifying config.Directory.
+func createDeploymentDir(config *deploytest.TestConfig) error {
+	if config.Directory != "" {
+		// If a directory is configured, use the configured one.
+		if err := os.MkdirAll(config.Directory, 0777); err != nil {
+			return err
+		} else {
+			return nil
+		}
+	} else {
+		// If no directory is configured, create a temporary directory in the OS-default location.
+		tmpDir, err := ioutil.TempDir("", "mirbft-deployment-test.*")
+		if err != nil {
+			return err
+		} else {
+			config.Directory = tmpDir
+			return nil
+		}
+	}
+}

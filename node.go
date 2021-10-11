@@ -2,8 +2,6 @@
 Copyright IBM Corp. All Rights Reserved.
 
 SPDX-License-Identifier: Apache-2.0
-
-Refactored: 1
 */
 
 package mirbft
@@ -11,10 +9,10 @@ package mirbft
 import (
 	"context"
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/clients"
+	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
-	"github.com/hyperledger-labs/mirbft/pkg/statemachine"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 	"sync"
 	"time"
@@ -45,10 +43,6 @@ type Node struct {
 	// Used to synchronize the exit of the node's worker go routines.
 	workErrNotifier *workErrNotifier
 
-	// Clients that this node considers to be part of the system.
-	// TODO: Generalize this to be part of a general "system state", along with the App state.
-	clientTracker *clients.ClientTracker
-
 	// Channel for receiving status requests.
 	// A status request is itself represented as a channel,
 	// to which the state machine status needs to be written once the status is obtained.
@@ -62,20 +56,22 @@ type Node struct {
 func NewNode(
 	id uint64,
 	config *NodeConfig,
-	modules *modules.Modules,
+	m *modules.Modules,
 ) (*Node, error) {
+
+	// Create default modules for those not specified by the user.
+	modulesWithDefaults, err := modules.Defaults(*m)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new Node.
 	return &Node{
 		ID:     id,
 		Config: config,
 
 		workChans: newWorkChans(),
-		modules:   modules,
-
-		clientTracker: &clients.ClientTracker{Hasher: modules.Hasher},
-		//clients: &clients.Clients{
-		//	RequestStore: modules.RequestStore,
-		//	Hasher:       modules.Hasher,
-		//},
+		modules:   modulesWithDefaults,
 
 		workItems:       NewWorkItems(),
 		workErrNotifier: newWorkErrNotifier(),
@@ -84,16 +80,16 @@ func NewNode(
 	}, nil
 }
 
-// Status returns a static snapshot in time of the internal state of the state machine.
-// This method necessarily exposes some of the internal architecture of the system, and
-// especially while the library is in development, the data structures may change substantially.
-// This method returns a nil status and an error if the context ends. If the serializer go routine
-// exits for any other reason, then a best effort is made to return the last (and final) status.
-// This final status may be relied upon if it is non-nil. If the serializer exited at the user's
-// request (because the done channel was closed), then ErrStopped is returned.
+// Status returns a static snapshot in time of the internal state of the Node.
+// TODO: Currently a call to Status blocks until the node is stopped, as obtaining status is not yet implemented.
+//       Also change the return type to be a protobuf object that contains a field for each module
+//       with module-specific contents.
 func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 
-	//
+	// Submit status request for processing by the process() function.
+	// A status request is represented as a channel  to which the state machine status needs to be written
+	// once the status is obtained.
+	// Return an error if the node shuts down before the request is read or if the context ends.
 	statusC := make(chan *status.StateMachine, 1)
 	select {
 	case <-ctx.Done():
@@ -103,6 +99,8 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 	case n.statusC <- statusC:
 	}
 
+	// Read the obtained status and return it.
+	// Return an error if the node shuts down before the request is read or if the context ends.
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -118,7 +116,7 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 // The Node assumes the message to be authenticated and it is the caller's responsibility
 // to make sure that msg has indeed been sent by source,
 // for example by using an authenticated communication channel (e.g. TLS) with the source node.
-func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
+func (n *Node) Step(ctx context.Context, source uint64, msg *messagepb.Message) error {
 
 	// Pre-process the incoming message and return an error if pre-processing fails.
 	// TODO: Re-enable pre-processing.
@@ -127,12 +125,12 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 	//	return errors.WithMessage(err, "pre-processing message failed")
 	//}
 
-	// Create a Step event
-	e := (&statemachine.EventList{}).Step(source, msg)
+	// Create a MessageReceived event
+	e := (&events.EventList{}).PushBack(events.MessageReceived(source, msg))
 
 	// Enqueue event in a work channel to be handled by the processing thread.
 	select {
-	case n.workChans.externalEvents <- e:
+	case n.workChans.workItemInput <- e:
 		return nil
 	case <-n.workErrNotifier.ExitStatusC():
 		return n.workErrNotifier.Err()
@@ -144,11 +142,12 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *msgs.Msg) error {
 // SubmitRequest submits a new client request to the Node.
 // clientID and reqNo uniquely identify the request.
 // data constitutes the (opaque) payload of the request.
+// SubmitRequest is safe to be called concurrently by multiple threads.
 func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64, data []byte) error {
 
 	// Enqueue the generated events in a work channel to be handled by the processing thread.
 	select {
-	case n.workChans.clientIn <- (&statemachine.EventList{}).ClientRequest(clientID, reqNo, data):
+	case n.workChans.workItemInput <- (&events.EventList{}).PushBack(events.ClientRequest(clientID, reqNo, data)):
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -158,17 +157,45 @@ func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64,
 }
 
 // Run starts the Node.
-// It launches the processing of incoming messages, time ticks, and internal events.
+// First, loads the contents of the WAL and enqueues all its contents for processing.
+// This makes sure that the WAL events end up first in all the modules' processing queues.
+// Run then launches the processing of incoming messages, time ticks, and internal events.
 // The node stops when exitC is closed.
 // Logical time ticks need to be written to tickC by the calling code.
 // The function call is blocking and only returns when the node stops.
 func (n *Node) Run(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
-	// TODO: Get rid of ProcessAsNewNode and RestartProcessing.
-	//       Instead, check the WAL for potential necessary initialization here.
-	//       Perform recovery from the WAL here.
+	// Load the contents of the WAL and enqueue it for processing.
+	if err := n.processWAL(); err != nil {
+		n.workErrNotifier.Fail(err)
+		n.workErrNotifier.SetExitStatus(nil, fmt.Errorf("node not started"))
+		return fmt.Errorf("could not process WAL: %w", err)
+	}
 
+	// Start processing of events.
 	return n.process(exitC, tickC)
+}
+
+// Loads all events stored in the WAL and enqueues them in the node's processing queues.
+func (n *Node) processWAL() error {
+
+	// Create empty EventList to hold all the WAL events.
+	walEvents := &events.EventList{}
+
+	// Add all events from the WAL to the new EventList.
+	if err := n.modules.WAL.LoadAll(func(_ uint64, event *eventpb.Event) {
+		walEvents.PushBack(events.WALEntry(event))
+	}); err != nil {
+		return fmt.Errorf("could not load WAL events: %w", err)
+	}
+
+	// Enqueue all events to the workItems buffers.
+	if err := n.workItems.AddEvents(walEvents); err != nil {
+		return fmt.Errorf("could not enqueue WAL events for processing: %w", err)
+	}
+
+	// If we made it all the way here, no error occurred.
+	return nil
 }
 
 // Performs all internal work of the node,
@@ -178,7 +205,7 @@ func (n *Node) Run(exitC <-chan struct{}, tickC <-chan time.Time) error {
 func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
 	var wg sync.WaitGroup // Synchronizes all the worker functions
-	defer wg.Wait()
+	defer wg.Wait()       // Watch out! If process() terminates unexpectedly (e.g. by panicking), this might get stuck!
 
 	// Start all worker functions in separate threads.
 	// Those functions mostly read events from their respective channels in n.workChans,
@@ -191,10 +218,10 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		n.doWALWork,
 		n.doClientWork,
 		n.doHashWork, // TODO (Jason), spawn more of these
-		n.doNetWork,
+		n.doSendingWork,
 		n.doAppWork,
 		n.doReqStoreWork,
-		n.doStateMachineWork,
+		n.doProtocolWork,
 	} {
 		// Each function is executed by a separate thread.
 		// The wg is waited on before n.process() returns.
@@ -221,7 +248,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		netEvents,
 		appEvents,
 		reqStoreEvents,
-		stateMachineEvents chan<- *statemachine.EventList
+		protocolEvents chan<- *events.EventList
 	)
 
 	// This loop shovels events between the appropriate channels, until a stopping condition is satisfied.
@@ -229,50 +256,57 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
 		// Wait until any events are ready and write them to the appropriate location.
 		select {
-		case stateMachineEvents <- n.workItems.StateMachine():
-			n.workItems.ClearStateMachine()
-			stateMachineEvents = nil
+
+		// Write pending events to module input channels.
+		// This is also the only place events are (potentially) intercepted.
+		// Since only a single goroutine executes this loop, the exact sequence of the intercepted events
+		// can be replayed later.
+
+		case protocolEvents <- n.workItems.Protocol():
+			n.interceptEvents(n.workItems.ClearProtocol())
+			protocolEvents = nil
 		case walEvents <- n.workItems.WAL():
-			n.workItems.ClearWAL()
+			n.interceptEvents(n.workItems.ClearWAL())
 			walEvents = nil
 		case clientEvents <- n.workItems.Client():
-			n.workItems.ClearClient()
+			n.interceptEvents(n.workItems.ClearClient())
 			clientEvents = nil
 		case hashEvents <- n.workItems.Hash():
-			n.workItems.ClearHash()
+			n.interceptEvents(n.workItems.ClearHash())
 			hashEvents = nil
 		case netEvents <- n.workItems.Net():
-			n.workItems.ClearNet()
+			n.interceptEvents(n.workItems.ClearNet())
 			netEvents = nil
 		case appEvents <- n.workItems.App():
-			n.workItems.ClearApp()
+			n.interceptEvents(n.workItems.ClearApp())
 			appEvents = nil
 		case reqStoreEvents <- n.workItems.ReqStore():
-			n.workItems.ClearReqStore()
+			n.interceptEvents(n.workItems.ClearReqStore())
 			reqStoreEvents = nil
-		case clientOut := <-n.workChans.clientOut:
-			n.workItems.AddEvents(clientOut)
-		case walOut := <-n.workChans.walOut:
-			n.workItems.AddEvents(walOut)
-		case hashOut := <-n.workChans.hashOut:
-			n.workItems.AddEvents(hashOut)
-		case netOut := <-n.workChans.netOut:
-			n.workItems.AddEvents(netOut)
-		case appOut := <-n.workChans.appOut:
-			n.workItems.AddEvents(appOut)
-		case reqStoreOut := <-n.workChans.reqStoreOut:
-			n.workItems.AddEvents(reqStoreOut)
-		case stateMachineOut := <-n.workChans.stateMachineOut:
-			n.workItems.AddEvents(stateMachineOut)
-		case externalEvents := <-n.workChans.externalEvents:
-			// TODO (Jason), once request forwarding works, we'll
-			// need to split this into the req store component
-			// and 'other' that goes into the result events.
-			n.workItems.AddEvents(externalEvents)
+
+		// Handle messages received over the network, as obtained by the Net module.
+
+		case receivedMessage := <-n.modules.Net.ReceiveChan():
+			if err := n.workItems.AddEvents((&events.EventList{}).
+				PushBack(events.MessageReceived(receivedMessage.Sender, receivedMessage.Msg))); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
+
+		// Add events produced by modules to the workItems buffers and handle logical time.
+
+		case clientOut := <-n.workChans.workItemInput:
+			if err := n.workItems.AddEvents(clientOut); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
+		case <-tickC:
+			if err := n.workItems.AddEvents((&events.EventList{}).PushBack(events.Tick())); err != nil {
+				n.workErrNotifier.Fail(err)
+			}
+
+		// Handle termination of the node.
+
 		case <-n.workErrNotifier.ExitC():
 			return n.workErrNotifier.Err()
-		case <-tickC:
-			n.workItems.AddEvents((&statemachine.EventList{}).TickElapsed())
 		case <-exitC:
 			n.workErrNotifier.Fail(ErrStopped)
 		}
@@ -280,32 +314,38 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		// If any events have been added to the work items,
 		// update the corresponding channel variables accordingly.
 
-		if stateMachineEvents == nil && n.workItems.StateMachine().Len() > 0 {
-			stateMachineEvents = n.workChans.stateMachineIn
+		if protocolEvents == nil && n.workItems.Protocol().Len() > 0 {
+			protocolEvents = n.workChans.protocol
 		}
-
 		if walEvents == nil && n.workItems.WAL().Len() > 0 {
-			walEvents = n.workChans.walIn
+			walEvents = n.workChans.wal
 		}
-
 		if clientEvents == nil && n.workItems.Client().Len() > 0 {
-			clientEvents = n.workChans.clientIn
+			clientEvents = n.workChans.clients
 		}
-
 		if hashEvents == nil && n.workItems.Hash().Len() > 0 {
-			hashEvents = n.workChans.hashIn
+			hashEvents = n.workChans.hash
 		}
-
 		if netEvents == nil && n.workItems.Net().Len() > 0 {
-			netEvents = n.workChans.netIn
+			netEvents = n.workChans.net
 		}
-
 		if appEvents == nil && n.workItems.App().Len() > 0 {
-			appEvents = n.workChans.appIn
+			appEvents = n.workChans.app
 		}
-
 		if reqStoreEvents == nil && n.workItems.ReqStore().Len() > 0 {
-			reqStoreEvents = n.workChans.reqStoreIn
+			reqStoreEvents = n.workChans.reqStore
+		}
+	}
+}
+
+// If the interceptor module is present, passes events to it. Otherwise, does nothing.
+// If an error occurs passing events to the interceptor, notifies the node by means of the workErrorNotifier.
+func (n *Node) interceptEvents(events *events.EventList) {
+	if n.modules.Interceptor != nil {
+		// TODO: In case the size of follow-up events becomes significant, ignore them when intercepting
+		//       (this will probably be best implemented inside the interceptor).
+		if err := n.modules.Interceptor.Intercept(events); err != nil {
+			n.workErrNotifier.Fail(err)
 		}
 	}
 }

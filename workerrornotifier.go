@@ -16,7 +16,7 @@ import (
 // workErrNotifier is used to synchronize the exit of the assorted worker
 // go routines. The first worker to encounter an error should call Fail(err),
 // then the other workers will (eventually) read ExitC() to determine that they
-// should exit. The worker thread responsible for the state machine _must_
+// should exit. The worker thread responsible for the protocol state machine _must_
 // call SetExitStatus(status, statusErr) before returning.
 type workErrNotifier struct {
 
@@ -29,10 +29,10 @@ type workErrNotifier struct {
 	// Closed when Fail() is invoked. All workers treat closing of this channel as a stopping condition.
 	exitC chan struct{}
 
-	// The final status of the state machine on exit.
+	// The final status of the protocol state machine on exit.
 	exitStatus *status.StateMachine
 
-	// Error that might have occurred when obtaining the state machine's exit status.
+	// Error that might have occurred when obtaining the protocol state machine's exit status.
 	exitStatusErr error
 
 	// Closed when exitStatus and exitStatusErr have been set.
@@ -68,7 +68,7 @@ func (wen *workErrNotifier) Fail(err error) {
 	close(wen.exitC)
 }
 
-// SetExitStatus saves the final status of the state machine in this workErrorNotifier,
+// SetExitStatus saves the final status of the protocol state machine in this workErrorNotifier,
 // along with a potential error that might have occurred while obtaining the status.
 // SetExitStatus also closes the exitStatusC to notify other threads that the exit status has been set.
 func (wen *workErrNotifier) SetExitStatus(s *status.StateMachine, err error) {
@@ -94,7 +94,7 @@ func (wen *workErrNotifier) ExitC() <-chan struct{} {
 }
 
 // ExitStatusC returns a channel the closing of which indicates
-// that the an the exit status and the corresponding error have been set by SetExitStatus().
+// that the exit status and the corresponding error have been set by SetExitStatus().
 func (wen *workErrNotifier) ExitStatusC() <-chan struct{} {
 	return wen.exitStatusC
 }

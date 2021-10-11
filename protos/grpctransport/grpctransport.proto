@@ -1,0 +1,25 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package grpctransport;
+
+import "messagepb/messagepb.proto";
+
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/grpctransport";
+
+service GrpcTransport {
+	rpc Listen(stream GrpcMessage) returns(ByeBye);
+}
+
+message GrpcMessage {
+	uint64 sender = 1;
+	messagepb.Message msg = 2;
+}
+
+message ByeBye {
+}

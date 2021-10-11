@@ -1,0 +1,97 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package eventpb;
+
+import "messagepb/messagepb.proto";
+
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/eventpb";
+
+// Event represents a state event to be injected into the state machine
+message Event {
+  // TODO, normalize naming, for instance Complete/Completed
+  oneof type {
+    WALEntry wal_entry = 1;
+    messagepb.Request request = 2;
+    HashRequest hash_request = 3;
+    HashResult hash_result = 4;
+    Tick tick = 5;
+    RequestReady request_ready = 6;
+    SendMessage send_message = 7;
+    MessageReceived message_received = 8;
+
+    // Dummy events for testing purposes only.
+    PersistDummyBatch persist_dummy_batch = 101;
+    AnnounceDummyBatch announce_dummy_batch = 102;
+    StoreDummyRequest store_dummy_request = 103;
+  }
+
+  // A list of follow-up events to process after this event has been processed.
+  // This field is used if events need to be processed in a particular order.
+  // For example, a message sending event must only be processed
+  // after the corresponding entry has been persisted in the write-ahead log (WAL).
+  // In this case, the WAL append event would be this event
+  // and the next field would contain the message sending event.
+  repeated Event next = 100;
+}
+
+
+message Tick {}
+
+message HashRequest {
+  repeated bytes data = 1;
+  HashOrigin origin = 2;
+}
+
+message HashResult {
+  bytes digest = 1;
+  HashOrigin origin = 2;
+}
+
+message HashOrigin {
+  oneof type {
+    messagepb.Request request = 1;
+  }
+}
+
+message RequestReady {
+  messagepb.RequestRef request_ref = 1;
+}
+
+message SendMessage {
+  repeated uint64 destinations = 1;
+  messagepb.Message msg = 2;
+}
+
+message MessageReceived {
+  uint64 from = 1;
+  messagepb.Message msg = 2;
+}
+
+message WALEntry {
+  Event event = 1;
+}
+
+//==================================================
+// Dummy events for testing purposes only.
+//==================================================
+
+message StoreDummyRequest {
+  messagepb.RequestRef request_ref = 1;
+  bytes data = 2;
+}
+
+message PersistDummyBatch {
+  uint64 sn = 1;
+  messagepb.Batch batch = 2;
+}
+
+message AnnounceDummyBatch {
+  uint64 sn = 1;
+  messagepb.Batch batch = 2;
+}

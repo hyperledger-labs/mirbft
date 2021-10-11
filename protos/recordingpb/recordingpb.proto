@@ -1,0 +1,19 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package recordingpb;
+
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/recordingpb";
+
+import "eventpb/eventpb.proto";
+
+message Entry {
+	uint64 node_id = 1;
+	int64 time = 2;
+	repeated eventpb.Event events =3;
+}

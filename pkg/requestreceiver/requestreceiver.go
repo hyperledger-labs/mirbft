@@ -1,0 +1,126 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+package requestreceiver
+
+import (
+	"context"
+	"fmt"
+	"github.com/hyperledger-labs/mirbft"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/peer"
+	"net"
+	"strconv"
+)
+
+type RequestReceiver struct {
+
+	// The Node to which to submit the received requests.
+	node *mirbft.Node
+
+	// The gRPC server used by this networking module.
+	grpcServer *grpc.Server
+
+	// Error returned from the grpcServer.Serve() call (see Start() method).
+	grpcServerError error
+}
+
+// NewRequestReceiver returns a new initialized request receiver.
+// The returned RequestReceiver is not yet running (able to receive requests).
+// This needs to be done explicitly by calling the Start() method.
+// For the requests to be processed by passed Node, the Node must also be running.
+func NewRequestReceiver(node *mirbft.Node) *RequestReceiver {
+	return &RequestReceiver{node: node}
+}
+
+// Listen implements the gRPC Listen service (multi-request-single-response).
+// It receives messages from the gRPC client running on the MirBFT client
+// and submits them to the Node associated with this RequestReceiver.
+// This function is called by the gRPC system on every new connection
+// from a MirBFT client's gRPC client.
+func (rr *RequestReceiver) Listen(srv RequestReceiver_ListenServer) error {
+
+	// Print address of incoming connection.
+	p, ok := peer.FromContext(srv.Context())
+	if ok {
+		fmt.Printf("Incoming connection from %s\n", p.Addr.String())
+	} else {
+		return fmt.Errorf("failed to get grpc peer info from context")
+	}
+
+	// Declare loop variables outside, since err is checked also after the loop finishes.
+	var err error
+	var req *messagepb.Request
+
+	// For each received request
+	for req, err = srv.Recv(); err == nil; req, err = srv.Recv() {
+
+		// Submit the request to the Node.
+		if srErr := rr.node.SubmitRequest(context.Background(), req.ClientId, req.ReqNo, req.Data); srErr != nil {
+
+			// If submitting fails, stop receiving further request (and close connection).
+			fmt.Printf("Could not submit request (%d-%d): %v. Closing connection.\n",
+				req.ClientId, req.ReqNo, srErr)
+			break
+		}
+	}
+
+	// If the connection was terminated by the gRPC client, print the reason.
+	// (This line could also be reached by breaking out of the above loop on request submission error.)
+	if err != nil {
+		fmt.Printf("Connection terminated: %s (%v)\n", p.Addr.String(), err)
+	}
+
+	// Send gRPC response message and close connection.
+	return srv.SendAndClose(&ByeBye{})
+}
+
+// Start starts the RequestReceiver by initializing and starting the internal gRPC server,
+// listening on the passed port.
+// Before ths method is called, no client connections are accepted.
+func (rr *RequestReceiver) Start(port int) error {
+
+	fmt.Printf("Listening for request connections on port %d\n", port)
+
+	// Create a gRPC server and assign it the logic of this RequestReceiver.
+	rr.grpcServer = grpc.NewServer()
+	RegisterRequestReceiverServer(rr.grpcServer, rr)
+
+	// Start listening on the network
+	conn, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	if err != nil {
+		return fmt.Errorf("failed to listen for connections on port %d: %w", port, err)
+	}
+
+	// Start the gRPC server in a separate goroutine.
+	// When the server stops, it will write its exit error into gt.grpcServerError.
+	go func() {
+		rr.grpcServerError = rr.grpcServer.Serve(conn)
+	}()
+
+	// If we got all the way here, no error occurred.
+	return nil
+}
+
+// Stop stops the own gRPC server (preventing further incoming connections).
+// After Stop() returns, the error returned by the gRPC server's Serve() call
+// can be obtained through the ServerError() method.
+func (rr *RequestReceiver) Stop() {
+
+	fmt.Printf("Stopping request receiver.\n")
+
+	// Stop own gRPC server.
+	rr.grpcServer.GracefulStop()
+
+	fmt.Printf("Request receiver stopped.\n")
+}
+
+// ServerError returns the error returned by the gRPC server's Serve() call.
+// ServerError() must not be called before the RequestReceiver is stopped and its Stop() method has returned.
+func (rr *RequestReceiver) ServerError() error {
+	return rr.grpcServerError
+}

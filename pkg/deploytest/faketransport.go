@@ -4,48 +4,57 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
+// TODO: This is the original old code with very few modifications.
+//       Go through all of it, comment what is to be kept and delete what is not needed.
+
 package deploytest
 
 import (
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/msgs"
+	"github.com/hyperledger-labs/mirbft/pkg/modules"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"sync"
 )
 
-type SourceMsg struct {
-	Source uint64
-	Msg    *msgs.Msg
-}
+//type SourceMsg struct {
+//	Source uint64
+//	Msg    *messagepb.Message
+//}
 
 type FakeLink struct {
 	FakeTransport *FakeTransport
 	Source        uint64
 }
 
-func (fl *FakeLink) Send(dest uint64, msg *msgs.Msg) {
+func (fl *FakeLink) Send(dest uint64, msg *messagepb.Message) error {
 	fl.FakeTransport.Send(fl.Source, dest, msg)
+	return nil
+}
+
+func (fl *FakeLink) ReceiveChan() <-chan modules.ReceivedMessage {
+	return fl.FakeTransport.NodeSinks[fl.Source]
 }
 
 type FakeTransport struct {
 	// Buffers is source x dest
-	Buffers   [][]chan *msgs.Msg
-	NodeSinks []chan SourceMsg
+	Buffers   [][]chan *messagepb.Message
+	NodeSinks []chan modules.ReceivedMessage
 	WaitGroup sync.WaitGroup
 	DoneC     chan struct{}
 }
 
 func NewFakeTransport(nodes int) *FakeTransport {
-	buffers := make([][]chan *msgs.Msg, nodes)
-	nodeSinks := make([]chan SourceMsg, nodes)
+	buffers := make([][]chan *messagepb.Message, nodes)
+	nodeSinks := make([]chan modules.ReceivedMessage, nodes)
 	for i := 0; i < nodes; i++ {
-		buffers[i] = make([]chan *msgs.Msg, nodes)
+		buffers[i] = make([]chan *messagepb.Message, nodes)
 		for j := 0; j < nodes; j++ {
 			if i == j {
 				continue
 			}
-			buffers[i][j] = make(chan *msgs.Msg, 10000)
+			buffers[i][j] = make(chan *messagepb.Message, 10000)
 		}
-		nodeSinks[i] = make(chan SourceMsg)
+		nodeSinks[i] = make(chan modules.ReceivedMessage)
 	}
 
 	return &FakeTransport{
@@ -55,7 +64,7 @@ func NewFakeTransport(nodes int) *FakeTransport {
 	}
 }
 
-func (ft *FakeTransport) Send(source, dest uint64, msg *msgs.Msg) {
+func (ft *FakeTransport) Send(source, dest uint64, msg *messagepb.Message) {
 	select {
 	case ft.Buffers[int(source)][int(dest)] <- msg:
 	default:
@@ -70,7 +79,7 @@ func (ft *FakeTransport) Link(source uint64) *FakeLink {
 	}
 }
 
-func (ft *FakeTransport) RecvC(dest uint64) <-chan SourceMsg {
+func (ft *FakeTransport) RecvC(dest uint64) <-chan modules.ReceivedMessage {
 	return ft.NodeSinks[int(dest)]
 }
 
@@ -82,7 +91,7 @@ func (ft *FakeTransport) Start() {
 			}
 
 			ft.WaitGroup.Add(1)
-			go func(i, j int, buffer chan *msgs.Msg) {
+			go func(i, j int, buffer chan *messagepb.Message) {
 				// fmt.Printf("Starting drain thread from %d to %d\n", i, j)
 				defer ft.WaitGroup.Done()
 				for {
@@ -90,8 +99,8 @@ func (ft *FakeTransport) Start() {
 					case msg := <-buffer:
 						// fmt.Printf("Sending message from %d to %d\n", i, j)
 						select {
-						case ft.NodeSinks[j] <- SourceMsg{
-							Source: uint64(i),
+						case ft.NodeSinks[j] <- modules.ReceivedMessage{
+							Sender: uint64(i),
 							Msg:    msg,
 						}:
 						case <-ft.DoneC:
