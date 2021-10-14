@@ -13,9 +13,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
-	"google.golang.org/protobuf/proto"
 )
 
 // ChatApp and its methods implement the application logic of the small chat demo application
