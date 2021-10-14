@@ -120,3 +120,7 @@ You can also drop an email to the active maintainer(s).
 
 The MirBFT library source code is made available under the Apache License, version 2.0 (Apache-2.0), located in the
 [LICENSE file](LICENSE).
+
+## Acknowledgments
+
+This work has been supported in part by the European Union's Horizon 2020 research and innovation programme under grant agreement No. 780477 PRIViLEDGE.
