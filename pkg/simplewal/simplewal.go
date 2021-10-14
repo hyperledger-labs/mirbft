@@ -20,9 +20,9 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"sync"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 	"github.com/tidwall/wal"
-	"google.golang.org/protobuf/proto"
 )
 
 type WAL struct {
