@@ -11,7 +11,7 @@ import (
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/dummyclient"
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
-	"github.com/hyperledger-labs/mirbft/pkg/logger"
+	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"path/filepath"
 	"sync"
@@ -96,7 +96,7 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 		// Configure the test replica's node.
 		config := &mirbft.NodeConfig{
 			BufferSize: TestMsgBufSize,
-			Logger:     logger.ConsoleDebugLogger,
+			Logger:     logging.ConsoleDebugLogger,
 		}
 
 		// Create network transport module
@@ -127,7 +127,7 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 
 		// Client ID is 1, as 0 is reserved for the "fake" requests submitted directly by the TestReplica itself
 		// when it runs.
-		Client: dummyclient.NewDummyClient(1),
+		Client: dummyclient.NewDummyClient(1, logging.ConsoleDebugLogger),
 	}, nil
 }
 
@@ -191,7 +191,7 @@ func localGrpcTransport(nodeIds []uint64, ownId uint64) *grpctransport.GrpcTrans
 		membership[id] = fmt.Sprintf("127.0.0.1:%d", BaseListenPort+id)
 	}
 
-	return grpctransport.NewGrpcTransport(membership, ownId)
+	return grpctransport.NewGrpcTransport(membership, ownId, nil)
 }
 
 func (d *Deployment) localRequestReceiverAddrs() map[uint64]string {

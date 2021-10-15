@@ -12,11 +12,16 @@ As the library matures, the application can be extended to support state transfe
 4 nodes need to be started on the local machine, e.g. in 4 different terminal windows (from the root repository directory):
 
 ```bash
-go run ./cmd/chat-demo 0
-go run ./cmd/chat-demo 1
-go run ./cmd/chat-demo 2
-go run ./cmd/chat-demo 3
+go run ./samples/chat-demo 0
+go run ./samples/chat-demo 1
+go run ./samples/chat-demo 2
+go run ./samples/chat-demo 3
 ```
+
+This version of the application, even it uses network communication over the loopback interfase,
+can only be run locally, because the network addresses of all nodes are hard-coded to be `127.0.0.1`.
+It is trivial though to modify it for communication over the actual network by either changing the
+addresses to something else or to make them command-line parameters.
 
 The application creates a `chat-demo-wal` wal directory where the nodes persist their state.
 In case this directory is present after previous runs,

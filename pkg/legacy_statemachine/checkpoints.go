@@ -39,10 +39,10 @@ type checkpointTracker struct {
 
 	nodeBuffers *nodeBuffers
 	myConfig    *state.EventInitialParameters
-	logger      logger.Logger
+	logger      logging.Logger
 }
 
-func newCheckpointTracker(seqNo uint64, networkState *msgs.NetworkState, persisted *persisted, nodeBuffers *nodeBuffers, myConfig *state.EventInitialParameters, logger logger.Logger) *checkpointTracker {
+func newCheckpointTracker(seqNo uint64, networkState *msgs.NetworkState, persisted *persisted, nodeBuffers *nodeBuffers, myConfig *state.EventInitialParameters, logger logging.Logger) *checkpointTracker {
 	ct := &checkpointTracker{
 		myConfig:    myConfig,
 		state:       cpsIdle,
@@ -260,7 +260,7 @@ type checkpoint struct {
 	seqNo         uint64
 	myConfig      *state.EventInitialParameters
 	networkConfig *msgs.NetworkState_Config
-	logger        logger.Logger
+	logger        logging.Logger
 
 	values         map[string][]nodeID
 	committedValue []byte
@@ -298,7 +298,7 @@ func (cw *checkpoint) applyCheckpointMsg(source nodeID, value []byte) {
 		// Note, this must be >= (not ==) because my agreement could come after 2f+1 from the network.
 		if agreements >= intersectionQuorum(cw.networkConfig) {
 			if !cw.stable {
-				cw.logger.Log(logger.LevelDebug, "checkpoint is now stable", "seq_no", cw.seqNo)
+				cw.logger.Log(logging.LevelDebug, "checkpoint is now stable", "seq_no", cw.seqNo)
 			}
 			cw.stable = true
 		}

@@ -25,7 +25,7 @@ import (
 type commitState struct {
 	persisted         *persisted
 	committingClients map[uint64]*committingClient
-	logger            logger.Logger
+	logger            logging.Logger
 
 	lowWatermark      uint64
 	lastAppliedCommit uint64
@@ -38,7 +38,7 @@ type commitState struct {
 	transferring      bool
 }
 
-func newCommitState(persisted *persisted, logger logger.Logger) *commitState {
+func newCommitState(persisted *persisted, logger logging.Logger) *commitState {
 	cs := &commitState{
 		persisted: persisted,
 		logger:    logger,
@@ -90,12 +90,12 @@ func (cs *commitState) reinitialize() *ActionList {
 	}
 
 	if lastTEntry == nil || lastCEntry.SeqNo >= lastTEntry.SeqNo {
-		cs.logger.Log(logger.LevelDebug, "reinitialized commit-state", "low_watermark", cs.lowWatermark, "stop_at_seq_no", cs.stopAtSeqNo, "len(pending_reconfigurations)", len(cs.activeState.PendingReconfigurations), "last_checkpoint_seq_no", lastCEntry.SeqNo)
+		cs.logger.Log(logging.LevelDebug, "reinitialized commit-state", "low_watermark", cs.lowWatermark, "stop_at_seq_no", cs.stopAtSeqNo, "len(pending_reconfigurations)", len(cs.activeState.PendingReconfigurations), "last_checkpoint_seq_no", lastCEntry.SeqNo)
 		cs.transferring = false
 		return (&ActionList{}).StateApplied(cs.lowWatermark, cs.activeState)
 	}
 
-	cs.logger.Log(logger.LevelInfo, "reinitialized commit-state detected crash during state transfer", "target_seq_no", lastTEntry.SeqNo, "target_value", lastTEntry.Value)
+	cs.logger.Log(logging.LevelInfo, "reinitialized commit-state detected crash during state transfer", "target_seq_no", lastTEntry.SeqNo, "target_value", lastTEntry.Value)
 
 	// We crashed during a state transfer
 	cs.transferring = true
@@ -103,7 +103,7 @@ func (cs *commitState) reinitialize() *ActionList {
 }
 
 func (cs *commitState) transferTo(seqNo uint64, value []byte) *ActionList {
-	cs.logger.Log(logger.LevelDebug, "initiating state transfer", "target_seq_no", seqNo, "target_value", value)
+	cs.logger.Log(logging.LevelDebug, "initiating state transfer", "target_seq_no", seqNo, "target_value", value)
 	assertEqual(cs.transferring, false, "multiple state transfers are not supported concurrently")
 	cs.transferring = true
 	return cs.persisted.addTEntry(&msgs.TEntry{
@@ -113,7 +113,7 @@ func (cs *commitState) transferTo(seqNo uint64, value []byte) *ActionList {
 }
 
 func (cs *commitState) applyCheckpointResult(epochConfig *msgs.EpochConfig, result *state.EventCheckpointResult) *ActionList {
-	cs.logger.Log(logger.LevelDebug, "applying checkpoint result", "seq_no", result.SeqNo, "value", result.Value)
+	cs.logger.Log(logging.LevelDebug, "applying checkpoint result", "seq_no", result.SeqNo, "value", result.Value)
 	ci := uint64(cs.activeState.Config.CheckpointInterval)
 
 	if cs.transferring {
@@ -127,7 +127,7 @@ func (cs *commitState) applyCheckpointResult(epochConfig *msgs.EpochConfig, resu
 	if len(result.NetworkState.PendingReconfigurations) == 0 {
 		cs.stopAtSeqNo = result.SeqNo + 2*ci
 	} else {
-		cs.logger.Log(logger.LevelDebug, "checkpoint result has pending reconfigurations, not extending stop", "stop_at_seq_no", cs.stopAtSeqNo)
+		cs.logger.Log(logging.LevelDebug, "checkpoint result has pending reconfigurations, not extending stop", "stop_at_seq_no", cs.stopAtSeqNo)
 	}
 
 	cs.activeState = result.NetworkState
@@ -237,7 +237,7 @@ func (cs *commitState) drain() *ActionList {
 			actions.Checkpoint(cs.lastAppliedCommit, networkConfig, clientConfigs)
 
 			cs.checkpointPending = true
-			cs.logger.Log(logger.LevelDebug, "all previous sequences has committed, requesting checkpoint", "seq_no", cs.lastAppliedCommit)
+			cs.logger.Log(logging.LevelDebug, "all previous sequences has committed, requesting checkpoint", "seq_no", cs.lastAppliedCommit)
 
 		}
 

@@ -24,7 +24,7 @@ type activeEpoch struct {
 	epochConfig   *msgs.EpochConfig
 	networkConfig *msgs.NetworkState_Config
 	myConfig      *state.EventInitialParameters
-	logger        logger.Logger
+	logger        logging.Logger
 
 	outstandingReqs *allOutstandingReqs
 	proposer        *proposer
@@ -43,11 +43,11 @@ type activeEpoch struct {
 	ticksSinceProgress  uint32
 }
 
-func newActiveEpoch(epochConfig *msgs.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *state.EventInitialParameters, l logger.Logger) *activeEpoch {
+func newActiveEpoch(epochConfig *msgs.EpochConfig, persisted *persisted, nodeBuffers *nodeBuffers, commitState *commitState, clientTracker *clientTracker, myConfig *state.EventInitialParameters, l logging.Logger) *activeEpoch {
 	networkConfig := commitState.activeState.Config
 	startingSeqNo := commitState.highestCommit
 
-	l.Log(logger.LevelInfo, "starting new active epoch", "epoch_no", epochConfig.Number, "seq_no", startingSeqNo)
+	l.Log(logging.LevelInfo, "starting new active epoch", "epoch_no", epochConfig.Number, "seq_no", startingSeqNo)
 
 	outstandingReqs := newOutstandingReqs(clientTracker, commitState.activeState, l)
 
@@ -329,7 +329,7 @@ func (e *activeEpoch) moveLowWatermark(seqNo uint64) (*ActionList, bool) {
 	actions := e.advance()
 
 	for seqNo > e.lowWatermark() {
-		e.logger.Log(logger.LevelDebug, "moved active epoch low watermarks", "low_watermark", e.lowWatermark(), "high_watermark", e.highWatermark())
+		e.logger.Log(logging.LevelDebug, "moved active epoch low watermarks", "low_watermark", e.lowWatermark(), "high_watermark", e.highWatermark())
 
 		e.sequences = e.sequences[1:]
 	}
@@ -456,7 +456,7 @@ func (e *activeEpoch) tick() *ActionList {
 			},
 		})
 		actions.concat(e.persisted.addSuspect(suspect))
-		e.logger.Log(logger.LevelDebug, "suspect epoch to have failed due to lack of active progress", "epoch_no", e.epochConfig.Number)
+		e.logger.Log(logging.LevelDebug, "suspect epoch to have failed due to lack of active progress", "epoch_no", e.epochConfig.Number)
 	}
 
 	if e.myConfig.HeartbeatTicks == 0 || e.ticksSinceProgress%e.myConfig.HeartbeatTicks != 0 {

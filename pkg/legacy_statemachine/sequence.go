@@ -45,7 +45,7 @@ type sequence struct {
 	epoch uint64
 
 	myConfig      *state.EventInitialParameters
-	logger        logger.Logger
+	logger        logging.Logger
 	networkConfig *msgs.NetworkState_Config
 
 	state sequenceState
@@ -75,7 +75,7 @@ type sequence struct {
 	commits  map[string]int
 }
 
-func newSequence(owner nodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *msgs.NetworkState_Config, myConfig *state.EventInitialParameters, logger logger.Logger) *sequence {
+func newSequence(owner nodeID, epoch, seqNo uint64, persisted *persisted, networkConfig *msgs.NetworkState_Config, myConfig *state.EventInitialParameters, logger logging.Logger) *sequence {
 	return &sequence{
 		owner:         owner,
 		seqNo:         seqNo,

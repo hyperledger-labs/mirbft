@@ -105,7 +105,7 @@ func (tr *TestReplica) Run(tickInterval time.Duration, stopC <-chan struct{}) No
 	Expect(err).NotTo(HaveOccurred())
 
 	// Create a RequestReceiver for request coming over the network.
-	requestReceiver := requestreceiver.NewRequestReceiver(node)
+	requestReceiver := requestreceiver.NewRequestReceiver(node, nil)
 	err = requestReceiver.Start(RequestListenPort + int(tr.Id))
 	Expect(err).NotTo(HaveOccurred())
 

@@ -9,6 +9,7 @@ package dummyclient
 import (
 	"context"
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"github.com/hyperledger-labs/mirbft/pkg/requestreceiver"
 	"google.golang.org/grpc"
@@ -24,13 +25,21 @@ type DummyClient struct {
 	ownId       uint64
 	nextReqNo   uint64
 	connections map[uint64]requestreceiver.RequestReceiver_ListenClient
+	logger      logging.Logger
 }
 
-func NewDummyClient(clientId uint64) *DummyClient {
+func NewDummyClient(clientId uint64, l logging.Logger) *DummyClient {
+
+	// If no logger was given, only write errors to the console.
+	if l == nil {
+		l = logging.ConsoleErrorLogger
+	}
+
 	return &DummyClient{
 		ownId:       clientId,
 		nextReqNo:   0,
 		connections: make(map[uint64]requestreceiver.RequestReceiver_ListenClient),
+		logger:      l,
 	}
 }
 
@@ -55,16 +64,18 @@ func (dc *DummyClient) Connect(membership map[uint64]string) {
 			defer wg.Done()
 
 			// Create and store connection
-			connection, err := connectToNode(addr) // May take long time, execute before acquiring the lock.
+			connection, err := dc.connectToNode(addr) // May take long time, execute before acquiring the lock.
 			lock.Lock()
 			dc.connections[id] = connection
 			lock.Unlock()
 
 			// Print debug info.
 			if err != nil {
-				fmt.Printf("Failed to connect to node %d (%s) connected.\n", id, addr)
+				dc.logger.Log(logging.LevelError,
+					fmt.Sprintf("Failed to connect to node %d (%s) connected.", id, addr))
 			} else {
-				fmt.Printf("Node %d (%s) connected.\n", id, addr)
+				dc.logger.Log(logging.LevelDebug,
+					fmt.Sprintf("Node %d (%s) connected.", id, addr))
 			}
 
 		}(nodeId, nodeAddr)
@@ -101,15 +112,15 @@ func (dc *DummyClient) Disconnect() {
 	// Close connections to all nodes.
 	for id, connection := range dc.connections {
 		if _, err := connection.CloseAndRecv(); err != nil {
-			fmt.Printf("Could not close connection to node %d\n", id)
+			dc.logger.Log(logging.LevelWarn, fmt.Sprintf("Could not close connection to node %d", id))
 		}
 	}
 }
 
 // Establishes a connection to a single node at address addrString.
-func connectToNode(addrString string) (requestreceiver.RequestReceiver_ListenClient, error) {
+func (dc *DummyClient) connectToNode(addrString string) (requestreceiver.RequestReceiver_ListenClient, error) {
 
-	fmt.Printf("Connecting to node: %s\n", addrString)
+	dc.logger.Log(logging.LevelDebug, fmt.Sprintf("Connecting to node: %s", addrString))
 
 	// Set general gRPC dial options.
 	dialOpts := []grpc.DialOption{
@@ -132,7 +143,7 @@ func connectToNode(addrString string) (requestreceiver.RequestReceiver_ListenCli
 	msgSink, err := client.Listen(context.Background())
 	if err != nil {
 		if cerr := conn.Close(); cerr != nil {
-			fmt.Printf("Failed to close connection: %v", cerr)
+			dc.logger.Log(logging.LevelWarn, fmt.Sprintf("Failed to close connection: %v", cerr))
 		}
 		return nil, err
 	}
