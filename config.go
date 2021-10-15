@@ -8,7 +8,7 @@ Refactored: 1
 
 package mirbft
 
-import "github.com/hyperledger-labs/mirbft/pkg/logger"
+import "github.com/hyperledger-labs/mirbft/pkg/logging"
 
 const (
 	defaultMsgBufferSize = 2 * 1024 * 1024 // 2 MB
@@ -21,7 +21,7 @@ const (
 // should be specified when instantiating the protocol implementation as one of the Node's modules.
 type NodeConfig struct {
 	// Logger provides the logging functions.
-	Logger logger.Logger
+	Logger logging.Logger
 
 	// BufferSize is the total size of messages which can be held by the protocol state
 	// machine, pending application, for each node. This is necessary because
@@ -52,7 +52,7 @@ type NodeConfig struct {
 // It can be used as a base for creating more specific configurations when instantiating a Node.
 func DefaultNodeConfig() *NodeConfig {
 	return &NodeConfig{
-		Logger:     logger.ConsoleInfoLogger,
+		Logger:     logging.ConsoleInfoLogger,
 		BufferSize: defaultMsgBufferSize,
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
+	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
@@ -27,14 +28,25 @@ type RequestReceiver struct {
 
 	// Error returned from the grpcServer.Serve() call (see Start() method).
 	grpcServerError error
+
+	// Logger use for all logging events of this RequestReceiver
+	logger logging.Logger
 }
 
 // NewRequestReceiver returns a new initialized request receiver.
 // The returned RequestReceiver is not yet running (able to receive requests).
 // This needs to be done explicitly by calling the Start() method.
 // For the requests to be processed by passed Node, the Node must also be running.
-func NewRequestReceiver(node *mirbft.Node) *RequestReceiver {
-	return &RequestReceiver{node: node}
+func NewRequestReceiver(node *mirbft.Node, l logging.Logger) *RequestReceiver {
+	// If no logger was given, only write errors to the console.
+	if l == nil {
+		l = logging.ConsoleErrorLogger
+	}
+
+	return &RequestReceiver{
+		node:   node,
+		logger: l,
+	}
 }
 
 // Listen implements the gRPC Listen service (multi-request-single-response).
@@ -47,7 +59,7 @@ func (rr *RequestReceiver) Listen(srv RequestReceiver_ListenServer) error {
 	// Print address of incoming connection.
 	p, ok := peer.FromContext(srv.Context())
 	if ok {
-		fmt.Printf("Incoming connection from %s\n", p.Addr.String())
+		rr.logger.Log(logging.LevelDebug, fmt.Sprintf("Incoming connection from %s", p.Addr.String()))
 	} else {
 		return fmt.Errorf("failed to get grpc peer info from context")
 	}
@@ -63,8 +75,8 @@ func (rr *RequestReceiver) Listen(srv RequestReceiver_ListenServer) error {
 		if srErr := rr.node.SubmitRequest(context.Background(), req.ClientId, req.ReqNo, req.Data); srErr != nil {
 
 			// If submitting fails, stop receiving further request (and close connection).
-			fmt.Printf("Could not submit request (%d-%d): %v. Closing connection.\n",
-				req.ClientId, req.ReqNo, srErr)
+			rr.logger.Log(logging.LevelError, fmt.Sprintf("Could not submit request (%d-%d): %v. Closing connection.",
+				req.ClientId, req.ReqNo, srErr))
 			break
 		}
 	}
@@ -72,7 +84,7 @@ func (rr *RequestReceiver) Listen(srv RequestReceiver_ListenServer) error {
 	// If the connection was terminated by the gRPC client, print the reason.
 	// (This line could also be reached by breaking out of the above loop on request submission error.)
 	if err != nil {
-		fmt.Printf("Connection terminated: %s (%v)\n", p.Addr.String(), err)
+		rr.logger.Log(logging.LevelWarn, fmt.Sprintf("Connection terminated: %s (%v)", p.Addr.String(), err))
 	}
 
 	// Send gRPC response message and close connection.
@@ -84,7 +96,7 @@ func (rr *RequestReceiver) Listen(srv RequestReceiver_ListenServer) error {
 // Before ths method is called, no client connections are accepted.
 func (rr *RequestReceiver) Start(port int) error {
 
-	fmt.Printf("Listening for request connections on port %d\n", port)
+	rr.logger.Log(logging.LevelInfo, fmt.Sprintf("Listening for request connections on port %d", port))
 
 	// Create a gRPC server and assign it the logic of this RequestReceiver.
 	rr.grpcServer = grpc.NewServer()
@@ -111,12 +123,12 @@ func (rr *RequestReceiver) Start(port int) error {
 // can be obtained through the ServerError() method.
 func (rr *RequestReceiver) Stop() {
 
-	fmt.Printf("Stopping request receiver.\n")
+	rr.logger.Log(logging.LevelDebug, "Stopping request receiver.")
 
 	// Stop own gRPC server.
-	rr.grpcServer.GracefulStop()
+	rr.grpcServer.Stop()
 
-	fmt.Printf("Request receiver stopped.\n")
+	rr.logger.Log(logging.LevelDebug, "Request receiver stopped.")
 }
 
 // ServerError returns the error returned by the gRPC server's Serve() call.

@@ -18,12 +18,12 @@ import (
 )
 
 type nodeBuffers struct {
-	logger   logger.Logger
+	logger   logging.Logger
 	myConfig *state.EventInitialParameters
 	nodeMap  map[nodeID]*nodeBuffer
 }
 
-func newNodeBuffers(myConfig *state.EventInitialParameters, logger logger.Logger) *nodeBuffers {
+func newNodeBuffers(myConfig *state.EventInitialParameters, logger logging.Logger) *nodeBuffers {
 	return &nodeBuffers{
 		logger:   logger,
 		myConfig: myConfig,
@@ -62,7 +62,7 @@ func (nbs *nodeBuffers) status() []*status.NodeBuffer {
 
 type nodeBuffer struct {
 	id        nodeID
-	logger    logger.Logger
+	logger    logging.Logger
 	myConfig  *state.EventInitialParameters
 	totalSize int
 
@@ -72,7 +72,7 @@ type nodeBuffer struct {
 }
 
 func (nb *nodeBuffer) logDrop(component string, msg *msgs.Msg) {
-	nb.logger.Log(logger.LevelWarn, "dropping buffered msg", "component", component, "type", fmt.Sprintf("%T", msg.Type))
+	nb.logger.Log(logging.LevelWarn, "dropping buffered msg", "component", component, "type", fmt.Sprintf("%T", msg.Type))
 }
 
 func (nb *nodeBuffer) msgRemoved(msg *msgs.Msg) {

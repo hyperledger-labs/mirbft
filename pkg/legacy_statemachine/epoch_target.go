@@ -65,7 +65,7 @@ type epochTarget struct {
 	batchTracker           *batchTracker
 	networkConfig          *msgs.NetworkState_Config
 	myConfig               *state.EventInitialParameters
-	logger                 logger.Logger
+	logger                 logging.Logger
 }
 
 func newEpochTarget(
@@ -78,7 +78,7 @@ func newEpochTarget(
 	batchTracker *batchTracker,
 	networkConfig *msgs.NetworkState_Config,
 	myConfig *state.EventInitialParameters,
-	logger logger.Logger,
+	logger logging.Logger,
 ) *epochTarget {
 	prestartBuffers := map[nodeID]*msgBuffer{}
 	for _, id := range networkConfig.Nodes {
@@ -208,7 +208,7 @@ func (et *epochTarget) verifyNewEpochState() {
 		return
 	}
 
-	et.logger.Log(logger.LevelDebug, "epoch transitioning from from verifying to fetching", "epoch_no", et.number)
+	et.logger.Log(logging.LevelDebug, "epoch transitioning from from verifying to fetching", "epoch_no", et.number)
 	et.state = etFetching
 }
 
@@ -217,12 +217,12 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 
 	if et.commitState.transferring {
 		// Wait until state transfer completes before attempting to process the new epoch
-		et.logger.Log(logger.LevelDebug, "delaying fetching of epoch state until state transfer completes", "epoch_no", et.number)
+		et.logger.Log(logging.LevelDebug, "delaying fetching of epoch state until state transfer completes", "epoch_no", et.number)
 		return &ActionList{}
 	}
 
 	if newEpochConfig.StartingCheckpoint.SeqNo > et.commitState.highestCommit {
-		et.logger.Log(logger.LevelDebug, "delaying fetching of epoch state until outstanding checkpoint is computed", "epoch_no", et.number, "seq_no", newEpochConfig.StartingCheckpoint.SeqNo)
+		et.logger.Log(logging.LevelDebug, "delaying fetching of epoch state until outstanding checkpoint is computed", "epoch_no", et.number, "seq_no", newEpochConfig.StartingCheckpoint.SeqNo)
 		return et.commitState.transferTo(newEpochConfig.StartingCheckpoint.SeqNo, newEpochConfig.StartingCheckpoint.Value)
 	}
 
@@ -311,7 +311,7 @@ func (et *epochTarget) fetchNewEpochState() *ActionList {
 		return actions
 	}
 
-	et.logger.Log(logger.LevelDebug, "epoch transitioning from fetching to echoing", "epoch_no", et.number)
+	et.logger.Log(logging.LevelDebug, "epoch transitioning from fetching to echoing", "epoch_no", et.number)
 	et.state = etEchoing
 
 	if newEpochConfig.StartingCheckpoint.SeqNo == et.commitState.stopAtSeqNo && len(newEpochConfig.FinalPreprepares) > 0 {
@@ -717,7 +717,7 @@ func (et *epochTarget) applyNewEpochReadyMsg(source nodeID, msg *msgs.NewEpochCo
 	if et.state < etReadying {
 
 		// Advance state.
-		et.logger.Log(logger.LevelDebug, "epoch transitioning from echoing to ready", "epoch_no", et.number)
+		et.logger.Log(logging.LevelDebug, "epoch transitioning from echoing to ready", "epoch_no", et.number)
 		et.state = etReadying
 
 		// Send a READY message to all nodes.
@@ -747,7 +747,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() {
 			continue
 		}
 
-		et.logger.Log(logger.LevelDebug, "epoch transitioning from ready to resuming", "epoch_no", et.number)
+		et.logger.Log(logging.LevelDebug, "epoch transitioning from ready to resuming", "epoch_no", et.number)
 		et.state = etResuming
 
 		et.networkNewEpoch = config
@@ -759,7 +759,7 @@ func (et *epochTarget) checkNewEpochReadyQuorum() {
 					return
 				}
 
-				et.logger.Log(logger.LevelDebug, "epoch change triggering commit", "epoch_no", et.number, "seq_no", qEntry.SeqNo)
+				et.logger.Log(logging.LevelDebug, "epoch change triggering commit", "epoch_no", et.number, "seq_no", qEntry.SeqNo)
 				et.commitState.commit(qEntry)
 			},
 			onECEntry: func(ecEntry *msgs.ECEntry) {
@@ -778,16 +778,16 @@ func (et *epochTarget) checkNewEpochReadyQuorum() {
 func (et *epochTarget) checkEpochResumed() {
 	switch {
 	case et.commitState.stopAtSeqNo < et.startingSeqNo:
-		et.logger.Log(logger.LevelDebug, "epoch waiting to resume until outstanding checkpoint commits", "epoch_no", et.number)
+		et.logger.Log(logging.LevelDebug, "epoch waiting to resume until outstanding checkpoint commits", "epoch_no", et.number)
 	case et.commitState.lowWatermark+1 != et.startingSeqNo:
-		et.logger.Log(logger.LevelDebug, "epoch waiting for state transfer to complete (and possibly to initiate)", "epoch_no", et.number)
+		et.logger.Log(logging.LevelDebug, "epoch waiting for state transfer to complete (and possibly to initiate)", "epoch_no", et.number)
 		// we are waiting for state transfer to initiate and complete
 	default:
 		// There is room to allocate sequences, and the commit
 		// state is ready for those sequences to commit, begin
 		// processing the epoch.
 		et.state = etReady
-		et.logger.Log(logger.LevelDebug, "epoch transitioning from resuming to ready", "epoch_no", et.number)
+		et.logger.Log(logging.LevelDebug, "epoch transitioning from resuming to ready", "epoch_no", et.number)
 	}
 
 }
@@ -806,7 +806,7 @@ func (et *epochTarget) advanceState() *ActionList {
 			if et.leaderNewEpoch == nil {
 				return actions
 			}
-			et.logger.Log(logger.LevelDebug, "epoch transitioning from pending to verifying", "epoch_no", et.number)
+			et.logger.Log(logging.LevelDebug, "epoch transitioning from pending to verifying", "epoch_no", et.number)
 			et.state = etVerifying
 		case etVerifying: // Have a NewEpoch message but it references epoch changes we cannot yet verify
 			et.verifyNewEpochState()
@@ -824,7 +824,7 @@ func (et *epochTarget) advanceState() *ActionList {
 
 			actions.concat(et.activeEpoch.advance())
 
-			et.logger.Log(logger.LevelDebug, "epoch transitioning from ready to in progress", "epoch_no", et.number)
+			et.logger.Log(logging.LevelDebug, "epoch transitioning from ready to in progress", "epoch_no", et.number)
 			et.state = etInProgress
 			for _, id := range et.networkConfig.Nodes {
 				et.prestartBuffers[nodeID(id)].iterate(
@@ -858,7 +858,7 @@ func (et *epochTarget) moveLowWatermark(seqNo uint64) *ActionList {
 
 	actions, done := et.activeEpoch.moveLowWatermark(seqNo)
 	if done {
-		et.logger.Log(logger.LevelDebug, "epoch gracefully transitioning from in progress to done", "epoch_no", et.number)
+		et.logger.Log(logging.LevelDebug, "epoch gracefully transitioning from in progress to done", "epoch_no", et.number)
 		et.state = etDone
 	}
 
@@ -869,7 +869,7 @@ func (et *epochTarget) applySuspectMsg(source nodeID) {
 	et.suspicions[source] = struct{}{}
 
 	if len(et.suspicions) >= intersectionQuorum(et.networkConfig) {
-		et.logger.Log(logger.LevelDebug, "epoch ungracefully transitioning from in progress to done", "epoch_no", et.number)
+		et.logger.Log(logging.LevelDebug, "epoch ungracefully transitioning from in progress to done", "epoch_no", et.number)
 		et.state = etDone
 	}
 }

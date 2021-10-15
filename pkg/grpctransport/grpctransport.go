@@ -9,6 +9,7 @@ package grpctransport
 import (
 	"context"
 	"fmt"
+	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"google.golang.org/grpc"
@@ -51,6 +52,9 @@ type GrpcTransport struct {
 
 	// Error returned from the grpcServer.Serve() call (see Start() method).
 	grpcServerError error
+
+	// Logger use for all logging events of this GrpcTransport
+	logger logging.Logger
 }
 
 // NewGrpcTransport returns a pointer to a new initialized GrpcTransport networking module.
@@ -61,12 +65,19 @@ type GrpcTransport struct {
 // The returned GrpcTransport is not yet running (able to receive messages),
 // nor is it connected to any nodes (able to send messages).
 // This needs to be done explicitly by calling the respective Start() and Connect() methods.
-func NewGrpcTransport(membership map[uint64]string, ownId uint64) *GrpcTransport {
+func NewGrpcTransport(membership map[uint64]string, ownId uint64, l logging.Logger) *GrpcTransport {
+
+	// If no logger was given, only write errors to the console.
+	if l == nil {
+		l = logging.ConsoleErrorLogger
+	}
+
 	return &GrpcTransport{
 		ownId:            ownId,
 		incomingMessages: make(chan modules.ReceivedMessage),
 		membership:       membership,
 		connections:      make(map[uint64]GrpcTransport_ListenClient),
+		logger:           l,
 	}
 }
 
@@ -92,7 +103,7 @@ func (gt *GrpcTransport) Listen(srv GrpcTransport_ListenServer) error {
 	// Print address of incoming connection.
 	p, ok := peer.FromContext(srv.Context())
 	if ok {
-		fmt.Printf("Incoming connection from %s\n", p.Addr.String())
+		gt.logger.Log(logging.LevelDebug, fmt.Sprintf("Incoming connection from %s", p.Addr.String()))
 	} else {
 		return fmt.Errorf("failed to get grpc peer info from context")
 	}
@@ -108,7 +119,7 @@ func (gt *GrpcTransport) Listen(srv GrpcTransport_ListenServer) error {
 	}
 
 	// Log error message produced on termination of the above loop.
-	fmt.Printf("Connection terminated: %s (%v)\n", p.Addr.String(), err)
+	gt.logger.Log(logging.LevelInfo, fmt.Sprintf("Connection terminated: %s (%v)", p.Addr.String(), err))
 
 	// Send gRPC response message and close connection.
 	return srv.SendAndClose(&ByeBye{})
@@ -122,7 +133,7 @@ func (gt *GrpcTransport) Start() error {
 	// Obtain own port number from membership.
 	_, ownPort, err := splitAddrPort(gt.membership[gt.ownId])
 
-	fmt.Printf("Listening for connections on port %d\n", ownPort)
+	gt.logger.Log(logging.LevelInfo, fmt.Sprintf("Listening for connections on port %d", ownPort))
 
 	// Create a gRPC server and assign it the logic of this module.
 	gt.grpcServer = grpc.NewServer()
@@ -153,14 +164,14 @@ func (gt *GrpcTransport) Stop() {
 	// Close connections to other nodes.
 	for id, connection := range gt.connections {
 		if _, err := connection.CloseAndRecv(); err != nil {
-			fmt.Printf("Could not close connection to node %d: %v\n", id, err)
+			gt.logger.Log(logging.LevelWarn, fmt.Sprintf("Could not close connection to node %d: %v", id, err))
 		}
 	}
 
 	// Stop own gRPC server.
 	gt.grpcServer.GracefulStop()
 
-	fmt.Printf("GrpcTransport stopped.\n")
+	gt.logger.Log(logging.LevelDebug, "GrpcTransport stopped.")
 }
 
 // ServerError returns the error returned by the gRPC server's Serve() call.
@@ -190,16 +201,17 @@ func (gt *GrpcTransport) Connect() {
 			defer wg.Done()
 
 			// Create and store connection
-			connection, err := connectToNode(addr) // May take long time, execute before acquiring the lock.
+			connection, err := gt.connectToNode(addr) // May take long time, execute before acquiring the lock.
 			lock.Lock()
 			gt.connections[id] = connection
 			lock.Unlock()
 
 			// Print debug info.
 			if err != nil {
-				fmt.Printf("Failed to connect to node %d (%s): %v\n", id, addr, err)
+				gt.logger.Log(logging.LevelError,
+					fmt.Sprintf("Failed to connect to node %d (%s): %v", id, addr, err))
 			} else {
-				fmt.Printf("Node %d (%s) connected.\n", id, addr)
+				gt.logger.Log(logging.LevelDebug, fmt.Sprintf("Node %d (%s) connected.", id, addr))
 			}
 
 		}(nodeId, nodeAddr)
@@ -210,9 +222,9 @@ func (gt *GrpcTransport) Connect() {
 }
 
 // Establishes a connection to a single node at address addrString.
-func connectToNode(addrString string) (GrpcTransport_ListenClient, error) {
+func (gt *GrpcTransport) connectToNode(addrString string) (GrpcTransport_ListenClient, error) {
 
-	fmt.Printf("Connecting to node: %s\n", addrString)
+	gt.logger.Log(logging.LevelDebug, fmt.Sprintf("Connecting to node: %s", addrString))
 
 	// Set general gRPC dial options.
 	dialOpts := []grpc.DialOption{
@@ -235,7 +247,7 @@ func connectToNode(addrString string) (GrpcTransport_ListenClient, error) {
 	msgSink, err := client.Listen(context.Background())
 	if err != nil {
 		if cerr := conn.Close(); cerr != nil {
-			fmt.Printf("Failed to close connection: %v", cerr)
+			gt.logger.Log(logging.LevelWarn, fmt.Sprintf("Failed to close connection: %v", cerr))
 		}
 		return nil, err
 	}

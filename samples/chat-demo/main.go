@@ -19,7 +19,7 @@ import (
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/dummyclient"
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
-	"github.com/hyperledger-labs/mirbft/pkg/logger"
+	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/ordering"
 	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
@@ -27,6 +27,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
 	"gopkg.in/alecthomas/kingpin.v2"
 	"os"
+	"path"
 	"sync"
 	"time"
 )
@@ -46,17 +47,31 @@ const (
 	reqReceiverBasePort = 20000
 )
 
-// params represents parsed command-line parameters passed to the program.
-type params struct {
+// parsedArgs represents parsed command-line parameters passed to the program.
+type parsedArgs struct {
 
 	// Numeric ID of this node.
 	OwnId uint64
+
+	// If set, print verbose output to stdout.
+	Verbose bool
 }
 
 func main() {
 
 	// Parse command-line parameters.
-	args := parseArgs(os.Args[1:])
+	_ = parseArgs(os.Args)
+	args := parseArgs(os.Args)
+
+	// Initialize logger that will be used throughout the code to print log messages.
+	var logger logging.Logger
+	if args.Verbose {
+		logger = logging.ConsoleDebugLogger // Print debug-level info in verbose mode.
+	} else {
+		logger = logging.ConsoleErrorLogger // Only print errors by default.
+	}
+
+	fmt.Println("Initializing...")
 
 	// ================================================================================
 	// Generate system membership info: addresses, ports, etc...
@@ -68,13 +83,17 @@ func main() {
 
 	// Generate addresses and ports of participating nodes.
 	// All nodes are on the local machine, but listen on different port numbers.
+	// Change this or make this configurable do deploy different nodes on different physical machines.
 	nodeAddrs := make(map[uint64]string)
 	for _, i := range nodeIds {
 		nodeAddrs[i] = fmt.Sprintf("127.0.0.1:%d", nodeBasePort+i)
 	}
 
-	// Generate addresses and ports for receiving requests from clients.
+	// Generate addresses and ports for client request receivers.
 	// Each node uses different ports for receiving protocol messages and requests.
+	// These addresses will be used by the client code to know where to send its requests
+	// (each client sends its requests to all request receivers). Each request receiver,
+	// however, will only submit the received requests to its associated Node.
 	reqReceiverAddrs := make(map[uint64]string)
 	for _, i := range nodeIds {
 		reqReceiverAddrs[i] = fmt.Sprintf("127.0.0.1:%d", reqReceiverBasePort+i)
@@ -90,8 +109,8 @@ func main() {
 	// At the time of writing this comment, restarts / crash-recovery is not yet implemented though.
 	// Nevertheless, running this code will create a directory with the WAL file in it.
 	// Those need to be manually removed.
-	walPath := fmt.Sprintf("./chat-demo-wal/%d", args.OwnId)
-	writeAheadLog, err := simplewal.Open(walPath)
+	walPath := path.Join("chat-demo-wal", fmt.Sprintf("%d", args.OwnId))
+	wal, err := simplewal.Open(walPath)
 	if err != nil {
 		panic(err)
 	}
@@ -99,14 +118,14 @@ func main() {
 		panic(err)
 	}
 	defer func() {
-		if err := writeAheadLog.Close(); err != nil {
+		if err := wal.Close(); err != nil {
 			fmt.Println("Could not close write-ahead log.")
 		}
 	}()
 
 	// Initialize the networking module.
 	// MirBFT will use it for transporting nod-to-node messages.
-	net := grpctransport.NewGrpcTransport(nodeAddrs, args.OwnId)
+	net := grpctransport.NewGrpcTransport(nodeAddrs, args.OwnId, nil)
 	if err := net.Start(); err != nil {
 		panic(err)
 	}
@@ -125,13 +144,13 @@ func main() {
 	// Create a MirBFT Node, using a default configuration and passing the modules initialized just above.
 	node, err := mirbft.NewNode(args.OwnId, mirbft.DefaultNodeConfig(), &modules.Modules{
 		Net:          net,
-		WAL:          writeAheadLog,
+		WAL:          wal,
 		RequestStore: reqStore,
 
 		// The DummyProtocol is the only protocol implemented so far.
 		// This protocol stub is not fault-tolerant and only serves demonstration purposes.
 		// In the future, a choice of multiple protocols should be available.
-		Protocol: ordering.NewDummyProtocol(logger.ConsoleInfoLogger, nodeIds, args.OwnId),
+		Protocol: ordering.NewDummyProtocol(logger, nodeIds, args.OwnId),
 
 		// This is the application logic MirBFT is going to deliver requests to.
 		// It requires to have access to the request store, as MirBFT only passes request references to it.
@@ -161,7 +180,7 @@ func main() {
 	// Create a request receiver and start receiving requests.
 	// Note that the RequestReceiver is _not_ part of the Node as its module.
 	// It is external to the Node and only submits requests it receives to the node.
-	reqReceiver := requestreceiver.NewRequestReceiver(node)
+	reqReceiver := requestreceiver.NewRequestReceiver(node, logger)
 	if err := reqReceiver.Start(reqReceiverBasePort + int(args.OwnId)); err != nil {
 		panic(err)
 	}
@@ -173,7 +192,7 @@ func main() {
 	// Create a DummyClient. In this example, the client's ID corresponds to the ID of the node it is collocated with,
 	// but in general this need not be the case.
 	// Also note that the client IDs are in a different namespace than Node IDs.
-	client := dummyclient.NewDummyClient(args.OwnId)
+	client := dummyclient.NewDummyClient(args.OwnId, logger)
 
 	// Create network connections to all Nodes' request receivers.
 	client.Connect(reqReceiverAddrs)
@@ -206,25 +225,34 @@ func main() {
 	// ================================================================================
 
 	// After sending a few messages, we disconnect the client,
-	fmt.Println("Done sending messages.")
+	if args.Verbose {
+		fmt.Println("Done sending messages.")
+	}
 	client.Disconnect()
 
+	// stop the request receiver,
+	reqReceiver.Stop()
+
 	// and stop the server.
-	fmt.Println("Stopping server.")
+	if args.Verbose {
+		fmt.Println("Stopping server.")
+	}
 	close(stopC)
 	wg.Wait()
 }
 
 // Parses the command-line arguments and returns them in a params struct.
-func parseArgs(args []string) *params {
+func parseArgs(args []string) *parsedArgs {
 	app := kingpin.New("chat-demo", "Small chat application to demonstrate the usage of the MirBFT library.")
 	ownId := app.Arg("id", "Numeric ID of this node").Required().Uint64()
+	verbose := app.Flag("verbose", "Verbose mode.").Short('v').Bool()
 
-	if _, err := app.Parse(args); err != nil {
+	if _, err := app.Parse(args[1:]); err != nil { // Skip args[0], which is the name of the program, not an argument.
 		app.FatalUsage("could not parse arguments: %v\n", err)
 	}
 
-	return &params{
-		OwnId: *ownId,
+	return &parsedArgs{
+		OwnId:   *ownId,
+		Verbose: *verbose,
 	}
 }

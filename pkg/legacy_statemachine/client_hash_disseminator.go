@@ -120,7 +120,7 @@ import (
 // replicatingMap -- all requests which are currently being fetched
 
 type clientHashDisseminator struct {
-	logger      logger.Logger
+	logger      logging.Logger
 	myConfig    *state.EventInitialParameters
 	nodeBuffers *nodeBuffers
 
@@ -132,7 +132,7 @@ type clientHashDisseminator struct {
 	clientTracker    *clientTracker
 }
 
-func newClientHashDisseminator(nodeBuffers *nodeBuffers, myConfig *state.EventInitialParameters, logger logger.Logger, clientTracker *clientTracker) *clientHashDisseminator {
+func newClientHashDisseminator(nodeBuffers *nodeBuffers, myConfig *state.EventInitialParameters, logger logging.Logger, clientTracker *clientTracker) *clientHashDisseminator {
 	return &clientHashDisseminator{
 		logger:        logger,
 		myConfig:      myConfig,
@@ -670,7 +670,7 @@ func (cr *clientRequest) fetch() *ActionList {
 
 type client struct {
 	myConfig      *state.EventInitialParameters
-	logger        logger.Logger
+	logger        logging.Logger
 	networkConfig *msgs.NetworkState_Config
 	clientState   *msgs.NetworkState_Client
 	clientTracker *clientTracker
@@ -682,7 +682,7 @@ type client struct {
 	reqNoMap  map[uint64]*list.Element
 }
 
-func newClient(myConfig *state.EventInitialParameters, logger logger.Logger, tracker *clientTracker) *client {
+func newClient(myConfig *state.EventInitialParameters, logger logging.Logger, tracker *clientTracker) *client {
 	return &client{
 		myConfig:      myConfig,
 		logger:        logger,
@@ -738,7 +738,7 @@ func (c *client) reinitialize(seqNo uint64, networkConfig *msgs.NetworkState_Con
 
 	c.advanceReady()
 
-	c.logger.Log(logger.LevelDebug, "reinitialized client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark, "next_ack_mark", c.nextAckMark)
+	c.logger.Log(logging.LevelDebug, "reinitialized client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark, "next_ack_mark", c.nextAckMark)
 
 	return actions
 }
@@ -799,7 +799,7 @@ func (c *client) allocate(seqNo uint64, state *msgs.NetworkState_Client, reconfi
 	c.highWatermark = newHighWatermark
 	c.advanceReady()
 
-	c.logger.Log(logger.LevelDebug, "allocated new reqs for client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark)
+	c.logger.Log(logging.LevelDebug, "allocated new reqs for client", "client_id", c.clientState.Id, "low_watermark", c.clientState.LowWatermark, "high_watermark", c.highWatermark, "next_ready_mark", c.nextReadyMark)
 
 	return actions
 }

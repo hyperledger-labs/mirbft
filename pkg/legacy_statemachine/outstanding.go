@@ -27,7 +27,7 @@ func ackToKey(ack *msgs.RequestAck) ackKey {
 	}
 }
 
-func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.NetworkState, l logger.Logger) *allOutstandingReqs {
+func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.NetworkState, l logging.Logger) *allOutstandingReqs {
 	clientTracker.availableList.resetIterator()
 
 	ao := &allOutstandingReqs{
@@ -62,7 +62,7 @@ func newOutstandingReqs(clientTracker *clientTracker, networkState *msgs.Network
 			}
 			cors.skipPreviouslyCommitted()
 
-			l.Log(logger.LevelDebug, "initializing outstanding reqs for client", "client_id", client.Id, "bucket_id", i, "low_watermark", client.LowWatermark, "next_req_no", cors.nextReqNo)
+			l.Log(logging.LevelDebug, "initializing outstanding reqs for client", "client_id", client.Id, "bucket_id", i, "low_watermark", client.LowWatermark, "next_req_no", cors.nextReqNo)
 			bo.clients[client.Id] = cors
 		}
 	}

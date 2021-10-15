@@ -15,7 +15,7 @@ import (
 )
 
 type clientTracker struct {
-	logger   logger.Logger
+	logger   logging.Logger
 	myConfig *state.EventInitialParameters
 
 	networkConfig *msgs.NetworkState_Config
@@ -24,7 +24,7 @@ type clientTracker struct {
 	clientStates  []*msgs.NetworkState_Client
 }
 
-func newClientTracker(myConfig *state.EventInitialParameters, logger logger.Logger) *clientTracker {
+func newClientTracker(myConfig *state.EventInitialParameters, logger logging.Logger) *clientTracker {
 	return &clientTracker{
 		logger:   logger,
 		myConfig: myConfig,

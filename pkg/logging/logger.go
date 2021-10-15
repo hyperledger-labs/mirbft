@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 Refactored: 1
 */
 
-package logger
+package logging
 
 import (
 	"fmt"
@@ -61,6 +61,14 @@ func (l consoleLogger) Log(level LogLevel, text string, args ...interface{}) {
 	fmt.Printf("\n")
 }
 
+// The nil logger drops all messages.
+type nilLogger struct{}
+
+// The Log method of the nilLogger does nothing, effectively dropping every log message.
+func (nl *nilLogger) Log(level LogLevel, text string, args ...interface{}) {
+	// Do nothing.
+}
+
 var (
 	// ConsoleDebugLogger implements Logger and writes all log messages to stdout.
 	ConsoleDebugLogger Logger = consoleLogger(LevelDebug)
@@ -73,4 +81,7 @@ var (
 
 	// ConsoleErrorLogger implements Logger and writes all LevelError log messages to stdout.
 	ConsoleErrorLogger Logger = consoleLogger(LevelError)
+
+	// NilLogger drops all log messages.
+	NilLogger Logger = &nilLogger{}
 )
