@@ -159,6 +159,12 @@ func main() {
 		App: NewChatApp(reqStore),
 	})
 
+	// Exit immediately if Node could not be created.
+	if err != nil {
+		fmt.Printf("Could not create node: %v\n", err)
+		os.Exit(1)
+	}
+
 	// ================================================================================
 	// Start the Node by establishing network connections and launching necessary processing threads
 	// ================================================================================
