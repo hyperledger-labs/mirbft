@@ -21,11 +21,13 @@ sudo chown -R  $user:$group /opt/gopath
 export PATH=$PATH:~/go/bin/:/opt/gopath/bin/
 export GOPATH=/opt/gopath
 export GOROOT=~/go
+export GIT_SSL_NO_VERIFY=1
 
 cat << EOF >> ~/.bashrc
 export PATH=$PATH:~/go/bin/:/opt/gopath/bin/
 export GOPATH=/opt/gopath
 export GOROOT=~/go
+export GIT_SSL_NO_VERIFY=1
 EOF
 
 go get -u google.golang.org/grpc
