@@ -30,6 +30,7 @@ import (
 	"github.com/IBM/mirbft/tracing"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"sync/atomic"
 )
 
 const limit = 10                                                                                       // trials to generate a random number
@@ -38,8 +39,10 @@ const maxMessageSize int = 1073741824
 const L = 256 // security parameter
 
 type Client struct {
-	sync.Mutex
-
+	inOrderDeliveryLock sync.Mutex
+	registrationsLock sync.Mutex
+	submitTimestampsLock sync.RWMutex
+	sentTimestampsLock sync.RWMutex
 	id        int
 	n         int // ordering service size
 	f         int
@@ -53,7 +56,7 @@ type Client struct {
 
 	queue         chan *requestInfo
 	next          chan *requestInfo
-	delivered     []int // counting how many nodes have delivered a request, by request sequence number
+	delivered     []int32 // counting how many nodes have delivered a request, by request sequence number
 	lastDelivered int64 // last in order delivered request sequence number
 
 	servers          []pb.ConsensusClient
@@ -109,7 +112,7 @@ func New(id, n, f, receivers, b, period, dst int, numRequests int64,
 		next:             make(chan *requestInfo, numRequests),
 		queue:            make(chan *requestInfo, numRequests),
 		registered:       make(chan bool),
-		delivered:        make([]int, numRequests, numRequests),
+		delivered:        make([]int32, numRequests, numRequests),
 		lastDelivered:    -1,
 		trace: &tracing.BufferedTrace{
 			Sampling:              tracing.TraceSampling,
@@ -175,10 +178,10 @@ func (c *Client) GetOSNs() []pb.ConsensusClient {
 
 func (c *Client) broadcast(msg *pb.RequestMessage, dst int) {
 	log.Infof("SENDING %d from %d", msg.Request.Seq, msg.Request.Nonce)
-	c.Lock()
+	c.sentTimestampsLock.Lock()
 	c.sentTimestamps[msg.Request.Seq] = time.Now().UnixNano() / 1000 // In us
+	c.sentTimestampsLock.Unlock()
 	c.trace.Event(tracing.REQ_SEND, int64(msg.Request.Seq), 0)
-	c.Unlock()
 	for inc := dst + 1; inc > dst-c.receivers+1; inc-- {
 		dst := (c.n + inc) % c.n
 		c.send(msg, dst)
@@ -241,10 +244,10 @@ func (c *Client) register() {
 	m := &pb.RequestMessage{Request: request.request}
 
 	log.Infof("SENDING %d from %d", m.Request.Seq, m.Request.Nonce)
-	c.Lock()
+	c.sentTimestampsLock.Lock()
 	c.sentTimestamps[m.Request.Seq] = time.Now().UnixNano() / 1000 // In us
+	c.sentTimestampsLock.Unlock()
 	c.trace.Event(tracing.REQ_SEND, int64(m.Request.Seq), 0)
-	c.Unlock()
 
 	for dst := 0; dst < c.n; dst++ {
 		log.Infof("REGISTERING %d to %d", request.request.Seq, dst)
@@ -327,18 +330,14 @@ func (c *Client) rotateBuckets() {
 	}
 }
 
-// Using maps without getting locked but is called in a lock part of code.
 func (c *Client) checkInOrderDelivery(seq int64) {
 	log.Debugf("Checking in-order delivery for: %d", seq)
-	c.Lock()
-	delivered := c.delivered[seq]
-	lastDelivered := c.lastDelivered
-	c.Unlock()
-	if seq-1 == lastDelivered && delivered >= c.f+1 {
-		c.Lock()
-		c.lastDelivered = seq
+	if seq-1 == atomic.LoadInt64(&c.lastDelivered) && atomic.LoadInt32(&c.delivered[seq]) >= int32(c.f+1) {
+		atomic.StoreInt64(&c.lastDelivered, seq)
+		log.Debugf("REQ_DELIVERED: %d", seq)
+		c.submitTimestampsLock.RLock()
 		c.trace.Event(tracing.REQ_DELIVERED, int64(seq), time.Now().UnixNano()/1000-c.submitTimestamps[uint64(seq)])
-		c.Unlock()
+		c.submitTimestampsLock.RUnlock()
 		if seq+1 < int64(c.numRequests) {
 			c.checkInOrderDelivery(seq + 1)
 		}

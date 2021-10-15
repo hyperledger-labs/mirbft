@@ -38,6 +38,8 @@ type Backend struct {
 	maxReqCount uint64
 
 	lock     sync.RWMutex
+	streamLock sync.RWMutex
+
 	batchMux sync.Mutex
 
 	messages    []chan<- *pb.MultiChainMsg
@@ -335,7 +337,9 @@ func (c *Backend) Consensus(_ *pb.Handshake, srv pb.Consensus_ConsensusServer) e
 
 func (c *Backend) Request(stream pb.Consensus_RequestServer) error {
 	for {
+		c.streamLock.RLock()
 		msg, err := stream.Recv()
+		c.streamLock.RUnlock()
 		if err == io.EOF {
 			return nil
 		}
@@ -356,18 +360,27 @@ func (c *Backend) Request(stream pb.Consensus_RequestServer) error {
 		log.Info("received message from client")
 		correctReplica, target, err2 := c.enqueueRequest("request", &pb.Msg{Type: &pb.Msg_Request{Request: msg.Request}}, c.self.id)
 		if err2 != nil {
+			c.streamLock.Lock()
 			if err := stream.Send(&pb.ResponseMessage{Src: c.self.id, Request: &pb.Request{Seq: msg.Request.Seq}, Response: []byte("NACK")}); err != nil {
+				c.streamLock.Unlock()
 				return err
 			}
+			c.streamLock.Unlock()
 		} else {
 			if correctReplica {
+				c.streamLock.Lock()
 				if err := stream.Send(&pb.ResponseMessage{Src: c.self.id, Request: nil, Response: []byte("ACK")}); err != nil {
+					c.streamLock.Unlock()
 					return err
 				}
+				c.streamLock.Unlock()
 			} else {
+				c.streamLock.Lock()
 				if err := stream.Send(&pb.ResponseMessage{Src: c.self.id, Request: &pb.Request{Seq: msg.Request.Seq, Client: target}, Response: []byte("BUCKETS")}); err != nil {
+					c.streamLock.Unlock()
 					return err
 				}
+				c.streamLock.Unlock()
 			}
 
 		}
@@ -378,18 +391,21 @@ func (c *Backend) Request(stream pb.Consensus_RequestServer) error {
 // Sends a response to a client request.
 func (c *Backend) Response(id string, response *pb.ResponseMessage) {
 	// Check whether the client connection is present.
-	c.lock.RLock()
+	c.clientLock.RLock()
 	client, ok := c.clientInfo[id]
-	c.lock.RUnlock()
+	c.clientLock.RUnlock()
 	if ok {
 		// Try sending the response.
 		log.Infof("Responding to client %x for %d", id, response.Request.Seq)
+		c.streamLock.Lock()
 		if err := client.stream.(pb.Consensus_RequestServer).Send(response); err != nil {
 			// Log sending error.
 			log.Infof("Error responding to client %d. No connection present.", id)
 			tracing.MainTrace.Event(tracing.RESP_SEND, int64(client.id), int64(response.Request.Seq))
+			c.streamLock.Unlock()
 			return
 		}
+		c.streamLock.Unlock()
 	} else {
 		// Log error if connection is not present.
 		log.Infof("Error responding to client %x. No client not registered.", id)
