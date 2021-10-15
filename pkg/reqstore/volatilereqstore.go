@@ -9,6 +9,7 @@ package reqstore
 import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 )
 
 // VolatileRequestStore is an in-memory implementation of modules.RequestStore.
@@ -39,14 +40,14 @@ func requestKey(ref *messagepb.RequestRef) string {
 }
 
 // Returns the string representation of a request ID.
-func idKey(clientId, reqNo uint64) string {
+func idKey(clientId t.ClientID, reqNo t.ReqNo) string {
 	return fmt.Sprintf("i-%d.%d", clientId, reqNo)
 }
 
 // Adds a digest to the request ID index.
 func (vrs *VolatileRequestStore) updateIdIndex(reqRef *messagepb.RequestRef) {
 	// Compute string key.
-	key := idKey(reqRef.ClientId, reqRef.ReqNo)
+	key := idKey(t.ClientID(reqRef.ClientId), t.ReqNo(reqRef.ReqNo))
 
 	// Look up index entry, creating a new one if none exists yet.
 	entry, ok := vrs.idIndex[key]
@@ -204,7 +205,7 @@ func (vrs *VolatileRequestStore) GetAuthenticator(reqRef *messagepb.RequestRef) 
 
 // GetDigestsByID returns a list of request digests for which any information
 // (request data, authentication, or authenticator) is stored in the RequestStore.
-func (vrs *VolatileRequestStore) GetDigestsByID(clientId, reqNo uint64) ([][]byte, error) {
+func (vrs *VolatileRequestStore) GetDigestsByID(clientId t.ClientID, reqNo t.ReqNo) ([][]byte, error) {
 
 	// Look up  index entry and allocate result structure.
 	indexEntry, ok := vrs.idIndex[idKey(clientId, reqNo)]

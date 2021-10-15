@@ -11,6 +11,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/requestreceiver"
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"os"
@@ -23,7 +24,7 @@ import (
 type TestReplica struct {
 
 	// ID of the replica as seen by the protocol.
-	Id uint64
+	Id t.NodeID
 
 	// Dummy test application the replica is running.
 	App *FakeApp
@@ -36,7 +37,7 @@ type TestReplica struct {
 	Config *mirbft.NodeConfig
 
 	// List of replica IDs constituting the (static) membership.
-	Membership []uint64
+	Membership []t.NodeID
 
 	// Network transport subsystem.
 	Net modules.Net
@@ -184,7 +185,7 @@ func submitFakeRequests(n int, node *mirbft.Node, stopC <-chan struct{}, wg *syn
 			if err := node.SubmitRequest(
 				context.Background(),
 				0,
-				uint64(i),
+				t.ReqNo(i),
 				[]byte(fmt.Sprintf("Request %d", i))); err != nil {
 
 				// TODO (Jason), failing on err causes flakes in the teardown,

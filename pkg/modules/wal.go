@@ -6,7 +6,10 @@ SPDX-License-Identifier: Apache-2.0
 
 package modules
 
-import "github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
+import (
+	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
+)
 
 // The WAL (Write-Ahead Log) implements a persistent write-ahead log for the case of crashes and restarts.
 // It simply persists (a serialized form of) events that are appended to it.
@@ -19,13 +22,13 @@ type WAL interface {
 	// Append appends an entry with a retentionIndex to the WAL.
 	// When Append returns, its effect on the WAL can, but might not have been persisted.
 	// Persistence guarantees are only provided by the WAL after a call to Sync() returns.
-	Append(entry *eventpb.Event, retentionIndex uint64) error
+	Append(entry *eventpb.Event, retentionIndex t.WALRetIndex) error
 
 	// Truncate removes all entries from the WAL that have been appended
 	// with a retentionIndex smaller than the specified one.
 	// The effect of Truncate() is only guaranteed to be persisted to stable storage
 	// after the next call to Sync() returns.
-	Truncate(retentionIndex uint64) error
+	Truncate(retentionIndex t.WALRetIndex) error
 
 	// Sync persists the current state of the WAL to stable storage.
 	// When Sync() returns, the effect of all previous calls to Append() and Truncate()
@@ -34,5 +37,5 @@ type WAL interface {
 
 	// LoadAll applies the provided forEach function to all WAL entries and their corresponding retentionIndexes
 	// in the order in which they have been appended.
-	LoadAll(forEach func(retentionIndex uint64, p *eventpb.Event)) error
+	LoadAll(forEach func(retentionIndex t.WALRetIndex, p *eventpb.Event)) error
 }

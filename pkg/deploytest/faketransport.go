@@ -13,20 +13,16 @@ import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"sync"
 )
 
-//type SourceMsg struct {
-//	Source uint64
-//	Msg    *messagepb.Message
-//}
-
 type FakeLink struct {
 	FakeTransport *FakeTransport
-	Source        uint64
+	Source        t.NodeID
 }
 
-func (fl *FakeLink) Send(dest uint64, msg *messagepb.Message) error {
+func (fl *FakeLink) Send(dest t.NodeID, msg *messagepb.Message) error {
 	fl.FakeTransport.Send(fl.Source, dest, msg)
 	return nil
 }
@@ -64,7 +60,7 @@ func NewFakeTransport(nodes int) *FakeTransport {
 	}
 }
 
-func (ft *FakeTransport) Send(source, dest uint64, msg *messagepb.Message) {
+func (ft *FakeTransport) Send(source, dest t.NodeID, msg *messagepb.Message) {
 	select {
 	case ft.Buffers[int(source)][int(dest)] <- msg:
 	default:
@@ -72,14 +68,14 @@ func (ft *FakeTransport) Send(source, dest uint64, msg *messagepb.Message) {
 	}
 }
 
-func (ft *FakeTransport) Link(source uint64) *FakeLink {
+func (ft *FakeTransport) Link(source t.NodeID) *FakeLink {
 	return &FakeLink{
 		Source:        source,
 		FakeTransport: ft,
 	}
 }
 
-func (ft *FakeTransport) RecvC(dest uint64) <-chan modules.ReceivedMessage {
+func (ft *FakeTransport) RecvC(dest t.NodeID) <-chan modules.ReceivedMessage {
 	return ft.NodeSinks[int(dest)]
 }
 
@@ -100,7 +96,7 @@ func (ft *FakeTransport) Start() {
 						// fmt.Printf("Sending message from %d to %d\n", i, j)
 						select {
 						case ft.NodeSinks[j] <- modules.ReceivedMessage{
-							Sender: uint64(i),
+							Sender: t.NodeID(i),
 							Msg:    msg,
 						}:
 						case <-ft.DoneC:

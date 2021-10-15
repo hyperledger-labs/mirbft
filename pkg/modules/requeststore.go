@@ -6,7 +6,10 @@ SPDX-License-Identifier: Apache-2.0
 
 package modules
 
-import "github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+import (
+	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
+)
 
 // The RequestStore store persistently stores the payloads and authentication attributes of received requests.
 // Each request is referenced using a msgs.RequestRef structure that contains the following fields:
@@ -63,7 +66,7 @@ type RequestStore interface {
 
 	// GetDigestsByID returns a list of request Digests for which any information
 	// (request data, authentication, or authenticator) is stored in the RequestStore.
-	GetDigestsByID(clientID, reqNo uint64) ([][]byte, error)
+	GetDigestsByID(clientID t.ClientID, reqNo t.ReqNo) ([][]byte, error)
 
 	// Sync blocks until the effects of all preceding method invocations have been persisted.
 	Sync() error

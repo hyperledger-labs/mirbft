@@ -12,6 +12,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"github.com/hyperledger-labs/mirbft/pkg/requestreceiver"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"google.golang.org/grpc"
 	"sync"
 )
@@ -22,13 +23,13 @@ const (
 )
 
 type DummyClient struct {
-	ownId       uint64
-	nextReqNo   uint64
-	connections map[uint64]requestreceiver.RequestReceiver_ListenClient
+	ownId       t.ClientID
+	nextReqNo   t.ReqNo
+	connections map[t.NodeID]requestreceiver.RequestReceiver_ListenClient
 	logger      logging.Logger
 }
 
-func NewDummyClient(clientId uint64, l logging.Logger) *DummyClient {
+func NewDummyClient(clientId t.ClientID, l logging.Logger) *DummyClient {
 
 	// If no logger was given, only write errors to the console.
 	if l == nil {
@@ -38,7 +39,7 @@ func NewDummyClient(clientId uint64, l logging.Logger) *DummyClient {
 	return &DummyClient{
 		ownId:       clientId,
 		nextReqNo:   0,
-		connections: make(map[uint64]requestreceiver.RequestReceiver_ListenClient),
+		connections: make(map[t.NodeID]requestreceiver.RequestReceiver_ListenClient),
 		logger:      l,
 	}
 }
@@ -47,7 +48,7 @@ func NewDummyClient(clientId uint64, l logging.Logger) *DummyClient {
 // The nodes' RequestReceivers must be running.
 // Only after Connect() returns, sending requests through this DummyClient is possible.
 // TODO: Deal with errors, e.g. when the connection times out (make sure the RPC call in connectToNode() has a timeout).
-func (dc *DummyClient) Connect(membership map[uint64]string) {
+func (dc *DummyClient) Connect(membership map[t.NodeID]string) {
 
 	// Initialize wait group used by the connecting goroutines
 	wg := sync.WaitGroup{}
@@ -60,7 +61,7 @@ func (dc *DummyClient) Connect(membership map[uint64]string) {
 	for nodeId, nodeAddr := range membership {
 
 		// Launch a goroutine that connects to the node.
-		go func(id uint64, addr string) {
+		go func(id t.NodeID, addr string) {
 			defer wg.Done()
 
 			// Create and store connection
@@ -92,8 +93,8 @@ func (dc *DummyClient) Connect(membership map[uint64]string) {
 // even if sending of the request was not attempted for all nodes.
 func (dc *DummyClient) SubmitRequest(data []byte) error {
 	reqMsg := &messagepb.Request{
-		ClientId: dc.ownId,
-		ReqNo:    dc.nextReqNo,
+		ClientId: dc.ownId.Pb(),
+		ReqNo:    dc.nextReqNo.Pb(),
 		Data:     data,
 	}
 

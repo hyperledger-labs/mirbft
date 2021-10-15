@@ -18,6 +18,7 @@ package simplewal
 import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"sync"
 
 	"github.com/golang/protobuf/proto"
@@ -37,7 +38,7 @@ type WAL struct {
 	// It is required to skip outdated entries when loading.
 	// Otherwise it could be completely ephemeral.
 	// TODO: Implement persisting and loading the retentionIndex
-	retentionIndex uint64
+	retentionIndex t.WALRetIndex
 }
 
 func Open(path string) (*WAL, error) {
@@ -77,7 +78,7 @@ func (w *WAL) IsEmpty() (bool, error) {
 	return firstIndex == 0, nil
 }
 
-func (w *WAL) LoadAll(forEach func(index uint64, p *eventpb.Event)) error {
+func (w *WAL) LoadAll(forEach func(index t.WALRetIndex, p *eventpb.Event)) error {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 	firstIndex, err := w.log.FirstIndex()
@@ -107,8 +108,8 @@ func (w *WAL) LoadAll(forEach func(index uint64, p *eventpb.Event)) error {
 			return errors.WithMessage(err, "error decoding to proto, is the WAL corrupt?")
 		}
 
-		if result.RetentionIndex >= w.retentionIndex {
-			forEach(result.RetentionIndex, result.Event)
+		if t.WALRetIndex(result.RetentionIndex) >= w.retentionIndex {
+			forEach(t.WALRetIndex(result.RetentionIndex), result.Event)
 		}
 	}
 
@@ -134,20 +135,20 @@ func (w *WAL) write(index uint64, entry *WALEntry) error {
 	return w.log.Write(index+1, data) // The log implementation seems to be indexing starting with 1.
 }
 
-func (w *WAL) Append(event *eventpb.Event, retentionIndex uint64) error {
+func (w *WAL) Append(event *eventpb.Event, retentionIndex t.WALRetIndex) error {
 	return w.write(w.idx, &WALEntry{
-		RetentionIndex: retentionIndex,
+		RetentionIndex: retentionIndex.Pb(),
 		Event:          event,
 	})
 }
 
-func (w *WAL) Truncate(retentionIndex uint64) error {
+func (w *WAL) Truncate(retentionIndex t.WALRetIndex) error {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 
 	// TODO: Persist retention index first, probably in a separate file in the same directory.
 
-	return w.log.TruncateFront(retentionIndex)
+	return w.log.TruncateFront(retentionIndex.Pb())
 }
 
 func (w *WAL) Sync() error {

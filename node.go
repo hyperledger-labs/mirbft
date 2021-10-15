@@ -14,6 +14,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"sync"
 	"time"
 )
@@ -22,7 +23,7 @@ var ErrStopped = fmt.Errorf("stopped at caller request")
 
 // Node is the local instance of MirBFT and the application's interface to the mirbft library.
 type Node struct {
-	ID     uint64      // Protocol-level node ID
+	ID     t.NodeID    // Protocol-level node ID
 	Config *NodeConfig // Node-level (protocol-independent) configuration, like buffer sizes, logging, ...
 
 	// Implementations of networking, hashing, request store, WAL, etc.
@@ -54,7 +55,7 @@ type Node struct {
 // The config parameter specifies Node-level (protocol-independent) configuration, like buffer sizes, logging, ...
 // The modules parameter must contain initialized, ready-to-use modules that the new Node will use.
 func NewNode(
-	id uint64,
+	id t.NodeID,
 	config *NodeConfig,
 	m *modules.Modules,
 ) (*Node, error) {
@@ -116,7 +117,7 @@ func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
 // The Node assumes the message to be authenticated and it is the caller's responsibility
 // to make sure that msg has indeed been sent by source,
 // for example by using an authenticated communication channel (e.g. TLS) with the source node.
-func (n *Node) Step(ctx context.Context, source uint64, msg *messagepb.Message) error {
+func (n *Node) Step(ctx context.Context, source t.NodeID, msg *messagepb.Message) error {
 
 	// Pre-process the incoming message and return an error if pre-processing fails.
 	// TODO: Re-enable pre-processing.
@@ -143,7 +144,7 @@ func (n *Node) Step(ctx context.Context, source uint64, msg *messagepb.Message) 
 // clientID and reqNo uniquely identify the request.
 // data constitutes the (opaque) payload of the request.
 // SubmitRequest is safe to be called concurrently by multiple threads.
-func (n *Node) SubmitRequest(ctx context.Context, clientID uint64, reqNo uint64, data []byte) error {
+func (n *Node) SubmitRequest(ctx context.Context, clientID t.ClientID, reqNo t.ReqNo, data []byte) error {
 
 	// Enqueue the generated events in a work channel to be handled by the processing thread.
 	select {
@@ -183,7 +184,7 @@ func (n *Node) processWAL() error {
 	walEvents := &events.EventList{}
 
 	// Add all events from the WAL to the new EventList.
-	if err := n.modules.WAL.LoadAll(func(_ uint64, event *eventpb.Event) {
+	if err := n.modules.WAL.LoadAll(func(_ t.WALRetIndex, event *eventpb.Event) {
 		walEvents.PushBack(events.WALEntry(event))
 	}); err != nil {
 		return fmt.Errorf("could not load WAL events: %w", err)
