@@ -25,6 +25,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
 	"github.com/hyperledger-labs/mirbft/pkg/requestreceiver"
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"gopkg.in/alecthomas/kingpin.v2"
 	"os"
 	"path"
@@ -51,7 +52,8 @@ const (
 type parsedArgs struct {
 
 	// Numeric ID of this node.
-	OwnId uint64
+	// The package github.com/hyperledger-labs/mirbft/pkg/types defines this and other types used by the library.
+	OwnId t.NodeID
 
 	// If set, print verbose output to stdout.
 	Verbose bool
@@ -79,12 +81,12 @@ func main() {
 
 	// IDs of nodes that are part of the system.
 	// This example uses a static configuration of 4 nodes.
-	nodeIds := []uint64{0, 1, 2, 3}
+	nodeIds := []t.NodeID{0, 1, 2, 3}
 
 	// Generate addresses and ports of participating nodes.
 	// All nodes are on the local machine, but listen on different port numbers.
 	// Change this or make this configurable do deploy different nodes on different physical machines.
-	nodeAddrs := make(map[uint64]string)
+	nodeAddrs := make(map[t.NodeID]string)
 	for _, i := range nodeIds {
 		nodeAddrs[i] = fmt.Sprintf("127.0.0.1:%d", nodeBasePort+i)
 	}
@@ -94,7 +96,7 @@ func main() {
 	// These addresses will be used by the client code to know where to send its requests
 	// (each client sends its requests to all request receivers). Each request receiver,
 	// however, will only submit the received requests to its associated Node.
-	reqReceiverAddrs := make(map[uint64]string)
+	reqReceiverAddrs := make(map[t.NodeID]string)
 	for _, i := range nodeIds {
 		reqReceiverAddrs[i] = fmt.Sprintf("127.0.0.1:%d", reqReceiverBasePort+i)
 	}
@@ -198,7 +200,7 @@ func main() {
 	// Create a DummyClient. In this example, the client's ID corresponds to the ID of the node it is collocated with,
 	// but in general this need not be the case.
 	// Also note that the client IDs are in a different namespace than Node IDs.
-	client := dummyclient.NewDummyClient(args.OwnId, logger)
+	client := dummyclient.NewDummyClient(t.ClientID(args.OwnId), logger)
 
 	// Create network connections to all Nodes' request receivers.
 	client.Connect(reqReceiverAddrs)
@@ -250,15 +252,17 @@ func main() {
 // Parses the command-line arguments and returns them in a params struct.
 func parseArgs(args []string) *parsedArgs {
 	app := kingpin.New("chat-demo", "Small chat application to demonstrate the usage of the MirBFT library.")
-	ownId := app.Arg("id", "Numeric ID of this node").Required().Uint64()
 	verbose := app.Flag("verbose", "Verbose mode.").Short('v').Bool()
+	// Currently the type of the node ID is defined as uint64 by the /pkg/types package.
+	// In case that changes, this line will need to be updated.
+	ownId := app.Arg("id", "Numeric ID of this node").Required().Uint64()
 
 	if _, err := app.Parse(args[1:]); err != nil { // Skip args[0], which is the name of the program, not an argument.
 		app.FatalUsage("could not parse arguments: %v\n", err)
 	}
 
 	return &parsedArgs{
-		OwnId:   *ownId,
+		OwnId:   t.NodeID(*ownId),
 		Verbose: *verbose,
 	}
 }

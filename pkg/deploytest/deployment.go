@@ -13,6 +13,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"path/filepath"
 	"sync"
 	"time"
@@ -84,9 +85,9 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 	fakeTransport := NewFakeTransport(testConfig.NumReplicas)
 
 	// Create a dummy static membership with replica IDs from 0 to len(replicas) - 1
-	membership := make([]uint64, testConfig.NumReplicas)
+	membership := make([]t.NodeID, testConfig.NumReplicas)
 	for i := 0; i < len(membership); i++ {
-		membership[i] = uint64(i)
+		membership[i] = t.NodeID(i)
 	}
 
 	// Create all TestReplicas for this deployment.
@@ -103,14 +104,14 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 		var transport modules.Net
 		switch testConfig.Transport {
 		case "fake":
-			transport = fakeTransport.Link(uint64(i))
+			transport = fakeTransport.Link(t.NodeID(i))
 		case "grpc":
-			transport = localGrpcTransport(membership, uint64(i))
+			transport = localGrpcTransport(membership, t.NodeID(i))
 		}
 
 		// Create instance of test replica.
 		replicas[i] = &TestReplica{
-			Id:              uint64(i),
+			Id:              t.NodeID(i),
 			Config:          config,
 			Membership:      membership,
 			Dir:             filepath.Join(testConfig.Directory, fmt.Sprintf("node%d", i)),
@@ -182,11 +183,11 @@ func (d *Deployment) Run(tickInterval time.Duration, stopC <-chan struct{}) []No
 
 // Creates an instance of GrpcTransport based on the numeric IDs of test replicas.
 // The network address of each test replica is the loopback 127.0.0.1
-func localGrpcTransport(nodeIds []uint64, ownId uint64) *grpctransport.GrpcTransport {
+func localGrpcTransport(nodeIds []t.NodeID, ownId t.NodeID) *grpctransport.GrpcTransport {
 
 	// Compute network addresses and ports for all test replicas.
 	// Each test replica is on the local machine - 127.0.0.1
-	membership := make(map[uint64]string, len(nodeIds))
+	membership := make(map[t.NodeID]string, len(nodeIds))
 	for _, id := range nodeIds {
 		membership[id] = fmt.Sprintf("127.0.0.1:%d", BaseListenPort+id)
 	}
@@ -194,11 +195,11 @@ func localGrpcTransport(nodeIds []uint64, ownId uint64) *grpctransport.GrpcTrans
 	return grpctransport.NewGrpcTransport(membership, ownId, nil)
 }
 
-func (d *Deployment) localRequestReceiverAddrs() map[uint64]string {
+func (d *Deployment) localRequestReceiverAddrs() map[t.NodeID]string {
 
 	// Compute network addresses and ports for the RequestReceivers at all replicas.
 	// Each test replica is on the local machine - 127.0.0.1
-	addrs := make(map[uint64]string, len(d.TestReplicas))
+	addrs := make(map[t.NodeID]string, len(d.TestReplicas))
 	for _, tr := range d.TestReplicas {
 		addrs[tr.Id] = fmt.Sprintf("127.0.0.1:%d", RequestListenPort+tr.Id)
 	}

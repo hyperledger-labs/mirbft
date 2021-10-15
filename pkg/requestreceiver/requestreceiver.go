@@ -12,6 +12,7 @@ import (
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 	"net"
@@ -72,7 +73,7 @@ func (rr *RequestReceiver) Listen(srv RequestReceiver_ListenServer) error {
 	for req, err = srv.Recv(); err == nil; req, err = srv.Recv() {
 
 		// Submit the request to the Node.
-		if srErr := rr.node.SubmitRequest(context.Background(), req.ClientId, req.ReqNo, req.Data); srErr != nil {
+		if srErr := rr.node.SubmitRequest(context.Background(), t.ClientID(req.ClientId), t.ReqNo(req.ReqNo), req.Data); srErr != nil {
 
 			// If submitting fails, stop receiving further request (and close connection).
 			rr.logger.Log(logging.LevelError, fmt.Sprintf("Could not submit request (%d-%d): %v. Closing connection.",

@@ -13,6 +13,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"github.com/pkg/errors"
 )
 
@@ -406,7 +407,7 @@ func processHashEvents(hasher modules.Hasher, eventsIn *events.EventList) (*even
 	return eventsOut, nil
 }
 
-func processSendEvents(selfID uint64, net modules.Net, eventsIn *events.EventList) (*events.EventList, error) {
+func processSendEvents(selfID t.NodeID, net modules.Net, eventsIn *events.EventList) (*events.EventList, error) {
 	eventsOut := &events.EventList{}
 
 	iter := eventsIn.Iterator()
@@ -418,10 +419,10 @@ func processSendEvents(selfID uint64, net modules.Net, eventsIn *events.EventLis
 		switch e := event.Type.(type) {
 		case *eventpb.Event_SendMessage:
 			for _, destId := range e.SendMessage.Destinations {
-				if destId == selfID {
+				if t.NodeID(destId) == selfID {
 					eventsOut.PushBack(events.MessageReceived(selfID, e.SendMessage.Msg))
 				} else {
-					net.Send(destId, e.SendMessage.Msg)
+					net.Send(t.NodeID(destId), e.SendMessage.Msg)
 				}
 			}
 

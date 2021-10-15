@@ -6,7 +6,10 @@ SPDX-License-Identifier: Apache-2.0
 
 package modules
 
-import "github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+import (
+	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
+)
 
 // ReceivedMessage represents a message received over the network.
 // This is the type of structures written to the channel returned by Net.ReceiveChan().
@@ -14,7 +17,7 @@ type ReceivedMessage struct {
 
 	// Numeric ID of the node that sent the message.
 	// Since the message is already authenticated by the Net module implementation, this information can be relied on.
-	Sender uint64
+	Sender t.NodeID
 
 	// The received message itself.
 	Msg *messagepb.Message
@@ -34,7 +37,7 @@ type Net interface {
 
 	// Send sends msg to the node with ID dest.
 	// Concurrent calls to Send are not (yet? TODO) supported.
-	Send(dest uint64, msg *messagepb.Message) error
+	Send(dest t.NodeID, msg *messagepb.Message) error
 
 	// ReceiveChan returns a channel to which the Net module writes all received messages and sender IDs
 	// (Both the message itself and the sender ID are part of the ReceivedMessage struct.)

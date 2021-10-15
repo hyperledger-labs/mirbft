@@ -12,6 +12,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 	"net"
@@ -33,19 +34,19 @@ const (
 type GrpcTransport struct {
 
 	// The numeric ID of the node that uses this networking module.
-	ownId uint64
+	ownId t.NodeID
 
 	// Complete static membership of the system.
 	// Maps the numeric node ID of each node in the system to a string representation of its network address.
 	// The address format "IPAddress:port"
-	membership map[uint64]string // nodeId -> "IPAddress:port"
+	membership map[t.NodeID]string // nodeId -> "IPAddress:port"
 
 	// Channel to which all incoming messages are written.
 	// This channel is also returned by the ReceiveChan() method.
 	incomingMessages chan modules.ReceivedMessage
 
 	// For each node ID, stores a gRPC message sink, calling the Send() method of which sends a message to that node.
-	connections map[uint64]GrpcTransport_ListenClient
+	connections map[t.NodeID]GrpcTransport_ListenClient
 
 	// The gRPC server used by this networking module.
 	grpcServer *grpc.Server
@@ -65,7 +66,7 @@ type GrpcTransport struct {
 // The returned GrpcTransport is not yet running (able to receive messages),
 // nor is it connected to any nodes (able to send messages).
 // This needs to be done explicitly by calling the respective Start() and Connect() methods.
-func NewGrpcTransport(membership map[uint64]string, ownId uint64, l logging.Logger) *GrpcTransport {
+func NewGrpcTransport(membership map[t.NodeID]string, ownId t.NodeID, l logging.Logger) *GrpcTransport {
 
 	// If no logger was given, only write errors to the console.
 	if l == nil {
@@ -76,15 +77,15 @@ func NewGrpcTransport(membership map[uint64]string, ownId uint64, l logging.Logg
 		ownId:            ownId,
 		incomingMessages: make(chan modules.ReceivedMessage),
 		membership:       membership,
-		connections:      make(map[uint64]GrpcTransport_ListenClient),
+		connections:      make(map[t.NodeID]GrpcTransport_ListenClient),
 		logger:           l,
 	}
 }
 
 // Send sends msg to the node with ID dest.
 // Concurrent calls to Send are not (yet? TODO) supported.
-func (gt *GrpcTransport) Send(dest uint64, msg *messagepb.Message) error {
-	return gt.connections[dest].Send(&GrpcMessage{Sender: gt.ownId, Msg: msg})
+func (gt *GrpcTransport) Send(dest t.NodeID, msg *messagepb.Message) error {
+	return gt.connections[dest].Send(&GrpcMessage{Sender: gt.ownId.Pb(), Msg: msg})
 }
 
 // ReceiveChan returns a channel to which the Net module writes all received messages and sender IDs
@@ -115,7 +116,7 @@ func (gt *GrpcTransport) Listen(srv GrpcTransport_ListenServer) error {
 	// For each message received
 	for grpcMsg, err = srv.Recv(); err == nil; grpcMsg, err = srv.Recv() {
 		// Write the message to the channel. This channel will be read by the user of the module.
-		gt.incomingMessages <- modules.ReceivedMessage{Sender: grpcMsg.Sender, Msg: grpcMsg.Msg}
+		gt.incomingMessages <- modules.ReceivedMessage{Sender: t.NodeID(grpcMsg.Sender), Msg: grpcMsg.Msg}
 	}
 
 	// Log error message produced on termination of the above loop.
@@ -197,7 +198,7 @@ func (gt *GrpcTransport) Connect() {
 	for nodeId, nodeAddr := range gt.membership {
 
 		// Launch a goroutine that connects to the node.
-		go func(id uint64, addr string) {
+		go func(id t.NodeID, addr string) {
 			defer wg.Done()
 
 			// Create and store connection

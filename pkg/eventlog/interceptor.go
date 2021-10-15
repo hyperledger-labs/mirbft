@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/recordingpb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"io"
 	"sync"
 	"time"
@@ -84,7 +85,7 @@ func BufferSizeOpt(size int) RecorderOpt {
 // mirbft.EventInterceptor interface.  It receives state events,
 // serializes them, compresses them, and writes them to a stream.
 type Recorder struct {
-	nodeID            uint64
+	nodeID            t.NodeID
 	timeSource        func() int64
 	compressionLevel  int
 	retainRequestData bool
@@ -96,7 +97,7 @@ type Recorder struct {
 	exitErrMutex sync.Mutex
 }
 
-func NewRecorder(nodeID uint64, dest io.Writer, opts ...RecorderOpt) *Recorder {
+func NewRecorder(nodeID t.NodeID, dest io.Writer, opts ...RecorderOpt) *Recorder {
 	startTime := time.Now()
 
 	i := &Recorder{
@@ -183,7 +184,7 @@ func (i *Recorder) run(dest io.Writer) (exitErr error) {
 
 	write := func(eventTime eventTime) error {
 		return WriteRecordedEvent(gzWriter, &recordingpb.Entry{
-			NodeId: i.nodeID,
+			NodeId: i.nodeID.Pb(),
 			Time:   eventTime.time,
 			Events: eventTime.events.Slice(),
 		})

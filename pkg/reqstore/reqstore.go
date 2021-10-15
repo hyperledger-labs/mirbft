@@ -17,6 +17,7 @@ import (
 	"fmt"
 	badger "github.com/dgraph-io/badger/v2"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"github.com/pkg/errors"
 )
 
@@ -24,7 +25,7 @@ func reqKey(ack *messagepb.RequestRef) []byte {
 	return []byte(fmt.Sprintf("req-%d.%d.%x", ack.ClientId, ack.ReqNo, ack.Digest))
 }
 
-func allocKey(clientID, reqNo uint64) []byte {
+func allocKey(clientID t.ClientID, reqNo t.ReqNo) []byte {
 	return []byte(fmt.Sprintf("alloc-%d.%d", clientID, reqNo))
 }
 
@@ -50,13 +51,13 @@ func Open(dirPath string) (*Store, error) {
 	}, nil
 }
 
-func (s *Store) PutAllocation(clientID, reqNo uint64, digest []byte) error {
+func (s *Store) PutAllocation(clientID t.ClientID, reqNo t.ReqNo, digest []byte) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(allocKey(clientID, reqNo), digest)
 	})
 }
 
-func (s *Store) GetAllocation(clientID, reqNo uint64) ([]byte, error) {
+func (s *Store) GetAllocation(clientID t.ClientID, reqNo t.ReqNo) ([]byte, error) {
 	var valCopy []byte
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(allocKey(clientID, reqNo))
