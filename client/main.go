@@ -170,30 +170,32 @@ func main() {
 					// Request delivered
 					log.Debugf("DELIVERED %d from %d", resp.Request.Seq, resp.Src)
 					// Check if registered to all severs
-					c.Lock()
+					c.registrationsLock.Lock()
 					if ok, _ := c.registrations[resp.Src]; !ok {
 						c.registrations[resp.Src] = true
 						if len(c.registrations) == N {
 							c.registered <- true
 						}
 					}
-					c.delivered[resp.Request.Seq]++
+					c.registrationsLock.Unlock()
+
+					atomic.AddInt32(&c.delivered[resp.Request.Seq], 1)
+					c.sentTimestampsLock.RLock()
 					c.trace.Event(tracing.RESP_RECEIVE, int64(int32(id)), time.Now().UnixNano()/1000-c.sentTimestamps[uint64(id)])
-					delivered := c.delivered[resp.Request.Seq]
-					c.Unlock()
-					if delivered == F+1 {
-						c.Lock()
+					c.sentTimestampsLock.RUnlock()
+					if atomic.LoadInt32(&c.delivered[resp.Request.Seq]) == int32(F+1) {
+						c.sentTimestampsLock.RLock()
 						c.trace.Event(tracing.ENOUGH_RESP, int64(int32(id)), time.Now().UnixNano()/1000-c.sentTimestamps[uint64(id)])
+						c.sentTimestampsLock.RUnlock()
+						c.submitTimestampsLock.RLock()
 						c.trace.Event(tracing.REQ_FINISHED, int64(int32(id)), time.Now().UnixNano()/1000-c.submitTimestamps[uint64(id)])
-						c.Unlock()
+						c.submitTimestampsLock.RUnlock()
 						log.Debugf("Finished %d", resp.Request.Seq)
 						c.checkInOrderDelivery(int64(resp.Request.Seq))
-						c.Lock()
-						if c.lastDelivered == c.numRequests-1 {
+						if atomic.LoadInt64(&c.lastDelivered) == c.numRequests-1 {
 							log.Infof("ALL DELIVERED")
 							atomic.StoreInt32(&c.stop, 1)
 						}
-						c.Unlock()
 					}
 				} else if fmt.Sprintf("%s", resp.Response) == "ACK" {
 					// Request added to pending on server side
@@ -215,6 +217,7 @@ func main() {
 	<-c.registered
 
 	log.Infof("START")
+	done := make(chan bool)
 
 	// Make client stop after a predefined time, if configured
 	if config.Config.ClientRunTime != 0 {
@@ -222,49 +225,43 @@ func main() {
 		time.AfterFunc(time.Duration(config.Config.ClientRunTime)*time.Millisecond, func() {
 			atomic.StoreInt32(&c.stop, 1) // A non-zero value of the stop variable halts the request submissions.
 			log.Infof("Stopping client on timeout.")
+			done <-true
 		})
 	}
 
-	var wg sync.WaitGroup
-	sent := clients
+	sent := int32(clients)
 
-	for atomic.LoadInt32(&c.stop) == 0 {
-		wg.Add(sendParallelism)
-		for i := 0; i < sendParallelism; i++ {
-			select {
-			case request := <-c.queue:
-				go func(request *requestInfo) {
-					defer wg.Done()
-					if broadcast {
-						c.broadcastRequest(request)
-					} else {
-						c.sendRequest(request)
+	go func() {
+		for atomic.LoadInt32(&c.stop) == 0 {
+			for i := 0; i < sendParallelism; i++ {
+				request, more := <- c.queue
+				if !more {
+					if atomic.LoadInt32(&c.stop) == 1{
+						done <- true
+						return
 					}
-					c.Lock()
-					c.submitTimestamps[request.request.Seq] = time.Now().UnixNano() / 1000 // In us
-					sent += clients
-					if sent%c.period == 0 {
-						log.Infof("Rotating buckets")
-						c.rotateBuckets()
-					}
-					c.Unlock()
-				}(request)
-			default:
-				for j := i; j < sendParallelism; j++ {
-					wg.Done()
 				}
-				goto exit
+				if broadcast {
+					c.broadcastRequest(request)
+				} else {
+					c.sendRequest(request)
+				}
+				c.submitTimestampsLock.Lock()
+				c.submitTimestamps[request.request.Seq] = time.Now().UnixNano() / 1000 // In us
+				c.submitTimestampsLock.Unlock()
+				atomic.AddInt32(&sent, int32(clients))
+				if atomic.LoadInt32(&sent)%int32(c.period)== 0 {
+					log.Infof("Rotating buckets")
+					c.rotateBuckets()
+				}
+			}
+			if timeout > 0 {
+				time.Sleep(time.Duration(timeout) * time.Nanosecond)
 			}
 		}
+	}()
 
-	exit:
-		wg.Wait()
-
-		if timeout > 0 {
-			time.Sleep(time.Duration(timeout) * time.Nanosecond)
-		}
-	}
-
+	<-done
 	log.Infof("FINISH %d", total )
 	status_file.WriteString("status=FINISHED\n")
 
