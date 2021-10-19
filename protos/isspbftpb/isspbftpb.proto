@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package isspbftpb;
+
+import "requestpb/requestpb.proto";
+
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/isspbftpb";
+
+message Preprepare {
+  uint64 sn = 1;
+  repeated requestpb.RequestRef requests = 2;
+}

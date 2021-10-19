@@ -8,12 +8,12 @@ syntax = "proto3";
 
 package requestreceiver;
 
-import "messagepb/messagepb.proto";
+import "requestpb/requestpb.proto";
 
 option go_package = "github.com/hyperledger-labs/mirbft/pkg/requestreceiver";
 
 service RequestReceiver {
-  rpc Listen(stream messagepb.Request) returns(ByeBye);
+  rpc Listen(stream requestpb.Request) returns(ByeBye);
 }
 
 message ByeBye {

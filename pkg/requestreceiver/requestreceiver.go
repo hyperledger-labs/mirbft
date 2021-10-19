@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
@@ -67,7 +67,7 @@ func (rr *RequestReceiver) Listen(srv RequestReceiver_ListenServer) error {
 
 	// Declare loop variables outside, since err is checked also after the loop finishes.
 	var err error
-	var req *messagepb.Request
+	var req *requestpb.Request
 
 	// For each received request
 	for req, err = srv.Recv(); err == nil; req, err = srv.Recv() {

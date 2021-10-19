@@ -12,6 +12,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 )
@@ -27,7 +28,7 @@ type DummyProtocol struct {
 	nextSn t.SeqNr // Sequence number to assign to the next batch.
 
 	// Set (represented as a map indexed by "clientId-reqNo.hash") of requests received from the clients.
-	requestsReceived map[string]*messagepb.RequestRef
+	requestsReceived map[string]*requestpb.RequestRef
 
 	// Preprepare messages in order of reception (and thus, in the dummy protocol, in the order of sequence numbers).
 	// When all requests contained in a preprepare at the head of this list have been received, they can be announced
@@ -53,7 +54,7 @@ func NewDummyProtocol(logger logging.Logger, initialMembership []t.NodeID, ownId
 		membership:          initialMembership,
 		ownId:               ownId,
 		otherReplicas:       otherReplicas,
-		requestsReceived:    make(map[string]*messagepb.RequestRef),
+		requestsReceived:    make(map[string]*requestpb.RequestRef),
 		prepreparesReceived: make([]*messagepb.DummyPreprepare, 0),
 	}
 }
@@ -86,7 +87,7 @@ func (dp *DummyProtocol) Status() (s *status.StateMachine, err error) {
 // In the DummyProtocol, the leader (always node 0) commits it directly
 // and forwards it to all replicas, also persisting these steps in the WAL.
 // Non-leaders ignore incoming requests.
-func (dp *DummyProtocol) handleRequest(ref *messagepb.RequestRef) *events.EventList {
+func (dp *DummyProtocol) handleRequest(ref *requestpb.RequestRef) *events.EventList {
 
 	if dp.ownId == 0 {
 		// If I am the leader, handle request.
@@ -97,7 +98,7 @@ func (dp *DummyProtocol) handleRequest(ref *messagepb.RequestRef) *events.EventL
 		dp.nextSn++
 
 		// Create a dummy wrapper batch containing only this request.
-		batch := &messagepb.Batch{Requests: []*messagepb.RequestRef{ref}}
+		batch := &requestpb.Batch{Requests: []*requestpb.RequestRef{ref}}
 
 		// Create event for persisting the request (wrapped in a batch) in the WAL.
 		walEvent := events.PersistDummyBatch(sn, batch)
@@ -184,6 +185,6 @@ func (dp *DummyProtocol) announceRequests() *events.EventList {
 }
 
 // Takes a request reference and transforms it to a string for using as a map key.
-func reqStrKey(reqRef *messagepb.RequestRef) string {
+func reqStrKey(reqRef *requestpb.RequestRef) string {
 	return fmt.Sprintf("%d-%d.%v", reqRef.ClientId, reqRef.ReqNo, reqRef.Digest)
 }

@@ -8,6 +8,7 @@ syntax = "proto3";
 
 package eventpb;
 
+import "requestpb/requestpb.proto";
 import "messagepb/messagepb.proto";
 
 option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/eventpb";
@@ -17,7 +18,7 @@ message Event {
   // TODO, normalize naming, for instance Complete/Completed
   oneof type {
     WALEntry wal_entry = 1;
-    messagepb.Request request = 2;
+    requestpb.Request request = 2;
     HashRequest hash_request = 3;
     HashResult hash_result = 4;
     Tick tick = 5;
@@ -55,12 +56,12 @@ message HashResult {
 
 message HashOrigin {
   oneof type {
-    messagepb.Request request = 1;
+    requestpb.Request request = 1;
   }
 }
 
 message RequestReady {
-  messagepb.RequestRef request_ref = 1;
+  requestpb.RequestRef request_ref = 1;
 }
 
 message SendMessage {
@@ -82,16 +83,16 @@ message WALEntry {
 //==================================================
 
 message StoreDummyRequest {
-  messagepb.RequestRef request_ref = 1;
+  requestpb.RequestRef request_ref = 1;
   bytes data = 2;
 }
 
 message PersistDummyBatch {
   uint64 sn = 1;
-  messagepb.Batch batch = 2;
+  requestpb.Batch batch = 2;
 }
 
 message AnnounceDummyBatch {
   uint64 sn = 1;
-  messagepb.Batch batch = 2;
+  requestpb.Batch batch = 2;
 }

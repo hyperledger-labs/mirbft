@@ -9,7 +9,7 @@ package deploytest
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 )
 
 // FakeApp represents a dummy stub application used for testing only.
@@ -20,7 +20,7 @@ type FakeApp struct {
 }
 
 // Apply
-func (fa *FakeApp) Apply(batch *messagepb.Batch) error {
+func (fa *FakeApp) Apply(batch *requestpb.Batch) error {
 	for range batch.Requests {
 		fa.RequestsProcessed++
 		fmt.Printf("Processed requests: %d\n", fa.RequestsProcessed)

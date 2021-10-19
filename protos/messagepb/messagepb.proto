@@ -8,31 +8,19 @@ syntax = "proto3";
 
 package messagepb;
 
+import "requestpb/requestpb.proto";
+import "isspb/isspb.proto";
+
 option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/messagepb";
 
 message Message {
   oneof type {
-    DummyPreprepare dummy_preprepare = 1;
+    isspb.Message iss = 1;
+    DummyPreprepare dummy_preprepare = 100;
   }
-}
-
-message Request {
-  uint64 client_id = 1;
-  uint64 req_no = 2;
-  bytes data = 3;
-}
-
-message RequestRef {
-  uint64 client_id = 1;
-  uint64 req_no = 2;
-  bytes digest = 3;
-}
-
-message Batch {
-  repeated RequestRef requests = 1;
 }
 
 message DummyPreprepare {
   uint64 sn = 1;
-  Batch batch = 2;
+  requestpb.Batch batch = 2;
 }

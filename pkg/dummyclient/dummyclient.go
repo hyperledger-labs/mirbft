@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	"github.com/hyperledger-labs/mirbft/pkg/requestreceiver"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"google.golang.org/grpc"
@@ -92,7 +92,7 @@ func (dc *DummyClient) Connect(membership map[t.NodeID]string) {
 // If an error occurs, SubmitRequest returns immediately,
 // even if sending of the request was not attempted for all nodes.
 func (dc *DummyClient) SubmitRequest(data []byte) error {
-	reqMsg := &messagepb.Request{
+	reqMsg := &requestpb.Request{
 		ClientId: dc.ownId.Pb(),
 		ReqNo:    dc.nextReqNo.Pb(),
 		Data:     data,
