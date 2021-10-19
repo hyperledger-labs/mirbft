@@ -1,0 +1,27 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package requestpb;
+
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/requestpb";
+
+message Request {
+  uint64 client_id = 1;
+  uint64 req_no = 2;
+  bytes data = 3;
+}
+
+message RequestRef {
+  uint64 client_id = 1;
+  uint64 req_no = 2;
+  bytes digest = 3;
+}
+
+message Batch {
+  repeated RequestRef requests = 1;
+}

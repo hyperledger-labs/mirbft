@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 )
 
 // ChatApp and its methods implement the application logic of the small chat demo application
@@ -46,7 +46,7 @@ func NewChatApp(reqStore modules.RequestStore) *ChatApp {
 // In our case, it simply extends the message history
 // by appending the payload of each received request as a new chat message.
 // Each appended message is also printed to stdout.
-func (chat *ChatApp) Apply(batch *messagepb.Batch) error {
+func (chat *ChatApp) Apply(batch *requestpb.Batch) error {
 
 	// For each request in the batch
 	for _, reqRef := range batch.Requests {

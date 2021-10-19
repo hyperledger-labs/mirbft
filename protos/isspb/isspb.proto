@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package isspb;
+
+import "isspbftpb/isspbftpb.proto";
+
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/isspb";
+
+message Message {
+  oneof type {
+    SBMessage sb = 1;
+  }
+}
+
+message SBMessage {
+  oneof type {
+    isspbftpb.Preprepare pbft_preprepare = 1;
+  }
+}

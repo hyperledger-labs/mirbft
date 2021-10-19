@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package modules
 
 import (
-	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 )
 
 // App represents an application this library is used for replicating.
@@ -19,7 +19,7 @@ import (
 type App interface {
 
 	// Apply a batch of Requests to the current stat of the application.
-	Apply(batch *messagepb.Batch) error
+	Apply(batch *requestpb.Batch) error
 
 	// Snapshot returns a snapshot of the current application state in form of a byte slice.
 	// The application must be able to restore its internal state when the returned value is passed to RestoreState.

@@ -9,6 +9,7 @@ package events
 import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 )
 
@@ -63,7 +64,7 @@ func MessageReceived(from t.NodeID, message *messagepb.Message) *eventpb.Event {
 
 // ClientRequest returns an event representing the reception of a request from a client.
 func ClientRequest(clientID t.ClientID, reqNo t.ReqNo, data []byte) *eventpb.Event {
-	return &eventpb.Event{Type: &eventpb.Event_Request{Request: &messagepb.Request{
+	return &eventpb.Event{Type: &eventpb.Event_Request{Request: &requestpb.Request{
 		ClientId: clientID.Pb(),
 		ReqNo:    reqNo.Pb(),
 		Data:     data,
@@ -92,7 +93,7 @@ func HashResult(digest []byte, origin *eventpb.HashOrigin) *eventpb.Event {
 
 // RequestReady returns an event signifying that a new request is ready to be inserted into the protocol state machine.
 // This normally occurs when the request has been received, persisted, authenticated, and an authenticator is available.
-func RequestReady(requestRef *messagepb.RequestRef) *eventpb.Event {
+func RequestReady(requestRef *requestpb.RequestRef) *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_RequestReady{RequestReady: &eventpb.RequestReady{
 		RequestRef: requestRef,
 	}}}
@@ -108,21 +109,21 @@ func WALEntry(persistedEvent *eventpb.Event) *eventpb.Event {
 // DUMMY EVENTS FOR TESTING PURPOSES ONLY.
 // ============================================================
 
-func PersistDummyBatch(sn t.SeqNr, batch *messagepb.Batch) *eventpb.Event {
+func PersistDummyBatch(sn t.SeqNr, batch *requestpb.Batch) *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_PersistDummyBatch{PersistDummyBatch: &eventpb.PersistDummyBatch{
 		Sn:    sn.Pb(),
 		Batch: batch,
 	}}}
 }
 
-func AnnounceDummyBatch(sn t.SeqNr, batch *messagepb.Batch) *eventpb.Event {
+func AnnounceDummyBatch(sn t.SeqNr, batch *requestpb.Batch) *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_AnnounceDummyBatch{AnnounceDummyBatch: &eventpb.AnnounceDummyBatch{
 		Sn:    sn.Pb(),
 		Batch: batch,
 	}}}
 }
 
-func StoreDummyRequest(reqRef *messagepb.RequestRef, data []byte) *eventpb.Event {
+func StoreDummyRequest(reqRef *requestpb.RequestRef, data []byte) *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_StoreDummyRequest{StoreDummyRequest: &eventpb.StoreDummyRequest{
 		RequestRef: reqRef,
 		Data:       data,

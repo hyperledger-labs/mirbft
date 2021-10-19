@@ -16,12 +16,12 @@ package reqstore
 import (
 	"fmt"
 	badger "github.com/dgraph-io/badger/v2"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"github.com/pkg/errors"
 )
 
-func reqKey(ack *messagepb.RequestRef) []byte {
+func reqKey(ack *requestpb.RequestRef) []byte {
 	return []byte(fmt.Sprintf("req-%d.%d.%x", ack.ClientId, ack.ReqNo, ack.Digest))
 }
 
@@ -76,13 +76,13 @@ func (s *Store) GetAllocation(clientID t.ClientID, reqNo t.ReqNo) ([]byte, error
 	return valCopy, err
 }
 
-func (s *Store) PutRequest(requestRef *messagepb.RequestRef, data []byte) error {
+func (s *Store) PutRequest(requestRef *requestpb.RequestRef, data []byte) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(reqKey(requestRef), data)
 	})
 }
 
-func (s *Store) GetRequest(requestRef *messagepb.RequestRef) ([]byte, error) {
+func (s *Store) GetRequest(requestRef *requestpb.RequestRef) ([]byte, error) {
 	var valCopy []byte
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(reqKey(requestRef))
@@ -101,7 +101,7 @@ func (s *Store) GetRequest(requestRef *messagepb.RequestRef) ([]byte, error) {
 	return valCopy, err
 }
 
-func (s *Store) Commit(ack *messagepb.RequestRef) error {
+func (s *Store) Commit(ack *requestpb.RequestRef) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(reqKey(ack))
 	})

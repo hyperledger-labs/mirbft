@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	"github.com/hyperledger-labs/mirbft/pkg/status"
 )
 
@@ -40,7 +40,7 @@ func (ct *DummyClientTracker) ApplyEvent(event *eventpb.Event) *events.EventList
 		// Create a request reference and submit it to the protocol state machine as a request ready to be processed.
 		// TODO: postpone this until the request is stored and authenticated.
 		req := e.HashResult.Origin.Type.(*eventpb.HashOrigin_Request).Request
-		reqRef := &messagepb.RequestRef{
+		reqRef := &requestpb.RequestRef{
 			ClientId: req.ClientId,
 			ReqNo:    req.ReqNo,
 			Digest:   digest,
@@ -58,7 +58,7 @@ func (ct *DummyClientTracker) Status() (s *status.StateMachine, err error) {
 }
 
 // Returns a HashRequest Event to be sent to the Hasher module for hashing a client request.
-func hashRequest(req *messagepb.Request) *eventpb.Event {
+func hashRequest(req *requestpb.Request) *eventpb.Event {
 
 	// Encode all data to be hashed.
 	clientIDBuf := make([]byte, 8)

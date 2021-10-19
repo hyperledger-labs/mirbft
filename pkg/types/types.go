@@ -65,3 +65,23 @@ type WALRetIndex uint64
 func (wri WALRetIndex) Pb() uint64 {
 	return uint64(wri)
 }
+
+// ================================================================================
+
+// SBInstanceID represents the ID of an instance of Sequenced Broadcast (SB)
+type SBInstanceID uint64
+
+// Pb converts a SBInstanceID to its underlying native type.
+func (iid SBInstanceID) Pb() uint64 {
+	return uint64(iid)
+}
+
+// ================================================================================
+
+// EpochNr represents the number of an epoch.
+type EpochNr uint64
+
+// Pb converts an EpochNr number to its underlying native type.
+func (e EpochNr) Pb() uint64 {
+	return uint64(e)
+}

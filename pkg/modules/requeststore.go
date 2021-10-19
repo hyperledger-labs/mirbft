@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package modules
 
 import (
-	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 )
 
@@ -40,29 +40,29 @@ import (
 type RequestStore interface {
 
 	// PutRequest stores request the passed request data associated with the request reference.
-	PutRequest(reqRef *messagepb.RequestRef, data []byte) error
+	PutRequest(reqRef *requestpb.RequestRef, data []byte) error
 
 	// GetRequest returns the stored request data associated with the passed request reference.
 	// If no data is stored under the given reference, the returned error will be non-nil.
-	GetRequest(reqRef *messagepb.RequestRef) ([]byte, error)
+	GetRequest(reqRef *requestpb.RequestRef) ([]byte, error)
 
 	// SetAuthenticated marks the referenced request as authenticated.
 	// A request being authenticated means that the local node believes that
 	// the request has indeed been sent by the client. This does not necessarily mean, however,
 	// that the local node can convince other nodes about the request's authenticity
 	// (e.g. if the local node received the request over an authenticated channel but the request is not signed).
-	SetAuthenticated(reqRef *messagepb.RequestRef) error
+	SetAuthenticated(reqRef *requestpb.RequestRef) error
 
 	// IsAuthenticated returns true if the request is authenticated, false otherwise.
-	IsAuthenticated(reqRef *messagepb.RequestRef) (bool, error)
+	IsAuthenticated(reqRef *requestpb.RequestRef) (bool, error)
 
 	// PutAuthenticator stores an authenticator associated with the referenced request.
 	// If an authenticator is already stored under the same reference, it will be overwritten.
-	PutAuthenticator(reqRef *messagepb.RequestRef, auth []byte) error
+	PutAuthenticator(reqRef *requestpb.RequestRef, auth []byte) error
 
 	// GetAuthenticator returns the stored authenticator associated with the passed request reference.
 	// If no authenticator is stored under the given reference, the returned error will be non-nil.
-	GetAuthenticator(reqRef *messagepb.RequestRef) ([]byte, error)
+	GetAuthenticator(reqRef *requestpb.RequestRef) ([]byte, error)
 
 	// GetDigestsByID returns a list of request Digests for which any information
 	// (request data, authentication, or authenticator) is stored in the RequestStore.
