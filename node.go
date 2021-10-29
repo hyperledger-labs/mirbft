@@ -13,7 +13,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
-	"github.com/hyperledger-labs/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"sync"
 	"time"
@@ -48,7 +48,7 @@ type Node struct {
 	// A status request is itself represented as a channel,
 	// to which the state machine status needs to be written once the status is obtained.
 	// TODO: Implement obtaining and writing the status (Currently no one reads from this channel).
-	statusC chan chan *status.StateMachine
+	statusC chan chan *statuspb.NodeStatus
 }
 
 // NewNode creates a new node with numeric ID id.
@@ -77,7 +77,7 @@ func NewNode(
 		workItems:       NewWorkItems(),
 		workErrNotifier: newWorkErrNotifier(),
 
-		statusC: make(chan chan *status.StateMachine),
+		statusC: make(chan chan *statuspb.NodeStatus),
 	}, nil
 }
 
@@ -85,30 +85,30 @@ func NewNode(
 // TODO: Currently a call to Status blocks until the node is stopped, as obtaining status is not yet implemented.
 //       Also change the return type to be a protobuf object that contains a field for each module
 //       with module-specific contents.
-func (n *Node) Status(ctx context.Context) (*status.StateMachine, error) {
+func (n *Node) Status(ctx context.Context) (*statuspb.NodeStatus, error) {
 
 	// Submit status request for processing by the process() function.
-	// A status request is represented as a channel  to which the state machine status needs to be written
-	// once the status is obtained.
+	// A status request is represented as a channel (statusC)
+	// to which the state machine status needs to be written once the status is obtained.
 	// Return an error if the node shuts down before the request is read or if the context ends.
-	statusC := make(chan *status.StateMachine, 1)
+	statusC := make(chan *statuspb.NodeStatus, 1)
 	select {
+	case n.statusC <- statusC:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-n.workErrNotifier.ExitStatusC():
 		return n.workErrNotifier.ExitStatus()
-	case n.statusC <- statusC:
 	}
 
 	// Read the obtained status and return it.
 	// Return an error if the node shuts down before the request is read or if the context ends.
 	select {
+	case s := <-statusC:
+		return s, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-n.workErrNotifier.ExitStatusC():
 		return n.workErrNotifier.ExitStatus()
-	case s := <-statusC:
-		return s, nil
 	}
 }
 
@@ -184,8 +184,8 @@ func (n *Node) processWAL() error {
 	walEvents := &events.EventList{}
 
 	// Add all events from the WAL to the new EventList.
-	if err := n.modules.WAL.LoadAll(func(_ t.WALRetIndex, event *eventpb.Event) {
-		walEvents.PushBack(events.WALEntry(event))
+	if err := n.modules.WAL.LoadAll(func(retIdx t.WALRetIndex, event *eventpb.Event) {
+		walEvents.PushBack(events.WALEntry(event, retIdx))
 	}); err != nil {
 		return fmt.Errorf("could not load WAL events: %w", err)
 	}

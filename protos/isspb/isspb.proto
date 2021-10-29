@@ -1,19 +1,118 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
 syntax = "proto3";
 
 package isspb;
 
 import "isspbftpb/isspbftpb.proto";
+import "requestpb/requestpb.proto";
 
 option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/isspb";
 
-message Message {
+// ============================================================
+// Messages
+// ============================================================
+
+message ISSMessage {
   oneof type {
     SBMessage sb = 1;
   }
 }
 
 message SBMessage {
+  uint64 epoch = 1;
+  uint64 instance = 2;
+  SBInstanceMessage msg = 3;
+}
+
+message SBInstanceMessage {
   oneof type {
-    isspbftpb.Preprepare pbft_preprepare = 1;
+    isspbftpb.Preprepare pbft_preprepare = 3;
   }
+}
+
+// ============================================================
+// Events
+// ============================================================
+
+message ISSEvent {
+  oneof type {
+    SBEvent sb = 1;
+  }
+}
+
+message SBEvent {
+  uint64 epoch = 1;
+  uint64 instance = 2;
+  SBInstanceEvent event = 3;
+}
+
+message SBInstanceEvent {
+  oneof type {
+    SBDeliver deliver = 1;
+    SBMessageReceived message_received = 2;
+    SBPendingRequests pending_requests = 3;
+    SBTick tick = 4;
+    SBCutBatch cut_batch = 5;
+    SBBatchReady batch_ready = 6;
+    SBWaitForRequests wait_for_requests = 7;
+    SBRequestsReady requests_ready = 8;
+
+    isspbftpb.PersistPreprepare pbft_persist_preprepare = 9;
+  }
+}
+
+message SBCutBatch {
+  uint64 max_size = 1;
+}
+
+message SBBatchReady {
+  requestpb.Batch batch = 1;
+  uint64 pending_requests_left = 2;
+}
+
+message SBWaitForRequests {
+  uint64 sn = 1;
+  repeated requestpb.RequestRef requests = 2;
+}
+
+message SBRequestsReady {
+  uint64 sn = 1;
+}
+
+message SBDeliver {
+  uint64 sn = 1;
+  requestpb.Batch batch = 2;
+}
+
+message SBMessageReceived {
+  uint64 from = 1;
+  SBInstanceMessage msg = 2;
+}
+
+message SBPendingRequests {
+  uint64 numRequests = 1;
+}
+
+message SBTick {
+}
+
+// ============================================================
+// Status
+// ============================================================
+
+message Status {
+  uint64 epoch = 1;
+  repeated SBStatus orderers = 2;
+  // TODO: Represent whole status here.
+}
+
+message SBStatus {
+  uint64 leader = 1;
+  // TODO: Represent whole status here, e.g., the segment etc.
+  //       Put common SB-related fields here and add a field for subprotocol-specific status.
 }

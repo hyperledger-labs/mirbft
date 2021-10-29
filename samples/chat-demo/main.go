@@ -15,6 +15,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/dummyclient"
@@ -203,7 +204,10 @@ func main() {
 	client := dummyclient.NewDummyClient(t.ClientID(args.OwnId), logger)
 
 	// Create network connections to all Nodes' request receivers.
-	client.Connect(reqReceiverAddrs)
+	// We use just the background context in this demo app, expecting that the connection will succeed
+	// and the Connect() function will return. In a real deployment, the passed context
+	// can be used for failure handling, for example to cancel connecting.
+	client.Connect(context.Background(), reqReceiverAddrs)
 
 	// ================================================================================
 	// Read chat messages from stdin and submit them as requests.

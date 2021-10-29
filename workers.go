@@ -13,8 +13,10 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"github.com/pkg/errors"
+	"runtime/debug"
 )
 
 // Input and output channels for the modules within the Node.
@@ -285,7 +287,8 @@ func (n *Node) doProtocolWork(exitC <-chan struct{}) (err error) {
 	defer func() {
 		if err != nil {
 			s, err := n.modules.Protocol.Status()
-			n.workErrNotifier.SetExitStatus(s, err)
+			n.workErrNotifier.SetExitStatus(&statuspb.NodeStatus{Protocol: s}, err)
+			// TODO: Clean up status-related code.
 		}
 	}()
 
@@ -331,7 +334,12 @@ func processWALEvents(wal modules.WAL, eventsIn *events.EventList) (*events.Even
 		eventsOut.PushBackList(events.Strip(event))
 
 		// Perform the necessary action based on event type.
-		switch event.Type.(type) {
+		switch e := event.Type.(type) {
+		case *eventpb.Event_WalAppend:
+			if err := wal.Append(e.WalAppend.Event, t.WALRetIndex(e.WalAppend.RetentionIndex)); err != nil {
+				return nil, fmt.Errorf("could not persist event (retention index %d) to WAL: %w",
+					e.WalAppend.RetentionIndex, err)
+			}
 		case *eventpb.Event_PersistDummyBatch:
 			if err := wal.Append(event, 0); err != nil {
 				return nil, fmt.Errorf("could not persist dummy batch: %w", err)
@@ -455,6 +463,10 @@ func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.Even
 			if err := app.Apply(e.AnnounceDummyBatch.Batch); err != nil {
 				return nil, fmt.Errorf("app error: %w", err)
 			}
+		case *eventpb.Event_Deliver:
+			if err := app.Apply(e.Deliver.Batch); err != nil {
+				return nil, fmt.Errorf("app error: %w", err)
+			}
 		//case *state.Action_Commit:
 		//	if err := app.Apply(t.Commit.Batch); err != nil {
 		//		return nil, errors.WithMessage(err, "app failed to commit")
@@ -544,9 +556,9 @@ func safeApplySMEvent(sm modules.Protocol, event *eventpb.Event) (result *events
 	defer func() {
 		if r := recover(); r != nil {
 			if rErr, ok := r.(error); ok {
-				err = errors.WithMessage(rErr, "panic in protocol state machine")
+				err = fmt.Errorf("panic in protocol state machine: %w\nStack trace:\n%s", rErr, string(debug.Stack()))
 			} else {
-				err = errors.Errorf("panic in protocol state machine: %v", r)
+				err = fmt.Errorf("panic in protocol state machine: %v\nStack trace:\n%s", r, string(debug.Stack()))
 			}
 		}
 	}()
@@ -559,9 +571,9 @@ func safeApplyClientEvent(c modules.ClientTracker, event *eventpb.Event) (result
 	defer func() {
 		if r := recover(); r != nil {
 			if rErr, ok := r.(error); ok {
-				err = errors.WithMessage(rErr, "panic in client tracker")
+				err = fmt.Errorf("panic in client tracker: %w\nStack trace:\n%s", rErr, string(debug.Stack()))
 			} else {
-				err = errors.Errorf("panic in client tracker: %v", r)
+				err = fmt.Errorf("panic in client tracker: %v\nStack trace:\n%s", r, string(debug.Stack()))
 			}
 		}
 	}()

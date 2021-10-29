@@ -9,7 +9,7 @@ package modules
 import (
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
-	"github.com/hyperledger-labs/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 )
 
 // Protocol represents the logic of a protocol.
@@ -25,7 +25,5 @@ type Protocol interface {
 
 	// Status returns the current state of the protocol.
 	// Mostly for debugging purposes.
-	// TODO: Make the data type protocol-independent,
-	//       as we aim for the possibility to use different implementations for different protocols.
-	Status() (s *status.StateMachine, err error)
+	Status() (s *statuspb.ProtocolStatus, err error)
 }

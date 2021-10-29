@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package deploytest
 
 import (
+	"context"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/dummyclient"
@@ -74,8 +75,8 @@ type Deployment struct {
 	// The replicas of the deployment.
 	TestReplicas []*TestReplica
 
-	// A single dummy client to submit requests to replicas over the (local loopback) network.
-	Client *dummyclient.DummyClient
+	// Dummy clients to submit requests to replicas over the (local loopback) network.
+	Clients []*dummyclient.DummyClient
 }
 
 // NewDeployment returns a Deployment initialized according to the passed configuration.
@@ -97,7 +98,7 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 		// Configure the test replica's node.
 		config := &mirbft.NodeConfig{
 			BufferSize: TestMsgBufSize,
-			Logger:     logging.ConsoleDebugLogger,
+			Logger:     logging.Decorate(logging.ConsoleDebugLogger, fmt.Sprintf("Node %d: ", i)),
 		}
 
 		// Create network transport module
@@ -121,14 +122,20 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 		}
 	}
 
+	// Create dummy clients.
+	netClients := make([]*dummyclient.DummyClient, 0)
+	for i := 1; i <= testConfig.NumClients; i++ {
+		// The loop counter i is used as client ID.
+		// We start counting at 1 (and not 0), since client ID 0 is reserved
+		// for the "fake" requests submitted directly by the TestReplicas.
+		netClients = append(netClients, dummyclient.NewDummyClient(t.ClientID(i), logging.ConsoleDebugLogger))
+	}
+
 	return &Deployment{
 		testConfig:    testConfig,
 		FakeTransport: fakeTransport,
 		TestReplicas:  replicas,
-
-		// Client ID is 1, as 0 is reserved for the "fake" requests submitted directly by the TestReplica itself
-		// when it runs.
-		Client: dummyclient.NewDummyClient(1, logging.ConsoleDebugLogger),
+		Clients:       netClients,
 	}, nil
 }
 
@@ -142,6 +149,8 @@ func (d *Deployment) Run(tickInterval time.Duration, stopC <-chan struct{}) []No
 	finalStatuses := make([]NodeStatus, len(d.TestReplicas))
 	var wg sync.WaitGroup
 
+	clientConnectionCtx, cancelClientConnections := context.WithCancel(context.Background())
+
 	// Start the Mir nodes.
 	for i, testReplica := range d.TestReplicas {
 
@@ -154,6 +163,7 @@ func (d *Deployment) Run(tickInterval time.Duration, stopC <-chan struct{}) []No
 			fmt.Printf("Node %d: running\n", i)
 			finalStatuses[i] = testReplica.Run(tickInterval, stopC)
 			fmt.Printf("Node %d: exit with exitErr=%v\n", i, finalStatuses[i].ExitErr)
+			cancelClientConnections()
 		}(i, testReplica)
 	}
 
@@ -161,18 +171,23 @@ func (d *Deployment) Run(tickInterval time.Duration, stopC <-chan struct{}) []No
 	d.FakeTransport.Start()
 	defer d.FakeTransport.Stop()
 
-	// Connect the deployment's DummyClient to all replicas and have it submit its requests in a separate goroutine.
-	d.Client.Connect(d.localRequestReceiverAddrs())
-	go func() {
-		GinkgoRecover()
-		submitDummyRequests(d.Client, d.testConfig.NumNetRequests)
-	}()
+	// Connect the deployment's DummyClients to all replicas and have them submit their requests in separate goroutines.
+	for _, client := range d.Clients {
+		client.Connect(clientConnectionCtx, d.localRequestReceiverAddrs())
+		go func(c *dummyclient.DummyClient) {
+			GinkgoRecover()
+			submitDummyRequests(c, d.testConfig.NumNetRequests)
+		}(client)
+	}
 
 	// Wait until the deployment receives the stop signal (stopC closed)
 	<-stopC
 
-	// Disconnect DummyClient
-	d.Client.Disconnect()
+	// Disconnect DummyClients
+	cancelClientConnections()
+	for _, client := range d.Clients {
+		client.Disconnect()
+	}
 
 	// Wait for all replicas to terminate
 	wg.Wait()

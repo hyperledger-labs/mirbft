@@ -85,3 +85,13 @@ type EpochNr uint64
 func (e EpochNr) Pb() uint64 {
 	return uint64(e)
 }
+
+// ================================================================================
+
+// NumRequests represents the number of requests (e.g. pending in some buffer)
+type NumRequests uint64
+
+// Pb converts an EpochNr number to its underlying native type.
+func (nr NumRequests) Pb() uint64 {
+	return uint64(nr)
+}

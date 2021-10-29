@@ -46,9 +46,12 @@ func (wi *WorkItems) AddEvents(events *events.EventList) error {
 	iter := events.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		switch t := event.Type.(type) {
+		case *eventpb.Event_Tick:
+			wi.protocol.PushBack(event)
+			// TODO: Should the Tick event also go elsewhere? Clients?
 		case *eventpb.Event_SendMessage:
 			wi.net.PushBack(event)
-		case *eventpb.Event_MessageReceived:
+		case *eventpb.Event_MessageReceived, *eventpb.Event_Iss, *eventpb.Event_RequestReady:
 			wi.protocol.PushBack(event)
 		case *eventpb.Event_Request:
 			wi.client.PushBack(event)
@@ -62,13 +65,14 @@ func (wi *WorkItems) AddEvents(events *events.EventList) error {
 				// it is the client tracker that created the request and the result goes back to it.
 				wi.client.PushBack(event)
 			}
-		case *eventpb.Event_Tick:
-			wi.protocol.PushBack(event)
-			// TODO: Should the Tick event also go elsewhere? Clients?
-		case *eventpb.Event_RequestReady:
-			wi.protocol.PushBack(event)
+		case *eventpb.Event_WalAppend:
+			wi.wal.PushBack(event)
+		case *eventpb.Event_Deliver:
+			wi.app.PushBack(event)
 		case *eventpb.Event_WalEntry:
 			switch walEntry := t.WalEntry.Event.Type.(type) {
+			case *eventpb.Event_Iss:
+				wi.protocol.PushBack(t.WalEntry.Event)
 			case *eventpb.Event_PersistDummyBatch:
 				wi.protocol.PushBack(t.WalEntry.Event)
 			default:
