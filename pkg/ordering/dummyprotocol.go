@@ -13,7 +13,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
-	"github.com/hyperledger-labs/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 )
 
@@ -79,8 +79,8 @@ func (dp *DummyProtocol) ApplyEvent(event *eventpb.Event) *events.EventList {
 }
 
 // Status returns an empty protocol state. This function a stub in the dummy protocol implementation.
-func (dp *DummyProtocol) Status() (s *status.StateMachine, err error) {
-	return &status.StateMachine{}, nil
+func (dp *DummyProtocol) Status() (s *statuspb.ProtocolStatus, err error) {
+	return &statuspb.ProtocolStatus{}, nil
 }
 
 // Handles a new incoming request.

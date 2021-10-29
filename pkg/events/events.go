@@ -99,9 +99,27 @@ func RequestReady(requestRef *requestpb.RequestRef) *eventpb.Event {
 	}}}
 }
 
-func WALEntry(persistedEvent *eventpb.Event) *eventpb.Event {
+// WALAppend returns an event of appending a new entry to the WAL.
+// This event is produced by the protocol state machine for persisting its state.
+func WALAppend(event *eventpb.Event, retentionIndex t.WALRetIndex) *eventpb.Event {
+	return &eventpb.Event{Type: &eventpb.Event_WalAppend{WalAppend: &eventpb.WALAppend{
+		Event:          event,
+		RetentionIndex: retentionIndex.Pb(),
+	}}}
+}
+
+// WALEntry returns an event of reading an entry from the WAL.
+// Those events are used at system initialization.
+func WALEntry(persistedEvent *eventpb.Event, retentionIndex t.WALRetIndex) *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_WalEntry{WalEntry: &eventpb.WALEntry{
 		Event: persistedEvent,
+	}}}
+}
+
+func Deliver(sn t.SeqNr, batch *requestpb.Batch) *eventpb.Event {
+	return &eventpb.Event{Type: &eventpb.Event_Deliver{Deliver: &eventpb.Deliver{
+		Sn:    sn.Pb(),
+		Batch: batch,
 	}}}
 }
 

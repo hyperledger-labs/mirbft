@@ -1,81 +1,109 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
 package iss
 
 import (
-	"container/list"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/isspb"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/isspbftpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
-	"github.com/hyperledger-labs/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 )
 
-type Config struct {
-	SegmentLength   int // In sequence numbers
-	MaxBatchSize    int // In requests
-	MaxProposeDelay int // In ticks
-	NumBuckets      int
-	leaderPolicy    LeaderSelectionPolicy
+const (
+	RequestNAckTimeout = 10
+)
+
+type missingRequestInfo struct {
+	Sn             t.SeqNr
+	Requests       map[string]struct{}
+	Orderer        sbInstance
+	TicksUntilNAck int // TODO: implement NAcks
 }
 
-type Membership []t.NodeID
+type segment struct {
+	Leader     t.NodeID
+	Membership []t.NodeID
+	SeqNrs     []t.SeqNr
+	BucketIDs  []int
+}
 
 type ISS struct {
-	config     Config
-	membership Membership
-	buckets    []*requestBucket
-	epoch      t.EpochNr
-	orderers   map[t.SBInstanceID]sbInstance
-	logger     logging.Logger
+	// These should only be set at initialization and remain static
+	ownID          t.NodeID
+	buckets        []*requestBucket
+	bucketOrderers map[int]sbInstance
+	logger         logging.Logger
+
+	// These might change from epoch to epoch.
+	config   *Config // (config will only be able to change when dynamic reconfiguration is supported.)
+	epoch    t.EpochNr
+	orderers map[t.SBInstanceID]sbInstance
+
+	// These might change even within an epoch
+	missingRequests     map[t.SeqNr]*missingRequestInfo
+	missingRequestIndex map[string]*missingRequestInfo
 }
 
-func New(config Config, membership Membership, logger logging.Logger) *ISS {
+func New(ownID t.NodeID, config *Config, logger logging.Logger) (*ISS, error) {
+
+	if err := CheckConfig(config); err != nil {
+		return nil, fmt.Errorf("invalid ISS configuration: %w", err)
+	}
+
+	// Compute the set of leaders for the first epoch
+	leaders := config.LeaderPolicy.Leaders(0)
 
 	// Initialize bucket data structures.
 	buckets := make([]*requestBucket, config.NumBuckets, config.NumBuckets)
 	for i := 0; i < config.NumBuckets; i++ {
-		buckets[i] = &requestBucket{} // No need to initialize requests filed. It's zero value is already an empty list.
+		buckets[i] = newRequestBucket(i)
 	}
 
 	// Compute initial bucket assignment
-	leaderBuckets := distributeBuckets(buckets, config.leaderPolicy.Leaders(0))
+	leaderBuckets := distributeBuckets(buckets, leaders)
 
 	orderers := make(map[t.SBInstanceID]sbInstance)
-	for i, leader := range config.leaderPolicy.Leaders(0) {
-		orderers[t.SBInstanceID(i)] = newPbftInstance(leader, config.SegmentLength, leaderBuckets[leader])
-	}
-	return &ISS{
-		config:     config,
-		membership: membership,
-		buckets:    buckets,
-		epoch:      0,
-		orderers:   orderers,
-		logger:     logger,
-	}
-}
+	bucketOrderers := make(map[int]sbInstance)
+	for i, leader := range leaders {
 
-// leaders must not be empty!
-// Will need to be updated to have a more sophisticated, liveness-ensuring implementation.
-func distributeBuckets(buckets []*requestBucket, leaders []t.NodeID) map[t.NodeID][]*requestBucket {
-	leaderBuckets := make(map[t.NodeID][]*requestBucket)
-	for _, leader := range leaders {
-		leaderBuckets[leader] = make([]*requestBucket, 0)
-	}
+		seg := &segment{
+			Leader:     leader,
+			Membership: config.Membership,
+			SeqNrs:     sequenceNumbers(t.SeqNr(i), t.SeqNr(len(leaders)), config.SegmentLength),
+			BucketIDs:  leaderBuckets[leader],
+		}
 
-	leaderIdx := 0
-	for _, bucket := range buckets {
-		leaderBuckets[leaders[leaderIdx]] = append(leaderBuckets[leaders[leaderIdx]], bucket)
-		leaderIdx++
-		if leaderIdx == len(leaders) {
-			leaderIdx = 0
+		sbInst := newPbftInstance(
+			ownID,
+			seg,
+			config,
+			&sbEventCreator{epoch: 0, instanceID: t.SBInstanceID(i)},
+			logging.Decorate(logger, "PBFT: ", "epoch", 0, "instance", i))
+		orderers[t.SBInstanceID(i)] = sbInst
+		for _, bID := range seg.BucketIDs {
+			bucketOrderers[bID] = sbInst
 		}
 	}
-
-	return leaderBuckets
+	return &ISS{
+		ownID:               ownID,
+		config:              config,
+		buckets:             buckets,
+		bucketOrderers:      bucketOrderers,
+		epoch:               0,
+		orderers:            orderers,
+		missingRequests:     make(map[t.SeqNr]*missingRequestInfo),
+		missingRequestIndex: make(map[string]*missingRequestInfo),
+		logger:              logger,
+	}, nil
 }
 
 func (iss *ISS) ApplyEvent(event *eventpb.Event) *events.EventList {
@@ -85,94 +113,133 @@ func (iss *ISS) ApplyEvent(event *eventpb.Event) *events.EventList {
 	case *eventpb.Event_RequestReady:
 		return iss.handleRequest(e.RequestReady.RequestRef)
 	case *eventpb.Event_MessageReceived:
-		return iss.handleMessage(e.MessageReceived.Msg, t.NodeID(e.MessageReceived.From))
+		// ISS only accepts ISS messages. If another message is applied, processing panics.
+		return iss.handleMessage(e.MessageReceived.Msg.Type.(*messagepb.Message_Iss).Iss,
+			t.NodeID(e.MessageReceived.From))
+	case *eventpb.Event_Iss:
+		switch issEvent := e.Iss.Type.(type) {
+		case *isspb.ISSEvent_Sb:
+			return iss.handleSBEvent(issEvent.Sb)
+		default:
+			panic(fmt.Sprintf("unknown ISS event type: %T", event.Type))
+		}
 	default:
-		panic(fmt.Sprintf("unknown ISS event type: %T", event.Type))
+		panic(fmt.Sprintf("unknown protocol (ISS) event type: %T", event.Type))
 	}
-
-	return &events.EventList{}
 }
 
-func (iss *ISS) Status() (s *status.StateMachine, err error) {
+func (iss *ISS) Status() (s *statuspb.ProtocolStatus, err error) {
 	return nil, nil
 }
 
 func (iss *ISS) handleRequest(ref *requestpb.RequestRef) *events.EventList {
-	iss.logger.Log(logging.LevelDebug, "ISS handling message.")
+	eventsOut := &events.EventList{}
 
-	// Add request to its bucket
-	iss.buckets[iss.bucketNumber(ref)].add(ref)
+	iss.logger.Log(logging.LevelDebug, "Handling request.")
 
-	// TODO: Check if batch is full and propose if yes.
+	// Compute bucket ID for the new request.
+	bID := bucketId(ref, iss.config.NumBuckets)
 
-	return &events.EventList{}
+	// Add request to its bucket. TODO: Maybe move this to the SB instance?
+	iss.buckets[bID].Add(ref)
+
+	// If some orderer instance is waiting for this request, notify that orderer.
+	reqKey := reqStrKey(ref)
+	if missingRequests, ok := iss.missingRequestIndex[reqKey]; ok {
+		delete(missingRequests.Requests, reqKey)
+		delete(iss.missingRequestIndex, reqKey)
+		if len(missingRequests.Requests) == 0 {
+			delete(iss.missingRequests, missingRequests.Sn)
+			eventsOut.PushBackList(missingRequests.Orderer.ApplyEvent(SBRequestsReady(missingRequests.Sn)))
+		}
+	}
+
+	// Count number of requests in all the buckets assigned to the same instance as the bucket of the received request.
+	// These are all the requests pending to be proposed by the instance.
+	// TODO: This is extremely inefficient (done on every request reception).
+	//       Maintain a counter of requests in assigned buckets instead.
+	pendingRequests := t.NumRequests(0)
+	for _, b := range iss.bucketOrderers[bID].Segment().BucketIDs {
+		pendingRequests += t.NumRequests(iss.buckets[b].Len())
+	}
+
+	// Announce the total number of pending requests to the corresponding SB instance.
+	return eventsOut.PushBackList(iss.bucketOrderers[bID].ApplyEvent(SBPendingRequestsEvent(pendingRequests)))
 }
 
-func (iss *ISS) bucketNumber(reqRef *requestpb.RequestRef) int {
-	return int(reqRef.ClientId+reqRef.ReqNo) % iss.config.NumBuckets // If types change, this needs to be updated.
-}
-
-func (iss *ISS) handleMessage(message *messagepb.Message, from t.NodeID) *events.EventList {
-	return nil
+func (iss *ISS) handleMessage(message *isspb.ISSMessage, from t.NodeID) *events.EventList {
+	switch msg := message.Type.(type) {
+	case *isspb.ISSMessage_Sb:
+		return iss.handleSBMessage(msg.Sb, from)
+	default:
+		panic(fmt.Errorf("unknown ISS message type: %T", message.Type))
+	}
 }
 
 func (iss *ISS) handleTick() *events.EventList {
-	// On each tick, propose a new batch
-	// TODO:
-	return &events.EventList{}
-}
+	eventsOut := &events.EventList{}
 
-type requestBucket struct {
-	requests list.List
-}
-
-func (b *requestBucket) add(reqRef *requestpb.RequestRef) {
-	b.requests.PushBack(reqRef)
-}
-
-type sbInstance interface {
-	handleMessage(msg *isspb.SBMessage, source t.NodeID) *events.EventList
-	handleTick() *events.EventList
-}
-
-type pbftSlot struct {
-	Sn t.SeqNr
-}
-
-type pbftInstance struct {
-	leader  t.NodeID
-	slots   map[t.SeqNr]*pbftSlot
-	buckets []*requestBucket
-}
-
-func newPbftInstance(leader t.NodeID, length int, buckets []*requestBucket) *pbftInstance {
-	slots := make(map[t.SeqNr]*pbftSlot)
-	for sn := 0; sn < length; sn++ {
-		slots[t.SeqNr(sn)] = &pbftSlot{Sn: t.SeqNr(sn)}
+	// Relay tick to each orderer.
+	sbTick := SBTickEvent()
+	for _, orderer := range iss.orderers {
+		eventsOut.PushBackList(orderer.ApplyEvent(sbTick))
 	}
-	return &pbftInstance{
-		leader:  leader,
-		slots:   slots,
-		buckets: buckets,
+
+	return eventsOut
+}
+
+func (iss *ISS) cutBatch(instanceID t.SBInstanceID, maxBatchSize t.NumRequests) *events.EventList {
+	orderer := iss.orderers[instanceID]
+	bucketIDs := orderer.Segment().BucketIDs
+	buckets := make([]*requestBucket, len(bucketIDs))
+	for i, bID := range bucketIDs {
+		buckets[i] = iss.buckets[bID]
+	}
+
+	batch := cutBatch(buckets, int(maxBatchSize))
+
+	requestsLeft := t.NumRequests(0)
+	for _, b := range buckets {
+		requestsLeft += t.NumRequests(b.Len())
+	}
+
+	return orderer.ApplyEvent(SBBatchReadyEvent(batch, requestsLeft))
+}
+
+func (iss *ISS) waitForRequests(instanceID t.SBInstanceID, sn t.SeqNr, requests []*requestpb.RequestRef) *events.EventList {
+
+	missingReqs := &missingRequestInfo{
+		Sn:             sn,
+		Requests:       make(map[string]struct{}, 0),
+		Orderer:        iss.orderers[instanceID],
+		TicksUntilNAck: RequestNAckTimeout,
+	}
+
+	for _, reqRef := range requests {
+		if !iss.buckets[bucketId(reqRef, iss.config.NumBuckets)].Contains(reqRef) {
+			reqKey := reqStrKey(reqRef)
+			missingReqs.Requests[reqKey] = struct{}{}
+			iss.missingRequestIndex[reqKey] = missingReqs
+		}
+	}
+
+	if len(missingReqs.Requests) > 0 {
+		iss.missingRequests[sn] = missingReqs
+		return &events.EventList{}
+	} else {
+		return missingReqs.Orderer.ApplyEvent(SBRequestsReady(sn))
 	}
 }
 
-func (pbft *pbftInstance) handleMessage(message *isspb.SBMessage, from t.NodeID) *events.EventList {
-	switch msg := message.Type.(type) {
-
-	case *isspb.SBMessage_PbftPreprepare:
-		return pbft.handlePreprepare(msg.PbftPreprepare)
-
-	default:
-		// Panic if message type is not known.
-		panic(fmt.Sprintf("unknown DummyProtocol message type (from %d): %T", from, message.Type))
+func sequenceNumbers(start t.SeqNr, step t.SeqNr, length int) []t.SeqNr {
+	sns := make([]t.SeqNr, length)
+	for i, nextsn := 0, start; i < length; i, nextsn = i+1, nextsn+step {
+		sns[i] = nextsn
 	}
+	return sns
 }
 
-func (pbft *pbftInstance) handleTick() *events.EventList {
-	return nil
-}
-
-func (pbft *pbftInstance) handlePreprepare(preprepare *isspbftpb.Preprepare) *events.EventList {
-	return nil
+// Takes a request reference and transforms it to a string for using as a map key.
+func reqStrKey(reqRef *requestpb.RequestRef) string {
+	return fmt.Sprintf("%d-%d.%v", reqRef.ClientId, reqRef.ReqNo, reqRef.Digest)
 }

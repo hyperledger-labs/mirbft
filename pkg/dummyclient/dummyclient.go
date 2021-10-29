@@ -48,7 +48,7 @@ func NewDummyClient(clientId t.ClientID, l logging.Logger) *DummyClient {
 // The nodes' RequestReceivers must be running.
 // Only after Connect() returns, sending requests through this DummyClient is possible.
 // TODO: Deal with errors, e.g. when the connection times out (make sure the RPC call in connectToNode() has a timeout).
-func (dc *DummyClient) Connect(membership map[t.NodeID]string) {
+func (dc *DummyClient) Connect(ctx context.Context, membership map[t.NodeID]string) {
 
 	// Initialize wait group used by the connecting goroutines
 	wg := sync.WaitGroup{}
@@ -65,7 +65,7 @@ func (dc *DummyClient) Connect(membership map[t.NodeID]string) {
 			defer wg.Done()
 
 			// Create and store connection
-			connection, err := dc.connectToNode(addr) // May take long time, execute before acquiring the lock.
+			connection, err := dc.connectToNode(ctx, addr) // May take long time, execute before acquiring the lock.
 			lock.Lock()
 			dc.connections[id] = connection
 			lock.Unlock()
@@ -73,7 +73,7 @@ func (dc *DummyClient) Connect(membership map[t.NodeID]string) {
 			// Print debug info.
 			if err != nil {
 				dc.logger.Log(logging.LevelError,
-					fmt.Sprintf("Failed to connect to node %d (%s) connected.", id, addr))
+					fmt.Sprintf("Failed to connect to node %d (%s).", id, addr))
 			} else {
 				dc.logger.Log(logging.LevelDebug,
 					fmt.Sprintf("Node %d (%s) connected.", id, addr))
@@ -112,14 +112,16 @@ func (dc *DummyClient) Disconnect() {
 
 	// Close connections to all nodes.
 	for id, connection := range dc.connections {
-		if _, err := connection.CloseAndRecv(); err != nil {
+		if connection == nil {
+			dc.logger.Log(logging.LevelWarn, fmt.Sprintf("No connection to close to node %d", id))
+		} else if _, err := connection.CloseAndRecv(); err != nil {
 			dc.logger.Log(logging.LevelWarn, fmt.Sprintf("Could not close connection to node %d", id))
 		}
 	}
 }
 
 // Establishes a connection to a single node at address addrString.
-func (dc *DummyClient) connectToNode(addrString string) (requestreceiver.RequestReceiver_ListenClient, error) {
+func (dc *DummyClient) connectToNode(ctx context.Context, addrString string) (requestreceiver.RequestReceiver_ListenClient, error) {
 
 	dc.logger.Log(logging.LevelDebug, fmt.Sprintf("Connecting to node: %s", addrString))
 
@@ -131,7 +133,7 @@ func (dc *DummyClient) connectToNode(addrString string) (requestreceiver.Request
 	}
 
 	// Set up a gRPC connection.
-	conn, err := grpc.Dial(addrString, dialOpts...)
+	conn, err := grpc.DialContext(ctx, addrString, dialOpts...)
 	if err != nil {
 		return nil, err
 	}

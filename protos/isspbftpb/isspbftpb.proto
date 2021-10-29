@@ -1,3 +1,9 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
 syntax = "proto3";
 
 package isspbftpb;
@@ -6,7 +12,27 @@ import "requestpb/requestpb.proto";
 
 option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/isspbftpb";
 
+// ============================================================
+// Messages
+// ============================================================
+
 message Preprepare {
   uint64 sn = 1;
-  repeated requestpb.RequestRef requests = 2;
+  requestpb.Batch batch = 2;
+}
+
+// ============================================================
+// Events
+// ============================================================
+
+message PersistPreprepare {
+  Preprepare preprepare = 1;
+}
+
+// ============================================================
+// Status
+// ============================================================
+
+message Status {
+  // TODO: Add the representation of the state of a PBFT instance here.
 }

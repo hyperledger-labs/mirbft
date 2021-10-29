@@ -6,11 +6,12 @@ import (
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
+	"github.com/hyperledger-labs/mirbft/pkg/iss"
+	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
-	"github.com/hyperledger-labs/mirbft/pkg/ordering"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 	"github.com/hyperledger-labs/mirbft/pkg/requestreceiver"
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
-	"github.com/hyperledger-labs/mirbft/pkg/status"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -44,6 +45,9 @@ type TestReplica struct {
 
 	// Number of simulated requests inserted in the test replica by a hypothetical client.
 	NumFakeRequests int
+
+	// Configuration of the ISS protocol, if used. If set to nil, the default ISS configuration is assumed.
+	ISSConfig *iss.Config
 }
 
 // EventLogFile returns the name of the file where the replica's event log is stored.
@@ -91,15 +95,24 @@ func (tr *TestReplica) Run(tickInterval time.Duration, stopC <-chan struct{}) No
 		Expect(err).NotTo(HaveOccurred())
 	}()
 
+	// If no ISS Protocol configuration has been specified, use the default one.
+	if tr.ISSConfig == nil {
+		tr.ISSConfig = iss.DefaultConfig(tr.Membership)
+	}
+
+	issProtocol, err := iss.New(tr.Id, tr.ISSConfig, logging.Decorate(tr.Config.Logger, "ISS: "))
+	Expect(err).NotTo(HaveOccurred())
+
 	// Create the mirbft node for this replica.
 	node, err := mirbft.NewNode(
 		tr.Id,
 		tr.Config,
 		&modules.Modules{
-			Net:         tr.Net,
-			App:         tr.App,
-			WAL:         wal,
-			Protocol:    ordering.NewDummyProtocol(tr.Config.Logger, tr.Membership, tr.Id),
+			Net: tr.Net,
+			App: tr.App,
+			WAL: wal,
+			//Protocol:    ordering.NewDummyProtocol(tr.Config.Logger, tr.Membership, tr.Id),
+			Protocol:    issProtocol,
 			Interceptor: interceptor,
 		},
 	)
@@ -160,7 +173,7 @@ func (tr *TestReplica) Run(tickInterval time.Duration, stopC <-chan struct{}) No
 type NodeStatus struct {
 
 	// Status as returned by mirbft.Node.Status()
-	Status *status.StateMachine
+	Status *statuspb.NodeStatus
 
 	// Potential error returned by mirbft.Node.Status() in case of obtaining of the status failed.
 	StatusErr error

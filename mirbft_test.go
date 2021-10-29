@@ -130,7 +130,8 @@ var _ = Describe("Basic test", func() {
 					fmt.Printf("Could not obtain final status of node %d: %v", nodeIndex, nodeStatus.StatusErr)
 				} else {
 					// Otherwise, print the status.
-					fmt.Printf("%s\n", nodeStatus.Status.Pretty())
+					// TODO: print the status in a readable form.
+					fmt.Printf("%v\n", nodeStatus.Status)
 				}
 			}
 		}
@@ -138,24 +139,19 @@ var _ = Describe("Basic test", func() {
 
 	table.DescribeTable("Simple tests", testFunc,
 		table.Entry("Does nothing with 1 node", &deploytest.TestConfig{
-			NumReplicas:     1,
-			NumClients:      0,
-			Transport:       "fake",
-			NumFakeRequests: 0,
-			Directory:       "",
-			Duration:        2 * time.Second,
+			NumReplicas: 1,
+			Transport:   "fake",
+			Directory:   "",
+			Duration:    2 * time.Second,
 		}),
 		table.Entry("Does nothing with 4 nodes", &deploytest.TestConfig{
-			NumReplicas:     4,
-			NumClients:      0,
-			Transport:       "fake",
-			NumFakeRequests: 0,
-			Directory:       "",
-			Duration:        2 * time.Second,
+			NumReplicas: 4,
+			Transport:   "fake",
+			Directory:   "",
+			Duration:    2 * time.Second,
 		}),
 		table.Entry("Submits 10 fake requests with 1 node", &deploytest.TestConfig{
 			NumReplicas:     1,
-			NumClients:      1,
 			Transport:       "fake",
 			NumFakeRequests: 10,
 			Directory:       "mirbft-deployment-test",
@@ -220,6 +216,7 @@ var _ = Describe("Basic test", func() {
 // If an error occurs, it is returned without modifying config.Directory.
 func createDeploymentDir(config *deploytest.TestConfig) error {
 	if config.Directory != "" {
+		fmt.Printf("Using deployment dir: %s\n", config.Directory)
 		// If a directory is configured, use the configured one.
 		if err := os.MkdirAll(config.Directory, 0777); err != nil {
 			return err
@@ -228,7 +225,8 @@ func createDeploymentDir(config *deploytest.TestConfig) error {
 		}
 	} else {
 		// If no directory is configured, create a temporary directory in the OS-default location.
-		tmpDir, err := ioutil.TempDir("", "mirbft-deployment-test.*")
+		tmpDir, err := ioutil.TempDir("", "mirbft-deployment-test.")
+		fmt.Printf("Creating temp dir: %s\n", tmpDir)
 		if err != nil {
 			return err
 		} else {

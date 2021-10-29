@@ -1,0 +1,23 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
+syntax = "proto3";
+
+package statuspb;
+
+import "isspb/isspb.proto";
+
+option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/statuspb";
+
+message NodeStatus {
+  ProtocolStatus protocol = 1;
+}
+
+message ProtocolStatus {
+  oneof type {
+    isspb.Status iss = 1;
+  }
+}

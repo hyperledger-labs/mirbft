@@ -10,6 +10,7 @@ package eventpb;
 
 import "requestpb/requestpb.proto";
 import "messagepb/messagepb.proto";
+import "isspb/isspb.proto";
 
 option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/eventpb";
 
@@ -17,14 +18,17 @@ option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/eventpb";
 message Event {
   // TODO, normalize naming, for instance Complete/Completed
   oneof type {
-    WALEntry wal_entry = 1;
-    requestpb.Request request = 2;
-    HashRequest hash_request = 3;
-    HashResult hash_result = 4;
-    Tick tick = 5;
-    RequestReady request_ready = 6;
-    SendMessage send_message = 7;
-    MessageReceived message_received = 8;
+    Tick tick = 1;
+    WALAppend wal_append = 2;
+    WALEntry wal_entry = 3;
+    requestpb.Request request = 4;
+    HashRequest hash_request = 5;
+    HashResult hash_result = 6;
+    RequestReady request_ready = 7;
+    SendMessage send_message = 8;
+    MessageReceived message_received = 9;
+    Deliver deliver = 10;
+    isspb.ISSEvent iss = 11;
 
     // Dummy events for testing purposes only.
     PersistDummyBatch persist_dummy_batch = 101;
@@ -74,8 +78,18 @@ message MessageReceived {
   messagepb.Message msg = 2;
 }
 
+message WALAppend {
+  Event event = 1;
+  uint64 retention_index = 2;
+}
+
 message WALEntry {
   Event event = 1;
+}
+
+message Deliver {
+  uint64 sn = 1;
+  requestpb.Batch batch = 2;
 }
 
 //==================================================

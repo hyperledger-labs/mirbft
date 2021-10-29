@@ -15,7 +15,9 @@ option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/messagepb";
 
 message Message {
   oneof type {
-    isspb.Message iss = 1;
+    isspb.ISSMessage iss = 1;
+
+
     DummyPreprepare dummy_preprepare = 100;
   }
 }

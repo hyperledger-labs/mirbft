@@ -9,7 +9,7 @@ Refactored: 1
 package mirbft
 
 import (
-	"github.com/hyperledger-labs/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 	"sync"
 )
 
@@ -30,7 +30,7 @@ type workErrNotifier struct {
 	exitC chan struct{}
 
 	// The final status of the protocol state machine on exit.
-	exitStatus *status.StateMachine
+	exitStatus *statuspb.NodeStatus
 
 	// Error that might have occurred when obtaining the protocol state machine's exit status.
 	exitStatusErr error
@@ -71,7 +71,7 @@ func (wen *workErrNotifier) Fail(err error) {
 // SetExitStatus saves the final status of the protocol state machine in this workErrorNotifier,
 // along with a potential error that might have occurred while obtaining the status.
 // SetExitStatus also closes the exitStatusC to notify other threads that the exit status has been set.
-func (wen *workErrNotifier) SetExitStatus(s *status.StateMachine, err error) {
+func (wen *workErrNotifier) SetExitStatus(s *statuspb.NodeStatus, err error) {
 	wen.mutex.Lock()
 	defer wen.mutex.Unlock()
 	wen.exitStatus = s
@@ -81,7 +81,7 @@ func (wen *workErrNotifier) SetExitStatus(s *status.StateMachine, err error) {
 
 // ExitStatus returns the status and the error set by the first invocation of SetExitStatus.
 // If the exit status has not been set yet, ExitStatus returns (nil, nil)
-func (wen *workErrNotifier) ExitStatus() (*status.StateMachine, error) {
+func (wen *workErrNotifier) ExitStatus() (*statuspb.NodeStatus, error) {
 	wen.mutex.Lock()
 	defer wen.mutex.Unlock()
 	return wen.exitStatus, wen.exitStatusErr

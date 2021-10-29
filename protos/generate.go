@@ -9,6 +9,7 @@ package protos
 //go:generate protoc --proto_path=. --go_out=../pkg/pb/ --go_opt=paths=source_relative messagepb/messagepb.proto
 //go:generate protoc --proto_path=. --go_out=../pkg/pb/ --go_opt=paths=source_relative requestpb/requestpb.proto
 //go:generate protoc --proto_path=. --go_out=../pkg/pb/ --go_opt=paths=source_relative eventpb/eventpb.proto
+//go:generate protoc --proto_path=. --go_out=../pkg/pb/ --go_opt=paths=source_relative statuspb/statuspb.proto
 //go:generate protoc --proto_path=. --go_out=../pkg/pb/ --go_opt=paths=source_relative recordingpb/recordingpb.proto
 //go:generate protoc --proto_path=. --go_out=../pkg/pb/ --go_opt=paths=source_relative isspb/isspb.proto
 //go:generate protoc --proto_path=. --go_out=../pkg/pb/ --go_opt=paths=source_relative isspbftpb/isspbftpb.proto
