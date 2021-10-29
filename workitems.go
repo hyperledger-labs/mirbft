@@ -72,7 +72,9 @@ func (wi *WorkItems) AddEvents(events *events.EventList) error {
 		case *eventpb.Event_WalEntry:
 			switch walEntry := t.WalEntry.Event.Type.(type) {
 			case *eventpb.Event_Iss:
-				wi.protocol.PushBack(t.WalEntry.Event)
+				// TODO: WAL loading is now disabled for ISS by commenting out the next line.
+				//       Implement recovery and re-enable (un-comment).
+				// wi.protocol.PushBack(t.WalEntry.Event)
 			case *eventpb.Event_PersistDummyBatch:
 				wi.protocol.PushBack(t.WalEntry.Event)
 			default:

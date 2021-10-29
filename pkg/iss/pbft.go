@@ -173,7 +173,6 @@ func (pbft *pbftInstance) handleMessage(message *isspb.SBInstanceMessage, from t
 }
 
 func (pbft *pbftInstance) handlePreprepare(preprepare *isspbftpb.Preprepare, from t.NodeID) *events.EventList {
-	pbft.logger.Log(logging.LevelDebug, "Handling Preprepare.", "sn", preprepare.Sn)
 	sn := t.SeqNr(preprepare.Sn)
 
 	// TODO: This is a stub. Perform all the proper checks.

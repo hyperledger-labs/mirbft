@@ -18,10 +18,6 @@ import (
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 )
 
-const (
-	RequestNAckTimeout = 10
-)
-
 type missingRequestInfo struct {
 	Sn             t.SeqNr
 	Requests       map[string]struct{}
@@ -36,19 +32,31 @@ type segment struct {
 	BucketIDs  []int
 }
 
+type commitLogEntry struct {
+	Sn      t.SeqNr
+	Batch   *requestpb.Batch
+	Digest  []byte
+	Aborted bool
+	Suspect t.NodeID
+}
+
 type ISS struct {
 	// These should only be set at initialization and remain static
-	ownID          t.NodeID
-	buckets        []*requestBucket
-	bucketOrderers map[int]sbInstance
-	logger         logging.Logger
+	ownID   t.NodeID
+	buckets []*requestBucket
+	logger  logging.Logger
 
 	// These might change from epoch to epoch.
-	config   *Config // (config will only be able to change when dynamic reconfiguration is supported.)
-	epoch    t.EpochNr
-	orderers map[t.SBInstanceID]sbInstance
+	// Modified only by initEpoch()
+	config           *Config // (config will only be able to change when dynamic reconfiguration is supported.)
+	epoch            t.EpochNr
+	nextSBInstanceID t.SBInstanceID
+	orderers         map[t.SBInstanceID]sbInstance
+	bucketOrderers   map[int]sbInstance
 
-	// These might change even within an epoch
+	// These values are modified throughout an epoch, but NOT by initEpoch
+	commitLog           map[t.SeqNr]*commitLogEntry
+	nextDeliveredSN     t.SeqNr
 	missingRequests     map[t.SeqNr]*missingRequestInfo
 	missingRequestIndex map[string]*missingRequestInfo
 }
@@ -59,51 +67,34 @@ func New(ownID t.NodeID, config *Config, logger logging.Logger) (*ISS, error) {
 		return nil, fmt.Errorf("invalid ISS configuration: %w", err)
 	}
 
-	// Compute the set of leaders for the first epoch
-	leaders := config.LeaderPolicy.Leaders(0)
-
 	// Initialize bucket data structures.
 	buckets := make([]*requestBucket, config.NumBuckets, config.NumBuckets)
 	for i := 0; i < config.NumBuckets; i++ {
 		buckets[i] = newRequestBucket(i)
 	}
 
-	// Compute initial bucket assignment
-	leaderBuckets := distributeBuckets(buckets, leaders)
+	iss := &ISS{
+		// Static
+		ownID:   ownID,
+		buckets: buckets,
+		logger:  logger,
 
-	orderers := make(map[t.SBInstanceID]sbInstance)
-	bucketOrderers := make(map[int]sbInstance)
-	for i, leader := range leaders {
+		// Modified only by initEpoch
+		config:           config,
+		epoch:            0,
+		nextSBInstanceID: 0,
+		orderers:         make(map[t.SBInstanceID]sbInstance),
+		bucketOrderers:   nil,
 
-		seg := &segment{
-			Leader:     leader,
-			Membership: config.Membership,
-			SeqNrs:     sequenceNumbers(t.SeqNr(i), t.SeqNr(len(leaders)), config.SegmentLength),
-			BucketIDs:  leaderBuckets[leader],
-		}
-
-		sbInst := newPbftInstance(
-			ownID,
-			seg,
-			config,
-			&sbEventCreator{epoch: 0, instanceID: t.SBInstanceID(i)},
-			logging.Decorate(logger, "PBFT: ", "epoch", 0, "instance", i))
-		orderers[t.SBInstanceID(i)] = sbInst
-		for _, bID := range seg.BucketIDs {
-			bucketOrderers[bID] = sbInst
-		}
-	}
-	return &ISS{
-		ownID:               ownID,
-		config:              config,
-		buckets:             buckets,
-		bucketOrderers:      bucketOrderers,
-		epoch:               0,
-		orderers:            orderers,
+		// Modified throughout an epoch, but NOT by initEpoch
+		commitLog:           make(map[t.SeqNr]*commitLogEntry),
+		nextDeliveredSN:     0,
 		missingRequests:     make(map[t.SeqNr]*missingRequestInfo),
 		missingRequestIndex: make(map[string]*missingRequestInfo),
-		logger:              logger,
-	}, nil
+	}
+
+	iss.initEpoch(0)
+	return iss, nil
 }
 
 func (iss *ISS) ApplyEvent(event *eventpb.Event) *events.EventList {
@@ -130,6 +121,56 @@ func (iss *ISS) ApplyEvent(event *eventpb.Event) *events.EventList {
 
 func (iss *ISS) Status() (s *statuspb.ProtocolStatus, err error) {
 	return nil, nil
+}
+
+func (iss *ISS) initEpoch(newEpoch t.EpochNr) {
+	// Compute the set of leaders for the first epoch
+	leaders := iss.config.LeaderPolicy.Leaders(newEpoch)
+
+	// Compute initial bucket assignment
+	leaderBuckets := distributeBuckets(iss.buckets, leaders, newEpoch)
+
+	iss.bucketOrderers = make(map[int]sbInstance)
+	for i, leader := range leaders {
+
+		seg := &segment{
+			Leader:     leader,
+			Membership: iss.config.Membership,
+			SeqNrs: sequenceNumbers(
+				iss.nextDeliveredSN+t.SeqNr(i),
+				t.SeqNr(len(leaders)),
+				iss.config.SegmentLength),
+			BucketIDs: leaderBuckets[leader],
+		}
+
+		sbInst := newPbftInstance(
+			iss.ownID,
+			seg,
+			iss.config,
+			&sbEventCreator{epoch: newEpoch, instanceID: iss.nextSBInstanceID},
+			logging.Decorate(iss.logger, "PBFT: ", "epoch", newEpoch, "instance", iss.nextSBInstanceID))
+		iss.orderers[iss.nextSBInstanceID] = sbInst
+		iss.nextSBInstanceID++
+		for _, bID := range seg.BucketIDs {
+			iss.bucketOrderers[bID] = sbInst
+		}
+	}
+
+	iss.epoch = newEpoch
+}
+
+func (iss *ISS) epochFinished() bool {
+
+	// TODO: Instead of checking all sequence numbers every time,
+	//       remember the last sequence number of the epoch and compare it to iss.nextDeliveredSN
+	for _, orderer := range iss.orderers {
+		for _, sn := range orderer.Segment().SeqNrs {
+			if iss.commitLog[sn] == nil {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (iss *ISS) handleRequest(ref *requestpb.RequestRef) *events.EventList {
@@ -185,6 +226,8 @@ func (iss *ISS) handleTick() *events.EventList {
 		eventsOut.PushBackList(orderer.ApplyEvent(sbTick))
 	}
 
+	// TODO: Check if request NAcks need to be sent.
+
 	return eventsOut
 }
 
@@ -212,7 +255,7 @@ func (iss *ISS) waitForRequests(instanceID t.SBInstanceID, sn t.SeqNr, requests 
 		Sn:             sn,
 		Requests:       make(map[string]struct{}, 0),
 		Orderer:        iss.orderers[instanceID],
-		TicksUntilNAck: RequestNAckTimeout,
+		TicksUntilNAck: iss.config.RequestNAckTimeout,
 	}
 
 	for _, reqRef := range requests {
@@ -228,6 +271,27 @@ func (iss *ISS) waitForRequests(instanceID t.SBInstanceID, sn t.SeqNr, requests 
 		return &events.EventList{}
 	} else {
 		return missingReqs.Orderer.ApplyEvent(SBRequestsReady(sn))
+	}
+}
+
+func (iss *ISS) deliverCommitted() *events.EventList {
+	eventsOut := &events.EventList{}
+
+	for iss.commitLog[iss.nextDeliveredSN] != nil {
+		eventsOut.PushBack(events.Deliver(iss.nextDeliveredSN, iss.commitLog[iss.nextDeliveredSN].Batch))
+		iss.nextDeliveredSN++
+	}
+
+	if iss.epochFinished() {
+		iss.initEpoch(iss.epoch + 1)
+	}
+
+	return eventsOut
+}
+
+func (iss *ISS) removeFromBuckets(requests []*requestpb.RequestRef) {
+	for _, reqRef := range requests {
+		iss.buckets[bucketId(reqRef, len(iss.buckets))].Remove(reqRef)
 	}
 }
 

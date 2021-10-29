@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	tickInterval = 100 * time.Millisecond
+	tickInterval = 50 * time.Millisecond
 	testTimeout  = 10 * time.Second
 )
 
@@ -35,6 +35,9 @@ var _ = Describe("Basic test", func() {
 
 	var (
 		currentTestConfig *deploytest.TestConfig
+
+		// The deployment used by the test.
+		deployment *deploytest.Deployment
 
 		// Channel used to stop the deployment.
 		stopC = make(chan struct{})
@@ -69,7 +72,7 @@ var _ = Describe("Basic test", func() {
 		tempDirs[testConfig.Directory] = struct{}{}
 
 		// Create new test deployment.
-		deployment, err := deploytest.NewDeployment(testConfig)
+		deployment, err = deploytest.NewDeployment(testConfig)
 		Expect(err).NotTo(HaveOccurred())
 
 		// Schedule shutdown of test deployment
@@ -92,14 +95,16 @@ var _ = Describe("Basic test", func() {
 			Expect(status.StatusErr).NotTo(HaveOccurred())
 		}
 
+		// Check if all requests were delivered.
+		for _, replica := range deployment.TestReplicas {
+			Expect(int(replica.App.RequestsProcessed)).To(Equal(testConfig.NumFakeRequests + testConfig.NumNetRequests))
+		}
+
 		fmt.Printf("Test finished.\n\n")
 	}
 
 	// After each test, check for errors and print them if any occurred.
 	AfterEach(func() {
-
-		// TODO: check whether the fake app processed all requests
-
 		// If the test failed
 		if CurrentGinkgoTestDescription().Failed {
 

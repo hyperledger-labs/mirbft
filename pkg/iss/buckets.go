@@ -16,6 +16,9 @@ type requestBucket struct {
 	ID      int
 	reqMap  map[string]*list.Element
 	reqList list.List
+
+	// TODO: Make sure the system works well even if a malicious client tries to submit conflicting requests.
+	//       If any conflicting requests end up in a bucket, make sure to garbage-collect them.
 }
 
 func newRequestBucket(id int) *requestBucket {
@@ -46,6 +49,10 @@ func (b *requestBucket) Add(reqRef *requestpb.RequestRef) {
 	b.reqMap[key] = e
 }
 
+func (b *requestBucket) Remove(reqRef *requestpb.RequestRef) {
+	b.reqList.Remove(b.reqMap[reqStrKey(reqRef)])
+}
+
 // TODO: Say that Contains still counts in the "removed" requests until garbage collection at the end of the epoch.
 func (b *requestBucket) Contains(reqRef *requestpb.RequestRef) bool {
 	_, ok := b.reqMap[reqStrKey(reqRef)]
@@ -68,13 +75,13 @@ func bucketId(reqRef *requestpb.RequestRef, numBuckets int) int {
 
 // leaders must not be empty!
 // Will need to be updated to have a more sophisticated, liveness-ensuring implementation.
-func distributeBuckets(buckets []*requestBucket, leaders []t.NodeID) map[t.NodeID][]int {
+func distributeBuckets(buckets []*requestBucket, leaders []t.NodeID, epoch t.EpochNr) map[t.NodeID][]int {
 	leaderBuckets := make(map[t.NodeID][]int)
 	for _, leader := range leaders {
 		leaderBuckets[leader] = make([]int, 0)
 	}
 
-	leaderIdx := 0
+	leaderIdx := int(epoch) % len(leaders)
 	for bID, _ := range buckets {
 		leaderBuckets[leaders[leaderIdx]] = append(leaderBuckets[leaders[leaderIdx]], bID)
 		leaderIdx++
