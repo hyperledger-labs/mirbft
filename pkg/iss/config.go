@@ -12,13 +12,15 @@ import (
 )
 
 type Config struct {
-	Membership      []t.NodeID
-	SegmentLength   int           // In sequence numbers
-	EpochLength     int           // In sequence numbers
-	MaxBatchSize    t.NumRequests // In requests
-	MaxProposeDelay int           // In ticks
-	NumBuckets      int
-	LeaderPolicy    LeaderSelectionPolicy
+	Membership    []t.NodeID
+	SegmentLength int // In sequence numbers
+	// TODO: That EpochLength is not implemented now.
+	EpochLength        int           // In sequence numbers
+	MaxBatchSize       t.NumRequests // In requests
+	MaxProposeDelay    int           // In ticks
+	NumBuckets         int
+	LeaderPolicy       LeaderSelectionPolicy // ATTENTION: The leader selection policy is stateful!
+	RequestNAckTimeout int                   // In ticks
 }
 
 func CheckConfig(c *Config) error {
@@ -65,17 +67,23 @@ func CheckConfig(c *Config) error {
 		return fmt.Errorf("missing leader selection policy")
 	}
 
+	// RequestNackTimeout must be positive
+	if c.RequestNAckTimeout <= 0 {
+		return fmt.Errorf("non-positive RequestNAckTimeout: %d", c.RequestNAckTimeout)
+	}
+
 	// If all checks passed, return nil error.
 	return nil
 }
 
 func DefaultConfig(membership []t.NodeID) *Config {
 	return &Config{
-		Membership:      membership,
-		SegmentLength:   10,
-		MaxBatchSize:    4,
-		MaxProposeDelay: 2,
-		NumBuckets:      len(membership),
-		LeaderPolicy:    &SimpleLeaderPolicy{Membership: membership},
+		Membership:         membership,
+		SegmentLength:      10,
+		MaxBatchSize:       4,
+		MaxProposeDelay:    2,
+		NumBuckets:         len(membership),
+		LeaderPolicy:       &SimpleLeaderPolicy{Membership: membership},
+		RequestNAckTimeout: 16,
 	}
 }

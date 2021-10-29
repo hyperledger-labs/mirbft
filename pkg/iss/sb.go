@@ -68,7 +68,7 @@ func (iss *ISS) handleSBEvent(event *isspb.SBEvent) *events.EventList {
 func (iss *ISS) applySBEvent(event *isspb.SBInstanceEvent, instance t.SBInstanceID) *events.EventList {
 	switch e := event.Type.(type) {
 	case *isspb.SBInstanceEvent_Deliver:
-		return (&events.EventList{}).PushBack(events.Deliver(t.SeqNr(e.Deliver.Sn), e.Deliver.Batch))
+		return iss.handleSBDeliver(e.Deliver, instance)
 	case *isspb.SBInstanceEvent_CutBatch:
 		return iss.cutBatch(instance, t.NumRequests(e.CutBatch.MaxSize))
 	case *isspb.SBInstanceEvent_WaitForRequests:
@@ -82,4 +82,14 @@ func (iss *ISS) applySBEvent(event *isspb.SBInstanceEvent, instance t.SBInstance
 			return &events.EventList{}
 		}
 	}
+}
+
+func (iss *ISS) handleSBDeliver(deliver *isspb.SBDeliver, instance t.SBInstanceID) *events.EventList {
+	iss.commitLog[t.SeqNr(deliver.Sn)] = &commitLogEntry{
+		Sn:    t.SeqNr(deliver.Sn),
+		Batch: deliver.Batch,
+		// TODO: Fill the rest of the fields (especially the digest)!
+	}
+	iss.removeFromBuckets(deliver.Batch.Requests)
+	return iss.deliverCommitted()
 }
