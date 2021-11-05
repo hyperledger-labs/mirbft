@@ -36,6 +36,12 @@ func Strip(event *eventpb.Event) *EventList {
 // Event Constructors
 // ============================================================
 
+// Init returns an event instructing a module to initialize.
+// This event is the first to be applied to a module after applying all events from the WAL.
+func Init() *eventpb.Event {
+	return &eventpb.Event{Type: &eventpb.Event_Init{Init: &eventpb.Init{}}}
+}
+
 // Tick returns an event representing a tick - the event of one step of logical time having elapsed.
 func Tick() *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_Tick{Tick: &eventpb.Tick{}}}
@@ -116,6 +122,7 @@ func WALEntry(persistedEvent *eventpb.Event, retentionIndex t.WALRetIndex) *even
 	}}}
 }
 
+// Deliver returns an event of delivering a request batch to the application in sequence number order.
 func Deliver(sn t.SeqNr, batch *requestpb.Batch) *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_Deliver{Deliver: &eventpb.Deliver{
 		Sn:    sn.Pb(),

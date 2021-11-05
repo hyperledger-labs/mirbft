@@ -13,6 +13,9 @@ import (
 
 // EventList represents a list of Events, e.g. as produced by a module.
 type EventList struct {
+
+	// The internal list is intentionally left uninitialized until its actual use.
+	// This probably speeds up appending empty lists to other lists.
 	list *list.List
 }
 

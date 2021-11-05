@@ -20,7 +20,12 @@ option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/isspb";
 message ISSMessage {
   oneof type {
     SBMessage sb = 1;
+    RetransmitRequests retransmit_requests = 2;
   }
+}
+
+message RetransmitRequests {
+  repeated requestpb.RequestRef requests = 1;
 }
 
 message SBMessage {
@@ -53,18 +58,21 @@ message SBEvent {
 
 message SBInstanceEvent {
   oneof type {
-    SBDeliver deliver = 1;
-    SBMessageReceived message_received = 2;
-    SBPendingRequests pending_requests = 3;
-    SBTick tick = 4;
-    SBCutBatch cut_batch = 5;
-    SBBatchReady batch_ready = 6;
-    SBWaitForRequests wait_for_requests = 7;
-    SBRequestsReady requests_ready = 8;
+    SBInit init = 1;
+    SBDeliver deliver = 2;
+    SBMessageReceived message_received = 3;
+    SBPendingRequests pending_requests = 4;
+    SBTick tick = 5;
+    SBCutBatch cut_batch = 6;
+    SBBatchReady batch_ready = 7;
+    SBWaitForRequests wait_for_requests = 8;
+    SBRequestsReady requests_ready = 9;
 
-    isspbftpb.PersistPreprepare pbft_persist_preprepare = 9;
+    isspbftpb.PersistPreprepare pbft_persist_preprepare = 10;
   }
 }
+
+message SBInit {}
 
 message SBCutBatch {
   uint64 max_size = 1;

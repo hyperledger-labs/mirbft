@@ -18,17 +18,18 @@ option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/eventpb";
 message Event {
   // TODO, normalize naming, for instance Complete/Completed
   oneof type {
-    Tick tick = 1;
-    WALAppend wal_append = 2;
-    WALEntry wal_entry = 3;
-    requestpb.Request request = 4;
-    HashRequest hash_request = 5;
-    HashResult hash_result = 6;
-    RequestReady request_ready = 7;
-    SendMessage send_message = 8;
-    MessageReceived message_received = 9;
-    Deliver deliver = 10;
-    isspb.ISSEvent iss = 11;
+    Init init = 1;
+    Tick tick = 2;
+    WALAppend wal_append = 3;
+    WALEntry wal_entry = 4;
+    requestpb.Request request = 5;
+    HashRequest hash_request = 6;
+    HashResult hash_result = 7;
+    RequestReady request_ready = 8;
+    SendMessage send_message = 9;
+    MessageReceived message_received = 10;
+    Deliver deliver = 11;
+    isspb.ISSEvent iss = 12;
 
     // Dummy events for testing purposes only.
     PersistDummyBatch persist_dummy_batch = 101;
@@ -45,6 +46,7 @@ message Event {
   repeated Event next = 100;
 }
 
+message Init {}
 
 message Tick {}
 
