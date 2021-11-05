@@ -46,6 +46,9 @@ func (wi *WorkItems) AddEvents(events *events.EventList) error {
 	iter := events.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		switch t := event.Type.(type) {
+		case *eventpb.Event_Init:
+			wi.protocol.PushBack(event)
+			// TODO: Should the Init event also go elsewhere? Clients? All the modules?
 		case *eventpb.Event_Tick:
 			wi.protocol.PushBack(event)
 			// TODO: Should the Tick event also go elsewhere? Clients?

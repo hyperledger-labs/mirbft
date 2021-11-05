@@ -172,7 +172,7 @@ var _ = Describe("Basic test", func() {
 		}),
 		table.Entry("Submits 10 fake requests with 4 nodes", &deploytest.TestConfig{
 			NumReplicas:     4,
-			NumClients:      1,
+			NumClients:      0,
 			Transport:       "fake",
 			NumFakeRequests: 10,
 			Directory:       "",
@@ -200,7 +200,7 @@ var _ = Describe("Basic test", func() {
 			Transport:      "grpc",
 			NumNetRequests: 10,
 			Directory:      "",
-			Duration:       2 * time.Second,
+			Duration:       4 * time.Second,
 		}),
 	)
 

@@ -158,8 +158,10 @@ func (n *Node) SubmitRequest(ctx context.Context, clientID t.ClientID, reqNo t.R
 }
 
 // Run starts the Node.
-// First, loads the contents of the WAL and enqueues all its contents for processing.
+// First, it loads the contents of the WAL and enqueues all its contents for processing.
 // This makes sure that the WAL events end up first in all the modules' processing queues.
+// Then it adds an Init event to the work items, giving the modules the possibility
+// to perform additional initialization based on the state recovered from the WAL.
 // Run then launches the processing of incoming messages, time ticks, and internal events.
 // The node stops when exitC is closed.
 // Logical time ticks need to be written to tickC by the calling code.
@@ -171,6 +173,13 @@ func (n *Node) Run(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		n.workErrNotifier.Fail(err)
 		n.workErrNotifier.SetExitStatus(nil, fmt.Errorf("node not started"))
 		return fmt.Errorf("could not process WAL: %w", err)
+	}
+
+	// Submit the Init event to the modules.
+	if err := n.workItems.AddEvents((&events.EventList{}).PushBack(events.Init())); err != nil {
+		n.workErrNotifier.Fail(err)
+		n.workErrNotifier.SetExitStatus(nil, fmt.Errorf("node not started"))
+		return fmt.Errorf("failed to add init event: %w", err)
 	}
 
 	// Start processing of events.

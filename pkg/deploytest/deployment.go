@@ -93,12 +93,13 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 
 	// Create all TestReplicas for this deployment.
 	replicas := make([]*TestReplica, testConfig.NumReplicas)
+	logger := logging.Synchronize(logging.ConsoleDebugLogger)
 	for i := range replicas {
 
 		// Configure the test replica's node.
 		config := &mirbft.NodeConfig{
 			BufferSize: TestMsgBufSize,
-			Logger:     logging.Decorate(logging.ConsoleDebugLogger, fmt.Sprintf("Node %d: ", i)),
+			Logger:     logging.Decorate(logger, fmt.Sprintf("Node %d: ", i)),
 		}
 
 		// Create network transport module
@@ -128,7 +129,7 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 		// The loop counter i is used as client ID.
 		// We start counting at 1 (and not 0), since client ID 0 is reserved
 		// for the "fake" requests submitted directly by the TestReplicas.
-		netClients = append(netClients, dummyclient.NewDummyClient(t.ClientID(i), logging.ConsoleDebugLogger))
+		netClients = append(netClients, dummyclient.NewDummyClient(t.ClientID(i), logger))
 	}
 
 	return &Deployment{
