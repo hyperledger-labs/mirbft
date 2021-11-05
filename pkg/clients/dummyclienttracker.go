@@ -12,7 +12,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
-	"github.com/hyperledger-labs/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 )
 
 type DummyClientTracker struct {
@@ -53,7 +53,7 @@ func (ct *DummyClientTracker) ApplyEvent(event *eventpb.Event) *events.EventList
 }
 
 // TODO: Implement and document.
-func (ct *DummyClientTracker) Status() (s *status.StateMachine, err error) {
+func (ct *DummyClientTracker) Status() (s *statuspb.ClientTrackerStatus, err error) {
 	return nil, nil
 }
 

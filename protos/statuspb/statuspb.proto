@@ -14,10 +14,14 @@ option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/statuspb";
 
 message NodeStatus {
   ProtocolStatus protocol = 1;
+  ClientTrackerStatus client_tracker = 2;
 }
 
 message ProtocolStatus {
   oneof type {
     isspb.Status iss = 1;
   }
+}
+
+message ClientTrackerStatus {
 }
