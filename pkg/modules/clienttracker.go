@@ -9,12 +9,12 @@ package modules
 import (
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
-	"github.com/hyperledger-labs/mirbft/pkg/status"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 )
 
 // TODO: Document this.
 
 type ClientTracker interface {
 	ApplyEvent(event *eventpb.Event) *events.EventList
-	Status() (s *status.StateMachine, err error)
+	Status() (s *statuspb.ClientTrackerStatus, err error)
 }
