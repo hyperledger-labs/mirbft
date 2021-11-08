@@ -97,6 +97,7 @@ func (dc *DummyClient) SubmitRequest(data []byte) error {
 		ReqNo:    dc.nextReqNo.Pb(),
 		Data:     data,
 	}
+	dc.nextReqNo++
 
 	for _, connection := range dc.connections {
 		if err := connection.Send(reqMsg); err != nil {
