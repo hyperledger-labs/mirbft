@@ -72,6 +72,15 @@ type Config struct {
 	// before trying to fetch those requests from other nodes.
 	// Must be positive.
 	RequestNAckTimeout int
+
+	// Maximal number of bytes used for message backlogging buffers
+	// (only message payloads are counted towards MsgBufCapacity).
+	// On reception of a message that the node is not yet ready to process
+	// (e.g., a message from a future epoch received from another node that already transitioned to that epoch),
+	// the message is stored in a buffer for later processing (e.g., when this node also transitions to that epoch).
+	// This total buffer capacity evenly split among multiple buffers, one for each node,
+	// so that one misbehaving node cannot exhaust the whole buffer space.
+	MsgBufCapacity int
 }
 
 // CheckConfig checks whether the given configuration satisfies all necessary constraints.

@@ -20,9 +20,9 @@ import (
 	"github.com/hyperledger-labs/mirbft"
 	"github.com/hyperledger-labs/mirbft/pkg/dummyclient"
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
+	"github.com/hyperledger-labs/mirbft/pkg/iss"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
-	"github.com/hyperledger-labs/mirbft/pkg/ordering"
 	"github.com/hyperledger-labs/mirbft/pkg/reqstore"
 	"github.com/hyperledger-labs/mirbft/pkg/requestreceiver"
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
@@ -71,7 +71,7 @@ func main() {
 	if args.Verbose {
 		logger = logging.ConsoleDebugLogger // Print debug-level info in verbose mode.
 	} else {
-		logger = logging.ConsoleErrorLogger // Only print errors by default.
+		logger = logging.ConsoleWarnLogger // Only print errors and warnings by default.
 	}
 
 	fmt.Println("Initializing...")
@@ -140,6 +140,13 @@ func main() {
 	// as restarts and crash-recovery (where persistence is necessary) are not yet implemented anyway.
 	reqStore := reqstore.NewVolatileRequestStore()
 
+	issConfig := iss.DefaultConfig(nodeIds)
+	issConfig.SegmentLength = 4
+	issProtocol, err := iss.New(args.OwnId, issConfig, logger)
+	if err != nil {
+		panic(fmt.Errorf("could not instantiate ISS protocol module: %w", err))
+	}
+
 	// ================================================================================
 	// Create a MirBFT Node, attaching the ChatApp implementation and other modules.
 	// ================================================================================
@@ -153,7 +160,9 @@ func main() {
 		// The DummyProtocol is the only protocol implemented so far.
 		// This protocol stub is not fault-tolerant and only serves demonstration purposes.
 		// In the future, a choice of multiple protocols should be available.
-		Protocol: ordering.NewDummyProtocol(logger, nodeIds, args.OwnId),
+		// Protocol: ordering.NewDummyProtocol(logger, nodeIds, args.OwnId),
+
+		Protocol: issProtocol,
 
 		// This is the application logic MirBFT is going to deliver requests to.
 		// It requires to have access to the request store, as MirBFT only passes request references to it.
