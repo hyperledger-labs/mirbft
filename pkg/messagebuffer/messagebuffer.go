@@ -58,6 +58,8 @@ func (mb *MessageBuffer) Store(msg proto.Message) bool {
 
 	// If message does not fit in the buffer, even if all its contents were removed, return immediately.
 	if msgSize > mb.capacity {
+		mb.logger.Log(logging.LevelWarn, "Ignoring message larger than capacity.",
+			"source", mb.nodeID, "capacity", mb.capacity, "msgSize", msgSize)
 		return false
 	}
 
