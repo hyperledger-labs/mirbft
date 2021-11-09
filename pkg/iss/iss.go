@@ -693,6 +693,7 @@ func (iss *ISS) applyBufferedMessages() *events.EventList {
 			}
 			// Note that validation is not performed here, as it is performed anyway when applying the message.
 			// Thus, the messagebuffer.Invalid option is not used.
+
 		}, func(source t.NodeID, msg proto.Message) {
 
 			// Apply all selected messages.
