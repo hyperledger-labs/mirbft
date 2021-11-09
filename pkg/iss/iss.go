@@ -15,8 +15,10 @@ package iss
 
 import (
 	"fmt"
+	proto "github.com/golang/protobuf/proto"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
+	"github.com/hyperledger-labs/mirbft/pkg/messagebuffer"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/isspb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
@@ -104,6 +106,7 @@ type commitLogEntry struct {
 // returned from the New() function should be used.
 type ISS struct {
 
+	// --------------------------------------------------------------------------------
 	// These fields should only be set at initialization and remain static
 	// --------------------------------------------------------------------------------
 
@@ -119,7 +122,9 @@ type ISS struct {
 	// This is mostly for debugging - not to be confused with the commit log.
 	logger logging.Logger
 
-	// These fields might change from epoch to epoch. Modified only by initEpoch()
+	// --------------------------------------------------------------------------------
+	// These fields (or data they point to) might change
+	// from epoch to epoch. Modified only by initEpoch()
 	// --------------------------------------------------------------------------------
 
 	// The ISS configuration parameters (e.g. number of buckets, batch size, etc...)
@@ -141,8 +146,16 @@ type ISS struct {
 	// For each bucket ID, this map stores the orderer to which the bucket is assigned in the current epoch.
 	bucketOrderers map[int]sbInstance
 
+	// --------------------------------------------------------------------------------
 	// These fields are modified throughout an epoch
 	// --------------------------------------------------------------------------------
+
+	// Buffers representing a backlog of messages destined to future epochs.
+	// Such messages might be sent by a node that already transitioned to a newer epoch,
+	// but this node is slightly behind (still in an older epoch) and cannot process these message yet.
+	// Such messages end up in this buffer (if there is buffer space) for later processing.
+	// The buffer is checked after each epoch transition.
+	messageBuffers map[t.NodeID]*messagebuffer.MessageBuffer
 
 	// The final log of committed batches.
 	// For each sequence number, it holds the committed batch (or the special abort value).
@@ -202,6 +215,11 @@ func New(ownID t.NodeID, config *Config, logger logging.Logger) (*ISS, error) {
 		nextDeliveredSN:     0,
 		missingRequests:     nil, // allocated in initEpoch()
 		missingRequestIndex: nil, // allocated in initEpoch()
+		messageBuffers: messagebuffer.NewBuffers(
+			removeNodeID(config.Membership, ownID), // Create a message buffer for everyone except for myself.
+			config.MsgBufCapacity,
+			logging.Decorate(logger, "Msgbuf: "),
+		),
 	}
 
 	// Initialize the first epoch (epoch 0).
@@ -387,15 +405,19 @@ func (iss *ISS) applySBMessage(message *isspb.SBMessage, from t.NodeID) *events.
 		// it might have been sent by a node that already transitioned to a newer epoch,
 		// but this node is slightly behind (still in an older epoch) and cannot process the message yet.
 		// In such case, save the message in a backlog (if there is buffer space) for later processing.
-		// TODO: Buffer this message in a backlog.
-		iss.logger.Log(logging.LevelWarn, "Ignoring SB message from a future epoch (should be buffered).",
-			"type", fmt.Sprintf("%T", message.Msg.Type), "from", from, "epoch", epoch)
+		iss.messageBuffers[from].Store(message)
 		return &events.EventList{}
 
 	case epoch == iss.epoch:
-		// If the message is for the current epoch,
+		// If the message is for the current epoch, check its validity and
 		// apply it to the corresponding orderer in form of an SBMessageReceived event.
-		return iss.applySBInstanceEvent(SBMessageReceivedEvent(message.Msg, from), t.SBInstanceID(message.Instance))
+		if err := iss.validateSBMessage(message, from); err == nil {
+			return iss.applySBInstanceEvent(SBMessageReceivedEvent(message.Msg, from), t.SBInstanceID(message.Instance))
+		} else {
+			iss.logger.Log(logging.LevelWarn, "Ignoring invalid SB message.",
+				"type", fmt.Sprintf("%T", message.Msg.Type), "from", from, "error", err)
+			return &events.EventList{}
+		}
 
 	default: // epoch < iss.epoch:
 		// Ignore old messages
@@ -508,6 +530,31 @@ func (iss *ISS) epochFinished() bool {
 	return true
 }
 
+// validateSBMessage checks whether an SBMessage is valid in the current epoch.
+// Returns nil if validation succeeds.
+// If validation fails, returns the reason for which the message is considered invalid.
+func (iss *ISS) validateSBMessage(message *isspb.SBMessage, from t.NodeID) error {
+
+	// Message must be destined for the current epoch.
+	if t.EpochNr(message.Epoch) != iss.epoch {
+		return fmt.Errorf("invalid epoch: %d (current epoch is %d)", message.Instance, iss.epoch)
+	}
+
+	// Message must refer to a valid SB instance.
+	if _, ok := iss.orderers[t.SBInstanceID(message.Instance)]; !ok {
+		return fmt.Errorf("invalid SB instance ID: %d", message.Instance)
+	}
+
+	// Message must be sent by a node in the current membership.
+	// TODO: This lookup is extremely inefficient, computing the membership set on each message validation.
+	//       Cache the output of membershipSet() throughout the epoch.
+	if _, ok := membershipSet(iss.config.Membership)[from]; !ok {
+		return fmt.Errorf("sender of SB message not in the membership: %d", from)
+	}
+
+	return nil
+}
+
 // notifyOrderer checks whether a request is the last one missing from a proposal
 // and, if so, notifies the corresponding orderer.
 // If some orderer instance is waiting for a request (i.e., the request has been "missing" - proposed but not received),
@@ -585,6 +632,10 @@ func (iss *ISS) deliverCommitted() *events.EventList {
 		// Create a new Deliver event.
 		deliverEvent := events.Deliver(iss.nextDeliveredSN, iss.commitLog[iss.nextDeliveredSN].Batch)
 
+		// Output debugging information.
+		iss.logger.Log(logging.LevelDebug, "Delivering entry.",
+			"sn", iss.nextDeliveredSN, "nReq", len(iss.commitLog[iss.nextDeliveredSN].Batch.Requests))
+
 		if firstDeliverEvent == nil {
 			// If this is the first event produced, it is the first and last one at the same time
 			firstDeliverEvent = deliverEvent
@@ -607,8 +658,47 @@ func (iss *ISS) deliverCommitted() *events.EventList {
 
 	// If the epoch is finished, transition to the next epoch.
 	if iss.epochFinished() {
+
+		// Initialize the internal data structures
 		iss.initEpoch(iss.epoch + 1)
+
+		// Give the init signals to the newly instantiated orderers.
 		eventsOut.PushBackList(iss.initOrderers())
+
+		// Process backlog of buffered SB messages.
+		eventsOut.PushBackList(iss.applyBufferedMessages())
+	}
+
+	return eventsOut
+}
+
+// applyBufferedMessages applies all SB messages destined to the current epoch
+// that have been buffered during past epochs.
+// This function is always called directly after initializing a new epoch, except for epoch 0.
+func (iss *ISS) applyBufferedMessages() *events.EventList {
+	eventsOut := &events.EventList{}
+
+	// Iterate over the all messages in all buffers
+	for _, buffer := range iss.messageBuffers {
+		buffer.Iterate(func(source t.NodeID, msg proto.Message) messagebuffer.Applicable {
+
+			// Select messages destined to the current epoch as "current" (the second function will be called on those).
+			switch epoch := t.EpochNr(msg.(*isspb.SBMessage).Epoch); {
+			case epoch < iss.epoch:
+				return messagebuffer.Past
+			case epoch == iss.epoch:
+				return messagebuffer.Current
+			default: // e > iss.epoch
+				return messagebuffer.Future
+			}
+			// Note that validation is not performed here, as it is performed anyway when applying the message.
+			// Thus, the messagebuffer.Invalid option is not used.
+
+		}, func(source t.NodeID, msg proto.Message) {
+
+			// Apply all selected messages.
+			eventsOut.PushBackList(iss.applySBMessage(msg.(*isspb.SBMessage), source))
+		})
 	}
 
 	return eventsOut
@@ -643,7 +733,44 @@ func sequenceNumbers(start t.SeqNr, step t.SeqNr, length int) []t.SeqNr {
 	return seqNrs
 }
 
-// Takes a request reference and transforms it to a string for using as a map key.
+// reqStrKey takes a request reference and transforms it to a string for using as a map key.
 func reqStrKey(reqRef *requestpb.RequestRef) string {
 	return fmt.Sprintf("%d-%d.%v", reqRef.ClientId, reqRef.ReqNo, reqRef.Digest)
+}
+
+// membershipSet takes a list of node IDs and returns a map of empty structs with an entry for each node ID in the list.
+// The returned map is effectively a set representation of the given list,
+// useful for testing whether any given node ID is in the set.
+func membershipSet(membership []t.NodeID) map[t.NodeID]struct{} {
+
+	// Allocate a new map representing a set of node IDs
+	set := make(map[t.NodeID]struct{})
+
+	// Add an empty struct for each node ID in the list.
+	for _, nodeID := range membership {
+		set[nodeID] = struct{}{}
+	}
+
+	// Return the resulting set of node IDs.
+	return set
+}
+
+// removeNodeID emoves a node ID from a list of node IDs.
+// Takes a membership list and a Node ID and returns a new list of nodeIDs containing all IDs from the membership list,
+// except for (if present) the specified nID.
+// This is useful for obtaining the list of "other nodes" by removing the own ID from the membership.
+func removeNodeID(membership []t.NodeID, nID t.NodeID) []t.NodeID {
+
+	// Allocate the new node list.
+	others := make([]t.NodeID, 0, len(membership))
+
+	// Add all membership IDs except for the specified one.
+	for _, nodeID := range membership {
+		if nodeID != nID {
+			others = append(others, nodeID)
+		}
+	}
+
+	// Return the new list.
+	return others
 }

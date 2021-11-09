@@ -72,6 +72,18 @@ type Config struct {
 	// before trying to fetch those requests from other nodes.
 	// Must be positive.
 	RequestNAckTimeout int
+
+	// Maximal number of bytes used for message backlogging buffers
+	// (only message payloads are counted towards MsgBufCapacity).
+	// On reception of a message that the node is not yet ready to process
+	// (e.g., a message from a future epoch received from another node that already transitioned to that epoch),
+	// the message is stored in a buffer for later processing (e.g., when this node also transitions to that epoch).
+	// This total buffer capacity is evenly split among multiple buffers, one for each node,
+	// so that one misbehaving node cannot exhaust the whole buffer space.
+	// The most recently received messages that together do not exceed the capacity are stored.
+	// If the capacity is set to 0, all messages that cannot yet be processed are dropped on reception.
+	// Must not be negative.
+	MsgBufCapacity int
 }
 
 // CheckConfig checks whether the given configuration satisfies all necessary constraints.
@@ -119,9 +131,14 @@ func CheckConfig(c *Config) error {
 		return fmt.Errorf("missing leader selection policy")
 	}
 
-	// RequestNackTimeout must be positive
+	// RequestNackTimeout must be positive.
 	if c.RequestNAckTimeout <= 0 {
 		return fmt.Errorf("non-positive RequestNAckTimeout: %d", c.RequestNAckTimeout)
+	}
+
+	// MsgBufCapacity must not be negative.
+	if c.MsgBufCapacity < 0 {
+		return fmt.Errorf("negative MsgBufCapacity: %d", c.MsgBufCapacity)
 	}
 
 	// If all checks passed, return nil error.
@@ -142,5 +159,6 @@ func DefaultConfig(membership []t.NodeID) *Config {
 		NumBuckets:         len(membership),
 		LeaderPolicy:       &SimpleLeaderPolicy{Membership: membership},
 		RequestNAckTimeout: 16,
+		MsgBufCapacity:     32 * 1024 * 1024, // 32 MiB
 	}
 }
