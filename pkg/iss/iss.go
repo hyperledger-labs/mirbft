@@ -409,10 +409,6 @@ func (iss *ISS) applySBMessage(message *isspb.SBMessage, from t.NodeID) *events.
 		return &events.EventList{}
 
 	case epoch == iss.epoch:
-		if epoch == 1 && iss.ownID == 1 {
-			iss.logger.Log(logging.LevelWarn, "IGNORING MESSAGE FROM EPOCH 1. REMOVE THIS DEBUG HOOK!")
-			return &events.EventList{}
-		}
 		// If the message is for the current epoch, check its validity and
 		// apply it to the corresponding orderer in form of an SBMessageReceived event.
 		if err := iss.validateSBMessage(message, from); err == nil {
@@ -635,6 +631,10 @@ func (iss *ISS) deliverCommitted() *events.EventList {
 
 		// Create a new Deliver event.
 		deliverEvent := events.Deliver(iss.nextDeliveredSN, iss.commitLog[iss.nextDeliveredSN].Batch)
+
+		// Output debugging information.
+		iss.logger.Log(logging.LevelDebug, "Delivering entry.",
+			"sn", iss.nextDeliveredSN, "nReq", len(iss.commitLog[iss.nextDeliveredSN].Batch.Requests))
 
 		if firstDeliverEvent == nil {
 			// If this is the first event produced, it is the first and last one at the same time
