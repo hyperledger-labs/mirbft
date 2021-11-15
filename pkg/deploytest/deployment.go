@@ -23,10 +23,6 @@ import (
 )
 
 const (
-
-	// TestMsgBufSize is the number of bytes each test replica uses for the buffer for backlogging messages.
-	TestMsgBufSize = 5 * 1024 * 1024 // 5 MB
-
 	// BaseListenPort defines the starting port number on which test replicas will be listening
 	// in case the test is being run with the "grpc" setting for networking.
 	// A node with numeric ID id will listen on port (BaseListenPort + id)
@@ -98,8 +94,7 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 
 		// Configure the test replica's node.
 		config := &mirbft.NodeConfig{
-			BufferSize: TestMsgBufSize,
-			Logger:     logging.Decorate(logger, fmt.Sprintf("Node %d: ", i)),
+			Logger: logging.Decorate(logger, fmt.Sprintf("Node %d: ", i)),
 		}
 
 		// Create network transport module
