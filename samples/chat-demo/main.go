@@ -140,8 +140,8 @@ func main() {
 	// as restarts and crash-recovery (where persistence is necessary) are not yet implemented anyway.
 	reqStore := reqstore.NewVolatileRequestStore()
 
+	// Instantiate the ISS protocol module with default configuration.
 	issConfig := iss.DefaultConfig(nodeIds)
-	issConfig.SegmentLength = 4
 	issProtocol, err := iss.New(args.OwnId, issConfig, logger)
 	if err != nil {
 		panic(fmt.Errorf("could not instantiate ISS protocol module: %w", err))
@@ -156,13 +156,12 @@ func main() {
 		Net:          net,
 		WAL:          wal,
 		RequestStore: reqStore,
+		Protocol:     issProtocol,
 
-		// The DummyProtocol is the only protocol implemented so far.
-		// This protocol stub is not fault-tolerant and only serves demonstration purposes.
+		// The DummyProtocol is a stub, is not fault-tolerant and only serves demonstration purposes.
 		// In the future, a choice of multiple protocols should be available.
+		// Replace the previous code line by the next one to use te dummy protocol.
 		// Protocol: ordering.NewDummyProtocol(logger, nodeIds, args.OwnId),
-
-		Protocol: issProtocol,
 
 		// This is the application logic MirBFT is going to deliver requests to.
 		// It requires to have access to the request store, as MirBFT only passes request references to it.
