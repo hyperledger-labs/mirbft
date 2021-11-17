@@ -1,9 +1,14 @@
 # MirBFT Library
 
 This open-source project is part of [Hyperledger Labs](https://labs.hyperledger.org/labs/mir-bft.html).
-It aims at developing a production-quality implementation of the
-[Mir Byzantine fault tolerant consensus protocol](https://arxiv.org/abs/1906.05552)
-and integrating it with Hyperledger Fabric.
+
+It aims at developing a production-quality implementation of:
+- a general framework for easily implementing distributed protocols
+- the ISS Byzantine fault tolerant consensus protocol.
+
+ISS is the new generation of the [Mir-BFT protocol](https://arxiv.org/abs/1906.05552)
+and a link to its detailed description will be added here shortly.
+The aim of the Mir-BFT library is integration with Hyperledger Fabric, specifically its ordering service.
 Being framed as a library, however, MirBFT's goal is also to serve as a general-purpose high-performance BFT component
 of other projects as well.
 
