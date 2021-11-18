@@ -189,7 +189,7 @@ Their purposes, however, are very different and largely orthogonal.
 and is crucial for protocol correctness during recovery after restarting a _Node_.
 It is explicitly used by other modules (mostly the _Protocol_ module) that creates WALAppend events
 for persisting **_only certain events_** that are crucial for recovery.
-The implementation of these modules (the protocol logic) decides what to store there
+The implementation of these modules (e.g., the protocol logic) decides what to store there
 and the same logic must be capable to reinitialize itself when those stored events are played back to it on restart.
 
 **_The Interceptor_** produces the **_event log_**.
