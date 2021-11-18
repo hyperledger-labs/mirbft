@@ -13,6 +13,7 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 )
 
@@ -72,10 +73,15 @@ func verifyEcdsaSignature(pk *ecdsa.PublicKey, hash []byte, signature []byte) er
 	return nil
 }
 
-func generateECDSAKeyPair() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
+func generateEcdsaKeyPair(randomness io.Reader) (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
+
+	if randomness == nil {
+		randomness = rand.Reader
+	}
+
 	// TODO: No clue which curve to use, picked P256 because it was in the documentation example.
 	//       Check whether this is OK.
-	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), randomness)
 	if err != nil {
 		return nil, nil, err
 	}

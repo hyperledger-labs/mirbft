@@ -24,6 +24,7 @@ type workItems struct {
 	app      *events.EventList
 	reqStore *events.EventList
 	protocol *events.EventList
+	crypto   *events.EventList
 }
 
 // NewWorkItems allocates and returns a pointer to a new WorkItems object.
@@ -36,6 +37,7 @@ func newWorkItems() *workItems {
 		app:      &events.EventList{},
 		reqStore: &events.EventList{},
 		protocol: &events.EventList{},
+		crypto:   &events.EventList{},
 	}
 }
 
@@ -56,8 +58,10 @@ func (wi *workItems) AddEvents(events *events.EventList) error {
 			wi.net.PushBack(event)
 		case *eventpb.Event_MessageReceived, *eventpb.Event_Iss, *eventpb.Event_RequestReady:
 			wi.protocol.PushBack(event)
-		case *eventpb.Event_Request:
+		case *eventpb.Event_Request, *eventpb.Event_RequestSigVerified:
 			wi.client.PushBack(event)
+		case *eventpb.Event_VerifyRequestSig:
+			wi.crypto.PushBack(event)
 		case *eventpb.Event_HashRequest:
 			wi.hash.PushBack(event)
 		case *eventpb.Event_HashResult:
@@ -128,6 +132,10 @@ func (wi *workItems) Protocol() *events.EventList {
 	return wi.protocol
 }
 
+func (wi *workItems) Crypto() *events.EventList {
+	return wi.crypto
+}
+
 // Methods for clearing the buffers.
 // Each of them returns the list of events that have been removed from workItems.
 
@@ -157,6 +165,10 @@ func (wi *workItems) ClearReqStore() *events.EventList {
 
 func (wi *workItems) ClearProtocol() *events.EventList {
 	return clearEventList(&wi.protocol)
+}
+
+func (wi *workItems) ClearCrypto() *events.EventList {
+	return clearEventList(&wi.crypto)
 }
 
 func clearEventList(listPtr **events.EventList) *events.EventList {

@@ -20,6 +20,7 @@ import (
 type Modules struct {
 	Net           Net              // Sends messages produced by MirBFT through the network.
 	Hasher        Hasher           // Computes hashes of requests and other data.
+	Crypto        Crypto           // Performs cryptographic operations (except for computing hashes)
 	App           App              // Implements user application logic. The user is expected to provide this module.
 	WAL           WAL              // Implements a persistent write-ahead log for the case of crashes and restarts.
 	ClientTracker ClientTracker    // Keeps the state related to clients and validates submitted requests.
@@ -61,6 +62,11 @@ func Defaults(m Modules) (*Modules, error) {
 	if m.Protocol == nil {
 		// TODO: Use default protocol once implemented.
 		return nil, fmt.Errorf("no default protocol implementation")
+	}
+
+	if m.Crypto == nil {
+		// TODO: Use default cryoto once implemented and tested.
+		return nil, fmt.Errorf("no default crypto implementation")
 	}
 
 	// The Interceptor can stay nil, in which case Events will simply not be intercepted.

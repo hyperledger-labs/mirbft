@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
+	"github.com/hyperledger-labs/mirbft/pkg/crypto"
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
 	"github.com/hyperledger-labs/mirbft/pkg/iss"
@@ -114,6 +115,9 @@ func (tr *TestReplica) Run(tickInterval time.Duration, stopC <-chan struct{}) No
 			//Protocol:    ordering.NewDummyProtocol(tr.Config.Logger, tr.Membership, tr.Id),
 			Protocol:    issProtocol,
 			Interceptor: interceptor,
+			// Use dummy crypto module that only produces signatures
+			// consisting of a single zero byte and treats those signatures as valid.
+			Crypto: &crypto.DummyCrypto{DummySig: []byte{0}},
 		},
 	)
 	Expect(err).NotTo(HaveOccurred())
