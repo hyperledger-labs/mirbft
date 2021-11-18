@@ -29,6 +29,11 @@ All created events are stored in the [_WorkItems_](/workitems.go) buffer,
 from where they are dispatched (by the `Node.process()` method) to the appropriate module for processing.
 This processing creates new _Events_ which are in turn added to the _WorkItems_, and so on.
 
+For debugging purposes, all _Events_ can be recorded using an event _Interceptor_ ([see below](#interceptor))
+and inspected or replayed in debug mode using the `mircat` utility.
+
+TODO: `mircat` is not yet implemented. When mircat is ready, link it here!
+
 ### Follow-up _Events_
 
 In certain cases, it is necessary that certain _Events_ are processed only after other _Events_ have been processed.
@@ -151,7 +156,7 @@ It consumes and produces a large variety of _Events_.
 
 The Protocol module (similarly to the expected implementation of the App module)
 implements a deterministic state machine.
-Processing of _Events_ by the Protocol module is sequential and deterministic (watch out for map traversal!).
+Processing of _Events_ by the Protocol module is sequential and deterministic (watch out for iteration over maps!).
 Thus, the same sequence of input _Events_
 will always result in the same protocol state and the same sequence of output _Events_.
 This is important for debugging (TODO: Implement and document `mircat`)
@@ -164,10 +169,33 @@ and wait for a hash result event (while sequentially processing other incoming e
 
 ### Interceptor
 
-The [Interceptor](/pkg/modules/eventinterceptor.go) intercepts and logs all internal _Events_ for debugging purposes.
+The [Interceptor](/pkg/modules/eventinterceptor.go) intercepts and logs all internal _Events_ for debugging purposes,
+producing what we call the event log.
 When the `Node.process()` method dispatches a list of events
 from the WorkItems buffer to the appropriate module for processing,
-the Interceptor appends this list to log.
+the Interceptor appends this list to its log.
+Thus, events are always intercepted in the exact order as they are dispatched to their corresponding modules,
+in order to be able to faithfully reproduce what happened during a run.
 The log can then later be inspected or replayed.
 The Interceptor module is not essential and would probably be disabled in a production environment,
 but it is priceless for debugging.
+
+#### Difference between the _WAL_ and the _Interceptor_
+
+Note that both the Write-Ahead Log (WAL) and the Interceptor produce logs of _Events_ in stable storage.
+Their purposes, however, are very different and largely orthogonal.
+
+**_The WAL_** produces the **_write-ahead log_**
+and is crucial for protocol correctness during recovery after restarting a _Node_.
+It is explicitly used by other modules (mostly the _Protocol_ module) that creates WALAppend events
+for persisting **_only certain events_** that are crucial for recovery.
+The implementation of these modules (the protocol logic) decides what to store there
+and the same logic must be capable to reinitialize itself when those stored events are played back to it on restart.
+
+**_The Interceptor_** produces the **_event log_**.
+This is a list of **_all events_** that occurred and is meant only for debugging (not for recovery).
+The _Node_'s modules have no influence on what is intercepted.
+The event log is intended to be processed by the `mircat` utility
+to gain more insight into what exactly is happening inside the _Node_.
+
+TODO: Link mircat here when it's ready.
