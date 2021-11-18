@@ -16,7 +16,7 @@ import (
 
 // WorkItems is a buffer for storing outstanding events that need to be processed by the node.
 // It contains a separate list for each type of event.
-type WorkItems struct {
+type workItems struct {
 	wal      *events.EventList
 	net      *events.EventList
 	hash     *events.EventList
@@ -27,8 +27,8 @@ type WorkItems struct {
 }
 
 // NewWorkItems allocates and returns a pointer to a new WorkItems object.
-func NewWorkItems() *WorkItems {
-	return &WorkItems{
+func newWorkItems() *workItems {
+	return &workItems{
 		wal:      &events.EventList{},
 		net:      &events.EventList{},
 		hash:     &events.EventList{},
@@ -39,10 +39,10 @@ func NewWorkItems() *WorkItems {
 	}
 }
 
-// AddEvents adds events produced by modules to the WorkItems buffer.
+// AddEvents adds events produced by modules to the workItems buffer.
 // According to their types, the events are distributed to the appropriate internal sub-buffers.
 // When AddEvents returns a non-nil error, any subset of the events may have been added.
-func (wi *WorkItems) AddEvents(events *events.EventList) error {
+func (wi *workItems) AddEvents(events *events.EventList) error {
 	iter := events.Iterator()
 	for event := iter.Next(); event != nil; event = iter.Next() {
 		switch t := event.Type.(type) {
@@ -100,62 +100,62 @@ func (wi *WorkItems) AddEvents(events *events.EventList) error {
 
 // Getters.
 
-func (wi *WorkItems) WAL() *events.EventList {
+func (wi *workItems) WAL() *events.EventList {
 	return wi.wal
 }
 
-func (wi *WorkItems) Net() *events.EventList {
+func (wi *workItems) Net() *events.EventList {
 	return wi.net
 }
 
-func (wi *WorkItems) Hash() *events.EventList {
+func (wi *workItems) Hash() *events.EventList {
 	return wi.hash
 }
 
-func (wi *WorkItems) Client() *events.EventList {
+func (wi *workItems) Client() *events.EventList {
 	return wi.client
 }
 
-func (wi *WorkItems) App() *events.EventList {
+func (wi *workItems) App() *events.EventList {
 	return wi.app
 }
 
-func (wi *WorkItems) ReqStore() *events.EventList {
+func (wi *workItems) ReqStore() *events.EventList {
 	return wi.reqStore
 }
 
-func (wi *WorkItems) Protocol() *events.EventList {
+func (wi *workItems) Protocol() *events.EventList {
 	return wi.protocol
 }
 
 // Methods for clearing the buffers.
-// Each of them returns the list of events that have been removed from WorkItems.
+// Each of them returns the list of events that have been removed from workItems.
 
-func (wi *WorkItems) ClearWAL() *events.EventList {
+func (wi *workItems) ClearWAL() *events.EventList {
 	return clearEventList(&wi.wal)
 }
 
-func (wi *WorkItems) ClearNet() *events.EventList {
+func (wi *workItems) ClearNet() *events.EventList {
 	return clearEventList(&wi.net)
 }
 
-func (wi *WorkItems) ClearHash() *events.EventList {
+func (wi *workItems) ClearHash() *events.EventList {
 	return clearEventList(&wi.hash)
 }
 
-func (wi *WorkItems) ClearClient() *events.EventList {
+func (wi *workItems) ClearClient() *events.EventList {
 	return clearEventList(&wi.client)
 }
 
-func (wi *WorkItems) ClearApp() *events.EventList {
+func (wi *workItems) ClearApp() *events.EventList {
 	return clearEventList(&wi.app)
 }
 
-func (wi *WorkItems) ClearReqStore() *events.EventList {
+func (wi *workItems) ClearReqStore() *events.EventList {
 	return clearEventList(&wi.reqStore)
 }
 
-func (wi *WorkItems) ClearProtocol() *events.EventList {
+func (wi *workItems) ClearProtocol() *events.EventList {
 	return clearEventList(&wi.protocol)
 }
 

@@ -32,7 +32,7 @@ type Node struct {
 
 	// A buffer for storing outstanding events that need to be processed by the node.
 	// It contains a separate sub-buffer for each type of event.
-	workItems *WorkItems
+	workItems *workItems
 
 	// Channels for routing work items between modules.
 	// Whenever workItems contains events, those events will be written (by the process() method)
@@ -74,7 +74,7 @@ func NewNode(
 		workChans: newWorkChans(),
 		modules:   modulesWithDefaults,
 
-		workItems:       NewWorkItems(),
+		workItems:       newWorkItems(),
 		workErrNotifier: newWorkErrNotifier(),
 
 		statusC: make(chan chan *statuspb.NodeStatus),
