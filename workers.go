@@ -29,6 +29,7 @@ type workChans struct {
 	protocol chan *events.EventList
 	wal      chan *events.EventList
 	hash     chan *events.EventList
+	crypto   chan *events.EventList
 	net      chan *events.EventList
 	app      chan *events.EventList
 	reqStore chan *events.EventList
@@ -46,6 +47,7 @@ func newWorkChans() workChans {
 		protocol: make(chan *events.EventList),
 		wal:      make(chan *events.EventList),
 		hash:     make(chan *events.EventList),
+		crypto:   make(chan *events.EventList),
 		net:      make(chan *events.EventList),
 		app:      make(chan *events.EventList),
 		reqStore: make(chan *events.EventList),
@@ -158,6 +160,36 @@ func (n *Node) doHashWork(exitC <-chan struct{}) error {
 
 	// Process events.
 	eventsOut, err := processHashEvents(n.modules.Hasher, eventsIn)
+	if err != nil {
+		return errors.WithMessage(err, "could not process hash events")
+	}
+
+	// Write output.
+	select {
+	case n.workChans.workItemInput <- eventsOut:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	return nil
+}
+
+// Reads a single list of crypto events (e.g. signatures to be computed or verified)
+// from the corresponding work channel, processes its contents
+// and writes a list of resulting events to the corresponding work channel.
+// If exitC is closed, returns ErrStopped.
+func (n *Node) doCryptoWork(exitC <-chan struct{}) error {
+	var eventsIn *events.EventList
+
+	// Read input.
+	select {
+	case eventsIn = <-n.workChans.crypto:
+	case <-exitC:
+		return ErrStopped
+	}
+
+	// Process events.
+	eventsOut, err := processCryptoEvents(n.modules.Crypto, eventsIn)
 	if err != nil {
 		return errors.WithMessage(err, "could not process hash events")
 	}
@@ -358,7 +390,7 @@ func processWALEvents(wal modules.WAL, eventsIn *events.EventList) (*events.Even
 		//		return nil, errors.WithMessagef(err, "failed to truncate WAL to index %d", truncate.Index)
 		//	}
 		default:
-			return nil, errors.Errorf("unexpected type for WAL event: %T", event.Type)
+			return nil, errors.Errorf("unexpected type of WAL event: %T", event.Type)
 		}
 	}
 
@@ -408,7 +440,45 @@ func processHashEvents(hasher modules.Hasher, eventsIn *events.EventList) (*even
 			eventsOut.PushBack(events.HashResult(h.Sum(nil), e.HashRequest.Origin))
 		default:
 			// Complain about all other incoming event types.
-			return nil, errors.Errorf("unexpected type for Hash event: %T", event.Type)
+			return nil, errors.Errorf("unexpected type of Hash event: %T", event.Type)
+		}
+	}
+
+	return eventsOut, nil
+}
+
+func processCryptoEvents(crypto modules.Crypto, eventsIn *events.EventList) (*events.EventList, error) {
+	eventsOut := &events.EventList{}
+	iter := eventsIn.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
+
+		// Remove the follow-up events from event and add them directly to the output.
+		eventsOut.PushBackList(events.Strip(event))
+
+		switch e := event.Type.(type) {
+		case *eventpb.Event_VerifyRequestSig:
+			// Verify client request signature.
+			// The signature is only computed (and verified) over the digest of a request.
+			// The other fields can safely be ignored.
+
+			// Convenience variable
+			reqRef := e.VerifyRequestSig.RequestRef
+
+			// Verify signature.
+			err := crypto.VerifyClientSig(
+				[][]byte{reqRef.Digest},
+				e.VerifyRequestSig.Signature,
+				t.ClientID(reqRef.ClientId))
+
+			// Create result event, depending on verification outcome.
+			if err == nil {
+				eventsOut.PushBack(events.RequestSigVerified(reqRef, true, ""))
+			} else {
+				eventsOut.PushBack(events.RequestSigVerified(reqRef, false, err.Error()))
+			}
+		default:
+			// Complain about all other incoming event types.
+			return nil, errors.Errorf("unexpected type of Crypto event: %T", event.Type)
 		}
 	}
 
@@ -433,17 +503,8 @@ func processSendEvents(selfID t.NodeID, net modules.Net, eventsIn *events.EventL
 					net.Send(t.NodeID(destId), e.SendMessage.Msg)
 				}
 			}
-
-		//case *state.Action_Send:
-		//	for _, replica := range t.Send.Targets {
-		//		if replica == selfID {
-		//			events.Step(replica, t.Send.Msg)
-		//		} else {
-		//			net.Send(replica, t.Send.Msg)
-		//		}
-		//	}
 		default:
-			return nil, errors.Errorf("unexpected type for Net event: %T", event.Type)
+			return nil, errors.Errorf("unexpected type of Net event: %T", event.Type)
 		}
 	}
 
@@ -467,27 +528,8 @@ func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.Even
 			if err := app.Apply(e.Deliver.Batch); err != nil {
 				return nil, fmt.Errorf("app error: %w", err)
 			}
-		//case *state.Action_Commit:
-		//	if err := app.Apply(t.Commit.Batch); err != nil {
-		//		return nil, errors.WithMessage(err, "app failed to commit")
-		//	}
-		//case *state.Action_Checkpoint:
-		//	cp := t.Checkpoint
-		//	value, pendingReconf, err := app.Snapshot(cp.NetworkConfig, cp.ClientStates)
-		//	if err != nil {
-		//		return nil, errors.WithMessage(err, "app failed to generate snapshot")
-		//	}
-		//	events.CheckpointResult(value, pendingReconf, cp)
-		//case *state.Action_StateTransfer:
-		//	stateTarget := t.StateTransfer
-		//	appState, err := app.TransferTo(stateTarget.SeqNo, stateTarget.Value)
-		//	if err != nil {
-		//		events.StateTransferFailed(stateTarget)
-		//	} else {
-		//		events.StateTransferComplete(appState, stateTarget)
-		//	}
 		default:
-			return nil, errors.Errorf("unexpected type for Hash event: %T", event.Type)
+			return nil, errors.Errorf("unexpected type of App event: %T", event.Type)
 		}
 	}
 

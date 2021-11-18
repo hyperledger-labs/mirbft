@@ -17,9 +17,12 @@ import (
 	"encoding/pem"
 	"fmt"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
+	"io"
 	"io/ioutil"
 	"strings"
 )
+
+// TODO: ATTENTION: This package is not tested at all! Perform some basic testing before using.
 
 // TODO: Write comments.
 
@@ -42,7 +45,7 @@ func New(privKey []byte) (*Crypto, error) {
 
 }
 
-func (c *Crypto) Sign(data []byte) ([]byte, error) {
+func (c *Crypto) Sign(data [][]byte) ([]byte, error) {
 	switch key := c.privKey.(type) {
 	case *rsa.PrivateKey:
 		return key.Sign(crand.Reader, hash(data), cstd.SHA256)
@@ -66,7 +69,7 @@ func (c *Crypto) DeleteNodeKey(nodeID t.NodeID) {
 	delete(c.nodeKeys, nodeID)
 }
 
-func (c *Crypto) VerifyNodeSig(data []byte, signature []byte, nodeID t.NodeID) error {
+func (c *Crypto) VerifyNodeSig(data [][]byte, signature []byte, nodeID t.NodeID) error {
 
 	pubKey, ok := c.nodeKeys[nodeID]
 	if !ok {
@@ -89,7 +92,7 @@ func (c *Crypto) DeleteClientKey(clientID t.ClientID) {
 	delete(c.clientKeys, clientID)
 }
 
-func (c *Crypto) VerifyClientSig(data []byte, signature []byte, clientID t.ClientID) error {
+func (c *Crypto) VerifyClientSig(data [][]byte, signature []byte, clientID t.ClientID) error {
 
 	pubKey, ok := c.clientKeys[clientID]
 	if !ok {
@@ -99,7 +102,7 @@ func (c *Crypto) VerifyClientSig(data []byte, signature []byte, clientID t.Clien
 	return c.verifySig(data, signature, pubKey)
 }
 
-func (c *Crypto) verifySig(data []byte, signature []byte, pubKey interface{}) error {
+func (c *Crypto) verifySig(data [][]byte, signature []byte, pubKey interface{}) error {
 	switch key := pubKey.(type) {
 	case *ecdsa.PublicKey:
 		return verifyEcdsaSignature(key, hash(data), signature)
@@ -110,13 +113,16 @@ func (c *Crypto) verifySig(data []byte, signature []byte, pubKey interface{}) er
 	}
 }
 
-func GenerateKeyPair() (interface{}, interface{}, error) {
-	return generateECDSAKeyPair()
+func GenerateKeyPair(randomness io.Reader) (interface{}, interface{}, error) {
+	return generateEcdsaKeyPair(randomness)
 }
 
-func hash(data []byte) []byte {
-	h := sha256.Sum256(data)
-	return h[:]
+func hash(data [][]byte) []byte {
+	h := sha256.New()
+	for _, d := range data {
+		h.Write(d)
+	}
+	return h.Sum(nil)
 }
 
 func PrivKeyFromBytes(raw []byte) (interface{}, error) {

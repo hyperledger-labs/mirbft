@@ -130,6 +130,25 @@ func Deliver(sn t.SeqNr, batch *requestpb.Batch) *eventpb.Event {
 	}}}
 }
 
+// VerifyRequestSig returns an event of a client tracker requesting the verification of a client request signature.
+// This event is routed to the Crypto module that issues a RequestSigVerified event in response.
+func VerifyRequestSig(reqRef *requestpb.RequestRef, signature []byte) *eventpb.Event {
+	return &eventpb.Event{Type: &eventpb.Event_VerifyRequestSig{VerifyRequestSig: &eventpb.VerifyRequestSig{
+		RequestRef: reqRef,
+		Signature:  signature,
+	}}}
+}
+
+// RequestSigVerified represents the result of a client signature verification by the Crypto module.
+// It is routed to the client tracker that initially issued a VerifyRequestSig event.
+func RequestSigVerified(reqRef *requestpb.RequestRef, valid bool, error string) *eventpb.Event {
+	return &eventpb.Event{Type: &eventpb.Event_RequestSigVerified{RequestSigVerified: &eventpb.RequestSigVerified{
+		RequestRef: reqRef,
+		Valid:      valid,
+		Error:      error,
+	}}}
+}
+
 // ============================================================
 // DUMMY EVENTS FOR TESTING PURPOSES ONLY.
 // ============================================================

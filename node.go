@@ -232,6 +232,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		n.doAppWork,
 		n.doReqStoreWork,
 		n.doProtocolWork,
+		n.doCryptoWork,
 	} {
 		// Each function is executed by a separate thread.
 		// The wg is waited on before n.process() returns.

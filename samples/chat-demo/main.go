@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
+	"github.com/hyperledger-labs/mirbft/pkg/crypto"
 	"github.com/hyperledger-labs/mirbft/pkg/dummyclient"
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
 	"github.com/hyperledger-labs/mirbft/pkg/iss"
@@ -168,6 +169,11 @@ func main() {
 		// It is the application's responsibility to get the necessary request data from the request store.
 		// For the implementation of the application, see app.go.
 		App: NewChatApp(reqStore),
+
+		// Use dummy crypto module that only produces signatures
+		// consisting of a single zero byte and treats those signatures as valid.
+		// TODO: Remove this line once a default crypto implementation is provided by MirBFT.
+		Crypto: &crypto.DummyCrypto{DummySig: []byte{0}},
 	})
 
 	// Exit immediately if Node could not be created.

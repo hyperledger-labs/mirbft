@@ -13,7 +13,7 @@ import t "github.com/hyperledger-labs/mirbft/pkg/types"
 // TODO: Write comments.
 
 type Crypto interface {
-	Sign(data []byte) ([]byte, error)
+	Sign(data [][]byte) ([]byte, error)
 
 	RegisterNodeKey(pubKey []byte, nodeID t.NodeID) error
 	RegisterClientKey(pubKey []byte, clientID t.ClientID) error
@@ -21,6 +21,6 @@ type Crypto interface {
 	DeleteNodeKey(nodeID t.NodeID)
 	DeleteClientKey(clientID t.ClientID)
 
-	VerifyNodeSig(data []byte, signature []byte, nodeID t.NodeID) error
-	VerifyClientSig(data []byte, signature []byte, clientID t.ClientID) error
+	VerifyNodeSig(data [][]byte, signature []byte, nodeID t.NodeID) error
+	VerifyClientSig(data [][]byte, signature []byte, clientID t.ClientID) error
 }

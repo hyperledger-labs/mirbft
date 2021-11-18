@@ -21,7 +21,7 @@ type DummyCrypto struct {
 	DummySig []byte
 }
 
-func (dc *DummyCrypto) Sign(data []byte) ([]byte, error) {
+func (dc *DummyCrypto) Sign(data [][]byte) ([]byte, error) {
 	return dc.DummySig, nil
 }
 
@@ -32,7 +32,7 @@ func (dc *DummyCrypto) RegisterNodeKey(pubKey []byte, nodeID t.NodeID) error {
 func (dc *DummyCrypto) DeleteNodeKey(nodeID t.NodeID) {
 }
 
-func (dc *DummyCrypto) VerifyNodeSig(data []byte, signature []byte, nodeID t.NodeID) error {
+func (dc *DummyCrypto) VerifyNodeSig(data [][]byte, signature []byte, nodeID t.NodeID) error {
 	if bytes.Equal(signature, dc.DummySig) {
 		return nil
 	} else {
@@ -47,7 +47,7 @@ func (dc *DummyCrypto) RegisterClientKey(pubKey []byte, clientID t.ClientID) err
 func (dc *DummyCrypto) DeleteClientKey(clientID t.ClientID) {
 }
 
-func (dc *DummyCrypto) VerifyClientSig(data []byte, signature []byte, clientID t.ClientID) error {
+func (dc *DummyCrypto) VerifyClientSig(data [][]byte, signature []byte, clientID t.ClientID) error {
 	if bytes.Equal(signature, dc.DummySig) {
 		return nil
 	} else {
