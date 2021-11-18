@@ -29,13 +29,13 @@ Have a look at the [Contributions section](#contributing) if you want to help ou
 
 ## Overview
 
-MirBFT is a library implementing the [Mir byzantine fault tolerant consensus protocol](https://arxiv.org/abs/1906.05552)
+MirBFT is a library implementing the ISS protocol (and, in the future, other protocols)
 in a network transport, storage, and cryptographic algorithm agnostic way.
 MirBFT hopes to be a building block of a next generation of distributed systems,
 providing an implementation of [atomic broadcast](https://en.wikipedia.org/wiki/Atomic_broadcast)
 which can be utilized by any distributed system.
 
-MirBFT improves on traditional atomic broadcast protocols
+MirBFT/ISS improves on traditional atomic broadcast protocols
 like [PBFT](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/01/p398-castro-bft-tocs.pdf) and Raft
 which always have a single active leader by allowing concurrent leaders
 and reconciling total order in a deterministic way.
