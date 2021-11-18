@@ -1,17 +1,22 @@
 package deploytest
 
 import (
+	"bytes"
 	"context"
+	"crypto"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
-	"github.com/hyperledger-labs/mirbft/pkg/crypto"
+	"github.com/hyperledger-labs/mirbft/pkg/clients"
+	mirCrypto "github.com/hyperledger-labs/mirbft/pkg/crypto"
 	"github.com/hyperledger-labs/mirbft/pkg/eventlog"
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
 	"github.com/hyperledger-labs/mirbft/pkg/iss"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/modules"
+	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 	"github.com/hyperledger-labs/mirbft/pkg/requestreceiver"
+	"github.com/hyperledger-labs/mirbft/pkg/serializing"
 	"github.com/hyperledger-labs/mirbft/pkg/simplewal"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	. "github.com/onsi/ginkgo"
@@ -20,6 +25,10 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+)
+
+var (
+	FakeClientHasher modules.Hasher = crypto.SHA256
 )
 
 // TestReplica represents one replica (that uses one instance of the mirbft.Node) in the test system.
@@ -40,6 +49,9 @@ type TestReplica struct {
 
 	// List of replica IDs constituting the (static) membership.
 	Membership []t.NodeID
+
+	// List of IDs of all clients the replica will accept requests from.
+	ClientIDs []t.ClientID
 
 	// Network transport subsystem.
 	Net modules.Net
@@ -104,26 +116,31 @@ func (tr *TestReplica) Run(tickInterval time.Duration, stopC <-chan struct{}) No
 	issProtocol, err := iss.New(tr.Id, tr.ISSConfig, logging.Decorate(tr.Config.Logger, "ISS: "))
 	Expect(err).NotTo(HaveOccurred())
 
+	cryptoModule, err := mirCrypto.NodePseudo(tr.Membership, tr.ClientIDs, tr.Id, mirCrypto.DefaultPseudoSeed)
+	Expect(err).NotTo(HaveOccurred())
+
 	// Create the mirbft node for this replica.
 	node, err := mirbft.NewNode(
 		tr.Id,
 		tr.Config,
 		&modules.Modules{
-			Net: tr.Net,
-			App: tr.App,
-			WAL: wal,
+			Net:           tr.Net,
+			App:           tr.App,
+			WAL:           wal,
+			ClientTracker: clients.SigningTracker(logging.Decorate(tr.Config.Logger, "CT: ")),
 			//Protocol:    ordering.NewDummyProtocol(tr.Config.Logger, tr.Membership, tr.Id),
 			Protocol:    issProtocol,
 			Interceptor: interceptor,
-			// Use dummy crypto module that only produces signatures
-			// consisting of a single zero byte and treats those signatures as valid.
-			Crypto: &crypto.DummyCrypto{DummySig: []byte{0}},
+			//// Use dummy crypto module that only produces signatures
+			//// consisting of a single zero byte and treats those signatures as valid.
+			//Crypto: &mirCrypto.DummyCrypto{DummySig: []byte{0}},
+			Crypto: cryptoModule,
 		},
 	)
 	Expect(err).NotTo(HaveOccurred())
 
 	// Create a RequestReceiver for request coming over the network.
-	requestReceiver := requestreceiver.NewRequestReceiver(node, nil)
+	requestReceiver := requestreceiver.NewRequestReceiver(node, logging.Decorate(tr.Config.Logger, "ReqRec: "))
 	err = requestReceiver.Start(RequestListenPort + int(tr.Id))
 	Expect(err).NotTo(HaveOccurred())
 
@@ -133,8 +150,7 @@ func (tr *TestReplica) Run(tickInterval time.Duration, stopC <-chan struct{}) No
 
 	// Start thread submitting requests from a (single) hypothetical client.
 	// The client submits a predefined number of requests and then stops.
-	// TODO: Make the number of clients configurable.
-	go submitFakeRequests(tr.NumFakeRequests, node, stopC, &wg)
+	go tr.submitFakeRequests(node, stopC, &wg)
 
 	// ATTENTION! This is hacky!
 	// If the test replica used the GRPC transport, initialize the Net module.
@@ -189,21 +205,46 @@ type NodeStatus struct {
 // Submits n fake requests to node.
 // Aborts when stopC is closed.
 // Decrements wg when done.
-func submitFakeRequests(n int, node *mirbft.Node, stopC <-chan struct{}, wg *sync.WaitGroup) {
+func (tr *TestReplica) submitFakeRequests(node *mirbft.Node, stopC <-chan struct{}, wg *sync.WaitGroup) {
 	defer GinkgoRecover()
 	defer wg.Done()
-	for i := 0; i < n; i++ {
+
+	// Instantiate a Crypto module for signing the requests.
+	// The ID of the fake client is always 0.
+	cryptoModule, err := mirCrypto.ClientPseudo(tr.Membership, tr.ClientIDs, 0, mirCrypto.DefaultPseudoSeed)
+	Expect(err).NotTo(HaveOccurred())
+
+	for i := 0; i < tr.NumFakeRequests; i++ {
 		select {
 		case <-stopC:
 			// Stop submitting if shutting down.
 			break
 		default:
 			// Otherwise, submit next request.
+
+			// Create new request message. This is only necessary for proper signing
+			// and the message will be "taken apart" just a few lines later, when submitting it to the Node.
+			reqMsg := &requestpb.Request{
+				ClientId: 0,
+				ReqNo:    t.ReqNo(i).Pb(),
+				Data:     []byte(fmt.Sprintf("Request %d", i)),
+			}
+
+			// Sign (the hash of) the request, adding the signature to the request message.
+			h := FakeClientHasher.New()
+			h.Write(bytes.Join(serializing.RequestForHash(reqMsg), nil))
+			reqMsg.Authenticator, err = cryptoModule.Sign([][]byte{h.Sum(nil)})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Submit the signed request to the local Node.
 			if err := node.SubmitRequest(
 				context.Background(),
-				0,
-				t.ReqNo(i),
-				[]byte(fmt.Sprintf("Request %d", i))); err != nil {
+				t.ClientID(reqMsg.ClientId),
+				t.ReqNo(reqMsg.ReqNo),
+				reqMsg.Data,
+				reqMsg.Authenticator,
+				//[]byte{0}, // Fake signature. Relies on the Nodes using DummyCrypto{DummySig: []byte{0}}
+			); err != nil {
 
 				// TODO (Jason), failing on err causes flakes in the teardown,
 				// so just returning for now, we should address later

@@ -10,8 +10,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
+	"github.com/hyperledger-labs/mirbft/pkg/modules"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	"github.com/hyperledger-labs/mirbft/pkg/requestreceiver"
+	"github.com/hyperledger-labs/mirbft/pkg/serializing"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"google.golang.org/grpc"
 	"sync"
@@ -22,14 +24,18 @@ const (
 	maxMessageSize = 1073741824
 )
 
+// TODO: Update the comments around crypto, hasher, and request signing.
+
 type DummyClient struct {
 	ownId       t.ClientID
+	hasher      modules.Hasher
+	crypto      modules.Crypto
 	nextReqNo   t.ReqNo
 	connections map[t.NodeID]requestreceiver.RequestReceiver_ListenClient
 	logger      logging.Logger
 }
 
-func NewDummyClient(clientId t.ClientID, l logging.Logger) *DummyClient {
+func NewDummyClient(clientId t.ClientID, hasher modules.Hasher, crypto modules.Crypto, l logging.Logger) *DummyClient {
 
 	// If no logger was given, only write errors to the console.
 	if l == nil {
@@ -38,6 +44,8 @@ func NewDummyClient(clientId t.ClientID, l logging.Logger) *DummyClient {
 
 	return &DummyClient{
 		ownId:       clientId,
+		hasher:      hasher,
+		crypto:      crypto,
 		nextReqNo:   0,
 		connections: make(map[t.NodeID]requestreceiver.RequestReceiver_ListenClient),
 		logger:      l,
@@ -92,6 +100,8 @@ func (dc *DummyClient) Connect(ctx context.Context, membership map[t.NodeID]stri
 // If an error occurs, SubmitRequest returns immediately,
 // even if sending of the request was not attempted for all nodes.
 func (dc *DummyClient) SubmitRequest(data []byte) error {
+
+	// Create new request message.
 	reqMsg := &requestpb.Request{
 		ClientId: dc.ownId.Pb(),
 		ReqNo:    dc.nextReqNo.Pb(),
@@ -99,6 +109,20 @@ func (dc *DummyClient) SubmitRequest(data []byte) error {
 	}
 	dc.nextReqNo++
 
+	// Compute request hash (for signing).
+	h := dc.hasher.New()
+	for _, data := range serializing.RequestForHash(reqMsg) {
+		h.Write(data)
+	}
+
+	// Sign (the hash of) the request, adding the signature to the request object itself.
+	if signature, err := dc.crypto.Sign([][]byte{h.Sum(nil)}); err == nil {
+		reqMsg.Authenticator = signature
+	} else {
+		return err
+	}
+
+	// Send the request to all nodes.
 	for _, connection := range dc.connections {
 		if err := connection.Send(reqMsg); err != nil {
 			return err

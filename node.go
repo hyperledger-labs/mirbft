@@ -144,11 +144,18 @@ func (n *Node) Step(ctx context.Context, source t.NodeID, msg *messagepb.Message
 // clientID and reqNo uniquely identify the request.
 // data constitutes the (opaque) payload of the request.
 // SubmitRequest is safe to be called concurrently by multiple threads.
-func (n *Node) SubmitRequest(ctx context.Context, clientID t.ClientID, reqNo t.ReqNo, data []byte) error {
+func (n *Node) SubmitRequest(
+	ctx context.Context,
+	clientID t.ClientID,
+	reqNo t.ReqNo,
+	data []byte,
+	authenticator []byte) error {
 
 	// Enqueue the generated events in a work channel to be handled by the processing thread.
 	select {
-	case n.workChans.workItemInput <- (&events.EventList{}).PushBack(events.ClientRequest(clientID, reqNo, data)):
+	case n.workChans.workItemInput <- (&events.EventList{}).PushBack(
+		events.ClientRequest(clientID, reqNo, data, authenticator),
+	):
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -256,6 +263,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		walEvents,
 		clientEvents,
 		hashEvents,
+		cryptoEvents,
 		netEvents,
 		appEvents,
 		reqStoreEvents,
@@ -285,6 +293,9 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		case hashEvents <- n.workItems.Hash():
 			n.interceptEvents(n.workItems.ClearHash())
 			hashEvents = nil
+		case cryptoEvents <- n.workItems.Crypto():
+			n.interceptEvents(n.workItems.ClearCrypto())
+			cryptoEvents = nil
 		case netEvents <- n.workItems.Net():
 			n.interceptEvents(n.workItems.ClearNet())
 			netEvents = nil
@@ -336,6 +347,9 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		}
 		if hashEvents == nil && n.workItems.Hash().Len() > 0 {
 			hashEvents = n.workChans.hash
+		}
+		if cryptoEvents == nil && n.workItems.Crypto().Len() > 0 {
+			cryptoEvents = n.workChans.crypto
 		}
 		if netEvents == nil && n.workItems.Net().Len() > 0 {
 			netEvents = n.workChans.net

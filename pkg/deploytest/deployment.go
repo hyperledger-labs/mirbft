@@ -8,8 +8,10 @@ package deploytest
 
 import (
 	"context"
+	"crypto"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
+	mirCrypto "github.com/hyperledger-labs/mirbft/pkg/crypto"
 	"github.com/hyperledger-labs/mirbft/pkg/dummyclient"
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
@@ -78,6 +80,9 @@ type Deployment struct {
 // NewDeployment returns a Deployment initialized according to the passed configuration.
 func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 
+	// Use a common logger for all clients and replicas.
+	logger := logging.Synchronize(logging.ConsoleDebugLogger)
+
 	// Create a simulated network transport to route messages between replicas.
 	fakeTransport := NewFakeTransport(testConfig.NumReplicas)
 
@@ -87,9 +92,15 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 		membership[i] = t.NodeID(i)
 	}
 
+	// Compute a list of all client IDs.
+	// It consists of all dummy client IDs, plus the "fake" client associated with replicas submitting requests directly
+	clientIDs := []t.ClientID{0} // "Fake" client has always ID 0, others start from 1.
+	for i := 1; i <= testConfig.NumClients; i++ {
+		clientIDs = append(clientIDs, t.ClientID(i))
+	}
+
 	// Create all TestReplicas for this deployment.
 	replicas := make([]*TestReplica, testConfig.NumReplicas)
-	logger := logging.Synchronize(logging.ConsoleDebugLogger)
 	for i := range replicas {
 
 		// Configure the test replica's node.
@@ -111,6 +122,7 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 			Id:              t.NodeID(i),
 			Config:          config,
 			Membership:      membership,
+			ClientIDs:       clientIDs,
 			Dir:             filepath.Join(testConfig.Directory, fmt.Sprintf("node%d", i)),
 			App:             &FakeApp{},
 			Net:             transport,
@@ -124,7 +136,21 @@ func NewDeployment(testConfig *TestConfig) (*Deployment, error) {
 		// The loop counter i is used as client ID.
 		// We start counting at 1 (and not 0), since client ID 0 is reserved
 		// for the "fake" requests submitted directly by the TestReplicas.
-		netClients = append(netClients, dummyclient.NewDummyClient(t.ClientID(i), logger))
+
+		// Create client-specific Crypto module
+		cryptoModule, err := mirCrypto.ClientPseudo(membership, clientIDs, t.ClientID(i), mirCrypto.DefaultPseudoSeed)
+		if err != nil {
+			return nil, err
+		}
+
+		// Create new DummyClient
+		netClients = append(netClients, dummyclient.NewDummyClient(
+			t.ClientID(i),
+			crypto.SHA256,
+			//			&mirCrypto.DummyCrypto{DummySig: []byte{0}},
+			cryptoModule,
+			logger,
+		))
 	}
 
 	return &Deployment{
