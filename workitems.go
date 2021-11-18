@@ -60,6 +60,8 @@ func (wi *workItems) AddEvents(events *events.EventList) error {
 			wi.protocol.PushBack(event)
 		case *eventpb.Event_Request, *eventpb.Event_RequestSigVerified:
 			wi.client.PushBack(event)
+		case *eventpb.Event_StoreVerifiedRequest:
+			wi.reqStore.PushBack(event)
 		case *eventpb.Event_VerifyRequestSig:
 			wi.crypto.PushBack(event)
 		case *eventpb.Event_HashRequest:

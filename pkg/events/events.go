@@ -69,11 +69,12 @@ func MessageReceived(from t.NodeID, message *messagepb.Message) *eventpb.Event {
 }
 
 // ClientRequest returns an event representing the reception of a request from a client.
-func ClientRequest(clientID t.ClientID, reqNo t.ReqNo, data []byte) *eventpb.Event {
+func ClientRequest(clientID t.ClientID, reqNo t.ReqNo, data []byte, authenticator []byte) *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_Request{Request: &requestpb.Request{
-		ClientId: clientID.Pb(),
-		ReqNo:    reqNo.Pb(),
-		Data:     data,
+		ClientId:      clientID.Pb(),
+		ReqNo:         reqNo.Pb(),
+		Data:          data,
+		Authenticator: authenticator,
 	}}}
 }
 
@@ -146,6 +147,16 @@ func RequestSigVerified(reqRef *requestpb.RequestRef, valid bool, error string) 
 		RequestRef: reqRef,
 		Valid:      valid,
 		Error:      error,
+	}}}
+}
+
+// StoreVerifiedRequest returns an event representing an event the ClientTracker emits
+// to request storing a request, including its payload and authenticator, in the request store.
+func StoreVerifiedRequest(reqRef *requestpb.RequestRef, data []byte, authenticator []byte) *eventpb.Event {
+	return &eventpb.Event{Type: &eventpb.Event_StoreVerifiedRequest{StoreVerifiedRequest: &eventpb.StoreVerifiedRequest{
+		RequestRef:    reqRef,
+		Data:          data,
+		Authenticator: authenticator,
 	}}}
 }
 

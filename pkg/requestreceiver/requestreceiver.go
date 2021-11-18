@@ -38,15 +38,15 @@ type RequestReceiver struct {
 // The returned RequestReceiver is not yet running (able to receive requests).
 // This needs to be done explicitly by calling the Start() method.
 // For the requests to be processed by passed Node, the Node must also be running.
-func NewRequestReceiver(node *mirbft.Node, l logging.Logger) *RequestReceiver {
+func NewRequestReceiver(node *mirbft.Node, logger logging.Logger) *RequestReceiver {
 	// If no logger was given, only write errors to the console.
-	if l == nil {
-		l = logging.ConsoleErrorLogger
+	if logger == nil {
+		logger = logging.ConsoleErrorLogger
 	}
 
 	return &RequestReceiver{
 		node:   node,
-		logger: l,
+		logger: logger,
 	}
 }
 
@@ -72,8 +72,17 @@ func (rr *RequestReceiver) Listen(srv RequestReceiver_ListenServer) error {
 	// For each received request
 	for req, err = srv.Recv(); err == nil; req, err = srv.Recv() {
 
+		rr.logger.Log(logging.LevelInfo, "Received request",
+			"clId", req.ClientId, "reqNo", req.ReqNo, "auth", req.Authenticator[0:16])
+
 		// Submit the request to the Node.
-		if srErr := rr.node.SubmitRequest(context.Background(), t.ClientID(req.ClientId), t.ReqNo(req.ReqNo), req.Data); srErr != nil {
+		if srErr := rr.node.SubmitRequest(
+			context.Background(),
+			t.ClientID(req.ClientId),
+			t.ReqNo(req.ReqNo),
+			req.Data,
+			req.Authenticator,
+		); srErr != nil {
 
 			// If submitting fails, stop receiving further request (and close connection).
 			rr.logger.Log(logging.LevelError, fmt.Sprintf("Could not submit request (%d-%d): %v. Closing connection.",

@@ -546,6 +546,33 @@ func processReqStoreEvents(reqStore modules.RequestStore, eventsIn *events.Event
 
 		// Process event based on its type.
 		switch e := event.Type.(type) {
+		case *eventpb.Event_StoreVerifiedRequest:
+			storeEvent := e.StoreVerifiedRequest
+
+			// Store request data.
+			if err := reqStore.PutRequest(storeEvent.RequestRef, storeEvent.Data); err != nil {
+				return nil, fmt.Errorf("cannot store request (c%dr%d) data: %w",
+					storeEvent.RequestRef.ClientId,
+					storeEvent.RequestRef.ReqNo,
+					err)
+			}
+
+			// Mark request as authenticated.
+			if err := reqStore.SetAuthenticated(storeEvent.RequestRef); err != nil {
+				return nil, fmt.Errorf("cannot mark request (c%dr%d) as authenticated: %w",
+					storeEvent.RequestRef.ClientId,
+					storeEvent.RequestRef.ReqNo,
+					err)
+			}
+
+			// Store request authenticator.
+			if err := reqStore.PutAuthenticator(storeEvent.RequestRef, storeEvent.Authenticator); err != nil {
+				return nil, fmt.Errorf("cannot store authenticator (c%dr%d) of request: %w",
+					storeEvent.RequestRef.ClientId,
+					storeEvent.RequestRef.ReqNo,
+					err)
+			}
+
 		case *eventpb.Event_StoreDummyRequest:
 			storeEvent := e.StoreDummyRequest // Helper variable for convenience
 
