@@ -74,6 +74,7 @@ but the user is free to supply its own ones.
 The following modules constitute the MirBFT implementation (not all of them are implemented yet - TODO).
 - [Net](/pkg/modules/net.go) sends messages produced by MirBFT through the network.
 - [Hasher](/pkg/modules/hasher.go) computes hashes of requests and other data.
+- [Crypto](/pkg/modules/crypto.go) performs cryptographic operations (except for computing hashes).
 - [App](/pkg/modules/app.go) implements the user application logic. The user is expected to provide this module.
 - [WAL](/pkg/modules/wal.go) implements a persistent write-ahead log for the case of crashes and restarts.
 - [ClientTracker](/pkg/modules/clienttracker.go) keeps the state related to clients and validates submitted requests.
@@ -104,6 +105,16 @@ When the Hasher computes the digest, a hash result event will be routed (usually
 using metadata (`HashOrigin`) attached to the _Event_.
 The interface of the Hasher corresponds to Go's built-in hashing interface, e.g. `crypto.SHA256`,
 so Go's built-in hashers can be used directly.
+
+### Crypto
+
+The [Crypto](/pkg/modules/crypto.go) module is responsible for producing and verifying cryptographic signatures.
+It internally stores information about which clients and nodes are associated with which public keys.
+This information can be updated by the Node through appropriate _Events_.
+(TODO: Not yet implemented. Say which Events once implemented.)
+The Crypto module also processes _Events_ related to signature computation and verification, e.g. `VerifyRequestSig`,
+and produces corresponding result _Events_, e.g. `RequestSigVerified`.
+
 
 ### App
 

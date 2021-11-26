@@ -65,7 +65,7 @@ func Defaults(m Modules) (*Modules, error) {
 	}
 
 	if m.Crypto == nil {
-		// TODO: Use default cryoto once implemented and tested.
+		// TODO: Use default crypto once implemented and tested.
 		return nil, fmt.Errorf("no default crypto implementation")
 	}
 
