@@ -87,8 +87,6 @@ For a small demo application, see [/cmd/chat-demo](/cmd/chat-demo)
 
 TODO: Write a document on how to use the library and link it here.
 
-
-
 ## Contributing
 
 **Contributions are more than welcome!**
@@ -99,6 +97,21 @@ If you have any questions (specific or general),
 do not hesitate to post them on [MirBFT's Rocket.Chat channel](https://chat.hyperledger.org/channel/mirbft).
 You can also drop an email to the active maintainer(s).
 
+### Public Bi-Weekly Community Call
+
+There is a public community call once every two weeks.
+The current status, any issues, future plans, and anything relevant to the project will be discussed.
+Whether you have any questions that you want to ask or you have a proposal to discuss, or whether you just want to listen in, feel free to join!
+
+Meeting information:
+- Time: Tuesdays in the even weeks (wrt. week number in the calendar year), between 09:00 GMT and 09:40 GMT
+- Join link: [https://us05web.zoom.us/j/82410342226?pwd=bmxnOXBxZnRUN2dyTGVWQk16RW9JUT09](https://us05web.zoom.us/j/82410342226?pwd=bmxnOXBxZnRUN2dyTGVWQk16RW9JUT09)
+- Meeting ID: 824 1034 2226
+- Passcode: HQG5z5
+- Upcoming calls:
+  * Nov 30th 2021
+  * Dec 14th 2021
+
 ## Summary of references
 
 - Public Rocket.Chat channel: https://chat.hyperledger.org/channel/mirbft
@@ -108,7 +121,7 @@ You can also drop an email to the active maintainer(s).
 
 ## Active maintainer(s)
 
-- [Matej Pavlovic](https://github.com/matejpavlovic) (mpa@zurich.ibm.com)
+- [Matej Pavlovic](https://github.com/matejpavlovic) (matopavlovic@gmail.com)
 
 ## Initial committers
 
