@@ -123,8 +123,7 @@ type ISS struct {
 	logger logging.Logger
 
 	// --------------------------------------------------------------------------------
-	// These fields (or data they point to) might change
-	// from epoch to epoch. Modified only by initEpoch()
+	// These fields might change from epoch to epoch. Modified only by initEpoch()
 	// --------------------------------------------------------------------------------
 
 	// The ISS configuration parameters (e.g. number of buckets, batch size, etc...)
@@ -151,8 +150,8 @@ type ISS struct {
 	// --------------------------------------------------------------------------------
 
 	// Buffers representing a backlog of messages destined to future epochs.
-	// Such messages might be sent by a node that already transitioned to a newer epoch,
-	// but this node is slightly behind (still in an older epoch) and cannot process these message yet.
+	// A node that already transitioned to a newer epoch might send messages,
+	// while this node is slightly behind (still in an older epoch) and cannot process these messages yet.
 	// Such messages end up in this buffer (if there is buffer space) for later processing.
 	// The buffer is checked after each epoch transition.
 	messageBuffers map[t.NodeID]*messagebuffer.MessageBuffer
@@ -181,6 +180,17 @@ type ISS struct {
 	// this field holds a pointer to the object tracking missing requests for the whole proposal.
 	// As soon as a request has been received the corresponding entry is deleted from this map.
 	missingRequestIndex map[string]*missingRequestInfo
+
+	// Represents the state of all the instances of the checkpoint sub-protocol.
+	// Each instance is associated with a unique sequence number (the first one the checkpoint does *not* include).
+	// The entries in this map are garbage-collected when some checkpoint becomes stable,
+	// in which case all state associated with lower sequence numbers is deleted.
+	checkpoints map[t.SeqNr]*checkpointTracker
+
+	// Stores the stable checkpoint with the highest sequence number observed so far.
+	// If no stable checkpoint has been observed yet, lastStableCheckpoint is initialized to a stable checkpoint value
+	// corresponding to the initial state and associated with sequence number 0.
+	lastStableCheckpoint *isspb.StableCheckpoint
 }
 
 // New returns a new initialized instance of the ISS protocol module to be used when instantiating a mirbft.Node.
@@ -220,6 +230,14 @@ func New(ownID t.NodeID, config *Config, logger logging.Logger) (*ISS, error) {
 			config.MsgBufCapacity,
 			logging.Decorate(logger, "Msgbuf: "),
 		),
+		checkpoints: make(map[t.SeqNr]*checkpointTracker),
+		lastStableCheckpoint: &isspb.StableCheckpoint{
+			Epoch: 0,
+			Sn:    0,
+			// TODO: When the storing of actual application state is implemented, some encoding of "initial state"
+			//       will have to be set here. E.g., an empty byte slice could be defined as "initial state" and
+			//       the application required to interpret it as such.
+		},
 	}
 
 	// Initialize the first epoch (epoch 0).
@@ -245,12 +263,16 @@ func (iss *ISS) ApplyEvent(event *eventpb.Event) *events.EventList {
 		return iss.applyTick(e.Tick)
 	case *eventpb.Event_RequestReady:
 		return iss.applyRequestReady(e.RequestReady)
+	case *eventpb.Event_AppSnapshot:
+		return iss.applyAppSnapshot(e.AppSnapshot)
 	case *eventpb.Event_Iss: // The ISS event type wraps all ISS-specific events.
 		switch issEvent := e.Iss.Type.(type) {
 		case *isspb.ISSEvent_Sb:
 			return iss.applySBEvent(issEvent.Sb)
+		case *isspb.ISSEvent_StableCheckpoint:
+			return iss.applyStableCheckpoint(issEvent.StableCheckpoint)
 		default:
-			panic(fmt.Sprintf("unknown ISS event type: %T", event.Type))
+			panic(fmt.Sprintf("unknown ISS event type: %T", issEvent))
 		}
 	case *eventpb.Event_MessageReceived:
 		return iss.applyMessageReceived(e.MessageReceived)
@@ -353,6 +375,12 @@ func (iss *ISS) applyRequestReady(requestReady *eventpb.RequestReady) *events.Ev
 	return eventsOut
 }
 
+// applyAppSnapshot applies the event of the application creating a state snapshot.
+// It passes the snapshot to the appropriate CheckpointTracker (identified by the event's associated sequence number).
+func (iss *ISS) applyAppSnapshot(snapshot *eventpb.AppSnapshot) *events.EventList {
+	return iss.getCheckpointTracker(t.SeqNr(snapshot.Sn)).ProcessAppSnapshot(snapshot.Data)
+}
+
 // applySBEvent applies an event triggered by or addressed to an orderer (i.e., instance of Sequenced Broadcast),
 // if that event belongs to the current epoch.
 // TODO: Update this comment when the TODO below is addressed.
@@ -378,7 +406,29 @@ func (iss *ISS) applySBEvent(event *isspb.SBEvent) *events.EventList {
 	}
 }
 
+func (iss *ISS) applyStableCheckpoint(stableCheckpoint *isspb.StableCheckpoint) *events.EventList {
+
+	if iss.lastStableCheckpoint.Sn < stableCheckpoint.Sn {
+		// If this is the most recent checkpoint observed, save it.
+		iss.logger.Log(logging.LevelInfo, "New stable checkpoint.",
+			"epoch", stableCheckpoint.Epoch,
+			"sn", stableCheckpoint.Sn,
+			"replacingEpoch", iss.lastStableCheckpoint.Epoch,
+			"replacingSn", iss.lastStableCheckpoint.Sn)
+		iss.lastStableCheckpoint = stableCheckpoint
+
+		// TODO: Perform WAL truncation (and other cleanup).
+
+	} else {
+		iss.logger.Log(logging.LevelInfo, "Ignoring outdated stable checkpoint.", "sn", stableCheckpoint.Sn)
+	}
+
+	return &events.EventList{}
+}
+
 // applyMessageReceived applies a message received over the network.
+// Note that this is not the only place messages are applied.
+// Messages received "ahead of time" that have been buffered are applied in applyBufferedMessages.
 func (iss *ISS) applyMessageReceived(messageReceived *eventpb.MessageReceived) *events.EventList {
 
 	// Convenience variables used for readability.
@@ -387,13 +437,20 @@ func (iss *ISS) applyMessageReceived(messageReceived *eventpb.MessageReceived) *
 
 	// ISS only accepts ISS messages. If another message is applied, the next line panics.
 	switch msg := message.Type.(*messagepb.Message_Iss).Iss.Type.(type) {
+	case *isspb.ISSMessage_Checkpoint:
+		return iss.applyCheckpointMessage(msg.Checkpoint, from)
 	case *isspb.ISSMessage_Sb:
 		return iss.applySBMessage(msg.Sb, from)
 	case *isspb.ISSMessage_RetransmitRequests:
 		return iss.applyRetransmitRequestsMessage(msg.RetransmitRequests, from)
 	default:
-		panic(fmt.Errorf("unknown ISS message type: %T", message.Type))
+		panic(fmt.Errorf("unknown ISS message type: %T", msg))
 	}
+}
+
+// applyCheckpointMessage relays a Checkpoint message received over the network to the appropriate CheckpointTracker.
+func (iss *ISS) applyCheckpointMessage(chkpMsg *isspb.Checkpoint, source t.NodeID) *events.EventList {
+	return iss.getCheckpointTracker(t.SeqNr(chkpMsg.Sn)).applyMessage(chkpMsg, source)
 }
 
 // applySBMessage applies a message destined for an orderer (i.e. a Sequenced Broadcast implementation).
@@ -659,10 +716,19 @@ func (iss *ISS) deliverCommitted() *events.EventList {
 	// If the epoch is finished, transition to the next epoch.
 	if iss.epochFinished() {
 
-		// Initialize the internal data structures
+		// Look up a (or create a new) checkpoint tracker and start the checkpointing protocol.
+		// This must happen before initialization of the new epoch.
+		// The checkpoint tracker might already exist in case a corresponding message has been already received.
+		// iss.nextDeliveredSN is the first sequence number *not* included in the checkpoint,
+		// i.e., as sequence numbers start at 0, the checkpoint includes the first iss.nextDeliveredSN sequence numbers.
+		eventsOut.PushBackList(iss.getCheckpointTracker(iss.nextDeliveredSN).Start(iss.epoch, iss.config.Membership))
+
+		// Initialize the internal data structures for the new epoch.
 		iss.initEpoch(iss.epoch + 1)
 
 		// Give the init signals to the newly instantiated orderers.
+		// TODO: Currently this probably sends the Init event to old orderers as well.
+		//       That should not happen! Investigate and fix.
 		eventsOut.PushBackList(iss.initOrderers())
 
 		// Process backlog of buffered SB messages.
@@ -683,10 +749,10 @@ func (iss *ISS) applyBufferedMessages() *events.EventList {
 		buffer.Iterate(func(source t.NodeID, msg proto.Message) messagebuffer.Applicable {
 
 			// Select messages destined to the current epoch as "current" (the second function will be called on those).
-			switch epoch := t.EpochNr(msg.(*isspb.SBMessage).Epoch); {
-			case epoch < iss.epoch:
+			switch e := messageEpoch(msg); {
+			case e < iss.epoch:
 				return messagebuffer.Past
-			case epoch == iss.epoch:
+			case e == iss.epoch:
 				return messagebuffer.Current
 			default: // e > iss.epoch
 				return messagebuffer.Future
@@ -697,7 +763,13 @@ func (iss *ISS) applyBufferedMessages() *events.EventList {
 		}, func(source t.NodeID, msg proto.Message) {
 
 			// Apply all selected messages.
-			eventsOut.PushBackList(iss.applySBMessage(msg.(*isspb.SBMessage), source))
+			switch m := msg.(type) {
+			case *isspb.SBMessage:
+				eventsOut.PushBackList(iss.applySBMessage(m, source))
+			case *isspb.Checkpoint:
+				eventsOut.PushBackList(iss.applyCheckpointMessage(m, source))
+			}
+
 		})
 	}
 
@@ -719,6 +791,23 @@ func (iss *ISS) removeFromBuckets(requests []*requestpb.RequestRef) {
 // ============================================================
 // Auxiliary functions
 // ============================================================
+
+// messageEpoch returns the epoch number of certain message types:
+// - *isspb.SBMessage
+// - *isspb.Checkpoint
+// Panics if the argument has a different type.
+// This function is used for selecting messages stored in a backlog MessageBuffer based on their epoch number.
+// Those messages might have different types and different ways of encoding their associated epoch.
+func messageEpoch(message proto.Message) t.EpochNr {
+	switch msg := message.(type) {
+	case *isspb.SBMessage:
+		return t.EpochNr(msg.Epoch)
+	case *isspb.Checkpoint:
+		return t.EpochNr(msg.Epoch)
+	default:
+		panic(fmt.Errorf("cannot extract epoch from message type: %T", message))
+	}
+}
 
 // sequenceNumbers returns a list of sequence numbers of length `length`,
 // starting with sequence number `start`, with the difference between two consecutive sequence number being `step`.
@@ -773,4 +862,16 @@ func removeNodeID(membership []t.NodeID, nID t.NodeID) []t.NodeID {
 
 	// Return the new list.
 	return others
+}
+
+func strongQuorum(n int) int {
+	// assuming n = 3f + 1:
+	//     2 *  f      + 1
+	return 2*(n-1)/3 + 1
+}
+
+func weakQuorum(n int) int {
+	// assuming n = 3f + 1:
+	//      f      + 1
+	return (n-1)/3 + 1
 }

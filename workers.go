@@ -526,7 +526,13 @@ func processAppEvents(app modules.App, eventsIn *events.EventList) (*events.Even
 			}
 		case *eventpb.Event_Deliver:
 			if err := app.Apply(e.Deliver.Batch); err != nil {
-				return nil, fmt.Errorf("app error: %w", err)
+				return nil, fmt.Errorf("app batch delivery error: %w", err)
+			}
+		case *eventpb.Event_AppSnapshotRequest:
+			if data, err := app.Snapshot(); err != nil {
+				return nil, fmt.Errorf("app snapshot error: %w", err)
+			} else {
+				return (&events.EventList{}).PushBack(events.AppSnapshot(t.SeqNr(e.AppSnapshotRequest.Sn), data)), nil
 			}
 		default:
 			return nil, errors.Errorf("unexpected type of App event: %T", event.Type)

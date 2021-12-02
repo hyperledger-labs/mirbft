@@ -18,26 +18,29 @@ option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/eventpb";
 message Event {
   // TODO, normalize naming, for instance Complete/Completed
   oneof type {
-    Init init = 1;
-    Tick tick = 2;
-    WALAppend wal_append = 3;
-    WALEntry wal_entry = 4;
-    requestpb.Request request = 5;
-    HashRequest hash_request = 6;
-    HashResult hash_result = 7;
-    RequestReady request_ready = 8;
-    SendMessage send_message = 9;
-    MessageReceived message_received = 10;
-    Deliver deliver = 11;
-    isspb.ISSEvent iss = 12;
-    VerifyRequestSig verify_request_sig = 13;
-    RequestSigVerified request_sig_verified = 14;
-    StoreVerifiedRequest store_verified_request = 15;
+    Init                 init                   = 1;
+    Tick                 tick                   = 2;
+    WALAppend            wal_append             = 3;
+    WALEntry             wal_entry              = 4;
+    WALTruncate          wal_truncate           = 5;
+    requestpb.Request    request                = 6;
+    HashRequest          hash_request           = 7;
+    HashResult           hash_result            = 8;
+    RequestReady         request_ready          = 9;
+    SendMessage          send_message           = 10;
+    MessageReceived      message_received       = 11;
+    Deliver              deliver                = 12;
+    isspb.ISSEvent       iss                    = 13;
+    VerifyRequestSig     verify_request_sig     = 14;
+    RequestSigVerified   request_sig_verified   = 15;
+    StoreVerifiedRequest store_verified_request = 16;
+    AppSnapshotRequest   app_snapshot_request   = 17;
+    AppSnapshot          app_snapshot           = 18;
 
     // Dummy events for testing purposes only.
-    PersistDummyBatch persist_dummy_batch = 101;
+    PersistDummyBatch persist_dummy_batch   = 101;
     AnnounceDummyBatch announce_dummy_batch = 102;
-    StoreDummyRequest store_dummy_request = 103;
+    StoreDummyRequest store_dummy_request   = 103;
   }
 
   // A list of follow-up events to process after this event has been processed.
@@ -92,6 +95,10 @@ message WALEntry {
   Event event = 1;
 }
 
+message WALTruncate {
+  uint64 retention_index = 1;
+}
+
 message Deliver {
   uint64 sn = 1;
   requestpb.Batch batch = 2;
@@ -112,6 +119,15 @@ message StoreVerifiedRequest {
   requestpb.RequestRef request_ref   = 1;
   bytes                data          = 2;
   bytes                authenticator = 3;
+}
+
+message AppSnapshotRequest {
+  uint64 sn = 1;
+}
+
+message AppSnapshot {
+  uint64 sn   = 1;
+  bytes  data = 2;
 }
 
 //==================================================

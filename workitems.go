@@ -56,7 +56,8 @@ func (wi *workItems) AddEvents(events *events.EventList) error {
 			// TODO: Should the Tick event also go elsewhere? Clients?
 		case *eventpb.Event_SendMessage:
 			wi.net.PushBack(event)
-		case *eventpb.Event_MessageReceived, *eventpb.Event_Iss, *eventpb.Event_RequestReady:
+		case *eventpb.Event_MessageReceived, *eventpb.Event_Iss, *eventpb.Event_RequestReady,
+			*eventpb.Event_AppSnapshot:
 			wi.protocol.PushBack(event)
 		case *eventpb.Event_Request, *eventpb.Event_RequestSigVerified:
 			wi.client.PushBack(event)
@@ -76,7 +77,7 @@ func (wi *workItems) AddEvents(events *events.EventList) error {
 			}
 		case *eventpb.Event_WalAppend:
 			wi.wal.PushBack(event)
-		case *eventpb.Event_Deliver:
+		case *eventpb.Event_Deliver, *eventpb.Event_AppSnapshotRequest:
 			wi.app.PushBack(event)
 		case *eventpb.Event_WalEntry:
 			switch walEntry := t.WalEntry.Event.Type.(type) {

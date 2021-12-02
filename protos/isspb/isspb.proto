@@ -19,8 +19,9 @@ option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/isspb";
 
 message ISSMessage {
   oneof type {
-    SBMessage sb = 1;
-    RetransmitRequests retransmit_requests = 2;
+    SBMessage          sb                  = 1;
+    Checkpoint         checkpoint          = 2;
+    RetransmitRequests retransmit_requests = 3;
   }
 }
 
@@ -32,6 +33,11 @@ message SBMessage {
   uint64 epoch = 1;
   uint64 instance = 2;
   SBInstanceMessage msg = 3;
+}
+
+message Checkpoint {
+  uint64 epoch = 1;
+  uint64 sn    = 2;
 }
 
 message SBInstanceMessage {
@@ -46,8 +52,29 @@ message SBInstanceMessage {
 
 message ISSEvent {
   oneof type {
-    SBEvent sb = 1;
+    PersistCheckpoint       persist_checkpoint        = 1;
+    StableCheckpoint        stable_checkpoint         = 2;
+    PersistStableCheckpoint persist_stable_checkpoint = 3;
+    SBEvent                 sb                        = 4;
   }
+}
+
+message PersistCheckpoint {
+  uint64 sn           = 1;
+  bytes  app_snapshot = 2;
+}
+
+message StableCheckpoint {
+  uint64 epoch = 1;
+  uint64 sn    = 2;
+  // TODO: Some form of checkpoint certificate will need to go here.
+}
+
+// PersistStableCheckpoint needs to be a separate Event from StableCheckpoint, since both are ISSEvents,
+// but, the protocol must differentiate between them. While the former will be applied on recovery from the WAL,
+// the latter serves as a notification to the ISS protocol when a stable checkpoint has been persisted.
+message PersistStableCheckpoint {
+  StableCheckpoint stable_checkpoint = 1;
 }
 
 message SBEvent {

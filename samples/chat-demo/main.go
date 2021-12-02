@@ -16,9 +16,10 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft"
-	"github.com/hyperledger-labs/mirbft/pkg/crypto"
+	mirCrypto "github.com/hyperledger-labs/mirbft/pkg/crypto"
 	"github.com/hyperledger-labs/mirbft/pkg/dummyclient"
 	"github.com/hyperledger-labs/mirbft/pkg/grpctransport"
 	"github.com/hyperledger-labs/mirbft/pkg/iss"
@@ -143,6 +144,7 @@ func main() {
 
 	// Instantiate the ISS protocol module with default configuration.
 	issConfig := iss.DefaultConfig(nodeIds)
+	issConfig.SegmentLength = 3 // TODO: DEBUG: Remove this line.
 	issProtocol, err := iss.New(args.OwnId, issConfig, logger)
 	if err != nil {
 		panic(fmt.Errorf("could not instantiate ISS protocol module: %w", err))
@@ -153,7 +155,7 @@ func main() {
 	// ================================================================================
 
 	// Create a MirBFT Node, using a default configuration and passing the modules initialized just above.
-	node, err := mirbft.NewNode(args.OwnId, mirbft.DefaultNodeConfig(), &modules.Modules{
+	node, err := mirbft.NewNode(args.OwnId, &mirbft.NodeConfig{Logger: logger}, &modules.Modules{
 		Net:          net,
 		WAL:          wal,
 		RequestStore: reqStore,
@@ -173,7 +175,7 @@ func main() {
 		// Use dummy crypto module that only produces signatures
 		// consisting of a single zero byte and treats those signatures as valid.
 		// TODO: Remove this line once a default crypto implementation is provided by MirBFT.
-		Crypto: &crypto.DummyCrypto{DummySig: []byte{0}},
+		Crypto: &mirCrypto.DummyCrypto{DummySig: []byte{0}},
 	})
 
 	// Exit immediately if Node could not be created.
@@ -215,7 +217,15 @@ func main() {
 	// Create a DummyClient. In this example, the client's ID corresponds to the ID of the node it is collocated with,
 	// but in general this need not be the case.
 	// Also note that the client IDs are in a different namespace than Node IDs.
-	client := dummyclient.NewDummyClient(t.ClientID(args.OwnId), logger)
+	// The client also needs to be initialized with a Hasher and Crypto module in order to be able to sign requests.
+	// We use a dummy Crypto module set up the same way as the Node's Crypto module,
+	// so the client's signatures are acceptedl.
+	client := dummyclient.NewDummyClient(
+		t.ClientID(args.OwnId),
+		crypto.SHA256,
+		&mirCrypto.DummyCrypto{DummySig: []byte{0}},
+		logger,
+	)
 
 	// Create network connections to all Nodes' request receivers.
 	// We use just the background context in this demo app, expecting that the connection will succeed
