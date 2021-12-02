@@ -34,6 +34,27 @@ func Event(event *isspb.ISSEvent) *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_Iss{Iss: event}}
 }
 
+func PersistCheckpointEvent(sn t.SeqNr, appSnapshot []byte) *eventpb.Event {
+	return Event(&isspb.ISSEvent{Type: &isspb.ISSEvent_PersistCheckpoint{PersistCheckpoint: &isspb.PersistCheckpoint{
+		Sn:          sn.Pb(),
+		AppSnapshot: appSnapshot,
+	}}})
+}
+
+func PersistStableCheckpointEvent(stableCheckpoint *isspb.StableCheckpoint) *eventpb.Event {
+	return Event(&isspb.ISSEvent{Type: &isspb.ISSEvent_PersistStableCheckpoint{
+		PersistStableCheckpoint: &isspb.PersistStableCheckpoint{
+			StableCheckpoint: stableCheckpoint,
+		},
+	}})
+}
+
+func StableCheckpointEvent(stableCheckpoint *isspb.StableCheckpoint) *eventpb.Event {
+	return Event(&isspb.ISSEvent{Type: &isspb.ISSEvent_StableCheckpoint{
+		StableCheckpoint: stableCheckpoint,
+	}})
+}
+
 func SBEvent(epoch t.EpochNr, instance t.SBInstanceID, event *isspb.SBInstanceEvent) *eventpb.Event {
 	return Event(&isspb.ISSEvent{Type: &isspb.ISSEvent_Sb{Sb: &isspb.SBEvent{
 		Epoch:    epoch.Pb(),
@@ -120,6 +141,13 @@ func SBMessage(epoch t.EpochNr, instance t.SBInstanceID, msg *isspb.SBInstanceMe
 		Epoch:    epoch.Pb(),
 		Instance: instance.Pb(),
 		Msg:      msg,
+	}}})
+}
+
+func CheckpointMessage(epoch t.EpochNr, sn t.SeqNr) *messagepb.Message {
+	return Message(&isspb.ISSMessage{Type: &isspb.ISSMessage_Checkpoint{Checkpoint: &isspb.Checkpoint{
+		Epoch: epoch.Pb(),
+		Sn:    sn.Pb(),
 	}}})
 }
 

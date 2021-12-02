@@ -73,7 +73,7 @@ func (rr *RequestReceiver) Listen(srv RequestReceiver_ListenServer) error {
 	for req, err = srv.Recv(); err == nil; req, err = srv.Recv() {
 
 		rr.logger.Log(logging.LevelInfo, "Received request",
-			"clId", req.ClientId, "reqNo", req.ReqNo, "auth", req.Authenticator[0:16])
+			"clId", req.ClientId, "reqNo", req.ReqNo, "authLen", len(req.Authenticator))
 
 		// Submit the request to the Node.
 		if srErr := rr.node.SubmitRequest(
