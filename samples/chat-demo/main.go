@@ -269,12 +269,15 @@ func main() {
 	// stop the request receiver,
 	reqReceiver.Stop()
 
-	// and stop the server.
+	// stop the server,
 	if args.Verbose {
 		fmt.Println("Stopping server.")
 	}
 	close(stopC)
 	wg.Wait()
+
+	// and print the error returned by the stopped node.
+	fmt.Printf("Node error: %v\n", nodeErr)
 }
 
 // Parses the command-line arguments and returns them in a params struct.
