@@ -408,7 +408,7 @@ func (iss *ISS) applySBEvent(event *isspb.SBEvent) *events.EventList {
 
 func (iss *ISS) applyStableCheckpoint(stableCheckpoint *isspb.StableCheckpoint) *events.EventList {
 
-	if iss.lastStableCheckpoint.Sn < stableCheckpoint.Sn {
+	if stableCheckpoint.Sn > iss.lastStableCheckpoint.Sn {
 		// If this is the most recent checkpoint observed, save it.
 		iss.logger.Log(logging.LevelInfo, "New stable checkpoint.",
 			"epoch", stableCheckpoint.Epoch,
@@ -686,6 +686,8 @@ func (iss *ISS) deliverCommitted() *events.EventList {
 	// deliver the corresponding batch and advance to the next sequence number.
 	for iss.commitLog[iss.nextDeliveredSN] != nil {
 
+		// TODO: Once system configuration requests are introduced, apply them here.
+
 		// Create a new Deliver event.
 		deliverEvent := events.Deliver(iss.nextDeliveredSN, iss.commitLog[iss.nextDeliveredSN].Batch)
 
@@ -716,15 +718,17 @@ func (iss *ISS) deliverCommitted() *events.EventList {
 	// If the epoch is finished, transition to the next epoch.
 	if iss.epochFinished() {
 
+		// Initialize the internal data structures for the new epoch.
+		iss.initEpoch(iss.epoch + 1)
+
 		// Look up a (or create a new) checkpoint tracker and start the checkpointing protocol.
-		// This must happen before initialization of the new epoch.
-		// The checkpoint tracker might already exist in case a corresponding message has been already received.
+		// This must happen after initialization of the new epoch,
+		// as the sequence number the checkpoint will be associated with (iss.nextDeliveredSN)
+		// is already part of the new epoch.
+		// The checkpoint tracker might already exist if a corresponding message has been already received.
 		// iss.nextDeliveredSN is the first sequence number *not* included in the checkpoint,
 		// i.e., as sequence numbers start at 0, the checkpoint includes the first iss.nextDeliveredSN sequence numbers.
 		eventsOut.PushBackList(iss.getCheckpointTracker(iss.nextDeliveredSN).Start(iss.epoch, iss.config.Membership))
-
-		// Initialize the internal data structures for the new epoch.
-		iss.initEpoch(iss.epoch + 1)
 
 		// Give the init signals to the newly instantiated orderers.
 		// TODO: Currently this probably sends the Init event to old orderers as well.
@@ -744,25 +748,11 @@ func (iss *ISS) deliverCommitted() *events.EventList {
 func (iss *ISS) applyBufferedMessages() *events.EventList {
 	eventsOut := &events.EventList{}
 
-	// Iterate over the all messages in all buffers
+	// Iterate over the all messages in all buffers, selecting those that can be applied.
 	for _, buffer := range iss.messageBuffers {
-		buffer.Iterate(func(source t.NodeID, msg proto.Message) messagebuffer.Applicable {
+		buffer.Iterate(iss.bufferedMessageFilter, func(source t.NodeID, msg proto.Message) {
 
-			// Select messages destined to the current epoch as "current" (the second function will be called on those).
-			switch e := messageEpoch(msg); {
-			case e < iss.epoch:
-				return messagebuffer.Past
-			case e == iss.epoch:
-				return messagebuffer.Current
-			default: // e > iss.epoch
-				return messagebuffer.Future
-			}
-			// Note that validation is not performed here, as it is performed anyway when applying the message.
-			// Thus, the messagebuffer.Invalid option is not used.
-
-		}, func(source t.NodeID, msg proto.Message) {
-
-			// Apply all selected messages.
+			// Apply all messages selected by the filter.
 			switch m := msg.(type) {
 			case *isspb.SBMessage:
 				eventsOut.PushBackList(iss.applySBMessage(m, source))
@@ -786,6 +776,38 @@ func (iss *ISS) removeFromBuckets(requests []*requestpb.RequestRef) {
 	for _, reqRef := range requests {
 		iss.buckets.RequestBucket(reqRef).Remove(reqRef)
 	}
+}
+
+// bufferedMessageFilter decides, given a message, whether it is appropriate to apply the message, discard it,
+// or keep it in the buffer, returning the appropriate value of type messagebuffer.Applicable.
+func (iss *ISS) bufferedMessageFilter(source t.NodeID, message proto.Message) messagebuffer.Applicable {
+	switch msg := message.(type) {
+	case *isspb.SBMessage:
+		// For SB messages, filter based on the epoch number of the message.
+		switch e := t.EpochNr(msg.Epoch); {
+		case e < iss.epoch:
+			return messagebuffer.Past
+		case e == iss.epoch:
+			return messagebuffer.Current
+		default: // e > iss.epoch
+			return messagebuffer.Future
+		}
+	case *isspb.Checkpoint:
+		// For Checkpoint messages, messages with current or older epoch number are considered,
+		// if they correspond to a more recent checkpoint than the last stable checkpoint stored locally at this node.
+		switch {
+		case msg.Sn <= iss.lastStableCheckpoint.Sn:
+			return messagebuffer.Past
+		case t.EpochNr(msg.Epoch) <= iss.epoch:
+			return messagebuffer.Current
+		default: // message from future epoch
+			return messagebuffer.Future
+		}
+	default:
+		panic(fmt.Errorf("cannot extract epoch from message type: %T", message))
+	}
+	// Note that validation is not performed here, as it is performed anyway when applying the message.
+	// Thus, the messagebuffer.Invalid option is not used.
 }
 
 // ============================================================
