@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 // TODO: Eventually make the checkpoint tracker a separate package.
 //       Then, use an EventService for producing Events.
 
+// TODO: Finish writing proper comments in this file.
+
 package iss
 
 import (
@@ -19,18 +21,19 @@ import (
 // (establishing a single stable checkpoint).
 type checkpointTracker struct {
 
-	// Epoch to which this checkpoint belongs
-	// Note that, if the checkpoint encompasses the whole epoch, its sequence number is, technically,
-	// already part of the next epoch, as it is always the first sequence number *not* encompassed by the checkpoint.
+	// Epoch to which this checkpoint belongs.
+	// It is always the epoch the checkpoint's associated sequence number (seqNr) is part of.
 	epoch t.EpochNr
-
-	// The IDs of nodes to execute this instance of the checkpoint protocol.
-	membership []t.NodeID
 
 	// Sequence number associated with this checkpoint protocol instance.
 	// This checkpoint encompasses seqNr sequence numbers,
 	// i.e., seqNr is the first sequence number *not* encompassed by this checkpoint.
+	// One can imagine that the checkpoint represents the state of the system just before seqNr,
+	// i.e., "between" seqNr-1 and seqNr.
 	seqNr t.SeqNr
+
+	// The IDs of nodes to execute this instance of the checkpoint protocol.
+	membership []t.NodeID
 
 	// Application snapshot data associated with this checkpoint.
 	appSnapshot []byte
@@ -64,16 +67,16 @@ func (iss *ISS) getCheckpointTracker(sn t.SeqNr) *checkpointTracker {
 	return iss.checkpoints[sn]
 }
 
-// Start initiates the checkpoint protocol that encompasses all currently delivered sequence numbers,
-// using the current epoch's membership.
-// If Start is called at the end of an epoch (when all sequence numbers of that epoch have been delivered),
-// it must be called before any epoch configuration is changed or the epoch number is advanced.
+// Start initiates the checkpoint protocol among nodes in membership.
+// The checkpoint to be produced encompasses all currently delivered sequence numbers.
+// If Start is called during epoch transition,
+// it must be called with the new epoch number, but the old epoch's membership.
 func (ct *checkpointTracker) Start(epoch t.EpochNr, membership []t.NodeID) *events.EventList {
 
-	// Set current epoch as the checkpoint's epoch.
+	// Set the checkpoint's epoch.
 	ct.epoch = epoch
 
-	// Save the membership this instance of the checkpoint protocol will use (current epoch's membership).
+	// Save the membership this instance of the checkpoint protocol will use.
 	// This is required in case where the membership changes before the checkpoint sub-protocol finishes.
 	// That is also why the content of the Membership slice needs to be copied.
 	ct.membership = make([]t.NodeID, len(membership), len(membership))

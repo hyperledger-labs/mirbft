@@ -144,7 +144,6 @@ func main() {
 
 	// Instantiate the ISS protocol module with default configuration.
 	issConfig := iss.DefaultConfig(nodeIds)
-	issConfig.SegmentLength = 3 // TODO: DEBUG: Remove this line.
 	issProtocol, err := iss.New(args.OwnId, issConfig, logger)
 	if err != nil {
 		panic(fmt.Errorf("could not instantiate ISS protocol module: %w", err))
