@@ -814,23 +814,6 @@ func (iss *ISS) bufferedMessageFilter(source t.NodeID, message proto.Message) me
 // Auxiliary functions
 // ============================================================
 
-// messageEpoch returns the epoch number of certain message types:
-// - *isspb.SBMessage
-// - *isspb.Checkpoint
-// Panics if the argument has a different type.
-// This function is used for selecting messages stored in a backlog MessageBuffer based on their epoch number.
-// Those messages might have different types and different ways of encoding their associated epoch.
-func messageEpoch(message proto.Message) t.EpochNr {
-	switch msg := message.(type) {
-	case *isspb.SBMessage:
-		return t.EpochNr(msg.Epoch)
-	case *isspb.Checkpoint:
-		return t.EpochNr(msg.Epoch)
-	default:
-		panic(fmt.Errorf("cannot extract epoch from message type: %T", message))
-	}
-}
-
 // sequenceNumbers returns a list of sequence numbers of length `length`,
 // starting with sequence number `start`, with the difference between two consecutive sequence number being `step`.
 // This function is used to compute the sequence numbers of a segment.
