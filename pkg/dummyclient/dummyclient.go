@@ -122,14 +122,30 @@ func (dc *DummyClient) SubmitRequest(data []byte) error {
 		return err
 	}
 
+	// Declare variables keeping track of failed send attempts.
+	sendFailures := make([]t.NodeID, 0) // List of nodes to which sending the request failed.
+	var firstSndErr error = nil         // The error produced by the first sending failure.
+
 	// Send the request to all nodes.
-	for _, connection := range dc.connections {
+	for nID, connection := range dc.connections {
 		if err := connection.Send(reqMsg); err != nil {
-			return err
+
+			// If sending the request to a node fails, record that node's ID.
+			sendFailures = append(sendFailures, nID)
+
+			// If this is the first failure, save it for later reporting.
+			if firstSndErr == nil {
+				firstSndErr = err
+			}
 		}
 	}
 
-	return nil
+	// Return an error summarizing the failed send attempts or nil if the request was successfully sent to all nodes.
+	if firstSndErr != nil {
+		return fmt.Errorf("failed sending request to nodes: %v first error: %w", sendFailures, firstSndErr)
+	} else {
+		return nil
+	}
 }
 
 // Disconnect closes all open connections to MirBFT nodes.
