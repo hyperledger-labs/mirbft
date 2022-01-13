@@ -13,38 +13,7 @@ type arguments struct {
 	includedIssEvents []string
 }
 
-var (
-	eventList = []string{
-		"Initialize",
-		"Tick",
-		"Deliver",
-		"WalAppend",
-		"HashResult",
-		"WalEntry",
-		"WalTruncate",
-		"ActionsReceived",
-		"HashRequest",
-		"MessageReceived",
-		"Iss",
-		"VerifyRequestSig",
-		"RequestSigVerified",
-		"StoreVerifiedRequest",
-		"AppSnapshotRequest",
-		"AppSnapshot",
-		"SendMessage",
-		"RequestReady",
-		"StoreDummyRequest",
-		"AnnounceDummyBatch",
-		"PersistDummyBatch",
-	}
-	issEventList = []string{
-		"PersistCheckpoint",
-		"StableCheckpoint",
-		"PersistStableCheckpoint",
-		"Sb",
-	}
-)
-
+//prompts users with a list of available events to select from
 func checkboxes(label string, opts []string) []string {
 	res := []string{}
 	prompt := &survey.MultiSelect{
@@ -56,6 +25,7 @@ func checkboxes(label string, opts []string) []string {
 	return res
 }
 
+//parse the command line arguments
 func parseArgs(args []string) (*arguments, error) {
 	if len(args) == 0 {
 		return nil, errors.Errorf("required input \" --src <Src_File> \" not found !")
@@ -76,17 +46,22 @@ func parseArgs(args []string) (*arguments, error) {
 func main() {
 	kingpin.Version("0.0.1")
 	args, err := parseArgs(os.Args[1:])
+
 	if err != nil {
 		kingpin.Fatalf("Cannot parse given argument", err)
 	}
-	args.includedEvents = checkboxes(
+	err, eventList, issEventList := getEventList(args.srcFile) //gets the list of events from the eventlog
+	if err != nil {
+		kingpin.Fatalf("Cannot retrieve events from src file", err)
+	}
+	args.includedEvents = checkboxes( //gets the list of events selected by the user
 		"Please select the events", eventList)
 
-	if IncludedIn("Iss", args.includedEvents) {
-		args.includedIssEvents = checkboxes(
+	if includedIn("Iss", args.includedEvents) {
+		args.includedIssEvents = checkboxes( //gets the list of Iss events selected by the user
 			"Please select the iss events", issEventList)
 	}
-	err = ReadEvent(args)
+	err = processEvent(args)
 	if err != nil {
 		kingpin.Fatalf("Error Reading Event", err)
 	}
