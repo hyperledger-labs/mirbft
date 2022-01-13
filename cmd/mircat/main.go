@@ -7,6 +7,10 @@ import (
 	"os"
 )
 
+// mircat is a package for reviewing Mir state machine recordings.
+// It understands the format encoded via github.com/hyperledger-labs/mirbft/eventlog
+// and is able to parse and filter these log files based on the events.
+
 type arguments struct {
 	srcFile           *os.File
 	includedEvents    []string
