@@ -5,6 +5,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+//tests for main.go
+
 var _ = Describe("pargsArgs", func() {
 	It("parses a populated command line", func() {
 		args, err := parseArgs([]string{

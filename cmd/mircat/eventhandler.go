@@ -1,15 +1,6 @@
-/*
-Copyright IBM Corp. All Rights Reserved.
-
-SPDX-License-Identifier: Apache-2.0
-*/
-
-// mircat is a package for reviewing Mir state machine recordings.
-// It understands the format encoded via github.com/hyperledger-labs/mirbft/eventlog
-// and is able to parse and filter these log files.  It is also able to
-// play them against an identical version of the state machine for problem
-// reproduction and debugging.
 package main
+
+//handles the processing, display and retrieval of events from a given eventlog file
 
 import (
 	"fmt"

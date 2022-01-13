@@ -6,6 +6,8 @@ import (
 	"strconv"
 )
 
+//handles the formatted display of events
+
 //Creates and returns a prefix tag for event display using event metadata
 func getMetaTag(eventType string, metadata eventMetadata) string {
 	boldGreen := chalk.Green.NewStyle().WithTextStyle(chalk.Bold) //setting font color and style
