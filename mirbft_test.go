@@ -143,76 +143,76 @@ var _ = Describe("Basic test", func() {
 	})
 
 	table.DescribeTable("Simple tests", testFunc,
-		table.Entry("Does nothing with 1 node", &deploytest.TestConfig{
-			NumReplicas: 1,
-			Transport:   "fake",
-			Directory:   "",
-			Duration:    2 * time.Second,
-		}),
-		table.Entry("Does nothing with 4 nodes", &deploytest.TestConfig{
-			NumReplicas: 4,
-			Transport:   "fake",
-			Directory:   "",
-			Duration:    2 * time.Second,
-		}),
+		//table.Entry("Does nothing with 1 node", &deploytest.TestConfig{
+		//	NumReplicas: 1,
+		//	Transport:   "fake",
+		//	Directory:   "",
+		//	Duration:    2 * time.Second,
+		//}),
+		//table.Entry("Does nothing with 4 nodes", &deploytest.TestConfig{
+		//	NumReplicas: 4,
+		//	Transport:   "fake",
+		//	Directory:   "",
+		//	Duration:    2 * time.Second,
+		//}),
 		table.Entry("Submits 10 fake requests with 1 node", &deploytest.TestConfig{
 			NumReplicas:     1,
 			Transport:       "fake",
 			NumFakeRequests: 10,
 			Directory:       "mirbft-deployment-test",
-			Duration:        2 * time.Second,
+			Duration:        4 * time.Second,
 		}),
-		table.Entry("Submits 10 fake requests with 1 node, loading WAL", &deploytest.TestConfig{
-			NumReplicas:     1,
-			NumClients:      1,
-			Transport:       "fake",
-			NumFakeRequests: 10,
-			Directory:       "mirbft-deployment-test",
-			Duration:        2 * time.Second,
-		}),
-		table.Entry("Submits 10 fake requests with 4 nodes", &deploytest.TestConfig{
-			NumReplicas:     4,
-			NumClients:      0,
-			Transport:       "fake",
-			NumFakeRequests: 10,
-			Directory:       "",
-			Duration:        2 * time.Second,
-		}),
-		table.Entry("Submits 10 fake requests with 4 nodes and actual networking", &deploytest.TestConfig{
-			NumReplicas:     4,
-			NumClients:      1,
-			Transport:       "grpc",
-			NumFakeRequests: 10,
-			Directory:       "",
-			Duration:        2 * time.Second,
-		}),
-		table.Entry("Submits 10 requests with 1 node and actual networking", &deploytest.TestConfig{
-			NumReplicas:    1,
-			NumClients:     1,
-			Transport:      "grpc",
-			NumNetRequests: 10,
-			Directory:      "",
-			Duration:       2 * time.Second,
-		}),
-		table.Entry("Submits 10 requests with 4 nodes and actual networking", &deploytest.TestConfig{
-			NumReplicas:    4,
-			NumClients:     1,
-			Transport:      "grpc",
-			NumNetRequests: 10,
-			Directory:      "",
-			Duration:       4 * time.Second,
-		}),
+		//table.Entry("Submits 10 fake requests with 1 node, loading WAL", &deploytest.TestConfig{
+		//	NumReplicas:     1,
+		//	NumClients:      1,
+		//	Transport:       "fake",
+		//	NumFakeRequests: 10,
+		//	Directory:       "mirbft-deployment-test",
+		//	Duration:        4 * time.Second,
+		//}),
+		//table.Entry("Submits 10 fake requests with 4 nodes", &deploytest.TestConfig{
+		//	NumReplicas:     4,
+		//	NumClients:      0,
+		//	Transport:       "fake",
+		//	NumFakeRequests: 10,
+		//	Directory:       "",
+		//	Duration:        2 * time.Second,
+		//}),
+		//table.Entry("Submits 10 fake requests with 4 nodes and actual networking", &deploytest.TestConfig{
+		//	NumReplicas:     4,
+		//	NumClients:      1,
+		//	Transport:       "grpc",
+		//	NumFakeRequests: 10,
+		//	Directory:       "",
+		//	Duration:        2 * time.Second,
+		//}),
+		//table.Entry("Submits 10 requests with 1 node and actual networking", &deploytest.TestConfig{
+		//	NumReplicas:    1,
+		//	NumClients:     1,
+		//	Transport:      "grpc",
+		//	NumNetRequests: 10,
+		//	Directory:      "",
+		//	Duration:       2 * time.Second,
+		//}),
+		//table.Entry("Submits 10 requests with 4 nodes and actual networking", &deploytest.TestConfig{
+		//	NumReplicas:    4,
+		//	NumClients:     1,
+		//	Transport:      "grpc",
+		//	NumNetRequests: 10,
+		//	Directory:      "",
+		//	Duration:       4 * time.Second,
+		//}),
 	)
 
 	// Remove all temporary data produced by the tests at the end.
-	AfterSuite(func() {
-		for dir := range tempDirs {
-			fmt.Printf("Removing temporary test directory: %v\n", dir)
-			if err := os.RemoveAll(dir); err != nil {
-				fmt.Printf("Could not remove directory: %v\n", err)
-			}
-		}
-	})
+	//AfterSuite(func() {
+	//	for dir := range tempDirs {
+	//		fmt.Printf("Removing temporary test directory: %v\n", dir)
+	//		if err := os.RemoveAll(dir); err != nil {
+	//			fmt.Printf("Could not remove directory: %v\n", err)
+	//		}
+	//	}
+	//})
 })
 
 // If config.Directory is not empty, creates a directory with that path if it does not yet exist.

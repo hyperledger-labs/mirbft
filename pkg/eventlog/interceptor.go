@@ -169,18 +169,25 @@ func (i *Recorder) Stop() error {
 var errStopped = fmt.Errorf("interceptor stopped at caller request")
 
 func (i *Recorder) run(dest io.Writer) (exitErr error) {
+	cnt := 0 // Counts total number of events written.
+
 	defer func() {
 		i.exitErrMutex.Lock()
 		i.exitErr = exitErr
 		i.exitErrMutex.Unlock()
 		close(i.exitC)
+		fmt.Printf("Intercepted events written to event log: %d\n", cnt)
 	}()
 
 	gzWriter, err := gzip.NewWriterLevel(dest, i.compressionLevel)
 	if err != nil {
 		return err
 	}
-	defer gzWriter.Close()
+	defer func() {
+		if err := gzWriter.Close(); err != nil {
+			fmt.Printf("Error closing gzWriter: %v\n", err)
+		}
+	}()
 
 	write := func(eventTime eventTime) error {
 		return WriteRecordedEvent(gzWriter, &recordingpb.Entry{
@@ -208,6 +215,7 @@ func (i *Recorder) run(dest io.Writer) (exitErr error) {
 			if err := write(event); err != nil {
 				return errors.WithMessage(err, "error serializing to stream")
 			}
+			cnt++
 		}
 	}
 }
