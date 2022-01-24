@@ -194,6 +194,7 @@ func main() {
 						c.checkInOrderDelivery(int64(resp.Request.Seq))
 						if atomic.LoadInt64(&c.lastDelivered) == c.numRequests-1 {
 							log.Infof("ALL DELIVERED")
+							close(c.queue)
 							atomic.StoreInt32(&c.stop, 1)
 						}
 					}
@@ -224,8 +225,8 @@ func main() {
 		log.Infof("Setting up client timeout.")
 		time.AfterFunc(time.Duration(config.Config.ClientRunTime)*time.Millisecond, func() {
 			atomic.StoreInt32(&c.stop, 1) // A non-zero value of the stop variable halts the request submissions.
+			close(c.queue)
 			log.Infof("Stopping client on timeout.")
-			done <-true
 		})
 	}
 
@@ -259,13 +260,12 @@ func main() {
 				time.Sleep(time.Duration(timeout) * time.Nanosecond)
 			}
 		}
+		done <- true
 	}()
 
 	<-done
-	log.Infof("FINISH %d", total )
+	log.Infof("FINISH %d", atomic.LoadInt64(&c.lastDelivered) )
 	status_file.WriteString("status=FINISHED\n")
-
-	close(c.queue)
 
 	for i := 0; i < N; i++ {
 		c.stream[i].CloseSend()
