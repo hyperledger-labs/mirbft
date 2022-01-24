@@ -1,5 +1,5 @@
-server1 server1-pub   server1-priv
-server2 server2-pub   server2-priv
-server3 server3-pub   server3-priv
-server4 server4-pub   server4-priv
-client1 clinet-pub    client-pub
+server-1 server1-pub   server1-priv
+server-2 server2-pub   server2-priv
+server-3 server3-pub   server3-priv
+server-4 server4-pub   server4-priv
+client-1 clinet-pub    client-pub

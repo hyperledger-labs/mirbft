@@ -3,6 +3,7 @@
 export PATH=$PATH:~/go/bin/:/opt/gopath/bin/
 export GOPATH=/opt/gopath
 export GOROOT=~/go
+export GO111MODULE=off
 
 sudo mkdir -p /opt/gopath/src/github.com/IBM/
 sudo chown -R $user:$group  /opt/gopath/
