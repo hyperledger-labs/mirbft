@@ -337,9 +337,7 @@ func (c *Backend) Consensus(_ *pb.Handshake, srv pb.Consensus_ConsensusServer) e
 
 func (c *Backend) Request(stream pb.Consensus_RequestServer) error {
 	for {
-		c.streamLock.RLock()
 		msg, err := stream.Recv()
-		c.streamLock.RUnlock()
 		if err == io.EOF {
 			return nil
 		}
@@ -401,11 +399,11 @@ func (c *Backend) Response(id string, response *pb.ResponseMessage) {
 		if err := client.stream.(pb.Consensus_RequestServer).Send(response); err != nil {
 			// Log sending error.
 			log.Infof("Error responding to client %d. No connection present.", id)
-			tracing.MainTrace.Event(tracing.RESP_SEND, int64(client.id), int64(response.Request.Seq))
 			c.streamLock.Unlock()
 			return
 		}
 		c.streamLock.Unlock()
+		tracing.MainTrace.Event(tracing.RESP_SEND, int64(client.id), int64(response.Request.Seq))
 	} else {
 		// Log error if connection is not present.
 		log.Infof("Error responding to client %x. No client not registered.", id)
