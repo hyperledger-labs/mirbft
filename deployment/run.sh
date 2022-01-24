@@ -75,7 +75,7 @@ for p in $clients; do
     else
         echo "Client log file does not exist. Client $p did not start."
     fi
-    clientNum="${p:6}"
+    clientNum="${p:7}"
     clientNum=$((clientNum-1))
     traceFileSufix=$(printf %03d $clientNum)
     if ssh $user@$pub $ssh_options stat /opt/gopath/src/github.com/IBM/mirbft/client/client-$traceFileSufix.trc \> /dev/null 2\>\&1; then
