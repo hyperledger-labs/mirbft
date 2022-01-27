@@ -185,14 +185,14 @@ Each server (node) has:
  
  Please bare in mind:
  
- * `signatureVerification`: must be true to enable client authentication
+ * `signatureVerification`: must be true to enable client authentication.
  * `sigSharding`: must be true to enable signature verification sharding (SVS). Mir by default is considered to have SVS.
  * `payloadSharding`: must be true to enable light total order broadcast (LTO) optimization.
  * `watermarkDist`: should be greater than or equal to `checkpointDist`.
  * `watermarkDist`: should be also greater than or equal to the number of nodes.
- * `bucketRotationPeriod`: should be greater than or equal to `watermarkDist`
+ * `bucketRotationPeriod`: should be greater than or equal to `watermarkDist`.
  * `clientWatermarkDist`: should be set to a very large value to allow few clients saturate throughput. Otherwise the setup would require many client machines.
- * `serverConnectionBuffer`: might need to be increased for large deployments to allow enough time to all servers to connect to each other
+ * `serverConnectionBuffer`: might need to be increased for large deployments to allow enough time to all servers to connect to each other.
 
  In `self` section:
  * `listen` should always be set to `"0.0.0.0:server-to-server-port"`
@@ -203,6 +203,14 @@ Each server (node) has:
     * make sure they have the same order as the corresponding server’s `id`. 
     * use `ip-private` addresses.
     * make sure the port number `server-to-server-port` matches the port number in the `self` section of each server.
+    
+#### Emulating PBFT
+To emulate PBFT we need to enforce a leaderset of size `1` and make epochs infinite.
+Apply the following changes to server configuration:
+* Set `maxLeaders` to `1`.
+* Set `bucketRotationPeriod` to a very high number, higher than the expected number of batches for the duration of your experiment.
+* Set `sigSharding` to `false` to disable the SVS optimization.
+ 
  
 ### Client configuration
  Comments in `/opt/gopath/src/github.com/IBM/mirbft/sampleconfig/clientconfig/*peer-config.yml` files describe how to configure a client.
@@ -262,6 +270,8 @@ Configure the servers with the parameters in `Byzantine behavior` section of the
 * To emulate crash faults set `ByzantineDelay` to a large value, greater than `epochTimeoutNsec`.
 * To emulate censoring set `censoring` to a non-zero percentage.
 
+**NOTE:** The current code version does not implement state-transfer. Therefore, some executions with crash faults get stuck.
+
 ### Simulating protocols  without duplication prevention
 In `Byzantine behavior` section, set `byzantineDuplication` to true.
 
@@ -285,5 +295,9 @@ Throughput: #### r/s
 Requests: ####
 ```
 Moreover the script generates a file `latency.out` with latency CDF.
+
+**NOTE:** Unlike in the paper, the current code implementation supports responses to the clients, so as to easier automate the deployment.
+The latency measured here is, therefore, end-to-end: from the client request submission until the client receives enough responses inficating that the request is delivered.
+Since both data points are measured on the same machine, there is no need to synchronize server and client clocks, unlike what the paper mentions.
 
 **IMPORTANT: The evaluation script works only with python 2**
