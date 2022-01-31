@@ -125,7 +125,7 @@ type SBFT struct {
 	//nextSeqNo      map[uint64]uint64
 	lastRotation   uint64 // the first sequence number in the current rotation
 	lastCheckpoint *batchInfo
-	lastDelivered  *batchInfo
+	lastDelivered  *atomic.Value
 
 	batches                            [][]*pb.Request
 	pending                            map[uint64]map[string]*PendingEntry // bucket id -> pending request digest
@@ -292,15 +292,17 @@ func New(id uint64, sys System, dispatchers []*Dispatcher, managerDispatcher *Di
 		lowWatermark:                       0,
 		highWatermark:                      uint64(config.Config.WatermarkDist),
 		lastRotation:                       0,
-		lastDelivered: &batchInfo{
-			preprep: &pb.Preprepare{Batch: &pb.Batch{Header: nil}},
-			subject: &pb.Subject{Seq: &pb.SeqView{View: 0, Seq: 0}},
-		},
+		lastDelivered: 						new(atomic.Value),
 		lastCheckpoint: &batchInfo{
 			preprep: &pb.Preprepare{Batch: &pb.Batch{Header: nil}},
 			subject: &pb.Subject{Seq: &pb.SeqView{View: 0, Seq: 0}},
 		},
 	}
+
+	s.lastDelivered.Store(&batchInfo{
+		preprep: &pb.Preprepare{Batch: &pb.Batch{Header: nil}},
+		subject: &pb.Subject{Seq: &pb.SeqView{View: 0, Seq: 0}},
+	})
 
 	s.managerData = s.NewManagerData()
 	for i := uint64(0); i < uint64(config.Config.MaxLeaders); i++ {

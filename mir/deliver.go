@@ -56,7 +56,6 @@ func (s *SBFT) deliverBatch(batchInfo *batchInfo) {
 		}
 	}
 
-	log.Debugf("replica %d: pending size is %d", s.id, s.leaderPendingSize)
 	log.Criticalf("DELIVERING %d with %d txs", header.Seq, len(batch.Payloads))
 	tracing.MainTrace.Event(tracing.COMMIT, int64(header.Seq), 0)
 	log.Infof("replica %d batch %d: batch size is %d requests", s.id, header.Seq, len(batch.Payloads))
@@ -81,7 +80,7 @@ func (s *SBFT) deliverBatch(batchInfo *batchInfo) {
 	s.clientsLock.RUnlock()
 
 	//s.getAdapter(header.Seq).batchCompleted(header.Seq)
-	s.lastDelivered = batchInfo
+	s.lastDelivered.Store(batchInfo)
 
 	s.maybeSendCheckpoint(header.Seq)
 
@@ -95,14 +94,14 @@ func (s *SBFT) deliverBatch(batchInfo *batchInfo) {
 
 	if !ne {
 		if !s.isInRecovery() {
-			if s.lastDelivered.subject.Seq.Seq+uint64(1) == s.lastRotation+uint64(config.Config.BucketRotationPeriod) {
-				log.Debugf("replica %d: HERE last rotation :%d, lastDelivered:%d", s.id, s.lastRotation, s.lastDelivered.subject.Seq.Seq)
+			if batchInfo.subject.Seq.Seq+uint64(1) == s.lastRotation+uint64(config.Config.BucketRotationPeriod) {
+				log.Debugf("replica %d: HERE last rotation :%d, lastDelivered:%d", s.id, s.lastRotation, batchInfo.subject.Seq.Seq)
 				s.rotateBuckets()
 				s.maybeAllowMoreProposingInstances()
 			}
 		}
 	}
-	log.Infof("replica %d: request %s %s delivered on %d (completed common case)", s.id, s.lastDelivered.subject.Seq, hash2str(s.lastDelivered.subject.Digest), s.id)
+	log.Infof("replica %d: request %s %s delivered on %d (completed common case)", s.id, batchInfo.subject.Seq, hash2str(batchInfo.subject.Digest), s.id)
 
 	next, ok := s.waitingToBeDelivered[header.Seq+1]
 
@@ -133,7 +132,8 @@ func (s *SBFT) maybeDeliverBatch(bI *batchInfo) {
 		bI.timeout = s.managerDispatcher.TimerForManager(time.Duration(config.Config.EpochTimeoutNsec)*time.Nanosecond, s.requestTimeout)
 	}
 
-	if s.lastDelivered.subject.Seq.Seq == bI.subject.Seq.Seq-uint64(1) {
+	lastDelivered := s.lastDelivered.Load().(*batchInfo)
+	if lastDelivered.subject.Seq.Seq == bI.subject.Seq.Seq-uint64(1) {
 		s.deliverBatch(bI)
 		//s.processAllBacklogs()
 	} else {
@@ -142,9 +142,10 @@ func (s *SBFT) maybeDeliverBatch(bI *batchInfo) {
 }
 
 func (s *SBFT) requestTimeout() {
-	log.Criticalf("replica %d: batch timed out after: %d", s.id, s.lastDelivered.subject.Seq.Seq)
+	lastDelivered := s.lastDelivered.Load().(*batchInfo)
+	log.Criticalf("replica %d: batch timed out after: %d", s.id, lastDelivered.subject.Seq.Seq)
 	if s.primaryIDView(s.view+1) == s.id {
-		leaderToBlame := s.getLeaderOfSequence(s.lastDelivered.subject.Seq.Seq+1, s.epochConfig[s.view])
+		leaderToBlame := s.getLeaderOfSequence(lastDelivered.subject.Seq.Seq+1, s.epochConfig[s.view])
 		s.blacklistedLeaders[leaderToBlame] = 1
 		log.Criticalf("replica %d: leader to blame: %d", s.id, leaderToBlame)
 	}

@@ -36,8 +36,9 @@ In an untimely epoch change the optimization is of course not possible.
 */
 
 func (s *SBFT) maybeNewEpochConfig(epoch uint64) (bool, error) {
-	log.Infof("maybe new epoch: current view %d, potential view %d, current config last %d, last delivered %d", s.view, epoch, s.epochConfig[s.view].last, s.lastDelivered.subject.Seq.Seq)
-	if s.view < epoch && s.epochConfig[s.view].last <= s.lastDelivered.subject.Seq.Seq {
+	lastDelivered := s.lastDelivered.Load().(*batchInfo)
+	log.Infof("maybe new epoch: current view %d, potential view %d, current config last %d, last delivered %d", s.view, epoch, s.epochConfig[s.view].last, lastDelivered.subject.Seq.Seq)
+	if s.view < epoch && s.epochConfig[s.view].last <= lastDelivered.subject.Seq.Seq {
 		if s.activeView == false {
 			log.Errorf("want to change epoch but view not active")
 			return false, nil
@@ -129,7 +130,8 @@ func (s *SBFT) applyNewEpochConfig(epochConfig *epochConfig) {
 	if uint64(len(s.epochConfig[view].leaders)) == uint64(config.Config.MaxLeaders) {
 		//|| uint64(len(s.epochConfig[view].leaders)) >= s.config.N - uint64(len(s.blacklistedLeaders)) {
 		//we need to set last rotation such that the next rotation should not happen "in the past"
-		for s.lastRotation+uint64(config.Config.BucketRotationPeriod) <= s.lastDelivered.subject.Seq.Seq {
+		lastDelivered := s.lastDelivered.Load().(*batchInfo)
+		for s.lastRotation+uint64(config.Config.BucketRotationPeriod) <= lastDelivered.subject.Seq.Seq {
 			s.lastRotation += uint64(config.Config.BucketRotationPeriod)
 		}
 		s.unsetRecovery()
