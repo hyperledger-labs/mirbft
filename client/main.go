@@ -238,8 +238,9 @@ func main() {
 				request, more := <- c.queue
 				if !more {
 					if atomic.LoadInt32(&c.stop) == 1{
+						log.Infof("Request channel closed.")
 						done <- true
-						return
+						break
 					}
 				}
 				if broadcast {
@@ -260,7 +261,9 @@ func main() {
 				time.Sleep(time.Duration(timeout) * time.Nanosecond)
 			}
 		}
+		log.Infof("Done.")
 		done <- true
+		return
 	}()
 
 	<-done
