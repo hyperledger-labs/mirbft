@@ -36,7 +36,7 @@ To install Golang and requirements:
 
 `source install-local.sh`
 
-**DISCLAIMER**: The `./install-local.sh` script, among other dependencies, installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.bashrc`.
+**NOTE**: The `./install-local.sh` script, among other dependencies, installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.bashrc`.
 
 The default path to the repository is set to: `/opt/gopath/src/github.com/IBM/mirbft/`.
 
