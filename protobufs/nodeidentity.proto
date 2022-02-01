@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+option go_package = "./;protobufs";
+
+package protobufs;
+
+message NodeIdentity {
+    int32 node_id = 1;
+    string public_addr = 2;
+    string private_addr = 3;
+    int32 port = 4;
+    bytes pub_key = 5;
+}

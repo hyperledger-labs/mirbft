@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+option go_package = "./;protobufs";
+
+package protobufs;
+
+message CheckpointMsg {
+    int32 sn = 1;
+    bytes digest = 2;
+    bytes signature = 3;
+}
+
+message StableCheckpoint {
+    int32 sn = 1;
+    map<int32, bytes> proof = 2;
+}

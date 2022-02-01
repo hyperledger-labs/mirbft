@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+option go_package = "./;protobufs";
+
+package protobufs;
+
+import "request.proto";
+import "checkpoint.proto";
+import "common.proto";
+
+message PbftPreprepare {
+    int32 sn = 1;
+    int32 view = 2;
+    int32 leader = 3;
+    Batch batch = 4;
+    bool aborted = 5;
+    int64 ts = 6; // Timestamp to be set by the receiver at message reception.
+}
+
+message PbftPrepare {
+    int32 sn = 1;
+    int32 view = 2;
+    bytes digest = 3;
+}
+
+message PbftCommit {
+    int32 sn = 1;
+    int32 view = 2;
+    bytes digest = 3;
+    int64 ts = 4; // Timestamp to be set by the receiver at message reception.
+}
+
+message PbftCheckpoint {
+    repeated bytes digests = 1;
+}
+
+// Not sent over the networ, only used internally by the PBFT instance
+message PbftCatchUp {
+}
+
+message PbftViewChange {
+    int32 view = 1;                     // new view
+    int32 h = 2;                        // latest stable checkpoitn
+    map<int32,PbftPrepare> pset = 3;    // prepared requests at previous views
+    map<int32,PbftPrepare> qset = 4;    // preprepared requests at previous views
+    repeated CheckpointMsg cset = 5;    // all available checkpoints
+    int32 sender_id = 6;                // Sender ID for convenience (not strictly needed, since it's part of the ProtocolMessage already)
+}
+
+message PbftMissingPreprepareRequest {
+    int32 view = 1;
+}
+
+message PbftMissingPreprepare {
+    PbftPreprepare preprepare = 1;
+}
+
+message PbftNewView {
+    int32 view = 1;
+    map<int32, SignedMsg> vset = 2;
+    map<int32, PbftPreprepare> xset = 3;
+    CheckpointMsg checkpoint = 4;
+}

@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+option go_package = "./;protobufs";
+
+package protobufs;
+
+import "request.proto";
+
+message HotStuffNode {
+    int32 height = 1;
+    int32 view = 2;
+    bytes parent = 3; // The digest of the parent node
+    Batch batch = 4;
+    HotStuffQC certificate = 5;
+    bool aborted = 6;
+}
+
+// Since we keep a fixed leader for the segment, the vote does not contain a full node, just a reference
+message HotStuffVote {
+    int32 height = 1;
+    bytes digest = 2;
+}
+
+message HotStuffQC {
+    int32 height = 1;
+    HotStuffNode node = 2;
+    bytes signature = 3;
+}
+
+message HotStuffProposal {
+    int32 leader = 1;
+    HotStuffNode node = 2;
+}
+
+message HotStuffNewView {
+    int32 view = 1;
+    HotStuffQC certificate = 2;
+}

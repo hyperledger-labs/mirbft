@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+option go_package = "./;protobufs";
+
+package protobufs;
+
+message ClientRequest {
+    RequestID request_id = 1;
+    bytes payload = 2;
+    bytes pubkey = 3;
+    bytes signature = 4;
+}
+
+message ClientResponse {
+    int32 client_sn = 1;
+    int32 order_sn = 2;
+}
+
+message RequestID {
+    int32 client_id = 1;
+    int32 client_sn = 2;
+}
+
+message Batch {
+    repeated ClientRequest requests = 1;
+}
+
+message MissingEntryRequest {
+    int32 sn = 1;
+    bool payload_request = 2;
+}
+
+message MissingEntry {
+    int32 sn = 1;
+    Batch batch = 2;
+    bytes digest = 3;
+    bool aborted = 4;
+    int32 suspect = 5;
+    string proof = 6; // This is a dummy proof. TODO: Implement a proper one, like a Merkle proof wrt. the checkpoint.
+}
+
+message BucketSubscription {
+    int32 client_id = 1;
+}
+
+message BucketAssignment {
+    int32 epoch = 1;
+    map<int32, ListOfInt32> buckets = 2;
+}
+
+message ListOfInt32 {
+    repeated int32 vals = 1;
+}
