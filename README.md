@@ -211,7 +211,14 @@ Apply the following changes to server configuration:
 * Set `bucketRotationPeriod` to a very high number, higher than the expected number of batches for the duration of your experiment.
 * Set `sigSharding` to `false` to disable the SVS optimization.
  
+#### Emulating Parallel PBFT
+To emulate parallel PBFT instances we need to disable the bucket redistribution.
+ * Set `bucketRotationPeriod` to a very high number, higher than the expected number of batches for the duration of your experiment.
+ * Set `sigSharding` to `false` to disable the SVS optimization.
  
+ This configuration is meaningful only for a fault-free execution and under the assumption that all the requests delivered are unique.
+ For evaluating the impact of duplicate requests, see the "Performance Evaluation" section below.
+
 ### Client configuration
  Comments in `/opt/gopath/src/github.com/IBM/mirbft/sampleconfig/clientconfig/*peer-config.yml` files describe how to configure a client.
 
@@ -281,7 +288,7 @@ Performance evaluation metrics *throughput* and *latency* can be calculated with
 With /opt/gopath/src/github.com/IBM/mirbft as working directory, the script should be called as follows:
 `python tools/perf-eval.py n m [path/to/server-1.out ... path/to/server-m.out] [path/to/client-001.trc ... path/to/client-m.trc] x y`
 * `n`: the number of server log file
-* `m`: the number of client log files
+* `m`: the number of client trace files
 * `[path/to/server-1.out ... path/to/server-m.out]`: list of server *log* file paths
 * `[path/to/client-001.trc ... path/to/client-m.trc]`: list of client *trace* file paths
 * `x`: number of requests to ignore at the beginning of the experiment for throughput calculation
@@ -301,3 +308,6 @@ The latency measured here is, therefore, end-to-end: from the client request sub
 Since both data points are measured on the same machine, there is no need to synchronize server and client clocks, unlike what the paper mentions.
 
 **IMPORTANT: The evaluation script works only with python 2**
+
+### Plotting the data
+Please see detailed instructions in `plots/README.md`
