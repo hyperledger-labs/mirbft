@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
-	"sync"
 	"time"
 
 	"sync/atomic"
@@ -104,8 +102,6 @@ func main() {
 	requestsPerBatch := batchSize / payloadSize
 	period := requestsPerBatch * leaderRotationDist
 	payload := make([]byte, payloadSize, payloadSize)
-	makeParallelism := runtime.NumCPU()
-	txNo := total / makeParallelism
 
 	c, err := New(id, N, F, receivers, buckets, period, dst, int64(total),
 		osns, caCertFile, useTLS)
@@ -115,20 +111,9 @@ func main() {
 
 	log.Infof("Preparing requests...")
 
-	for j := 0; j < txNo; j++ {
-		var threads sync.WaitGroup
-		threads.Add(makeParallelism)
-		for p := 0; p < makeParallelism; p++ {
-			go func(j int) {
-				defer threads.Done()
-				seq := uint64(j)
-				select {
-				case c.queue <- c.makeRequest(payload, seq, signed):
-				default:
-				}
-			}(j*makeParallelism + p)
-		}
-		threads.Wait()
+	for j := 0; j < total; j++ {
+		seq := uint64(j)
+		c.queue[j] = c.makeRequest(payload, seq, signed)
 	}
 
 	if config.Config.Blocking {
@@ -144,6 +129,8 @@ func main() {
 	}
 
 	waitc := make([]chan struct{}, c.n)
+	stop := make(chan bool)
+
 
 	for inc := c.dst; inc < c.n+dst; inc++ {
 		i := inc % c.n
@@ -181,32 +168,30 @@ func main() {
 
 					atomic.AddInt32(&c.delivered[resp.Request.Seq], 1)
 					c.sentTimestampsLock.RLock()
-					c.trace.Event(tracing.RESP_RECEIVE, int64(int32(id)), time.Now().UnixNano()/1000-c.sentTimestamps[uint64(id)])
+					c.trace.Event(tracing.RESP_RECEIVE, int64(resp.Request.Seq), time.Now().UnixNano()/1000-c.sentTimestamps[uint64(id)])
+					log.Infof("RESPONSE %d", resp.Request.Seq)
 					c.sentTimestampsLock.RUnlock()
 					if atomic.LoadInt32(&c.delivered[resp.Request.Seq]) == int32(F+1) {
 						c.sentTimestampsLock.RLock()
-						c.trace.Event(tracing.ENOUGH_RESP, int64(int32(id)), time.Now().UnixNano()/1000-c.sentTimestamps[uint64(id)])
+						c.trace.Event(tracing.ENOUGH_RESP, int64(resp.Request.Seq), time.Now().UnixNano()/1000-c.sentTimestamps[uint64(id)])
 						c.sentTimestampsLock.RUnlock()
 						c.submitTimestampsLock.RLock()
-						c.trace.Event(tracing.REQ_FINISHED, int64(int32(id)), time.Now().UnixNano()/1000-c.submitTimestamps[uint64(id)])
+						c.trace.Event(tracing.REQ_FINISHED, int64(resp.Request.Seq), time.Now().UnixNano()/1000-c.submitTimestamps[uint64(id)])
 						c.submitTimestampsLock.RUnlock()
-						log.Debugf("Finished %d", resp.Request.Seq)
-						c.checkInOrderDelivery(int64(resp.Request.Seq))
+						log.Infof("FINISHED %d", resp.Request.Seq)
+						c.checkInOrderDelivery(int64(atomic.LoadInt64(&c.lastDelivered)+1))
 						if atomic.LoadInt64(&c.lastDelivered) == c.numRequests-1 {
 							log.Infof("ALL DELIVERED")
-							close(c.queue)
-							atomic.StoreInt32(&c.stop, 1)
 						}
 					}
 				} else if fmt.Sprintf("%s", resp.Response) == "ACK" {
 					// Request added to pending on server side
-					log.Debugf("ACK")
+					log.Infof("ACK")
 				} else if fmt.Sprintf("%s", resp.Response) == "BUCKETS" {
 
 				} else {
 					// Request could not be processed, put request back in the queue
 					log.Infof("client: received %s from %d", fmt.Sprintf("%s", resp.Response), resp.Src)
-					c.queue <- c.makeRequest(payload, resp.Request.Seq, signed)
 				}
 			}
 		}(i)
@@ -214,66 +199,71 @@ func main() {
 
 	log.Infof("REGISTERING")
 	c.register()
+	c.totalSent = int32(clients)
 
 	<-c.registered
 
 	log.Infof("START")
-	done := make(chan bool)
 
 	// Make client stop after a predefined time, if configured
 	if config.Config.ClientRunTime != 0 {
 		log.Infof("Setting up client timeout.")
 		time.AfterFunc(time.Duration(config.Config.ClientRunTime)*time.Millisecond, func() {
-			atomic.StoreInt32(&c.stop, 1) // A non-zero value of the stop variable halts the request submissions.
-			close(c.queue)
 			log.Infof("Stopping client on timeout.")
+			stop <- true
 		})
 	}
 
-	sent := int32(clients)
 
-	go func() {
-		for atomic.LoadInt32(&c.stop) == 0 {
-			for i := 0; i < sendParallelism; i++ {
-				request, more := <- c.queue
-				if !more {
-					if atomic.LoadInt32(&c.stop) == 1{
-						log.Infof("Request channel closed.")
-						done <- true
-						break
-					}
-				}
-				if broadcast {
-					c.broadcastRequest(request)
-				} else {
-					c.sendRequest(request)
-				}
-				c.submitTimestampsLock.Lock()
-				c.submitTimestamps[request.request.Seq] = time.Now().UnixNano() / 1000 // In us
-				c.submitTimestampsLock.Unlock()
-				atomic.AddInt32(&sent, int32(clients))
-				if atomic.LoadInt32(&sent)%int32(c.period)== 0 {
-					log.Infof("Rotating buckets")
-					c.rotateBuckets()
-				}
-			}
-			if timeout > 0 {
-				time.Sleep(time.Duration(timeout) * time.Nanosecond)
-			}
-		}
-		log.Infof("Done.")
-		done <- true
-		return
-	}()
+	//var wg sync.WaitGroup
+	//// Submit requests in parallel
+	//for i := 0; i < sendParallelism; i++ {
+	//	wg.Add(1)
+	//	go c.requestWorker(&wg, timeout, broadcast, requestsPerClient, clients, sendParallelism, i)
+	//}
+	//wg.Wait()
 
-	<-done
-	log.Infof("FINISH %d", atomic.LoadInt64(&c.lastDelivered) )
+	c.submitRequests(timeout, broadcast, total, clients, sendParallelism)
+
+	log.Infof("STOPPED SENDING")
+
+	<-stop
+
+	log.Infof("FINISHED %d", atomic.LoadInt64(&c.lastDelivered) )
 	status_file.WriteString("status=FINISHED\n")
 
 	for i := 0; i < N; i++ {
 		c.stream[i].CloseSend()
 		<-waitc[i]
 	}
+}
+
+
+func (c *Client) submitRequests(timeout int64, broadcast bool, numRequests, clients, parallelism int) {
+
+	for i := 0; i < numRequests/parallelism; i++ {
+		for j:=0; j< parallelism; j++ {
+			request := c.queue[i*parallelism + j]
+			if broadcast {
+				c.broadcastRequest(request)
+			} else {
+				c.sendRequest(request)
+			}
+			c.submitTimestampsLock.Lock()
+			c.submitTimestamps[request.request.Seq] = time.Now().UnixNano() / 1000 // In us
+			c.submitTimestampsLock.Unlock()
+			atomic.AddInt32(&c.totalSent, int32(clients))
+			if atomic.LoadInt32(&c.totalSent)%int32(c.period) == 0 {
+				log.Infof("Rotating buckets")
+				c.rotateBuckets()
+			}
+		}
+		if timeout > 0 {
+			time.Sleep(time.Duration(timeout) * time.Nanosecond)
+		}
+	}
+	log.Infof("Request submitter DONE.")
+	return
 }
 
 func fatal(err error) {

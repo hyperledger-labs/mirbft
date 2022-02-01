@@ -264,7 +264,8 @@ func reqSize(req *pb.Request) int {
 
 func (s *SBFT) getBatches(batchSeq uint64) [][]*pb.Request {
 
-	if config.Config.ByzantineDelay > 0 && (s.lastDelivered.subject.Seq.Seq >= uint64(config.Config.ByzantineAfter) && s.lastDelivered.subject.Seq.Seq < uint64(config.Config.ByzantineUntil)) {
+	lastDelivered := s.lastDelivered.Load().(*batchInfo)
+	if config.Config.ByzantineDelay > 0 && (lastDelivered.subject.Seq.Seq >= uint64(config.Config.ByzantineAfter) && lastDelivered.subject.Seq.Seq < uint64(config.Config.ByzantineUntil)) {
 		return nil
 	}
 

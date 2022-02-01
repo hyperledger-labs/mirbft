@@ -35,7 +35,7 @@ func (s *SBFT) processNewRequest(request *pb.Request, digest []byte, bucket uint
 	}
 	key := hash2str(digest)
 	tracing.MainTrace.Event(tracing.REQ_RECEIVE, int64(request.Client), int64(request.Client))
-	log.Debugf("replica %d: Processing client request %s", s.id, key)
+	log.Debugf("replica %d: PROCESSING %s", s.id, key)
 	err := s.validateRequestNoHashing(request.Seq, request.Payload, request.PubKey)
 	if err != nil {
 		log.Warningf("replica %d: %s", s.id, err.Error())
@@ -72,7 +72,6 @@ func (s *SBFT) processNewRequest(request *pb.Request, digest []byte, bucket uint
 
 		log.Debugf("Added request to pending %d. New size: %d", bucket, len(s.pending[bucket]))
 		s.bucketToLeaderLock.RUnlock()
-		log.Debugf("replica %d: leaderPendingSize is %d", s.id, s.leaderPendingSize)
 		s.bucketLocks[bucket].Unlock()
 		log.Infof("replica %d: inserting %d into bucket %d", s.id, request.Seq, bucket)
 		return bucket, uint64(reqSize(request)), nil
@@ -124,7 +123,8 @@ func (s *SBFT) processRequestAdditionNotification(bucket uint64, reqSize uint64)
 
 func (s *SBFT) startBatchTimer() {
 	var duration uint64
-	if s.lastDelivered.subject.Seq.Seq >= uint64(config.Config.ByzantineAfter) && s.lastDelivered.subject.Seq.Seq < uint64(config.Config.ByzantineUntil) {
+	lastDelivered := s.lastDelivered.Load().(*batchInfo)
+	if lastDelivered.subject.Seq.Seq >= uint64(config.Config.ByzantineAfter) && lastDelivered.subject.Seq.Seq < uint64(config.Config.ByzantineUntil) {
 		duration = uint64(config.Config.BatchDurationNsec + config.Config.ByzantineDelay)
 	} else {
 		duration = uint64(config.Config.BatchDurationNsec)

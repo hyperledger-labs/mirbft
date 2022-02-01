@@ -54,7 +54,7 @@ type Client struct {
 	registrations map[uint64]bool // to how many nodes the client has registered
 	registered    chan bool       // blocking channel until the client has registered to all nodes
 
-	queue         chan *requestInfo
+	queue         []*requestInfo
 	next          chan *requestInfo
 	delivered     []int32 // counting how many nodes have delivered a request, by request sequence number
 	lastDelivered int64 // last in order delivered request sequence number
@@ -71,6 +71,7 @@ type Client struct {
 
 	dialOpts []grpc.DialOption
 
+	totalSent int32 // number of estimated transactions sent by all clients in total
 	stop int32 // Set to a non-zero value to stop submitting requests.
 
 	trace tracing.Trace
@@ -109,11 +110,11 @@ func New(id, n, f, receivers, b, period, dst int, numRequests int64,
 		stream:           make([]pb.Consensus_RequestClient, n),
 		dst:              dst,
 		registrations:    make(map[uint64]bool),
-		next:             make(chan *requestInfo, numRequests),
-		queue:            make(chan *requestInfo, numRequests),
+		queue:            make([]*requestInfo, numRequests),
 		registered:       make(chan bool),
 		delivered:        make([]int32, numRequests, numRequests),
 		lastDelivered:    -1,
+		totalSent: 		  0,
 		trace: &tracing.BufferedTrace{
 			Sampling:              tracing.TraceSampling,
 			BufferCapacity:        tracing.EventBufferSize,
@@ -189,8 +190,9 @@ func (c *Client) broadcast(msg *pb.RequestMessage, dst int) {
 }
 
 func (c *Client) send(msg *pb.RequestMessage, dst int) {
-	err := c.stream[dst].Send(msg)
-	fatal(err)
+	if err := c.stream[dst].Send(msg) ; err != nil {
+		log.Errorf("Failed sending request to %d", dst)
+	}
 }
 
 func (c *Client) makeRequest(payload []byte, seq uint64, signed bool) *requestInfo {
@@ -226,7 +228,6 @@ func (c *Client) sendRequest(request *requestInfo) {
 }
 
 func (c *Client) broadcastRequest(request *requestInfo) {
-	log.Infof("SENDING %d from %d", request.request.Seq, request.request.Nonce)
 	log.Debugf("Sending request %d with size %d", request.request.Seq, len(request.request.Payload))
 	m := &pb.RequestMessage{Request: request.request}
 	bucket := c.getBucket(request.digest)
@@ -236,10 +237,7 @@ func (c *Client) broadcastRequest(request *requestInfo) {
 
 // Registering by sending the first request to all
 func (c *Client) register() {
-	request, more := <-c.queue
-	if !more {
-		return
-	}
+	request := c.queue[0]
 
 	m := &pb.RequestMessage{Request: request.request}
 
@@ -331,10 +329,10 @@ func (c *Client) rotateBuckets() {
 }
 
 func (c *Client) checkInOrderDelivery(seq int64) {
-	log.Debugf("Checking in-order delivery for: %d", seq)
-	if seq-1 == atomic.LoadInt64(&c.lastDelivered) && atomic.LoadInt32(&c.delivered[seq]) >= int32(c.f+1) {
+	log.Infof("Checking in-order delivery for: %d", seq)
+	if atomic.LoadInt32(&c.delivered[seq]) >= int32(c.f+1) {
 		atomic.StoreInt64(&c.lastDelivered, seq)
-		log.Debugf("REQ_DELIVERED: %d", seq)
+		log.Infof("DELIVERED: %d", seq)
 		c.submitTimestampsLock.RLock()
 		c.trace.Event(tracing.REQ_DELIVERED, int64(seq), time.Now().UnixNano()/1000-c.submitTimestamps[uint64(seq)])
 		c.submitTimestampsLock.RUnlock()

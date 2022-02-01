@@ -12,8 +12,8 @@ requestSize: 500
 signatureVerification: true
 
 # Parameters that define request rate
-requestsPerClient: 100 # Total number of requests the client submits is RequestsPerClientCore*CPUs
-parallelism: 1             # Number of requests send in parallel
+requestsPerClient: 100000  # Total number of requests the client submits is RequestsPerClientCore*CPUs
+parallelism: 4             # Number of requests send in parallel
 requestRate: 1000          # Max request rate per client, in requests per second. Set to -1 for no limit.
 clients: NUM_CLIENTS       # Number of clients
 clientRunTime: 180000      # Timeout for client to submit all its requests, in milliseconds. Set to 0 for no timeout.
