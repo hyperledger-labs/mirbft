@@ -1,0 +1,32 @@
+{
+  "startCpus" : 1,
+  "hourlyBillingFlag" : true,
+  "maxMemory" : 2048,
+  "networkComponents": [
+    {
+      "maxSpeed": 1000
+    }
+  ],
+  "localDiskFlag" : true,
+  "operatingSystemReferenceCode" : "UBUNTU_18_64",
+  "privateNetworkOnlyFlag" : false,
+  "hostname" : "tiny-vs",
+  "datacenter" : {
+     "name" : "mil01"
+  },
+  "blockDevices" : [
+     {
+        "device" : "0",
+        "diskImage" : {
+           "capacity" : 25
+        }
+     }
+  ],
+  "domain" : "mpa.cloud",
+  "sshKeys" : [
+     {
+        "id" : 1651036
+     }
+  ],
+  "dedicatedAccountHostOnlyFlag" : false
+}

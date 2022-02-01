@@ -1,0 +1,32 @@
+{
+  "blockDevices": [
+    {
+      "device": "0",
+      "diskImage": {
+        "capacity": 100
+      }
+    }
+  ],
+  "datacenter": {
+    "name": "mex01"
+  },
+  "dedicatedAccountHostOnlyFlag": false,
+  "domain": "mpa.cloud",
+  "hostname": "small-vs",
+  "hourlyBillingFlag": true,
+  "localDiskFlag": true,
+  "maxMemory": 8,
+  "networkComponents": [
+    {
+      "maxSpeed": 1000
+    }
+  ],
+  "operatingSystemReferenceCode": "UBUNTU_18_64",
+  "privateNetworkOnlyFlag": false,
+  "sshKeys": [
+    {
+      "id": 1651036
+    }
+  ],
+  "startCpus": 4
+}

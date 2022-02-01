@@ -1,0 +1,143 @@
+#!/bin/bash
+# The shebang is not necessary here, as this file is NOT supposed to run as a standalone shell script.
+# It was only added for the editor to apply shell script syntax highlighting.
+
+# This is a template for the main body of the script run on the virtual server after booting.
+# The servers use a small bootstrap script (server-bootstrap-script.sh) that waits until the
+# body is uploaded to the machine as a separate file and then includes the body.
+# (It needs to be JSON-encoded and passed as a command-line argument. When starting only one machine, like the master,
+# this does not pose any problems. For slaves, however, multiple slaves in a single command quickly exhaust the limit
+# on command-line parameter length if the body of the script is passed.)
+
+# This is the template for a script that is run on the master virtual machine after boot.
+# It runs the discoverymaster application.
+# Variables starting with "ic_" need to be replaced before the script can be used.
+# Currently these variables are replaced by the corresponding content using envsubst in create-tagged-slave-instances.sh
+
+instance_tag_file=$work_dir/instance-tag
+detail_file=$work_dir/instance-detail.json
+ssh_key_file=$work_dir/ibmcloud-ssh-key
+
+git_repository=git@github.com:stchrysa/mirbft.git
+git_branch=iss
+git_directory=mirbft # Relative path from the Go source IBM repository dir ($GOPATH/src/github.com/hyperledger-labs)
+
+
+tls_directory="$work_dir/go/src/github.com/hyperledger-labs/$git_directory/deployment/tls-data"
+config_file="$work_dir/go/src/github.com/hyperledger-labs/$git_directory/config/config.yml"
+master_command_template_file=$work_dir/master-commands-template.cmd
+master_command_template_file_uploaded=$work_dir/master-commands-template-uploaded # analogous to $detail_file_uploaded
+master_command_file=$work_dir/master-commands.cmd
+
+{ # The whole script is wrapped in curly braces to redirect its output to $log_file
+
+export GOPATH=$work_dir/go
+export PATH=$PATH:$GOPATH/bin
+export PATH=$PATH:$work_dir/bin
+
+echo "INITIALZING" > $status_file
+
+echo "Changing directory to ${work_dir}"
+cd $work_dir || exit 1
+
+echo "Setting up stubborn scp."
+mkdir -p "$work_dir/bin"
+echo '#!/bin/bash
+
+retry_limit=$1
+shift
+
+scp "$@"
+exit_status=$?
+while [ $exit_status -ne 0 ] && [ $retry_limit -gt 0 ]; do
+  >&2 echo "scp failed. Retrying. Attempts left: $retry_limit"
+  retry_limit=$((retry_limit - 1))
+  sleep 2
+  scp "$@"
+  exit_status=$?
+done
+exit $exit_status
+' > "$work_dir/bin/stubborn-scp.sh"
+chmod u+x "$work_dir/bin/stubborn-scp.sh"
+
+# This is a template file.
+# The variables prefixed with "ic_" need to be substituted by envsubst.
+master_port=$ic_master_port #e.g.: 9999
+
+echo "INSTALLING" > $status_file
+
+echo "Installing private ssh key for cloud machine."
+echo "$ic_private_ssh_key" > $ssh_key_file
+chmod 0600 $ssh_key_file
+
+echo "Disabling SSH's strict host key checking to enable non-interactive git clones over ssh."
+mkdir -p ~/.ssh
+echo '
+Host *
+    StrictHostKeyChecking no
+' >> ~/.ssh/config
+
+echo "Installing Ubuntu packages."
+add-apt-repository -y ppa:longsleep/golang-backports
+
+apt-get -y update
+apt-get -y install \
+	golang-go \
+	protobuf-compiler \
+	protobuf-compiler-grpc \
+	git \
+	openssl \
+	jq \
+	graphviz
+
+echo "Disabling Go modules."
+export GO111MODULE=auto
+export GOCACHE=/root/.cache/go-build
+export GIT_SSL_NO_VERIFY=1
+
+echo "Installing golang packages. (May take a long time without producing output.)"
+
+echo "Installing gRPC for Go."
+go get -u google.golang.org/grpc
+
+echo "Installing Protobufs for Go."
+go get -u github.com/golang/protobuf/protoc-gen-go
+
+echo "Installing Zerolog for Go."
+go get -u github.com/rs/zerolog/log
+
+echo "Installing Linux Goprocinfo for Go"
+go get -u github.com/c9s/goprocinfo/linux
+
+echo "Installing Kyber for Go"
+go get -u go.dedis.ch/kyber
+go get go.dedis.ch/fixbuf
+go get golang.org/x/crypto/blake2b
+
+echo "Installing the YAML parser for Go"
+go get -u gopkg.in/yaml.v2
+
+echo "Installing go-logging for Mir-BFT"
+go get -u github.com/op/go-logging
+
+echo "Creating app folders."
+cd $GOPATH || exit 1
+mkdir -p src/github.com/hyperledger-labs
+cd src/github.com/hyperledger-labs || exit 1
+
+echo "Obtaining own IP addresses and tag."
+# Obtain public and private IP from instance detail.
+own_public_ip=$(jq -r '.primaryIpAddress' < "$detail_file")
+own_private_ip=$(jq -r '.primaryBackendIpAddress' < "$detail_file")
+#own_tag=$(jq -r '.tagReferences[0].tag.name' < "$detail_file")
+# Get tag from a separately uploaded file, in order not to rely on the cloud tagging system.
+own_tag=$(cat "$instance_tag_file")
+
+echo "Local instance info:"
+echo "Public IP: $own_public_ip"
+echo "Private IP: $own_private_ip"
+echo "Tag: $own_tag"
+
+echo "RUNNING" > $status_file
+
+} >> $log_file 2>> $log_file

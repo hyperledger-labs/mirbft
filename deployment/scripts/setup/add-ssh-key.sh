@@ -19,6 +19,3 @@ echo
 echo "Generated SSH key:         $filename"
 echo "IBM Cloud key ID:          $key_id"
 echo "Set up with template file: $template_file"
-echo
-echo "ATTENTION: This key is also used to clone the Git repository on the cloud machine."
-echo "           It must be thus (manually) added as a deploy key for that repository."
