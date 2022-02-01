@@ -19,10 +19,10 @@ import (
 	"sync"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/crypto"
-	"github.ibm.com/mir-modular/membership"
-	pb "github.ibm.com/mir-modular/protobufs"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/crypto"
+	"github.com/hyperledger-labs/mirbft/membership"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 )
 
 var (

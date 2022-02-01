@@ -16,8 +16,8 @@ package manager
 
 import (
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/membership"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/membership"
 )
 
 type leaderPolicy interface {

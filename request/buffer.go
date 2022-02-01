@@ -18,9 +18,9 @@ import (
 	"sync"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/log"
-	"github.ibm.com/mir-modular/util"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/log"
+	"github.com/hyperledger-labs/mirbft/util"
 )
 
 // Buffers Requests from a single client.

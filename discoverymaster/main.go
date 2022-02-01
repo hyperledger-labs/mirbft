@@ -22,7 +22,7 @@ import (
 
 	"github.com/rs/zerolog"
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/discovery"
+	"github.com/hyperledger-labs/mirbft/discovery"
 	"google.golang.org/grpc"
 )
 

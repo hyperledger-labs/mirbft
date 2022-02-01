@@ -14,7 +14,7 @@
 
 package tracing
 
-import "github.ibm.com/mir-modular/config"
+import "github.com/hyperledger-labs/mirbft/config"
 
 // TODO: Use https://github.com/c9s/goprocinfo for CPU load tracing.
 

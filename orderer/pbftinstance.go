@@ -22,17 +22,17 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/announcer"
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/crypto"
-	"github.ibm.com/mir-modular/log"
-	"github.ibm.com/mir-modular/manager"
-	"github.ibm.com/mir-modular/membership"
-	"github.ibm.com/mir-modular/messenger"
-	pb "github.ibm.com/mir-modular/protobufs"
-	"github.ibm.com/mir-modular/request"
-	"github.ibm.com/mir-modular/statetransfer"
-	"github.ibm.com/mir-modular/tracing"
+	"github.com/hyperledger-labs/mirbft/announcer"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/crypto"
+	"github.com/hyperledger-labs/mirbft/log"
+	"github.com/hyperledger-labs/mirbft/manager"
+	"github.com/hyperledger-labs/mirbft/membership"
+	"github.com/hyperledger-labs/mirbft/messenger"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
+	"github.com/hyperledger-labs/mirbft/request"
+	"github.com/hyperledger-labs/mirbft/statetransfer"
+	"github.com/hyperledger-labs/mirbft/tracing"
 )
 
 const (

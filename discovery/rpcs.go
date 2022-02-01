@@ -20,8 +20,8 @@ import (
 	"sync/atomic"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/crypto"
-	pb "github.ibm.com/mir-modular/protobufs"
+	"github.com/hyperledger-labs/mirbft/crypto"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 	"google.golang.org/grpc/peer"
 )
 

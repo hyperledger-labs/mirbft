@@ -18,12 +18,12 @@ import (
 	"sync"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/log"
-	"github.ibm.com/mir-modular/manager"
-	"github.ibm.com/mir-modular/membership"
-	"github.ibm.com/mir-modular/messenger"
+	"github.com/hyperledger-labs/mirbft/log"
+	"github.com/hyperledger-labs/mirbft/manager"
+	"github.com/hyperledger-labs/mirbft/membership"
+	"github.com/hyperledger-labs/mirbft/messenger"
 
-	pb "github.ibm.com/mir-modular/protobufs"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 )
 
 // Represents a simple implementation of a Checkpointer.

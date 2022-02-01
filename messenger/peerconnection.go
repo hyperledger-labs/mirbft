@@ -20,10 +20,10 @@ import (
 	"time"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/membership"
-	pb "github.ibm.com/mir-modular/protobufs"
-	"github.ibm.com/mir-modular/tracing"
-	"github.ibm.com/mir-modular/util"
+	"github.com/hyperledger-labs/mirbft/membership"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
+	"github.com/hyperledger-labs/mirbft/tracing"
+	"github.com/hyperledger-labs/mirbft/util"
 )
 
 const (

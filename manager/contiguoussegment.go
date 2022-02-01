@@ -15,8 +15,8 @@
 package manager
 
 import (
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/request"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/request"
 )
 
 // Represents a segment with a contiguous range of sequence numbers.

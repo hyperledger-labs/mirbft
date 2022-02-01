@@ -17,13 +17,13 @@ package orderer
 import (
 	"sync"
 	"sync/atomic"
-    "github.ibm.com/mir-modular/crypto"
-    "github.ibm.com/mir-modular/membership"
+    "github.com/hyperledger-labs/mirbft/crypto"
+    "github.com/hyperledger-labs/mirbft/membership"
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/log"
-	"github.ibm.com/mir-modular/manager"
-	pb "github.ibm.com/mir-modular/protobufs"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/log"
+	"github.com/hyperledger-labs/mirbft/manager"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 )
 
 // Represents a HotStuff Orderer implementation.

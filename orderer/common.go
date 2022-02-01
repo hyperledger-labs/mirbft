@@ -18,8 +18,8 @@ import (
 	"sync/atomic"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/manager"
-	pb "github.ibm.com/mir-modular/protobufs"
+	"github.com/hyperledger-labs/mirbft/manager"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 )
 
 const backlogSize = 10000

@@ -18,8 +18,8 @@ import (
 	"sync"
 
 	logger "github.com/rs/zerolog/log"
-	pb "github.ibm.com/mir-modular/protobufs"
-	"github.ibm.com/mir-modular/tracing"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
+	"github.com/hyperledger-labs/mirbft/tracing"
 )
 
 const (

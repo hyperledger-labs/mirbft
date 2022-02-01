@@ -15,7 +15,7 @@
 package checkpoint
 
 import (
-	pb "github.ibm.com/mir-modular/protobufs"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 )
 
 const (

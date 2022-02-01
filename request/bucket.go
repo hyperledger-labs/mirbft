@@ -21,8 +21,8 @@ import (
 
 	"github.com/rs/zerolog"
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/tracing"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/tracing"
 )
 
 // Represents a single bucket of client requests.

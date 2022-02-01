@@ -14,7 +14,7 @@
 
 package orderer
 
-import "github.ibm.com/mir-modular/manager"
+import "github.com/hyperledger-labs/mirbft/manager"
 
 type Instance interface {
 	init(seg manager.Segment, orderer *Orderer)

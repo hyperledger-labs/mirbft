@@ -18,7 +18,7 @@ package orderer
 
 import (
 	logger "github.com/rs/zerolog/log"
-	pb "github.ibm.com/mir-modular/protobufs"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 )
 
 // Backlogs messages by height

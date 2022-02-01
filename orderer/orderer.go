@@ -17,9 +17,9 @@ package orderer
 import (
 	"sync"
 
-	"github.ibm.com/mir-modular/log"
-	"github.ibm.com/mir-modular/manager"
-	pb "github.ibm.com/mir-modular/protobufs"
+	"github.com/hyperledger-labs/mirbft/log"
+	"github.com/hyperledger-labs/mirbft/manager"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 )
 
 // The Orderer is responsible for ordering log Entries, i.e., creating the mapping between Entries and sequence numbers.

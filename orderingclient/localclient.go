@@ -22,9 +22,9 @@ import (
 
 	"github.com/rs/zerolog"
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/config"
-	pb "github.ibm.com/mir-modular/protobufs"
-	"github.ibm.com/mir-modular/tracing"
+	"github.com/hyperledger-labs/mirbft/config"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
+	"github.com/hyperledger-labs/mirbft/tracing"
 )
 
 type LocalClient struct {

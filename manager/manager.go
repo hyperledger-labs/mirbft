@@ -17,8 +17,8 @@ package manager
 import (
 	"sync"
 
-	"github.ibm.com/mir-modular/membership"
-	"github.ibm.com/mir-modular/request"
+	"github.com/hyperledger-labs/mirbft/membership"
+	"github.com/hyperledger-labs/mirbft/request"
 )
 
 // A Manager orchestrates the interaction between the different modules (Log, Orderer, Checkpointer, ...).

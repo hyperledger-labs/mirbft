@@ -18,10 +18,10 @@ import (
 	"sync"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/log"
-	"github.ibm.com/mir-modular/messenger"
-	pb "github.ibm.com/mir-modular/protobufs"
-	"github.ibm.com/mir-modular/tracing"
+	"github.com/hyperledger-labs/mirbft/log"
+	"github.com/hyperledger-labs/mirbft/messenger"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
+	"github.com/hyperledger-labs/mirbft/tracing"
 )
 
 // Represents a responder to client requests

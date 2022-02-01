@@ -19,15 +19,15 @@ import (
 	"sync"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/log"
-	"github.ibm.com/mir-modular/membership"
-	"github.ibm.com/mir-modular/messenger"
-	pb "github.ibm.com/mir-modular/protobufs"
-	"github.ibm.com/mir-modular/request"
-	"github.ibm.com/mir-modular/statetransfer"
-	"github.ibm.com/mir-modular/tracing"
-	"github.ibm.com/mir-modular/util"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/log"
+	"github.com/hyperledger-labs/mirbft/membership"
+	"github.com/hyperledger-labs/mirbft/messenger"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
+	"github.com/hyperledger-labs/mirbft/request"
+	"github.com/hyperledger-labs/mirbft/statetransfer"
+	"github.com/hyperledger-labs/mirbft/tracing"
+	"github.com/hyperledger-labs/mirbft/util"
 )
 
 // Holds the state of the MirManager.

@@ -14,7 +14,7 @@
 
 package manager
 
-import "github.ibm.com/mir-modular/request"
+import "github.com/hyperledger-labs/mirbft/request"
 
 // Represents a segment with a non-contiguous ordered range of sequence numbers.
 // Each sequence number has a fixed distance form the previous sequence number.

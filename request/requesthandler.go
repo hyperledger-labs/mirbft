@@ -17,10 +17,10 @@ package request
 import (
 	"math/big"
 
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/crypto"
-	pb "github.ibm.com/mir-modular/protobufs"
-	"github.ibm.com/mir-modular/tracing"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/crypto"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
+	"github.com/hyperledger-labs/mirbft/tracing"
 )
 
 // TODO: It's inefficient to hash a request every time it is needed to get the request ID

@@ -14,7 +14,7 @@
 
 package log
 
-import pb "github.ibm.com/mir-modular/protobufs"
+import pb "github.com/hyperledger-labs/mirbft/protobufs"
 
 // TODO: Consider making this a protobuf message, as it may need to be contained in the missing entry response.
 type Entry struct {

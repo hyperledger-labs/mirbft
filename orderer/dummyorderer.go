@@ -19,16 +19,16 @@ import (
 	"sync"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/announcer"
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/log"
-	"github.ibm.com/mir-modular/manager"
-	"github.ibm.com/mir-modular/membership"
-	"github.ibm.com/mir-modular/messenger"
-	pb "github.ibm.com/mir-modular/protobufs"
-	"github.ibm.com/mir-modular/request"
-	"github.ibm.com/mir-modular/tracing"
-	"github.ibm.com/mir-modular/validator"
+	"github.com/hyperledger-labs/mirbft/announcer"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/log"
+	"github.com/hyperledger-labs/mirbft/manager"
+	"github.com/hyperledger-labs/mirbft/membership"
+	"github.com/hyperledger-labs/mirbft/messenger"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
+	"github.com/hyperledger-labs/mirbft/request"
+	"github.com/hyperledger-labs/mirbft/tracing"
+	"github.com/hyperledger-labs/mirbft/validator"
 )
 
 // Represents a dummy Orderer implementation (a stub).

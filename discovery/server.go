@@ -19,7 +19,7 @@ import (
 	"sync"
 
 	logger "github.com/rs/zerolog/log"
-	pb "github.ibm.com/mir-modular/protobufs"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 	"google.golang.org/grpc"
 )
 

@@ -17,8 +17,8 @@ package checkpoint
 import (
 	"sync"
 
-	"github.ibm.com/mir-modular/manager"
-	pb "github.ibm.com/mir-modular/protobufs"
+	"github.com/hyperledger-labs/mirbft/manager"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 )
 
 // The Checkpointer is responsible for running the checkpointing protocol.

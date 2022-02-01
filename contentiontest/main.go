@@ -24,16 +24,16 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.ibm.com/mir-modular/profiling"
+	"github.com/hyperledger-labs/mirbft/profiling"
 
 	"net"
 	"os"
 	"strconv"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/messenger"
-	pb "github.ibm.com/mir-modular/protobufs"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/messenger"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )

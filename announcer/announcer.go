@@ -15,7 +15,7 @@
 package announcer
 
 import (
-	"github.ibm.com/mir-modular/log"
+	"github.com/hyperledger-labs/mirbft/log"
 )
 
 // Dummy announcer implementation that only commits the Entry to the local log.

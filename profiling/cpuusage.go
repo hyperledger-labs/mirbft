@@ -20,7 +20,7 @@ import (
 
 	linuxproc "github.com/c9s/goprocinfo/linux"
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/tracing"
+	"github.com/hyperledger-labs/mirbft/tracing"
 )
 
 func StartCPUTracing(trace tracing.Trace, interval time.Duration) {

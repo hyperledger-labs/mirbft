@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.ibm.com/mir-modular/protobufs"
+	pb "github.com/hyperledger-labs/protobufs"
 )
 
 var (

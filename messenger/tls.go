@@ -21,7 +21,7 @@ import (
 	"io/ioutil"
 
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/config"
+	"github.com/hyperledger-labs/mirbft/config"
 )
 
 // Configures a TLS connection.

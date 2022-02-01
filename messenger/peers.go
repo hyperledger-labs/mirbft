@@ -23,15 +23,15 @@ import (
 	"sync"
 	"time"
 
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/membership"
-	"github.ibm.com/mir-modular/tracing"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/membership"
+	"github.com/hyperledger-labs/mirbft/tracing"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 
 	logger "github.com/rs/zerolog/log"
-	pb "github.ibm.com/mir-modular/protobufs"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 )
 
 // TODO: Move relevant constants to some config file

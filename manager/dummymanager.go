@@ -17,12 +17,12 @@ package manager
 import (
 	"sync"
 
-	"github.ibm.com/mir-modular/config"
-	"github.ibm.com/mir-modular/log"
-	"github.ibm.com/mir-modular/membership"
-	pb "github.ibm.com/mir-modular/protobufs"
-	"github.ibm.com/mir-modular/request"
-	"github.ibm.com/mir-modular/util"
+	"github.com/hyperledger-labs/mirbft/config"
+	"github.com/hyperledger-labs/mirbft/log"
+	"github.com/hyperledger-labs/mirbft/membership"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
+	"github.com/hyperledger-labs/mirbft/request"
+	"github.com/hyperledger-labs/mirbft/util"
 )
 
 // Holds the state of the DummyManager.

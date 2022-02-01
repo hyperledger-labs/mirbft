@@ -26,8 +26,8 @@ import (
 
 	"github.com/rs/zerolog"
 	logger "github.com/rs/zerolog/log"
-	"github.ibm.com/mir-modular/discovery"
-	pb "github.ibm.com/mir-modular/protobufs"
+	"github.com/hyperledger-labs/mirbft/discovery"
+	pb "github.com/hyperledger-labs/mirbft/protobufs"
 	"google.golang.org/grpc"
 )
 
