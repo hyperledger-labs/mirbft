@@ -1,0 +1,35 @@
+---
+id: CLIENT_ID
+
+n : NUM_NODES
+f : NUM_FAULTS
+
+logging: LOGGINGLEVEL  # One of {debug, info, error}
+blocking: false # Set to true for the client to wait command line input before starting
+
+# Request fromat
+requestSize: PAYLOAD
+signatureVerification: AUTH
+
+# Parameters that define request rate
+requestsPerClient: REQUESTS # Total number of requests the client submits is RequestsPerClientCore*CPUs
+parallelism: CLIENTS    # Number of concurrent clients on each client machine (running as threads in a single process).
+requestRate: REQUESTRATE   # Max request rate per client, in requests per second. Set to -1 for no limit.
+clients: CLIENT_PROCESSES        # Client processes
+clientRunTime: DURATION      # Timeout for client to submit all its requests, in milliseconds. Set to 0 for no timeout.
+
+# This parameters define how the client communicates with the servers
+broadcast: true   # If true send requests to Receivers servers estimating which server has an active bucket per request
+receivers: 3      # Number of leaders client sends requests to
+destination: 0    # if communication is dedicated
+
+# Set this parameters same as in server configuration to guess active buckets correctly
+batchSizeBytes: BATCHSIZE
+bucketRotationPeriod: EPOCH             # max epoch size in recovery & bucket rotation period in stable mode
+buckets: 2                              # total number of buckets
+
+useTLS: true
+
+servers:
+  caCertFile: "/root/tls-data/ca.pem"
+  addresses:

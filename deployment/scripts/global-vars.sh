@@ -17,17 +17,14 @@ ssh_options="-i $private_key_file -o StrictHostKeyChecking=no -o UserKnownHostsF
 trap_exit_command='{ jobs; if [ -n "$(jobs -p)" ]; then kill $(jobs -p); fi; sleep 0.5; } > /dev/null 2>&1'
 
 # Port on which the master listens.
-master_port=9999
-machine_status_poll_period=5
-
-# master system requirements
 #master_machine=cloud-machine-templates/dedicated-machine-32-CPUs-32GB-RAM-lon02.cmt
 #master_machine=cloud-machine-templates/dedicated-machine-32-CPUs-32GB-RAM-ams01.cmt
 master_machine=cloud-machine-templates/dedicated-machine-32-CPUs-32GB-RAM-fra02.cmt
 #master_machine=cloud-machine-templates/dedicated-machine-32-CPUs-32GB-RAM-mil01.cmt
 #master_machine=cloud-machine-templates/small-machine-mil01.cmt
 #master_machine=cloud-machine-templates/small-machine-fra02.cmt
-
+master_port=9999
+machine_status_poll_period=5
 
 # The maximum number of open files to be set at remote machines.
 open_files_limit=16384
@@ -56,10 +53,7 @@ remote_ready_file=$remote_work_dir/master-ready
 remote_main_log=/root/main_log.log
 remote_master_log=/root/master-log.log
 remote_slave_log=/root/slave-log.log
-
-# Key used by the instances to communicate among each other.
-remote_private_key_file=$remote_work_dir/ibmcloud-ssh-key
-
+remote_private_key_file=$remote_work_dir/ibmcloud-ssh-key # Key used by the instances to communicate among each other.
 remote_instance_detail_file=$remote_work_dir/instance-detail.json
 remote_user_script_body=$remote_work_dir/user-script-body.sh
 remote_user_script_uploaded=$remote_work_dir/user-script-uploaded
@@ -77,6 +71,11 @@ downloaded_code_dir=github.com/hyperledger-labs/mirbft/
 remote_delete_files="$remote_work_dir/experiment-output-*.tar.gz $remote_work_dir/experiment-output $remote_master_log $remote_slave_log $remote_status_file $remote_ready_file $remote_instance_tag_file $remote_master_command_file $remote_code_dir $remote_config_dir $remote_exp_dir"
 downloaded_gopath="remote-gopath"
 
+# OLDMIR
+oldmir_git_repository=git@github.ibm.com:fabric-security-research/sbft.git
+oldmir_git_branch=mir
+oldmir_git_directory=sbft # Relative path from the Go source IBM repository dir ($GOPATH/src/github.ibm.com)
+
 server_bootstrap_script=server-bootstrap-script.sh
 user_script_template_slave=user-script-slave.sh.template
 user_script_template_master=user-script-master.sh.template
@@ -93,6 +92,7 @@ $local_code_dir/log
 $local_code_dir/manager
 $local_code_dir/membership
 $local_code_dir/messenger
+$local_code_dir/oldmir
 $local_code_dir/orderer
 $local_code_dir/profiling
 $local_code_dir/request

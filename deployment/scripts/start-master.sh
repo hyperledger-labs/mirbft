@@ -42,7 +42,7 @@ ssh $ssh_options root@$master_ip "
   cd $remote_work_dir &&
   cp -r $remote_tls_directory . &&
 
-  echo 'Compiling mir-modular.' &&
+  echo 'Compiling ISS.' &&
   export PATH=\$PATH:$remote_gopath/bin:$remote_work_dir/bin &&
   export GOPATH=$remote_work_dir/go
   # Disabling go modles to be able to compile with new Go version (>=1.16.3)

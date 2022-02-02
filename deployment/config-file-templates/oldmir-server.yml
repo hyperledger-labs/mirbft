@@ -1,0 +1,43 @@
+---
+id: SERVER_ID
+n: NUM_NODES                          # number of servers
+f: NUM_FAULTS                         # number of byzantine servers tolerated
+d: 3                                  # number of dispatchers per node
+
+logging: "info"
+chainId: "chain"
+ledger: ""                            # persistent storage path
+
+maxLeaders: NUM_NODES                 # max leaderset size, set to 1 to emulate PBFT
+batchDurationNsec: BATCHTIMEOUT       # timeout to cut a batch in nanoseconds
+batchSizeBytes: BATCHSIZE             # batch size in bytes
+epochTimeoutNsec: VIEWCHANGETIMEOUT   # epoch change time out in nanoseconds
+signatureVerification: AUTH           # request signature verification
+batchSignature: false                 # batch signatures on commit messages
+payloadSharding: false                # light total order broadcast
+sigSharding: false                    # request signature verification sharding
+watermarkDist: 64                     # low to high watermaks distance in number of batches
+checkpointDist: 16                    # checkpoint distance in number of batches
+bucketRotationPeriod: EPOCH           # max epoch size in recovery & bucket rotation period in stable mode
+clientWatermarkDist: WATERMARK        # number of parallel requests per client
+buckets: 2                            # buckets per leader !!!!!!!!!!!!! PER LEADER !!!!!!!!!!!!!!!!!!!!
+
+# Byzantine behavior
+byzantineDuplication: false           # if true nodes do not filter out preprepared or delivered requests
+censoring: 0                          # the percentage of requests a malicious node drops [0..100]
+byzantineDelay: 0                     # time added to batch timeout in nanoseconds
+byzantineAfter: 0                     # Adding Byzantine delay for sequence numbers greater or equal to ByzantineAfter
+byzantineUntil: 0                     # Adding Byzantine delay for sequence numbers lees than ByzantineUntil
+
+# Local (sever-side) load generation for testing
+requestSize: PAYLOAD
+requestsPerClientCore: 0
+
+useTLS: USE_TLS                       # Use TLS for both peer-to-peer and client-to-peer communication
+serverConnectionBuffer: 2
+self:
+  listen: LISTEN_ENDPOINT
+  caCertFile: "/opt/gopath/src/github.ibm.com/sbft/sampleconfig/certs/ecdsa/ca.pem"
+  keyFile: "/opt/gopath/src/github.ibm.com/sbft/sampleconfig/certs/ecdsa/server1.key"
+  certFile: "/opt/gopath/src/github.ibm.com/sbft/sampleconfig/certs/ecdsa/server1.pem"
+servers:
