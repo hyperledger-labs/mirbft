@@ -22,8 +22,6 @@ init_command="
   rsync --progress -rptz -e \"ssh $ssh_options\" root@$master_ip:$remote_gopath/bin/* $remote_gopath/bin/ &&
   mkdir -p config &&
 
-  stubborn-scp.sh 5 $ssh_options $master_ip:$remote_code_dir/oldmir/oldmir-start.sh $remote_work_dir/bin &&
-  chmod u+x $remote_work_dir/bin/oldmir-start.sh"
 
 slave_command="
   ulimit -Sn $open_files_limit &&

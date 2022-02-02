@@ -71,11 +71,6 @@ downloaded_code_dir=github.com/hyperledger-labs/mirbft/
 remote_delete_files="$remote_work_dir/experiment-output-*.tar.gz $remote_work_dir/experiment-output $remote_master_log $remote_slave_log $remote_status_file $remote_ready_file $remote_instance_tag_file $remote_master_command_file $remote_code_dir $remote_config_dir $remote_exp_dir"
 downloaded_gopath="remote-gopath"
 
-# OLDMIR
-oldmir_git_repository=git@github.ibm.com:fabric-security-research/sbft.git
-oldmir_git_branch=mir
-oldmir_git_directory=sbft # Relative path from the Go source IBM repository dir ($GOPATH/src/github.ibm.com)
-
 server_bootstrap_script=server-bootstrap-script.sh
 user_script_template_slave=user-script-slave.sh.template
 user_script_template_master=user-script-master.sh.template
@@ -92,7 +87,6 @@ $local_code_dir/log
 $local_code_dir/manager
 $local_code_dir/membership
 $local_code_dir/messenger
-$local_code_dir/oldmir
 $local_code_dir/orderer
 $local_code_dir/profiling
 $local_code_dir/request
