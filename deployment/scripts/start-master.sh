@@ -42,7 +42,7 @@ ssh $ssh_options root@$master_ip "
   cd $remote_work_dir &&
   cp -r $remote_tls_directory . &&
 
-  echo 'Compiling iss.' &&
+  echo 'Compiling mir-modular.' &&
   export PATH=\$PATH:$remote_gopath/bin:$remote_work_dir/bin &&
   export GOPATH=$remote_work_dir/go
   # Disabling go modles to be able to compile with new Go version (>=1.16.3)
@@ -50,8 +50,19 @@ ssh $ssh_options root@$master_ip "
   export GOCACHE=/root/.cache/go-build
   cd $remote_code_dir &&
   ./run-protoc.sh &&
-  go install ./cmd/... &&
-
+  go install ./cmd/..." || exit 6
+# &&
+#
+#  echo 'Cloning and compiling old Mir.' &&
+#  cd $remote_gopath/src/github.ibm.com &&
+#  cp $remote_code_dir/oldmir/oldmir-key . &&
+#  chmod 0700 oldmir-key &&
+#  rm -rf $oldmir_git_directory &&
+#  ssh-agent bash -c \"ssh-add oldmir-key; git clone $oldmir_git_repository\" &&
+#  cd $oldmir_git_directory &&
+#  git checkout $oldmir_git_branch &&
+#  go install ./server &&
+#  go install ./client" || exit 6
 
 ## Run threshold signature microbenchmark
 #ssh $ssh_options root@$master_ip "
