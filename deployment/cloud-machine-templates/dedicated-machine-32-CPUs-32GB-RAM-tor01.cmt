@@ -1,0 +1,32 @@
+{
+  "blockDevices": [
+    {
+      "device": "0",
+      "diskImage": {
+        "capacity": 100
+      }
+    }
+  ],
+  "datacenter": {
+    "name": "tor01"
+  },
+  "dedicatedAccountHostOnlyFlag": true,
+  "domain": "mir.cloud",
+  "hostname": "dedicated-vs",
+  "hourlyBillingFlag": true,
+  "localDiskFlag": true,
+  "maxMemory": 32768,
+  "networkComponents": [
+    {
+      "maxSpeed": 1000
+    }
+  ],
+  "operatingSystemReferenceCode": "UBUNTU_18_64",
+  "privateNetworkOnlyFlag": false,
+  "sshKeys": [
+    {
+      "id": 1651036
+    }
+  ],
+  "startCpus": 32
+}

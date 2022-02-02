@@ -1,144 +1,92 @@
-# MirBFT Library
+# Insanely Scalable State-Machine Replication (ISS)
 
-This open-source project is part of [Hyperledger Labs](https://labs.hyperledger.org/labs/mir-bft.html).
+This is a modular framework for implementing, deploying and testing a distributed ordering service.
+The main task of such a service is maintaining a totally ordered _Log_ of client _Requests_.
+This implementation uses multiple instances of an ordering protocol and multiplexes their outputs into the final _Log_.
+The ordering protocol instances running on each peer are orchestrated by a _Manager_ module that decides which instance
+is responsible for which part of the _Log_, when to execute a checkpoint protocol and which client requests are to be
+ordered by which ordering instance. The decisions of the _Manager_ must be consistent across all peers.
 
-It aims at developing a production-quality implementation of:
-- a general framework for easily implementing distributed protocols
-- the ISS Byzantine fault tolerant consensus protocol.
+The _Log_ is a sequence of _Entries_. Each _Entry_ has a _sequence number_ (_SN_) defining its position in the _Log_,
+and contains a _Batch_ of _Requests_.
+The _Log_ is logically partitioned into _Segments_ - parts of the _Log_ attributed to a single instance of an ordering
+protocol. It is the _Manager_'s task to create these _Segments_ and to instantiate the ordering protocol for each
+created _Segment_.
 
-ISS is the new generation of the [Mir-BFT protocol](https://arxiv.org/abs/1906.05552)
-and a link to its detailed description will be added here shortly.
-The aim of the Mir-BFT library is integration with Hyperledger Fabric, specifically its ordering service.
-Being framed as a library, however, MirBFT's goal is also to serve as a general-purpose high-performance BFT component
-of other projects as well.
+The set of all possible client _Requests_ is partitioned (based on their hashes) into subsets called _Buckets_.
+The manager assigns a _Bucket_ to each _Segment_ it creates. The ordering protocol instance ordering that _Segment_
+only creates batches of _Requests_ using the assigned _Bucket_. It is the _Manager_'s task to create _Segments_ and
+assign _Buckets_ in a way ensuring that no two _Segments_ that are being ordered concurrently are assigned the same
+_Bucket_. This is required to prevent request duplication.
 
-The [research branch](https://github.com/hyperledger-labs/mirbft/tree/research) contains code developed independently
-as a research prototype and was used to produce experimental results
-for the [research paper](https://arxiv.org/abs/1906.05552).
+The _Manager_ observes the _Log_ and creates new _Segments_ as the _Log_ fills up.
+When the _Manager_ creates a new _Segment_, it triggers the _Orderer_ that orders the _Segment_.
+Ordering a _Segment_ means committing new _Entries_ with the _SNs_ of that _Segment_.
+Periodically, the _Manager_ triggers the _Checkpointer_ to create checkpoints of the _Log_.
+The _Manager_ observes the created checkpoints and issues new _Segments_ as the checkpoints advance, respecting the
+_watermark window_.
 
-## Current status
+## Installation
+The `run-protoc.sh` script needs to be run from the project root directory (i.e. `mirbft`) before compiling the Go
+files. Compile and install the go code by running `go install ./...` from the main project directory.
 
-This library is in development and not usable yet.
-This document describes what the library _should become_ rather than what it _currently is_.
-This document itself is more than likely to still change.
-You are more than welcome to contribute to accelerating the development of the MirBFT library.
-Have a look at the [Contributions section](#contributing) if you want to help out!
+**IMPORTANT**: go modules are not supported. Disable with the command: `export GO111MODULE=off` before installation.
 
-[![Build Status](https://github.com/hyperledger-labs/mirbft/actions/workflows/test.yml/badge.svg)](https://github.com/hyperledger-labs/mirbft/actions)
-[![GoDoc](https://godoc.org/github.com/hyperledger-labs/mirbft?status.svg)](https://godoc.org/github.com/hyperledger-labs/mirbft)
+## Deployment & Permformance Metrics
+Detailed instructions can be found  [here](https://github.com/hyperledger-labs/mirbft/tree/research-iss/deployment).
 
-## Overview
 
-MirBFT is a library implementing the ISS protocol (and, in the future, other protocols)
-in a network transport, storage, and cryptographic algorithm agnostic way.
-MirBFT hopes to be a building block of a next generation of distributed systems,
-providing an implementation of [atomic broadcast](https://en.wikipedia.org/wiki/Atomic_broadcast)
-which can be utilized by any distributed system.
+## Glossary of terms 
 
-MirBFT/ISS improves on traditional atomic broadcast protocols
-like [PBFT](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/01/p398-castro-bft-tocs.pdf) and Raft
-which always have a single active leader by allowing concurrent leaders
-and reconciling total order in a deterministic way.
+### Batch
+An ordered sequence of client _Requests_. All _Requests_ in a _Batch_ must belong to the same _Bucket_. The _Batch_ is
+defined in the `request` package.
 
-The multi-leader nature of Mir should lead to exceptional performance
-especially on wide area networks,
-but should be suitable for LAN deployments as well.
+### Bucket
+A subset of all possible client _Requests_. Each _Request_ maps to exactly one _Bucket_ (mapping is based on the
+_Request_'s hash). The _Manager_ assigns one _Bucket_ to each _Segment_ and the _Orderer_ of the _Segment_ only uses
+_Requests_ from the assigned _Bucket_ to propose new _Batches_. The _Bucket_ is defined in the `request` package.
 
-MirBFT, decouples request payload dissemination from ordering,
-outputting totally ordered request digests rather than all request data.
-This allows for novel methods of request dissemination.
-The provided request dissemination method, however, does guarantee the availability of all request payload data.
+### Checkpointer
+Module responsible for creating checkpoints of the log. The _Checkpointer_ listens to the _Manager_, which notifies the
+_Checkpointer_ about each _SN_ at which a checkpoint should occur. The _Checkpointer_ triggers a separate instance of
+the checkpointing protocol for each such _SN_. When a checkpoint is stable, the _Checkpointer_ submits it to the _Log_.
+Defined in the `checkpointer` package.
 
-## Compiling and running tests
+### Entry
+One element of the _Log_. It contains a _sequence number_ (_SN_) defining its position in the _Log_ and a _Batch_ of
+_Requests_. Defined in the `log` package.
 
-The MirBFT library relies on Protocol Buffers.
-The `protoc` compiler and the corresponding Go plugin need to be installed.
-Moreover, some dependencies require `gcc` to be installed as well.
-On Ubuntu Linux, those can be installed using
+### Log
+A sequence of _Entries_ replicated by the peers. The `log` package implements this abstraction and all related
+functionality.
 
-```shell
-sudo snap install --classic go
-sudo snap install --classic protobuf
-sudo apt install gcc
-```
+### Manager
+Module orchestrating all components of the ordering service implementation. The _Manager_ observes the _Log_, issues
+_Segments_ and triggers the _Checkpointer_. It maintains a _watermark window_ into which all the issued _Segments_ must
+fall. The decisions of the _Manager_ must be consistent across all peers. Defined in the `manager` package.
 
-Once instaled, the Protocol Buffer files need to be generated by executing
+### Orderer
+Module implementing the actual ordering of _Batches_, i.e., committing new _Entries_ to the _Log_.
+The _Orderer_ listens to the _Manager_ for new _Segments_. Whenever the _Manager_ issues a new _Segment_, the _Orderer_
+creates a new instance of the ordering protocol that proposes and agrees on _Request_ _Batches_, one for each _SN_ that
+is part of the _Segment_. When a _Batch_ has been agreed upon for a particular _SN_, the _Orderer_ commits the
+(_SN_, _Batch_) pair as an _Entry_ to the _Log_. Defined in the `orderer` package.
 
-```shell
-go generate ./protos
-```
+### Request
+Opaque client data. Each _Request_ deterministically maps to a _Bucket_. Defined in the `request` package.
 
-in the `mirbft` root repository directory.
-This command also has to be executed each time the `.proto` files in the `protos` folder change.
+### Segment
+Part of the _Log_ ,i.e., a subset of (not necessarily contiguous) _SNs_, ordered independently by an _Orderer_.
+Segments are disjoint. No _SN_ can appear in more than one single _Segment_. The _Segment_ data structure (defined in
+the `manager` package) completely describes an instance of the ordering protocol: the _SNs_ it is responsible for, the
+sequence of leaders, the set of followers, the assigned _Bucket_, as well as information on when it is safe to start
+ordering it.
 
-Now the tests can be run by executing
+### Sequence number (SN)
+32-bit integer referencing a particilar position of the _Log_.
 
-```shell
-go test
-```
+### Watermark window
+A range of _SNs_ for which _Entries_ can be proposed. The _watermark window_ starts at the last stable checkpoint and
+has a certain length that is a system parameter.
 
-The dependencies should be downloaded and installed automatically.
-
-## Documentation
-
-For a description of the design and inner workings of the library, see [MirBFT Library Architecture](/docs).
-
-For a small demo application, see [/cmd/chat-demo](/cmd/chat-demo)
-
-TODO: Write a document on how to use the library and link it here.
-
-## Contributing
-
-**Contributions are more than welcome!**
-
-If you want to contribute, have a look at our [Contributor's guide](CONTRIBUTING.md)
-and at the open [issues](https://github.com/hyperledger-labs/mirbft/issues).
-If you have any questions (specific or general),
-do not hesitate to post them on [MirBFT's Rocket.Chat channel](https://chat.hyperledger.org/channel/mirbft).
-You can also drop an email to the active maintainer(s).
-
-### Public Bi-Weekly Community Call
-
-There is a public community call once every two weeks.
-The current status, any issues, future plans, and anything relevant to the project will be discussed.
-Whether you have any questions that you want to ask or you have a proposal to discuss, or whether you just want to listen in, feel free to join!
-
-Meeting information:
-- Time: Tuesdays in the even weeks (wrt. week number in the calendar year), between 09:00 GMT and 09:40 GMT
-- Join link: [https://us05web.zoom.us/j/82410342226?pwd=bmxnOXBxZnRUN2dyTGVWQk16RW9JUT09](https://us05web.zoom.us/j/82410342226?pwd=bmxnOXBxZnRUN2dyTGVWQk16RW9JUT09)
-- Meeting ID: 824 1034 2226
-- Passcode: HQG5z5
-- Upcoming calls:
-  * Nov 30th 2021
-  * Dec 14th 2021
-
-## Summary of references
-
-- Public Rocket.Chat channel: https://chat.hyperledger.org/channel/mirbft
-- Hyperledger Labs page: https://labs.hyperledger.org/labs/mir-bft.html
-- Paper describing the algorithm: https://arxiv.org/abs/1906.05552
-- Original PBFT paper: https://www.microsoft.com/en-us/research/wp-content/uploads/2017/01/p398-castro-bft-tocs.pdf
-
-## Active maintainer(s)
-
-- [Matej Pavlovic](https://github.com/matejpavlovic) (matopavlovic@gmail.com)
-
-## Initial committers
-
-- [Jason Yellick](https://github.com/jyellick)
-- [Matej Pavlovic](https://github.com/matejpavlovic)
-- [Chrysoula Stathakopoulou](https://github.com/stchrysa)
-- [Marko Vukolic](https://github.com/vukolic)
-
-## Sponsor
-
-[Angelo de Caro](https://github.com/adecaro) (adc@zurich.ibm.com).
-
-## License
-
-The MirBFT library source code is made available under the Apache License, version 2.0 (Apache-2.0), located in the
-[LICENSE file](LICENSE).
-
-## Acknowledgments
-
-This work has been supported in part by the European Union's Horizon 2020 research and innovation programme under grant agreement No. 780477 PRIViLEDGE.

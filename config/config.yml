@@ -1,0 +1,139 @@
+# Copyright 2022 IBM Corp. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+Logging: "debug" # Zerolog level. One of {trace, debug, info, warning, error}
+
+# Communication channel config
+UseTLS: true                # Use TLS for both peer-to-peer and client-to-peer communication
+                            # The 3 options below are ignored if UseTLS is set to false.
+CACertFile: "tls-data/ca.pem"
+KeyFile: "tls-data/auth.key"
+CertFile: "tls-data/auth.pem"
+
+PriorityConnections: 1      # Number of parallel priority connections between 2 peers
+BasicConnections: 2         # Number underlying parallel network connections for each logical connection between 2 peers.
+                            # (not counting the priority connection).
+
+TestConnections: false      # Enable testing of connections before the actual experiment starts.
+                            # Testing connections might take a long time, based on the parameters below.
+ExcessConnections: 1        # Number of extra connections to open when choosing the fastest ones.
+                            # Those connections will be closed right after the test.
+ConnectionTestMsgs: 4       # Number of messages to use for testing a single connection.
+ConnectionTestPayload: 131072 # Number of bytes in the payload of each connection test message.
+OutMessageBufsize:    1024  # If > 0, all outgoing messages are first placed in buffered channels (with buffer size
+                            # of OutMessageBufSize). One extra thread per logical connection reads messages from these
+                            # channels and sends them to on the network.
+                            # If set to 0, no channels (and no extra threads) are used.
+OutMessageBufsize: 1024     # If not zero, outgoing messages to each peer will be sent in batches each
+                            # OutMessageBatchPeriod milliseconds. This does not concern priority messages.
+                            # If zero, each message will be sent directly.
+OutMessageBatchPeriod: 0    # If not zero, outgoing messages to each peer will be sent in batches each
+                            # OutMessageBatchPeriod milliseconds. This does not concern priority messages.
+                            # If zero, each message will be sent directly.
+ThroughputCap: 100000       # In requests/s. Batches are not cut faster than at this rate.
+                            # Helps prevent timeouts when system is saturated.
+                            # Takes the system size into account, i.e., a batch with 1k requests sent to 32 peers
+                            # counts as 32k requests.
+
+# Straggler slowdown parameters
+StragglerTolerance: 1000    # Number of milliseconds that a leader can be lagging behind
+                            # before trying to decrease its batch size.
+BatchSizeIncrement: 256     # Number of requests by which a fast node increases its batch size at the end of an epoch
+                            # (Unless the node has already reached BatchSize.)
+
+# Startup config
+Orderer: "Pbft"             # Oderer type. One of {Dummy, Pbft, HotStuff, Raft}
+Manager: "Mir"              # Manager type. One of {Dummy, Mir}
+Checkpointer: "Simple"      # Checkpointer type. One of {Simple, Signing}
+Failures: 0
+CrashTiming: EpochEnd       # One of {EpochStart, EpochEnd}
+                            # For peers that are supposed to simulate a crash, CrashTiming decides whether the crash
+                            # happens at the start or at the end of the first epoch.
+
+# Dummy Manager Configuration
+CheckpointInterval:  64     # The checkpointing protocol is triggered each checkpointInterval of contiguously committed sequence numbers.
+WatermarkWindowSize: 64     # The number of "in-flight" sequence numbers.
+                            # I.e., the maximum difference between the first uncommitted sequence number and the last sequence number for which a value can be proposed, plus 1.
+
+# Mir Manager Configuration
+EpochLength: 64             # Determines the length of the epoch, if SegmentLength is not specified. Ignored otherwise.
+SegmentLength: 0            # Number of sequence numbers in a segment.
+                            # Overrides EpochLength, which may vary depending on the number of leaders.
+                            # If set to 0, epoch length remains constant (EpochLength).
+WaitForCheckpoints: true    # Wait for a stable checkpoint of an epoch before starting a new epoch.
+                            # This keeps the peers more in sync for the price of waiting longer between epochs.
+
+# Request Buffer Configuration
+ClientWatermarkWindowSize: 100
+ClientRequestBacklogSize: 100 # The number of requests beyond client's current window that are backlogged.
+
+# Leader and failure handling
+RandomSeed: 1               # Should be set to a random integer.
+LeaderPolicy: Simple        # Leader selection policy. One of {Simple, Single, Backoff, Blacklist, Combined}
+NodeToLeaderRatio: 1        # Total number of nodes devided by this number gives number of leaders
+DefaultLeaderBan: 2         # The default number of epochs a node is excluded from the leaderset once suspected.
+                            # Applies only to {Backoff, Combined} leader selection policies.
+
+# Orderer config
+NumBuckets: 16              # Total number of buckets. Should be at least as many as the number of potential leaders.
+BatchSize: 40               # Maximum number of requests per batch
+BatchTimeout: 50            # Timeout (ms) to cut batch when the bucket has less requests than the BatchSize.
+
+# PBFT Instance config
+DisabledViewChange: false   # This flag disables the view change messages and nodes instead panic, so that bugs in the normal case operation can be detected.
+ViewChangeTimeout: 20000    # Timeout (ms) to start a view change when an instance is not progressing.
+ClientTraceSampling: 10     # Only trace one out of ClientTraceSampling events at the client.
+
+# Tracing configuration
+EventBufferSize: 1048576    # (2^20) Capacity of the tracing event buffer, in number of events.
+TraceSampling:   1          # Only trace one out of TraceSampling events.
+
+# Client configuration
+ClientsPerProcess:  8       # Number of concurrent clients on each client machine (running as threads in a single process).
+RequestsPerClient: 10000    # Number of requests each client submits.
+ClientRunTime: 5000         # Timeout for client to submit all its requests, in milliseconds. Set to 0 for no timeout.
+RequestRate: 2000           # Max request rate per client, in requests per second. Set to -1 for no limit.
+HardRequestRateLimit: false # If true, the client always waits for at least 1/RequestRateLimit between any two requests.
+                            # If false, the client treats RequestRateLimit as a limit on the average request rate,
+                            # and might temporarily increase the rate to catch up with the prescribed average rate.
+RequestPayloadSize: 250     # Size of the (randomly generated) request payload in bytes.
+SignRequests:       true    # Sign client requests and verify client signatures.
+                            # If false, the 2 options below are ignored.
+VerifyRequestsEarly: false  # If true, incoming requests are verified before being added to buckets.
+                            # SignRequests must be set to true for this field to be considered.
+
+ClientPrivKeyFile: "tls-data/client-ecdsa-256.key" # Key for client request Signing.
+ClientPubKeyFile: "tls-data/client-ecdsa-256.pem" # Key for client request verification.
+PrecomputeRequests: true    # Pre-compute (and sign, if applicable) all requests at a client before starting to submit.
+                            # RequestsPerClient must not be zero if PrecomputeRequests is true.
+
+
+# System parameters
+RequestHandlerThreads: 16       # Number of threads that write incoming requests to request Buffers.
+                                # To avoid cache contention, this number should not be higher than
+                                # the number of physical cores of the machine running the peer.
+RequestInputChannelBuffer: 1024 # Buffer size of the channels to which gPRC threads are writing requests and from which
+                                # request handler threads are reading.
+
+BatchVerifier: sequential       # Determines how the requests in a batch are verified.
+                                # Possible values: sequential:
+                                #                     All requests are verified sequentially directly by the thread
+                                #                     that calls the batch verifying function.
+                                #                  parallel:
+                                #                     Each request in the batch is verified by a newly spawned
+                                #                     goroutine that lives just for that one request.
+                                #                  external:
+                                #                     A separate set of verifier threads (RequestHandlerThreads of them)
+                                #                     verifies the requests. Communication is through buffered channels.

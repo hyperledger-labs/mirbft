@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+option go_package = "./;protobufs";
+
+package protobufs;
+
+import "checkpoint.proto";
+import "dummyorderer.proto";
+import "pbftorderer.proto";
+import "hotstufforderer.proto";
+import "raftorderer.proto";
+import "request.proto";
+import "common.proto";
+
+service Messenger {
+    rpc Listen(stream ProtocolMessage) returns(stream BandwidthTestAck);
+    rpc Request(stream ClientRequest) returns(stream ClientResponse);
+    rpc Buckets(stream BucketSubscription) returns(stream BucketAssignment);
+}
+
+message ProtocolMessage {
+    int32 sender_id = 1;
+    int32 sn = 2;
+    oneof msg {
+        PbftPreprepare preprepare = 3;
+        PbftPrepare prepare = 4;
+        PbftCommit commit = 5;
+        PbftCheckpoint pbft_checkpoint = 6;
+        SignedMsg viewchange = 7;
+        PbftMissingPreprepareRequest missing_preprepare_req = 8;
+        PbftMissingPreprepare missing_preprepare = 9;
+        SignedMsg newview = 10;
+        HotStuffProposal proposal = 11;
+        SignedMsg vote = 12;
+        Timeout timeout = 13;
+        PbftPreprepare newseqno = 14;
+        CheckpointMsg checkpoint = 15;
+        DummyOrdererMsg dummy = 16;
+        ProtocolMessageBatch multi = 17;
+        BandwidthTest bandwidth_test = 18;
+        CloseConnection close = 19;
+        RaftVoteRequest raft_vote_request = 20;
+        RaftVoteResponse raft_vote_response = 21;
+        RaftAppendEntryRequest raft_append_entry_request = 22;
+        RaftAppendEntryResponse raft_append_entry_response = 23;
+        RaftAppendEntryRequest raft_newseqno = 24;
+        MissingEntryRequest missing_entry_req = 25;
+        MissingEntry missing_entry = 26;
+        PbftCatchUp pbft_catchup = 27;
+        HotStuffNewView hotstuff_newview = 28;
+    }
+}
+
+message ProtocolMessageBatch {
+    repeated ProtocolMessage msgs = 1;
+}
+
+message BandwidthTest {
+    bytes payload = 1;
+}
+
+message BandwidthTestAck {
+}
+
+message CloseConnection {
+}

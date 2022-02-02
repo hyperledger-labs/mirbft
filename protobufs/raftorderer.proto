@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+option go_package = "./;protobufs";
+
+package protobufs;
+
+import "request.proto";
+
+message RaftVoteRequest {
+    int32 term = 1;             // candidate's term
+    int32 candidate_id = 2;     // candidate requesting vote
+    int32 last_sn = 3;          // sequence number of candidate's last log entry
+    int32 last_term = 4;        // term of candidates's last log entry
+}
+
+message RaftVoteResponse {
+    int32 term = 1;             // current term
+    int32 candidate_id = 2;     // the candidate who requested the vote
+    bool vote_granted = 3;      // true if the node votes for the candidate
+}
+
+
+message RaftAppendEntryRequest {
+    int32 index = 1;
+    int32 term = 2;             // leader's term
+    int32 prev_index = 3;       // sequence number of the log entry of the segment immediately preceding
+    int32 prev_term = 4;        // term of the previous logged sn
+    Batch batch = 5;            // batch of requests
+    int32 leader_commit = 6;    // leader's commit index
+    bool aborted = 7;
+}
+
+message RaftAppendEntryResponse {
+    int32 index = 1;
+    int32 term = 2;             // current term for leader to update
+    bool success = 3;           // true if the node has a log entry matching the prevSn and prevTerm
+   int32 nextIndex = 4;              // the  index the node is expecting next
+}

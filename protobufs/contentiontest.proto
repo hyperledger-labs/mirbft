@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+option go_package = "./;protobufs";
+
+package protobufs;
+
+import "request.proto";
+
+service ContentionTest0 {
+    rpc TestContention0(stream ClientRequest) returns(stream ClientResponse);
+    rpc Control(ControlCommand) returns(ControlResponse);
+}
+
+service ContentionTest1 {
+    rpc TestContention1(stream ClientRequest) returns(stream ClientResponse);
+    rpc Control(ControlCommand) returns(ControlResponse);
+}
+
+service ContentionTestControl {
+    rpc Control(ControlCommand) returns(ControlResponse);
+}
+
+
+message ControlCommand {
+    enum Cmd {
+        START_STAT = 0;
+        STOP_STAT = 1;
+    }
+    Cmd cmd = 1;
+}
+
+message ControlResponse {
+}

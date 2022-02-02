@@ -1,0 +1,122 @@
+---
+Logging: LOGGINGLEVEL # Zerolog level. One of {trace, debug, info, warning, error}
+
+# Communication channel config
+UseTLS:               true  # Use TLS for both peer-to-peer and client-to-peer communication
+                            # The 3 options below are ignored if UseTLS is set to false.
+CACertFile:           "tls-data/ca.pem"
+KeyFile:              "tls-data/auth.key"
+CertFile:             "tls-data/auth.pem"
+
+PriorityConnections: PRIORITYCONNECTIONS  # Number of parallel priority connections between 2 peers
+BasicConnections: 2                       # Number underlying parallel network connections for each logical connection between 2 peers.
+                                          # (not counting the priority connection).
+TestConnections: false # Enable testing of connections before the actual experiment starts.
+                       # Testing connections might take a long time, based on the parameters below.
+ExcessConnections: 1 # Number of extra connections to open when choosing the fastest ones.
+                     # Those connections will be closed right after the test.
+ConnectionTestMsgs:         4 # Number of messages to use for testing a single connection.
+ConnectionTestPayload: 131072 # Number of bytes in the payload of each connection test message.
+OutMessageBufsize:    1024 # If > 0, all outgoing messages are first placed in buffered channels (with buffer size
+                           # of OutMessageBufSize). One extra thread per logical connection reads messages from these
+                           # channels and sends them to on the network.
+                           # If set to 0, no channels (and no extra threads) are used.
+OutMessageBatchPeriod: MSGBATCHPERIOD # If not zero, outgoing messages to each peer will be sent in batches each
+                                      # OutMessageBatchPeriod milliseconds. This does not concern priority messages.
+                                      # If zero, each message will be sent directly.
+ThroughputCap: THROUGHPUTCAP  # In requests/s. Batches are not cut faster than at this rate.
+                              # Helps prevent timeouts when system is saturated.
+                              # Takes the system size into account, i.e., a batch with 1k requests sent to 32 peers
+                              # counts as 32k requests.
+
+# Straggler slowdown parameters
+StragglerTolerance: 1000 # Number of milliseconds that a leader can be lagging behind
+                         # before trying to decrease its batch size.
+BatchSizeIncrement: 256 # Number of requests by which a fast node increases its batch size at the end of an epoch
+                        # (Unless the node has already reached BatchSize.)
+
+# Startup config
+Orderer: ORDERER # Oderer type. One of {Dummy, Pbft, HotStuff, Raft}
+Manager: "Mir"      # Manager type. One of {Dummy, Mir}
+Checkpointer: CHECKPOINTER # Checkpointer type. One of {Simple, Signing}
+Failures: FAILURES
+Faulty: FAULTY
+CrashTiming: CRASHTIMING # EpochStart EpochEnd
+                         # For peers that are supposed to simulate a crash, CrashTiming decides whether the crash
+                         # happens at the start or at the end of the first epoch.
+
+# Dummy Manager Configuration
+CheckpointInterval:  EPOCH  # The checkpointing protocol is triggered each checkpointInterval of contiguously committed sequence numbers.
+WatermarkWindowSize: EPOCH  # The number of "in-flight" sequence numbers.
+                            # I.e., the maximum difference between the first uncommitted sequence number and the last sequence number for which a value can be proposed, plus 1.
+
+# Mir Manager Configuration
+EpochLength: EPOCH # Determines the length of the epoch, if SegmentLength is not specified. Ignored otherwise.
+SegmentLength: SEGMENTLENGTH # Number of sequence numbers in a segment.
+                             # Overrides EpochLength, which may vary depending on the number of leaders.
+                             # If set to 0, epoch length remains constant (EpochLength).
+WaitForCheckpoints: true  # Wait for a stable checkpoint of an epoch before starting a new epoch.
+                          # This keeps the peers more in sync for the price of waiting longer between epochs.
+
+# Request Buffer Configuration
+ClientWatermarkWindowSize: WATERMARK
+ClientRequestBacklogSize: WATERMARK # The number of requests beyond client's current window that are backlogged.
+
+# Leader and failure handling
+RandomSeed: RANDOMSEED     # Should be set to a random integer.
+LeaderPolicy: LEADERPOLICY # Leader selection policy. One of {Simple, Single, Backoff, Blacklist, Combined}
+NodeToLeaderRatio: NLR        # Total number of nodes devided by this number gives number of leaders
+DefaultLeaderBan: 2        # The default number of epochs a node is excluded from the leaderset once suspected.
+                           # Applies only to {Backoff, Combined} leader selection policies.
+
+# Orderer config
+NumBuckets: BUCKETS         # Total number of buckets. Should be at least as many as the number of potential leaders.
+BatchSize: BATCHSIZE        # Maximum number of requests per batch
+BatchTimeout: BATCHTIMEOUT  # Timeout (ms) to cut batch when the bucket has less requests than the BatchSize.
+
+# PBFT Instance config
+DisabledViewChange: false # This flag disables the view change messages and nodes instead panic, so that bugs in the normal case operation can be detected.
+ViewChangeTimeout:  VIEWCHANGETIMEOUT  # Timeout (ms) to start a view change when an instance is not progressing.
+
+# Tracing configuration
+EventBufferSize: 2097152 # 2 * (2^20) Capacity of the tracing event buffer, in number of events.
+TraceSampling:   1       # Only trace one out of TraceSampling events.
+ClientTraceSampling: 10 # Only trace one out of ClientTraceSampling events at the client.
+
+# Client configuration
+ClientsPerProcess:    CLIENTS       # Number of concurrent clients on each client machine (running as threads in a single process).
+RequestsPerClient:    REQUESTS      # Number of requests each client submits.
+ClientRunTime:        DURATION      # Timeout for client to submit all its requests, in milliseconds. Set to 0 for no timeout.
+RequestRate:          REQUESTRATE   # Max request rate per client, in requests per second. Set to -1 for no limit.
+HardRequestRateLimit: HARDRATELIMIT # If true, the client always waits for at least 1/RequestRateLimit between any two requests.
+                                    # If false, the client treats RequestRateLimit as a limit on the average request rate,
+                                    # and might temporarily increase the rate to catch up with the prescribed average rate.
+
+RequestPayloadSize:  PAYLOAD       # Size of the (randomly generated) request payload in bytes.
+SignRequests:        AUTH          # Sign client requests and verify client signatures.
+                                   # If false, the 2 options below are ignored.
+VerifyRequestsEarly: VERIFYEARLY   # If true, incoming requests are verified before being added to buckets.
+                                    # SignRequests must be set to true for this field to be considered.
+ClientPrivKeyFile: "tls-data/client-ecdsa-256.key" # Key for client request Signing.
+ClientPubKeyFile:  "tls-data/client-ecdsa-256.pem" # Key for client request verification.
+PrecomputeRequests: false # Pre-compute (and sign, if applicable) all requests at a client before starting to submit.
+                          # RequestsPerClient must not be zero if PrecomputeRequests is true.
+
+# System parameters
+RequestHandlerThreads: REQUESTHANDLERTHREADS # Number of threads that write incoming requests to request Buffers.
+                                             # To avoid cache contention, this number should not be higher than
+                                             # the number of physical cores of the machine running the peer.
+                                             # If set to 0, request handler threads are completely bypassed and the
+                                             # requests are saved directly by the threads that read them from the network.
+RequestInputChannelBuffer: REQUESTINPUTBUFFER # Buffer size of the channels to which gPRC threads are writing requests and from which
+                                              # request handler threads are reading.
+BatchVerifier: BATCHVERIFIER # Determines how the requests in a batch are verified.
+                             # Possible values: sequential:
+                             #                  All requests are verified sequentially directly by the thread
+                             #                  that calls the batch verifying function.
+                             #                  parallel:
+                             #                  Each request in the batch is verified by a newly spawned
+                             #                  goroutine that lives just for that one request.
+                             #                  external:
+                             #                  A separate set of verifier threads (RequestHandlerThreads of them)
+                             #                  verifies the requests. Communication is through buffered channels.

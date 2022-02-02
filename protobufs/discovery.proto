@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+option go_package = "./;protobufs";
+
+package protobufs;
+
+import "nodeidentity.proto";
+
+service Discovery {
+    // Discovers the identities of other peers.
+    // Every new peer invokes RegisterPeer at startup.
+    // When the server (knowing the number of nodes to wait for) receives
+    // all requests, it responds to each peer with the list of
+    // identities generated for each peer and a newly assigned peer id.
+    rpc RegisterPeer (RegisterPeerRequest) returns (RegisterPeerResponse) {}
+
+    // Synchronizes the current peers.
+    // When a peer initializes connections with other peers, it invokes the SyncPeer RPC.
+    // Similarly to RegisterPeer, the RPC returns when all peers have invoked SyncPeer, releasing them simultaneously.
+    rpc SyncPeer (SyncRequest) returns (SyncResponse) {}
+
+    // Registers a client of the ordering system.
+    // Returns the identities of all ordering peers (i.e. nodes executing the ordering protocol)
+    // and a newly assigned client ID.
+    rpc RegisterClient (RegisterClientRequest) returns (RegisterClientResponse) {}
+
+    // Called by the slave to ask the master (server) for the next command to execute.
+    rpc NextCommand (SlaveStatus) returns (MasterCommand) {}
+}
+
+// PEER MESSAGES
+
+message RegisterPeerRequest {
+    string public_addr = 1;
+    string private_addr = 2;
+}
+
+// Contains identities of all registered peers and
+// a newly assigned ID of the requesting peer.
+message RegisterPeerResponse {
+    int32 new_peer_id = 1;
+    bytes priv_key = 2;
+    bytes tbls_pub_key = 3;
+    bytes tbls_priv_key_share = 4;
+    repeated NodeIdentity peers = 5;
+}
+
+message SyncRequest {
+    int32 peer_id = 1;
+}
+
+message SyncResponse {
+}
+
+// CLIENT MESSAGES
+
+message RegisterClientRequest {
+}
+
+// Contains identities of all registered peers and
+// a newly assigned ID of the requesting client.
+message RegisterClientResponse {
+    int32 new_client_id = 1;
+    repeated NodeIdentity peers = 2;
+}
+
+// SLAVE MESSAGES
+
+message SlaveStatus {
+    int32 cmd_id = 1;
+    int32 slave_id = 2;
+    int32 status = 3;
+    string message = 4;
+    string tag = 5;
+}
+
+message MasterCommand {
+    int32 cmd_id = 1;
+    oneof cmd {
+        InitSlave init_slave = 2;
+        ExecStart exec_start = 3;
+        ExecWait exec_wait = 4;
+        ExecSignal exec_signal = 5;
+        Noop noop = 6;
+        Stop stop = 7;
+    }
+}
+
+message InitSlave {
+    int32 slave_id = 1;
+}
+
+message ExecStart {
+    string name = 1;
+    string output_file_name = 2;
+    repeated string args = 3;
+}
+
+message ExecWait {
+    int32 timeout = 1;
+}
+
+message Noop {
+}
+
+message ExecSignal {
+    enum Signum {
+        DEFAULT = 0;
+        SIGHUP = 1;
+        SIGINT = 2;
+        SIGKILL = 9;
+        SIGUSR1 = 10;
+        SIGUSR2 = 12;
+        SIGTERM = 15;
+    }
+    Signum signum = 1;
+}
+
+message Stop {
+}
