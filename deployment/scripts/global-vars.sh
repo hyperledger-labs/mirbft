@@ -93,7 +93,6 @@ $local_code_dir/log
 $local_code_dir/manager
 $local_code_dir/membership
 $local_code_dir/messenger
-$local_code_dir/mirbft
 $local_code_dir/orderer
 $local_code_dir/profiling
 $local_code_dir/request
