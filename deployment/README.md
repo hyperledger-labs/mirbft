@@ -28,9 +28,13 @@ Needs to be run once at the start of the session.<br/>
 The script expects an IBM Cloud API key file named `ibmcloud-api-key`.<br/>
 If such key does not exists, the script gives instructions on how to get and register one.<br/>
 The script also creates a public - private ssh key pair named `ibmcloud-ssh-key` and `ibmcloud-ssh-key.pub` which will be used for the remote deployment.
+The ssh public key should be uploaded to IBM cloud so that it is an authorized key for each generated virtual machine.
 
 
 ## ISS Deployment
+In a nutshell, to run a set of experiments one has to perform 3 steps:
+1. Edit the configuration generation script to describe all desired experiments.
+2. Run the deployment script `deploy.sh` with the correct arguments
 
 ### deploy.sh
 
@@ -39,8 +43,8 @@ Creates a new deployment directory under `deployment-data` containing the config
 In detail:
 * It sets up a new deployment of virtual machines on IBM cloud or uses an existing deployment (see details below).
 * The deployment consists of a master machine and a set of peer (protocol nodes) and client machines.
-* The number, locations and system requirements of the virtual machines is defined in a configuration file which is provided as an argument.
-* It runs a set of experiments according to the configuration file.
+* The number, locations and system requirements of the virtual machines is defined in a configuration generation script which is provided as an argument.
+* It runs a set of experiments according to the configuration generation script.
 * It fetches to the master logs of the peers and clients per experiment.
 * It analyzes on the master the the experiments based on the logs.
 * It compresses the raw logs and fetches to the local machine the compressed logs and the results of the performance analysis per experiment.
@@ -50,20 +54,20 @@ The deployment directory is named after the deployment type: `cloud-xxxx` or `re
 
 Usage:
 
-`./deploy.sh [options] <deployment-type> <deployment-configurations> [exp-id-offset]`
+`./deploy.sh [options] deployment-type deployment-configurations [exp-id-offset]`
 
 **options:**
 
 `-i`: Init only deployment. Only the the configuration for the experiments of this deployment will be generated.
 
 
-**deployment type:**
+**deployment-type:**
 1. `cloud`: creates new cloud instances in IBM Cloud for master and slave and deploys, if not init only deployment, the experiments. 
-2. `remote <cloud-instance-info>`:  deploys the experiment configurations on existing IBM Cloud instances specified in  `cloud-instance-info`
+2. `remote path-to-cloud-instance-info`:  deploys the experiment configurations on existing IBM Cloud instances specified in a `cloud-instance-info` file. Such a file is generated for each new cloud deployment and can be found under the corresponding deployment directory (e.g., `deployment-data/cloud-0000/cloud-instance-info`)
 
-**deployment configuration:s**
-1. `new <config-gen-script>`: Creates a new set of experiment configurations based on the specified `config-gen-script` file. 
-2. `<deployment-data>`: Uses the configuration in the specified `deployment-data` directory. 
+**deployment-configurations:**
+1. `new path-to-config-gen-script`: Creates a new set of experiment configurations based on the specified `config-gen-script` script. 
+2. `deployment-data`: Uses the configuration in the specified `deployment-data` directory. 
 
 **exp-id-offset**: the offset from which the numbering of the executed experiments starts. If not defined the default value is `0`. 
 
@@ -77,13 +81,20 @@ Usage:
 ./deploy.sh -i remote deployment-data/cloud-0000/cloud-instance-info new scripts/experiment-configuration/generate-config.sh
 ```
 
-### Configuration generation script ###
-This script generates the configuration of all the experiments for a deployment. The script should output the following files:
-1. `deployment.dpl`
-2. All `config-yyyy.yml` files under a `config` directory where `yyyy` starts from `exp-id-offset`.
+### Cancelling the remote deployment
+After completing all the experiments, the remote machines can be easily cancelled by running:<br/>
+`scripts/cancel-cloud-intances.sh  tag`
 
-Any script that generates a valid configuration can be used. 
-A sample configuration generation script is found in: `scripts/experiment-configuration/generate-config.sh`
+The `tag` here can take the following values:
+* `__all__`: Destroys **all** the virtual machines on IBM cloud. **Potentially also machines running other experiments!!!**.
+* `peer`: Destroys all machines with the tag *peer*.
+* `clients1, clients16, or clients32`: Destroys all client machines with the corresponding tag. Client tags are defined in the experiment configuration file.
+* ` path-to-cloud-instance-info`: Destroys all machines listed in the corresponding `cloud-instance-info` file.
+
+### Configuration generation script ###
+This script generates the configuration of all the experiments for a deployment. 
+The script describes sets of parameters for all the experiments the deployment script will permorm.
+A sample configuration generation script is found in: `scripts/experiment-configuration/generate-config.sh`.
 
 <!--- 
 ### ic-deploy-instances.sh
