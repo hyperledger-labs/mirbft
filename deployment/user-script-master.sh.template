@@ -22,6 +22,10 @@ git_repository=git@github.com:stchrysa/mirbft.git
 git_branch=iss
 git_directory=mirbft # Relative path from the Go source IBM repository dir ($GOPATH/src/github.com/hyperledger-labs)
 
+# OLDMIR
+oldmir_git_repository=git@github.ibm.com:fabric-security-research/sbft.git
+oldmir_git_branch=mir
+oldmir_git_directory=sbft # Relative path from the Go source IBM repository dir ($GOPATH/src/github.ibm.com)
 
 tls_directory="$work_dir/go/src/github.com/hyperledger-labs/$git_directory/deployment/tls-data"
 config_file="$work_dir/go/src/github.com/hyperledger-labs/$git_directory/config/config.yml"

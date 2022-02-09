@@ -68,7 +68,7 @@ orderers="Pbft"             # Possible values: Pbft HotStuff Raft Dummy
 checkpointers="Signing"
 
 # Parameters chosen for experiments
-durations="240"            # [s]   !!! Don't forget to change the timeout in generate-master-commands.py if increasing this value !!!
+durations="30"            # [s]   !!! Don't forget to change the timeout in generate-master-commands.py if increasing this value !!!
 bandwidths="1gbit"         # any value accepted by the tc command or "unlimited" !!! ATTENTION: Adapt MaxProposeDataRate in config accordingly !!!
 payloadSizes="500"         # [Bytes]
 fixedEpochLength=false
@@ -119,12 +119,12 @@ function skip() {
 # An expriment will be run for specified target throughput, for each configuration parameters combination
 # If left empty, no experiments will run
 throughputsAuthPbft=$()
-throughputsAuthPbft[4]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthPbft[8]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthPbft[16]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthPbft[32]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthPbft[64]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthPbft[128]="8192 16384 32768 49152 57344 65536 73728 90112"
+throughputsAuthPbft[4]="1024 2048 4096"
+throughputsAuthPbft[8]=""
+throughputsAuthPbft[16]=""
+throughputsAuthPbft[32]=""
+throughputsAuthPbft[64]=""
+throughputsAuthPbft[128]=""
 throughputsNoAuthPbft=$()
 throughputsNoAuthPbft[4]=""
 throughputsNoAuthPbft[8]=""
@@ -133,12 +133,12 @@ throughputsNoAuthPbft[32]=""
 throughputsNoAuthPbft[64]=""
 throughputsNoAuthPbft[128]=""
 throughputsAuthSinglePbft=$()
-throughputsAuthSinglePbft[4]="                                              8192       16384       24576 32768 40960 49152"
-throughputsAuthSinglePbft[8]="                               4096           8192       16384 20480 24576 32768"
-throughputsAuthSinglePbft[16]="               2048           4096           8192       16384 20480 24576"
-throughputsAuthSinglePbft[32]="               2048      3072 4096 5120 6144 8192"
-throughputsAuthSinglePbft[64]="     1024      2048 2560 3072 4096 5120"
-throughputsAuthSinglePbft[128]="512 1024 1536 2048 2560 3072"
+throughputsAuthSinglePbft[4]="1024 2048 4096"
+throughputsAuthSinglePbft[8]=""
+throughputsAuthSinglePbft[16]=""
+throughputsAuthSinglePbft[32]=""
+throughputsAuthSinglePbft[64]=""
+throughputsAuthSinglePbft[128]=""
 throughputsNoAuthSinglePbft=$()
 throughputsNoAuthSinglePbft[4]=""
 throughputsNoAuthSinglePbft[8]=""

@@ -10,6 +10,8 @@ SCP_RETRY_COUNT = "10"
 MASTER_CONFIG_DIR = "experiment-config"
 MASTER_EXP_DIR="current-deployment-data"
 SLAVE_CONFIG_FILE = "config/config.yml"
+OLDMIR_SERVER_CONFIG = "config/oldmir-config-server.yml"
+OLDMIR_CLIENT_CONFIG = "config/oldmir-config-client.yml"
 LOCAL_MASTER_STATUS_FILE = "master-status"
 LOCAL_IP_ADDRESS = "127.0.0.1"
 LOCAL_MASTER_PORT = "9999"
@@ -122,6 +124,14 @@ def startPeers(expID, peers):
     output("")
 
 
+def startOldMirPeers(expID, peers):
+    output("# Start peers.")
+    for p in peers:
+        output(
+            "exec-start {0} experiment-output/{1}/slave-__id__/peer.log server {2} ".format(
+                p, expID, OLDMIR_SERVER_CONFIG))
+    output("")
+
 
 def startLocalPeers(expID, peers):
     numPeers = 0
@@ -160,6 +170,68 @@ def runClients(expID, clients):
                      # taking just slightly longer, is killed. The total timeout is still bounded by 2 * CLIENT_TIMEOUT
     output("")
 
+
+def generateOldMirConfig(expID, peers, clients):
+    numPeers = 0
+    for p in peers:
+        numPeers += numSlaves[p]
+
+    output("# Generate old mir config.")
+
+    output("discover-reset {0}".format(numPeers))
+    for p in peers:
+        output(
+            "exec-start {0} experiment-output/{1}/slave-__id__/config-gen.log "
+            "oldmir-start.sh peer $own_public_ip:$master_port {2} {3} "
+            "experiment-output/{1}/slave-__id__/peer.log __public_ip__ __private_ip__".format(
+                p, expID, SLAVE_CONFIG_FILE, OLDMIR_SERVER_CONFIG))
+    output("discover-wait")
+
+    for c in clients:
+        output(
+            "exec-start {0} experiment-output/{1}/slave-__id__/config-gen.log "
+            "oldmir-start.sh client $own_public_ip:$master_port {2} {3} ".format(
+                c, expID, SLAVE_CONFIG_FILE, OLDMIR_CLIENT_CONFIG))
+    timeoutSet = False
+    for p in peers:
+        if not timeoutSet:
+            timeout = CLIENT_TIMEOUT
+        else:
+            timeout = 1000
+        output("exec-wait {0} {2} "
+               "exec-start {0} experiment-output/{1}/slave-__id__/FAILED echo Failed to generate configuration; "
+               "exec-wait {0} 2000".format(p, expID, timeout))
+        output("sync {0}".format(p))
+    timeoutSet = False
+    for c in clients:
+        if not timeoutSet:
+            timeout = CLIENT_TIMEOUT
+        else:
+            timeout = 1000
+        output("exec-wait {0} {2} "
+               "exec-start {0} experiment-output/{1}/slave-__id__/FAILED echo Failed to generate configuration; "
+               "exec-wait {0} 2000".format(c, expID, timeout))
+        output("sync {0}".format(c))
+    output("")
+
+
+def runOldMirClients(expID, clients):
+    output("# Run clients and wait for them to stop.")
+    for c in clients:
+        output(
+            "exec-start {0} experiment-output/{1}/slave-__id__/clients.log client {2} ".format(
+                c, expID, OLDMIR_CLIENT_CONFIG))
+    timeoutSet = False
+    for c in clients:
+        if not timeoutSet:
+            timeout = CLIENT_TIMEOUT
+        else:
+            timeout = 1000
+        output("exec-wait {0} {2} "
+               "exec-start {0} experiment-output/{1}/slave-__id__/FAILED echo Client failed or timed out; "
+               "exec-wait {0} 2000".format(c, expID, timeout))
+        output("sync {0}".format(c))
+    output("")
 
 
 def runLocalClients(expID, clients):
@@ -288,6 +360,41 @@ def generateCommands(expID, peers, clients):
 
     output("")
 
+def generateOldMirCommands(expID, peers, clients):
+
+    output("#========================================")
+    output("# {0} (Old Mir)".format(expID))
+    output("#========================================")
+    output("\n")
+
+    # both peers and clients are dictionaries with slave tags as keys
+    # and the assigned config file names as the corresponding values.
+    # config is thus the assignment to slave tag to config file.
+    config = peers.copy()
+    config.update(clients)
+
+    configFiles = {key: val[0] for key, val in config.items()}
+    bandwidths = {key: val[1] for key, val in config.items()}
+
+    # slaves are all the tags of the used slaves, both peers and clients.
+    slaves = list(peers) + list(clients)
+
+    # most of these functions only need the keys (slave tags)
+    # and only pushConfigFiles() needs the values (config files) too.
+    waitForSlaves(slaves)
+    createLogDir(expID)
+    pushConfigFiles(expID, configFiles)
+    setBandwidth(expID, bandwidths)
+    generateOldMirConfig(expID, list(peers), list(clients))
+    # startOldMirPeers(expID, list(peers))
+    runOldMirClients(expID, list(clients))
+    stopPeers(list(peers))
+    unsetBandwidth(expID, bandwidths)
+    saveConfig(expID, slaves)
+    submitLogs(expID, slaves)
+    updateStatus(expID)
+
+    output("")
 
 def generateLocalCommands(expID, peers, clients):
 
@@ -352,6 +459,11 @@ def run(expID, tokens):
     global experimentIdDigits
     global skipAllExisting
 
+    runOldMir = False
+    # If oldmir is the first token, run old mir
+    if tokens[0] == "oldmir":
+        runOldMir = True
+        tokens = tokens[1:]
 
     # If special value "next" is specified as experiment ID, use the next value
     if expID == "next":
@@ -421,7 +533,10 @@ def run(expID, tokens):
             tokens = tokens[1:]
 
     if not skip:
-        if deplType in {"cloud", "remote"}:
+        # TODO: Fix this dirty old mir hack!
+        if runOldMir:
+            generateOldMirCommands(expID, peers, clients)
+        elif deplType in {"cloud", "remote"}:
             generateCommands(expID, peers, clients)
         elif deplType == "local":
             generateLocalCommands(expID, peers, clients)
