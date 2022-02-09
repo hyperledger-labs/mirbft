@@ -30,13 +30,11 @@
 # tor05 dal13
 #
 
-
 # Deployment setup
+# NOTE: this section is not meaningful for the local deployment, but the scripts try to read those parameters so it has to be here.
 machineType="cloud-machine-templates/small-machine"
 machineLocations="fra05"
-faultyMachineLocations="fra05"
-#machineLocations="sjc04 osa23 ams03 syd05 lon06 wdc07 che01 tok05 par01 dal10 fra05 mil01 mex01 tor01 tor04 seo01"
-#faultyMachineLocations="sjc04 osa23 ams03 syd05 lon06 wdc07 che01 tok05 par01 dal10 fra05 mil01 mex01 tor01 tor04 seo01"
+faultyMachineLocations="sjc04 osa23 ams03 syd05 lon06 wdc07 che01 tok05 par01 dal10 fra05 mil01 mex01 tor01 tor04 seo01"
 
 # number of client instances per node for 1/16/32 client machines
 clients1="1"    # deploys 1 client machine which run the specified number of client instances
@@ -68,7 +66,7 @@ orderers="Pbft"             # Possible values: Pbft HotStuff Raft Dummy
 checkpointers="Signing"
 
 # Parameters chosen for experiments
-durations="30"            # [s]   !!! Don't forget to change the timeout in generate-master-commands.py if increasing this value !!!
+durations="30"             # [s]   !!! Don't forget to change the timeout in generate-master-commands.py if increasing this value !!!
 bandwidths="1gbit"         # any value accepted by the tc command or "unlimited" !!! ATTENTION: Adapt MaxProposeDataRate in config accordingly !!!
 payloadSizes="500"         # [Bytes]
 fixedEpochLength=false
@@ -111,15 +109,8 @@ function skip() {
   return 1
 }
 
-# Target throughput
-# The name of the variables below correspond to:
-#       orderer configuration ("Pbft", "HotStuff", "Raft")
-#       cient authentication configuration (true -> "Auth", false -> "NoAuth"
-#       leader policy ("Single" -> "Single", other -> "")
-# An expriment will be run for specified target throughput, for each configuration parameters combination
-# If left empty, no experiments will run
 throughputsAuthPbft=$()
-throughputsAuthPbft[4]="1024 2048 4096"
+throughputsAuthPbft[4]="128 256"
 throughputsAuthPbft[8]=""
 throughputsAuthPbft[16]=""
 throughputsAuthPbft[32]=""
@@ -133,7 +124,7 @@ throughputsNoAuthPbft[32]=""
 throughputsNoAuthPbft[64]=""
 throughputsNoAuthPbft[128]=""
 throughputsAuthSinglePbft=$()
-throughputsAuthSinglePbft[4]="1024 2048 4096"
+throughputsAuthSinglePbft[4]="128 256"
 throughputsAuthSinglePbft[8]=""
 throughputsAuthSinglePbft[16]=""
 throughputsAuthSinglePbft[32]=""

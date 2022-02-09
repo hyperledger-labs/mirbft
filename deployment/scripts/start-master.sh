@@ -51,6 +51,18 @@ ssh $ssh_options root@$master_ip "
   cd $remote_code_dir &&
   ./run-protoc.sh &&
   go install ./cmd/..." || exit 6
+# &&
+#
+#  echo 'Cloning and compiling old Mir.' &&
+#  cd $remote_gopath/src/github.ibm.com &&
+#  cp $remote_code_dir/oldmir/oldmir-key . &&
+#  chmod 0700 oldmir-key &&
+#  rm -rf $oldmir_git_directory &&
+#  ssh-agent bash -c \"ssh-add oldmir-key; git clone $oldmir_git_repository\" &&
+#  cd $oldmir_git_directory &&
+#  git checkout $oldmir_git_branch &&
+#  go install ./server &&
+#  go install ./client" || exit 6
 
 ## Run threshold signature microbenchmark
 #ssh $ssh_options root@$master_ip "
