@@ -142,7 +142,7 @@ The local deployment might take a while to finish.
 You can monitor the progress of the experiment by looking at the master log file: `deployment-data/local-xxxx/master-log.log`, where `local-xxxx`
 is the directory for the experiment.
 
-### Visualizing the results
+### Processing the results
 
 For each set of experiments, after it is completed, the result summary can be found under `deployment/deployment-data/cloud-xxxx/experiment-output/result-summary.csv` (replace with `remote-xxxx` for a remote deployment).<br/>
 For each individual experiment results are under `deployment/deployment-data/cloud-xxxx/experiment-output/yyyy`,
@@ -151,15 +151,9 @@ There are two types of calculate results.<br/>
 Timeseries (`.csv` suffix) and aggregate (average) values (`.val` suffix).<br/>
 
 
-We provide two simple `Python` scripts for visualizing experimental results.
+We provide a simple `Python` script for visualizing experimental results.
 
-### Timeseries
-The command below plots the commits from all the nodes over time.<br/>
-It saves the plot in `plot.png`.<br/>
-It aggregates every 50 ms data points to smoothen the plot.<br/>
-```
-python3 scripts/analyze/plot-hist.py plot.png sampling - - deployment-data/cloud-xxxx/experiment-output/yyyy/timeline-commit-all.csv
-```
+**NOTE** to run the script you need `python3` and `matplotlib`.
 
 ### x-y plots
 Aggregate results can be plotted in a `x-y` diagram of two chosen dimentions.
@@ -169,7 +163,8 @@ For example the command below creates a latency-throughput plot for all the expe
 python3 scripts/analyze/plot-xy.py deployment-data/cloud-xxxx/result-summary.csv target-throughput throughput-trunc latency-avg-trunc
 ``` 
 
-Both commands are ran from the deployment directory.
+The command should be executed from the deployment directory.<br/>
+The script outputs a `plot.png` file.
 
 ## Using TLS
 
