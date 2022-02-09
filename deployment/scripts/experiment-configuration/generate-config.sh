@@ -34,13 +34,14 @@
 # Deployment setup
 machineType="cloud-machine-templates/small-machine"
 machineLocations="fra05"
+faultyMachineLocations="fra05"
 #machineLocations="sjc04 osa23 ams03 syd05 lon06 wdc07 che01 tok05 par01 dal10 fra05 mil01 mex01 tor01 tor04 seo01"
-faultyMachineLocations="sjc04 osa23 ams03 syd05 lon06 wdc07 che01 tok05 par01 dal10 fra05 mil01 mex01 tor01 tor04 seo01"
+#faultyMachineLocations="sjc04 osa23 ams03 syd05 lon06 wdc07 che01 tok05 par01 dal10 fra05 mil01 mex01 tor01 tor04 seo01"
 
 # number of client instances per node for 1/16/32 client machines
-clients1="1"
-clients16=""
-clients32=""
+clients1="1"    # deploys 1 client machine which run the specified number of client instances
+clients16=""    # deploys 16 client machine which run the specified number of client instances
+clients32=""    # deploys 32 client machine which run the specified number of client instances
 systemSizes="4" # Must be sorted in ascending order!
 failureCounts=(0) # For each system size, the corresponding failure count (on top of the correct nodes)
 reuseFaulty=true  # If true, both correct and faulty peers will have the same tag and will be launched together, with the same config file.
@@ -55,19 +56,19 @@ faultyPeerTag="faultyPeers"
 minConcurrentRequests=$((256 * 16384)) # Based on empirical data. At saturation, makes the throughput-latency plot nicely go up (as it is equivalent to may concurrent clients).
 requestBufferSizes="8192"
 requestHandlerThreadNums="32"
-messageBatchRates="4" # (in msgs/ms) The number of peers divided by this number gives the message batch timeout in ms
+messageBatchRates="4"       # (in msgs/ms) The number of peers divided by this number gives the message batch timeout in ms
 hardRateLimits="false"
 earlyRequestVerification="false"
-batchVerifiers="external" # possible values: sequential parallel external
-throughputCap=131072000 # The system will always be proposing requests at a rate lower than this.
-                      # Used to prevent view changes when too many batches accumulate in a bucket.
+batchVerifiers="external"   # possible values: sequential parallel external
+throughputCap=131072000     # The system will always be proposing requests at a rate lower than this.
+                            # Used to prevent view changes when too many batches accumulate in a bucket.
 
 # System composition
-orderers="Pbft" # Possible values: Pbft HotStuff Raft Dummy
+orderers="Pbft"             # Possible values: Pbft HotStuff Raft Dummy
 checkpointers="Signing"
 
 # Parameters chosen for experiments
-durations="240"             # [s]   !!! Don't forget to change the timeout in generate-master-commands.py if increasing this value !!!
+durations="240"            # [s]   !!! Don't forget to change the timeout in generate-master-commands.py if increasing this value !!!
 bandwidths="1gbit"         # any value accepted by the tc command or "unlimited" !!! ATTENTION: Adapt MaxProposeDataRate in config accordingly !!!
 payloadSizes="500"         # [Bytes]
 fixedEpochLength=false
@@ -77,21 +78,27 @@ minBuckets="16"
 minEpochLength="256"       # [entries]
 nodeConnections="1"
 minConnections="16"
-leaderPolicies="Simple"
+leaderPolicies="Simple Single"  # Possible values:
+                         #     "Single": only one node in the leaderset. Simulates the single leader version of the protocols.
+                         #     "Simple": all nodes in the leaderset
+                         #     "Blacklist": faulty nodes are blacklisted, at least 2f+1 nodes in the leaderset
+                         #     "Backoff": faulty nodes are temporarily blacklisted and their penalty exponentially increases if after reinclusion to the leaderset they are faulty again.
 leaderPolicyWithFaults="SimulatedRandomFailures"
-crashTimings="EpochStart"
-
+crashTimings="EpochStart" # Possible values:
+                          #     "EpochStart": The faulty nodes stop participating at the protocol at the beginning of the first epoch
+                          #     "EpochEnd": The faulty nodes stop participating at the protocol before proposing their last batch
+                          #     "Straggler": The faulty nodes, if in the leaderset, delay proposing their batches for 0.5*viewChangeTimeouts. Works only with Pbft orderer.
 # For the single-leader policy, override the segment/epoch length
 singleLeaderEpoch=$minEpochLength
 
 # Parameters to tune:
-batchsizes="4096"      # [requests]
-batchrates="32"         # [batches/s]
-minBatchTimeout="1000"     # [ms]
-maxBatchTimeout="4000" # [ms]
-segmentLengths="16"      # [entries]
-viewChangeTimeouts="60000" # [ms]
-nodeToLeaderRatios="1"
+batchsizes="4096"           # [requests]
+batchrates="32"             # [batches/s]
+minBatchTimeout="1000"      # [ms]
+maxBatchTimeout="4000"      # [ms]
+segmentLengths="16"         # [entries]
+viewChangeTimeouts="60000"  # [ms]
+nodeToLeaderRatios="1"      # How many nodes are initally leaders, set to 1 to have initially all nodes in the leaderset
 
 # batctimeout = minBatchTimeout, if maxLeaders/batchrate < minBatchTimeout
 #               maxBatchTimeout, if maxLeaders/batchrate > maxBatchTimeout
@@ -104,25 +111,32 @@ function skip() {
   return 1
 }
 
+# Target throughput
+# The name of the variables below correspond to:
+#       orderer configuration ("Pbft", "HotStuff", "Raft")
+#       cient authentication configuration (true -> "Auth", false -> "NoAuth"
+#       leader policy ("Single" -> "Single", other -> "")
+# An expriment will be run for specified target throughput, for each configuration parameters combination
+# If left empty, no experiments will run
 throughputsAuthPbft=$()
-throughputsAuthPbft[4]="8192"
+throughputsAuthPbft[4]="8192 16384 32768 49152 57344 65536 73728 90112"
 throughputsAuthPbft[8]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthPbft[16]="8192"
+throughputsAuthPbft[16]="8192 16384 32768 49152 57344 65536 73728 90112"
 throughputsAuthPbft[32]="8192 16384 32768 49152 57344 65536 73728 90112"
 throughputsAuthPbft[64]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthPbft[128]="1024 2046 8192 16384 32768 49152 57344 65536 73728"
+throughputsAuthPbft[128]="8192 16384 32768 49152 57344 65536 73728 90112"
 throughputsNoAuthPbft=$()
 throughputsNoAuthPbft[4]=""
 throughputsNoAuthPbft[8]=""
 throughputsNoAuthPbft[16]=""
 throughputsNoAuthPbft[32]=""
 throughputsNoAuthPbft[64]=""
-throughputsNoAuthPbft[128]="1024 2046 8192 16384 32768 49152 57344 65536 73728 90112"
+throughputsNoAuthPbft[128]=""
 throughputsAuthSinglePbft=$()
-throughputsAuthSinglePbft[4]=""
-throughputsAuthSinglePbft[8]=""
-throughputsAuthSinglePbft[16]=""
-throughputsAuthSinglePbft[32]=" 3072 4096 5120 6144 8192"
+throughputsAuthSinglePbft[4]="                                              8192       16384       24576 32768 40960 49152"
+throughputsAuthSinglePbft[8]="                               4096           8192       16384 20480 24576 32768"
+throughputsAuthSinglePbft[16]="               2048           4096           8192       16384 20480 24576"
+throughputsAuthSinglePbft[32]="               2048      3072 4096 5120 6144 8192"
 throughputsAuthSinglePbft[64]="     1024      2048 2560 3072 4096 5120"
 throughputsAuthSinglePbft[128]="512 1024 1536 2048 2560 3072"
 throughputsNoAuthSinglePbft=$()
@@ -148,12 +162,12 @@ throughputsNoAuthHotStuff[32]=""
 throughputsNoAuthHotStuff[64]=""
 throughputsNoAuthHotStuff[128]=""
 throughputsAuthSingleHotStuff=$()
-throughputsAuthSingleHotStuff[4]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthSingleHotStuff[8]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthSingleHotStuff[16]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthSingleHotStuff[32]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthSingleHotStuff[64]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsAuthSingleHotStuff[128]="8192 16384 32768 49152 57344 65536 73728 90112"
+throughputsAuthSingleHotStuff[4]=""
+throughputsAuthSingleHotStuff[8]=""
+throughputsAuthSingleHotStuff[16]=""
+throughputsAuthSingleHotStuff[32]=""
+throughputsAuthSingleHotStuff[64]=""
+throughputsAuthSingleHotStuff[128]=""
 throughputsNoAuthSingleHotStuff=$()
 throughputsNoAuthSingleHotStuff[4]=""
 throughputsNoAuthSingleHotStuff[8]=""
@@ -173,9 +187,9 @@ throughputsNoAuthRaft=$()
 throughputsNoAuthRaft[4]=""
 throughputsNoAuthRaft[8]=""
 throughputsNoAuthRaft[16]=""
-throughputsNoAuthRaft[32]="32768 35000 37000 39000 40000"
-throughputsNoAuthRaft[64]="8192 16384 32768 49152 57344 65536 73728 90112"
-throughputsNoAuthRaft[128]="40000 45000 50000 55000 57500 58000 60000"
+throughputsNoAuthRaft[32]=""
+throughputsNoAuthRaft[64]=""
+throughputsNoAuthRaft[128]=""
 throughputsAuthSingleRaft=$()
 throughputsAuthSingleRaft[4]=""
 throughputsAuthSingleRaft[8]=""
@@ -188,8 +202,8 @@ throughputsNoAuthSingleRaft[4]=""
 throughputsNoAuthSingleRaft[8]=""
 throughputsNoAuthSingleRaft[16]=""
 throughputsNoAuthSingleRaft[32]=""
-throughputsNoAuthSingleRaft[64]="2500 2800"
-throughputsNoAuthSingleRaft[128]="1536 2048"
+throughputsNoAuthSingleRaft[64]=""
+throughputsNoAuthSingleRaft[128]=""
 
 # "Round" throughput values:
 # 8192 16384 32768 49152
