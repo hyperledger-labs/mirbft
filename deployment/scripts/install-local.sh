@@ -28,7 +28,7 @@ sudo chown -R  $user:$group /opt/gopath
 export PATH=$PATH:~/go/bin/:/opt/gopath/bin/
 export GOPATH=/opt/gopath
 export GOROOT=~/go
-export GOCACHE=/root/.cache/go-build
+export GOCACHE=~/.cache/go-build
 export GIT_SSL_NO_VERIFY=1
 export GO111MODULE=off
 
@@ -36,7 +36,7 @@ cat << EOF >> ~/.bashrc
 export PATH=$PATH:~/go/bin/:/opt/gopath/bin/
 export GOPATH=/opt/gopath
 export GOROOT=~/go
-export GOCACHE=/root/.cache/go-build
+export GOCACHE=~/.cache/go-build
 export GIT_SSL_NO_VERIFY=1
 export GO111MODULE=off
 EOF

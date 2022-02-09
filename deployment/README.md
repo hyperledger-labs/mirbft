@@ -88,7 +88,16 @@ Usage:
 ./deploy.sh local new scripts/experiment-configuration/generate-local-config.sh
 ```
 
-### Cancelling the remote deployment
+### Monitoring the IBM cloud deployment
+The `deploy.sh` script may seem to hang for a while. However running and analyzing all the experiment takes time.<br/>
+Meanwhile, you can monitor their progress by looking into the master logs:
+
+Connect via ssh to the master machine (its IP can be found in `deployment-data/cloud-xxxx/cloud-instance-info` or `deployment-data/remote-xxxx/cloud-instance-info`).<br/>
+You can look at the logs of the commands the master is running in `master-log.log`.<br/>
+You can monitor the experiments that are being analyzed in `current-deployment-data/continuous-analysis.log`.
+
+
+### Cancelling the IBM cloud deployment
 After completing all the experiments, the remote machines can be easily cancelled by running:<br/>
 `scripts/cancel-cloud-intances.sh  tag`
 

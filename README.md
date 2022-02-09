@@ -58,9 +58,9 @@ Configure the `user` and `group` in `vars.sh`
 
 To install Golang and requirements: 
 
-`source install-local.sh`
+`source scripts/install-local.sh`
 
-**NOTE**: The `./install-local.sh` script, among other dependencies, installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.bashrc`.
+**NOTE**: The `install-local.sh` script, among other dependencies, installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.bashrc`.
 
 The default path to the repository is set to: `/opt/gopath/src/github.com/hyperledger-labs/mirbft/`.
 
