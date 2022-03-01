@@ -245,7 +245,7 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		// The wg is waited on before n.process() returns.
 		wg.Add(1)
 		go func(work workFunc) {
-			wg.Done()
+			defer wg.Done()
 			n.doUntilErr(work)
 		}(work)
 	}
