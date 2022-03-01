@@ -316,8 +316,8 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
 		// Add events produced by modules to the workItems buffers and handle logical time.
 
-		case clientOut := <-n.workChans.workItemInput:
-			if err := n.workItems.AddEvents(clientOut); err != nil {
+		case newEvents := <-n.workChans.workItemInput:
+			if err := n.workItems.AddEvents(newEvents); err != nil {
 				n.workErrNotifier.Fail(err)
 			}
 		case <-tickC:
