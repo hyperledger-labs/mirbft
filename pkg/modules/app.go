@@ -19,6 +19,9 @@ import (
 type App interface {
 
 	// Apply a batch of Requests to the current stat of the application.
+	// Note that the Batch only contains request references and it is up to the implementation of the App
+	// to retrieve the corresponding payloads.
+	// This can be done, for example, but having the App access the RequestStore (outside the Node).
 	Apply(batch *requestpb.Batch) error
 
 	// Snapshot returns a snapshot of the current application state in form of a byte slice.
