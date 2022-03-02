@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/peer"
 	"net"
 	"strconv"
+	"sync"
 )
 
 type RequestReceiver struct {
@@ -26,6 +27,10 @@ type RequestReceiver struct {
 
 	// The gRPC server used by this networking module.
 	grpcServer *grpc.Server
+
+	// Wait group that is notified when the grpcServer stops.
+	// Waiting on this WaitGroup makes sure that the server exit status has been recorded correctly.
+	grpcServerWg sync.WaitGroup
 
 	// Error returned from the grpcServer.Serve() call (see Start() method).
 	grpcServerError error
@@ -120,8 +125,10 @@ func (rr *RequestReceiver) Start(port int) error {
 
 	// Start the gRPC server in a separate goroutine.
 	// When the server stops, it will write its exit error into gt.grpcServerError.
+	rr.grpcServerWg.Add(1)
 	go func() {
 		rr.grpcServerError = rr.grpcServer.Serve(conn)
+		rr.grpcServerWg.Done()
 	}()
 
 	// If we got all the way here, no error occurred.
@@ -135,8 +142,9 @@ func (rr *RequestReceiver) Stop() {
 
 	rr.logger.Log(logging.LevelDebug, "Stopping request receiver.")
 
-	// Stop own gRPC server.
+	// Stop own gRPC server and wait for its exit status to be recorded.
 	rr.grpcServer.Stop()
+	rr.grpcServerWg.Wait()
 
 	rr.logger.Log(logging.LevelDebug, "Request receiver stopped.")
 }

@@ -19,34 +19,12 @@ type EventList struct {
 	list *list.List
 }
 
-// Iterator returns a pointer to an EventListIterator object used to iterate over the events in this list,
-// starting from the beginning of the list.
-func (el *EventList) Iterator() *EventListIterator {
+// Len returns the number of events in the EventList.
+func (el *EventList) Len() int {
 	if el.list == nil {
-		return &EventListIterator{}
+		return 0
 	}
-
-	return &EventListIterator{
-		currentElement: el.list.Front(),
-	}
-}
-
-// Slice returns a slice representation of the current state of the list.
-// The returned slice only contains pointers to the events in this list, no deep copying is performed.
-// Any modifications performed on the events will affect the contents of both the EventList and the returned slice.
-func (el *EventList) Slice() []*eventpb.Event {
-
-	// Create empty result slice.
-	events := make([]*eventpb.Event, 0, el.Len())
-
-	// Populate result slice by appending events one by one.
-	iter := el.Iterator()
-	for event := iter.Next(); event != nil; event = iter.Next() {
-		events = append(events, event)
-	}
-
-	// Return populated result slice.
-	return events
+	return el.list.Len()
 }
 
 // PushBack appends an event to the end of the list.
@@ -76,12 +54,52 @@ func (el *EventList) PushBackList(newEvents *EventList) *EventList {
 	return el
 }
 
-// Len returns the number of events in the EventList.
-func (el *EventList) Len() int {
-	if el.list == nil {
-		return 0
+// Slice returns a slice representation of the current state of the list.
+// The returned slice only contains pointers to the events in this list, no deep copying is performed.
+// Any modifications performed on the events will affect the contents of both the EventList and the returned slice.
+func (el *EventList) Slice() []*eventpb.Event {
+
+	// Create empty result slice.
+	events := make([]*eventpb.Event, 0, el.Len())
+
+	// Populate result slice by appending events one by one.
+	iter := el.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
+		events = append(events, event)
 	}
-	return el.list.Len()
+
+	// Return populated result slice.
+	return events
+}
+
+// StripFollowUps removes all follow-up Events from the Events in the list and returns them.
+// Note that StripFollowUps modifies the events in the list by calling Strip on each event in the EventList.
+// After StripFollowUps returns, all events in the list will have no follow-ups.
+// StripFollowUps accumulates all those follow-up Events in a new EventList that it returns.
+func (el *EventList) StripFollowUps() *EventList {
+	// Create list of follow-up Events.
+	followUps := EventList{}
+
+	// Populate list by follow-up events
+	iter := el.Iterator()
+	for event := iter.Next(); event != nil; event = iter.Next() {
+		followUps.PushBackList(Strip(event))
+	}
+
+	// Return populated list of follow-up events.
+	return &followUps
+}
+
+// Iterator returns a pointer to an EventListIterator object used to iterate over the events in this list,
+// starting from the beginning of the list.
+func (el *EventList) Iterator() *EventListIterator {
+	if el.list == nil {
+		return &EventListIterator{}
+	}
+
+	return &EventListIterator{
+		currentElement: el.list.Front(),
+	}
 }
 
 // EventListIterator is an object returned from EventList.Iterator

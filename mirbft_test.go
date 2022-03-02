@@ -160,7 +160,7 @@ var _ = Describe("Basic test", func() {
 			Transport:       "fake",
 			NumFakeRequests: 10,
 			Directory:       "mirbft-deployment-test",
-			Duration:        2 * time.Second,
+			Duration:        4 * time.Second,
 		}),
 		table.Entry("Submits 10 fake requests with 1 node, loading WAL", &deploytest.TestConfig{
 			NumReplicas:     1,
@@ -168,7 +168,7 @@ var _ = Describe("Basic test", func() {
 			Transport:       "fake",
 			NumFakeRequests: 10,
 			Directory:       "mirbft-deployment-test",
-			Duration:        2 * time.Second,
+			Duration:        4 * time.Second,
 		}),
 		table.Entry("Submits 10 fake requests with 4 nodes", &deploytest.TestConfig{
 			NumReplicas:     4,

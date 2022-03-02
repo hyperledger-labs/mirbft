@@ -1,6 +1,6 @@
 # Ignore tools
 /bin
-mircat/mircat
+cmd/mircat/mircat
 
 # Ignore coverprofiles
 *.coverprofile
