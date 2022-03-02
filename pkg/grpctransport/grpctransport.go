@@ -32,6 +32,7 @@ const (
 // one instance of a gRPC client per node.
 // A message to a node is sent as request to that node's gRPC server.
 type GrpcTransport struct {
+	UnimplementedGrpcTransportServer
 
 	// The numeric ID of the node that uses this networking module.
 	ownId t.NodeID

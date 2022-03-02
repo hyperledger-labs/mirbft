@@ -21,6 +21,7 @@ import (
 )
 
 type RequestReceiver struct {
+	UnimplementedRequestReceiverServer
 
 	// The Node to which to submit the received requests.
 	node *mirbft.Node
