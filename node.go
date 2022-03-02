@@ -229,8 +229,6 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 	// process them correspondingly, and write the results (also represented as events) in the appropriate channels.
 	// Each workFunc reads a single work item, processes it and writes its results.
 	// The looping behavior is implemented in doUntilErr.
-	// TODO: Consider unifying the reading from and writing to channels
-	//       (currently repeated inside each workFunc) outside of the workFunc.
 	for _, work := range []workFunc{
 		n.doWALWork,
 		n.doClientWork,
@@ -282,28 +280,28 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 		// can be replayed later.
 
 		case protocolEvents <- n.workItems.Protocol():
-			n.interceptEvents(n.workItems.ClearProtocol())
+			n.workItems.ClearProtocol()
 			protocolEvents = nil
 		case walEvents <- n.workItems.WAL():
-			n.interceptEvents(n.workItems.ClearWAL())
+			n.workItems.ClearWAL()
 			walEvents = nil
 		case clientEvents <- n.workItems.Client():
-			n.interceptEvents(n.workItems.ClearClient())
+			n.workItems.ClearClient()
 			clientEvents = nil
 		case hashEvents <- n.workItems.Hash():
-			n.interceptEvents(n.workItems.ClearHash())
+			n.workItems.ClearHash()
 			hashEvents = nil
 		case cryptoEvents <- n.workItems.Crypto():
-			n.interceptEvents(n.workItems.ClearCrypto())
+			n.workItems.ClearCrypto()
 			cryptoEvents = nil
 		case netEvents <- n.workItems.Net():
-			n.interceptEvents(n.workItems.ClearNet())
+			n.workItems.ClearNet()
 			netEvents = nil
 		case appEvents <- n.workItems.App():
-			n.interceptEvents(n.workItems.ClearApp())
+			n.workItems.ClearApp()
 			appEvents = nil
 		case reqStoreEvents <- n.workItems.ReqStore():
-			n.interceptEvents(n.workItems.ClearReqStore())
+			n.workItems.ClearReqStore()
 			reqStoreEvents = nil
 
 		// Handle messages received over the network, as obtained by the Net module.
@@ -365,10 +363,11 @@ func (n *Node) process(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
 // If the interceptor module is present, passes events to it. Otherwise, does nothing.
 // If an error occurs passing events to the interceptor, notifies the node by means of the workErrorNotifier.
+// Note: The passed Events should be free of any follow-up Events,
+// as those will be intercepted separately when processed.
+// Make sure to call the Strip method of the EventList before passing it to interceptEvents.
 func (n *Node) interceptEvents(events *events.EventList) {
 	if n.modules.Interceptor != nil {
-		// TODO: In case the size of follow-up events becomes significant, ignore them when intercepting
-		//       (this will probably be best implemented inside the interceptor).
 		if err := n.modules.Interceptor.Intercept(events); err != nil {
 			n.workErrNotifier.Fail(err)
 		}
