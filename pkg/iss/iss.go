@@ -38,8 +38,11 @@ import (
 // it will wait until ISS confirms that all requests referenced in the preprepare message have been received.
 type missingRequestInfo struct {
 
-	// Sequence number of the proposal for which requests are missing.
-	Sn t.SeqNr
+	// A globally unique identifier of this struct. It consists of the orderer ID
+	// and the orderer's internal reference of the proposal for which requests are missing.
+	// When notifying the orderer about the received requests, this reference is passed back to the orderer,
+	// so it can pair the notification with the corresponding SBWaitForRequests Event.
+	Ref missingRequestInfoRef
 
 	// Set of all missing requests, represented as map of request references
 	// indexed by the string representation of those request reference.
@@ -50,6 +53,19 @@ type missingRequestInfo struct {
 
 	// Ticks until a retransmission of the missing requests is requested.
 	TicksUntilNAck int // TODO: implement NAcks
+}
+
+// missingRequestInfoRef uniquely identifies a missingRequestInfo across all orderer instances
+// (the contained Ref field is only guaranteed to be unique within one SB instance, but not globally).
+// The separate type is necessary, as it is used as a map key.
+type missingRequestInfoRef struct {
+
+	// ID of the orderer that is waiting for missing requests
+	Orderer t.SBInstanceID
+
+	// Orderer's (i.e., SB instance's) internal reference to be passed back to the orderer
+	// when announcing that the missing requests have been received.
+	SBRef *isspb.SBReqWaitReference
 }
 
 // The segment type represents an ISS segment.
@@ -97,6 +113,16 @@ type commitLogEntry struct {
 	Suspect t.NodeID
 }
 
+// epochInfo holds epoch-specific information that becomes irrelevant on advancing to the next epoch.
+type epochInfo struct {
+
+	// Epoch number.
+	Nr t.EpochNr
+
+	// Orderers associated with the epoch.
+	Orderers map[t.SBInstanceID]sbInstance
+}
+
 // ============================================================
 // ISS type and constructor
 // ============================================================
@@ -132,13 +158,14 @@ type ISS struct {
 	config *Config
 
 	// The current epoch number.
-	epoch t.EpochNr
+	epoch epochInfo
 
 	// The next ID to assign to a newly created orderer.
 	// The orderers have monotonically increasing IDs that do *not* reset on epoch transitions.
 	nextOrdererID t.SBInstanceID
 
 	// Orderers (each of which is an SB instance) indexed by their IDs.
+	// Even orderers from older epochs than the current one might be included here.
 	orderers map[t.SBInstanceID]sbInstance
 
 	// Index of orderers based on the buckets they are assigned.
@@ -169,11 +196,14 @@ type ISS struct {
 	// This field drives the in-order delivery of the log entries to the application.
 	nextDeliveredSN t.SeqNr
 
-	// For each sequence number, this field holds information about the requests that the node is waiting to receive
+	// This field holds information about the requests that the node is waiting to receive
 	// before accepting a proposal for that sequence number.
+	// Each proposal has a unique reference *within its SB instance*.
+	// Thus, the map is indexed a tuple of SB instance ID and that instance's reference
+	// (packed in a missingRequestInfoRef struct).
 	// A request counts as "received" by the node when the RequestReady event for that request is applied.
 	// As soon as all requests for a proposal have been received, the corresponding entry is deleted from this map.
-	missingRequests map[t.SeqNr]*missingRequestInfo
+	missingRequests map[missingRequestInfoRef]*missingRequestInfo
 
 	// For each request that is missing
 	// (i.e. for which the proposal has been received by some orderer, but the request itself has not yet arrived),
@@ -215,7 +245,7 @@ func New(ownID t.NodeID, config *Config, logger logging.Logger) (*ISS, error) {
 
 		// Fields modified only by initEpoch
 		config:         config,
-		epoch:          0,
+		epoch:          epochInfo{},
 		nextOrdererID:  0,
 		orderers:       make(map[t.SBInstanceID]sbInstance),
 		bucketOrderers: nil,
@@ -387,12 +417,12 @@ func (iss *ISS) applyAppSnapshot(snapshot *eventpb.AppSnapshot) *events.EventLis
 func (iss *ISS) applySBEvent(event *isspb.SBEvent) *events.EventList {
 
 	switch epoch := t.EpochNr(event.Epoch); {
-	case epoch > iss.epoch:
+	case epoch > iss.epoch.Nr:
 		// Events coming from future epochs should never occur (as, unlike messages, events are all generated locally.)
 		panic(fmt.Sprintf("trying to handle ISS event (type %T, instance %d) from future epoch: %d",
 			event.Event.Type, event.Instance, event.Epoch))
 
-	case epoch == iss.epoch:
+	case epoch == iss.epoch.Nr:
 		// If the event is from the current epoch, apply it in relation to the corresponding orderer instance.
 		return iss.applySBInstanceEvent(event.Event, t.SBInstanceID(event.Instance))
 
@@ -457,7 +487,7 @@ func (iss *ISS) applyCheckpointMessage(chkpMsg *isspb.Checkpoint, source t.NodeI
 func (iss *ISS) applySBMessage(message *isspb.SBMessage, from t.NodeID) *events.EventList {
 
 	switch epoch := t.EpochNr(message.Epoch); {
-	case epoch > iss.epoch:
+	case epoch > iss.epoch.Nr:
 		// If the message is for a future epoch,
 		// it might have been sent by a node that already transitioned to a newer epoch,
 		// but this node is slightly behind (still in an older epoch) and cannot process the message yet.
@@ -465,7 +495,7 @@ func (iss *ISS) applySBMessage(message *isspb.SBMessage, from t.NodeID) *events.
 		iss.messageBuffers[from].Store(message)
 		return &events.EventList{}
 
-	case epoch == iss.epoch:
+	case epoch == iss.epoch.Nr:
 		// If the message is for the current epoch, check its validity and
 		// apply it to the corresponding orderer in form of an SBMessageReceived event.
 		if err := iss.validateSBMessage(message, from); err == nil {
@@ -504,6 +534,12 @@ func (iss *ISS) applyRetransmitRequestsMessage(req *isspb.RetransmitRequests, fr
 // initEpoch initializes a new ISS epoch with the given epoch number.
 func (iss *ISS) initEpoch(newEpoch t.EpochNr) {
 
+	// Set the new epoch number and re-initialize list of orderers.
+	iss.epoch = epochInfo{
+		Nr:       newEpoch,
+		Orderers: make(map[t.SBInstanceID]sbInstance),
+	}
+
 	// Compute the set of leaders for the new epoch.
 	// Note that leader policy is stateful, choosing leaders deterministically based on the state of the system.
 	// Its state must be consistent across all nodes when calling Leaders() on it.
@@ -515,7 +551,7 @@ func (iss *ISS) initEpoch(newEpoch t.EpochNr) {
 	// Reset missing request tracking information.
 	// These fields could still contain some data if any preprepared batches were not committed on the "good path",
 	// e.g., committed using state transfer or not committed at all.
-	iss.missingRequests = make(map[t.SeqNr]*missingRequestInfo)
+	iss.missingRequests = make(map[missingRequestInfoRef]*missingRequestInfo)
 	iss.missingRequestIndex = make(map[string]*missingRequestInfo)
 
 	// Initialize index of orderers based on the buckets they are assigned.
@@ -543,10 +579,13 @@ func (iss *ISS) initEpoch(newEpoch t.EpochNr) {
 			iss.ownID,
 			seg,
 			iss.buckets.Select(seg.BucketIDs).TotalRequests(),
-			iss.config,
+			newPBFTConfig(iss.config),
 			&sbEventService{epoch: newEpoch, instanceID: iss.nextOrdererID},
 			logging.Decorate(iss.logger, "PBFT: ", "epoch", newEpoch, "instance", iss.nextOrdererID))
+
+		// Add the orderer to both the global orderer index and to the epoch-specific list of orderers.
 		iss.orderers[iss.nextOrdererID] = sbInst
+		iss.epoch.Orderers[iss.nextOrdererID] = sbInst
 
 		// Increment the ID to give to the next orderer.
 		iss.nextOrdererID++
@@ -556,16 +595,14 @@ func (iss *ISS) initEpoch(newEpoch t.EpochNr) {
 			iss.bucketOrderers[bID] = sbInst
 		}
 	}
-
-	// Set the new epoch number as the current epoch.
-	iss.epoch = newEpoch
 }
 
+// initOrderers sends the SBInit event to all orderers in the current epoch.
 func (iss *ISS) initOrderers() *events.EventList {
 	eventsOut := &events.EventList{}
 
 	sbInit := SBInitEvent()
-	for _, orderer := range iss.orderers {
+	for _, orderer := range iss.epoch.Orderers {
 		eventsOut.PushBackList(orderer.ApplyEvent(sbInit))
 	}
 
@@ -593,7 +630,7 @@ func (iss *ISS) epochFinished() bool {
 func (iss *ISS) validateSBMessage(message *isspb.SBMessage, from t.NodeID) error {
 
 	// Message must be destined for the current epoch.
-	if t.EpochNr(message.Epoch) != iss.epoch {
+	if t.EpochNr(message.Epoch) != iss.epoch.Nr {
 		return fmt.Errorf("invalid epoch: %d (current epoch is %d)", message.Instance, iss.epoch)
 	}
 
@@ -636,8 +673,8 @@ func (iss *ISS) notifyOrderer(reqRef *requestpb.RequestRef) *events.EventList {
 
 			// Remove the proposal from the set of proposals with missing requests
 			// and notify the corresponding orderer that no more requests from this proposal are missing.
-			delete(iss.missingRequests, missingRequests.Sn)
-			return missingRequests.Orderer.ApplyEvent(SBRequestsReady(missingRequests.Sn))
+			delete(iss.missingRequests, missingRequests.Ref)
+			return missingRequests.Orderer.ApplyEvent(SBRequestsReady(missingRequests.Ref.SBRef))
 		}
 	}
 
@@ -719,7 +756,7 @@ func (iss *ISS) deliverCommitted() *events.EventList {
 	if iss.epochFinished() {
 
 		// Initialize the internal data structures for the new epoch.
-		iss.initEpoch(iss.epoch + 1)
+		iss.initEpoch(iss.epoch.Nr + 1)
 
 		// Look up a (or create a new) checkpoint tracker and start the checkpointing protocol.
 		// This must happen after initialization of the new epoch,
@@ -728,7 +765,7 @@ func (iss *ISS) deliverCommitted() *events.EventList {
 		// The checkpoint tracker might already exist if a corresponding message has been already received.
 		// iss.nextDeliveredSN is the first sequence number *not* included in the checkpoint,
 		// i.e., as sequence numbers start at 0, the checkpoint includes the first iss.nextDeliveredSN sequence numbers.
-		eventsOut.PushBackList(iss.getCheckpointTracker(iss.nextDeliveredSN).Start(iss.epoch, iss.config.Membership))
+		eventsOut.PushBackList(iss.getCheckpointTracker(iss.nextDeliveredSN).Start(iss.epoch.Nr, iss.config.Membership))
 
 		// Give the init signals to the newly instantiated orderers.
 		// TODO: Currently this probably sends the Init event to old orderers as well.
@@ -785,9 +822,9 @@ func (iss *ISS) bufferedMessageFilter(source t.NodeID, message proto.Message) me
 	case *isspb.SBMessage:
 		// For SB messages, filter based on the epoch number of the message.
 		switch e := t.EpochNr(msg.Epoch); {
-		case e < iss.epoch:
+		case e < iss.epoch.Nr:
 			return messagebuffer.Past
-		case e == iss.epoch:
+		case e == iss.epoch.Nr:
 			return messagebuffer.Current
 		default: // e > iss.epoch
 			return messagebuffer.Future
@@ -798,7 +835,7 @@ func (iss *ISS) bufferedMessageFilter(source t.NodeID, message proto.Message) me
 		switch {
 		case msg.Sn <= iss.lastStableCheckpoint.Sn:
 			return messagebuffer.Past
-		case t.EpochNr(msg.Epoch) <= iss.epoch:
+		case t.EpochNr(msg.Epoch) <= iss.epoch.Nr:
 			return messagebuffer.Current
 		default: // message from future epoch
 			return messagebuffer.Future
@@ -847,6 +884,23 @@ func membershipSet(membership []t.NodeID) map[t.NodeID]struct{} {
 
 	// Return the resulting set of node IDs.
 	return set
+}
+
+// Returns a configuration of a new PBFT instance based on the current ISS configuration.
+func newPBFTConfig(issConfig *Config) *PBFTConfig {
+
+	// Make a copy of the current membership.
+	pbftMembership := make([]t.NodeID, len(issConfig.Membership), len(issConfig.Membership))
+	copy(pbftMembership, issConfig.Membership)
+
+	// Return a new PBFT configuration with selected values from the ISS configuration.
+	return &PBFTConfig{
+		Membership:        issConfig.Membership,
+		MaxProposeDelay:   issConfig.MaxProposeDelay,
+		MsgBufCapacity:    issConfig.MsgBufCapacity,
+		MaxBatchSize:      issConfig.MaxBatchSize,
+		ViewChangeTimeout: issConfig.PBFTViewChangeTimeout,
+	}
 }
 
 // removeNodeID emoves a node ID from a list of node IDs.

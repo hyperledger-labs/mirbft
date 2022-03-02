@@ -95,3 +95,13 @@ type NumRequests uint64
 func (nr NumRequests) Pb() uint64 {
 	return uint64(nr)
 }
+
+// ================================================================================
+
+// PBFTViewNr represents the view number in the PBFT protocol (used as a sub-protocol of ISS)
+type PBFTViewNr uint64
+
+// Pb converts a PBFTViewNr to its underlying native type
+func (v PBFTViewNr) Pb() uint64 {
+	return uint64(v)
+}

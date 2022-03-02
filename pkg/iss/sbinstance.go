@@ -118,12 +118,15 @@ func (iss *ISS) applySBInstWaitForRequests(
 	waitForRequests *isspb.SBWaitForRequests,
 ) *events.EventList {
 
-	// Get sequence number of the proposal being verified.
-	sn := t.SeqNr(waitForRequests.Sn)
+	// Get reference of the proposal being verified.
+	ref := missingRequestInfoRef{
+		Orderer: instanceID,
+		SBRef:   waitForRequests.Reference,
+	}
 
 	// Initialize a new missingRequestInfo entry that will contain a reference to all missing requests.
 	missingReqs := &missingRequestInfo{
-		Sn:             sn,
+		Ref:            ref,
 		Requests:       make(map[string]*requestpb.RequestRef, 0),
 		Orderer:        iss.orderers[instanceID],
 		TicksUntilNAck: iss.config.RequestNAckTimeout,
@@ -148,10 +151,10 @@ func (iss *ISS) applySBInstWaitForRequests(
 
 	if len(missingReqs.Requests) > 0 {
 		// If any requests are missing, register the missingRequestInfo and do not notify the orderer.
-		iss.missingRequests[sn] = missingReqs
+		iss.missingRequests[ref] = missingReqs
 		return &events.EventList{}
 	} else {
 		// If all requests are already available, notify the orderer directly.
-		return missingReqs.Orderer.ApplyEvent(SBRequestsReady(sn))
+		return missingReqs.Orderer.ApplyEvent(SBRequestsReady(ref.SBRef))
 	}
 }

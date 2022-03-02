@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
+	"github.com/hyperledger-labs/mirbft/pkg/messagebuffer"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/eventpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/isspb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/isspbftpb"
@@ -20,6 +21,38 @@ import (
 // ============================================================
 // Auxiliary types
 // ============================================================
+
+// PBFTConfig holds PBFT-specific configuration parameters used by a concrete instance of PBFT.
+// They are mostly inherited from the ISS configuration at the time of creating the PBFT instance.
+type PBFTConfig struct {
+
+	// The IDs of all nodes that execute this instance of the protocol.
+	// Must not be empty.
+	Membership []t.NodeID
+
+	// The maximum number of logical time ticks between two proposals of new batches during normal operation.
+	// This parameter caps the waiting time in order to bound latency.
+	// When MaxProposeDelay ticks have elapsed since the last proposal,
+	// the protocol tries to propose a new request batch, even if the batch is not full (or even completely empty).
+	// Must not be negative.
+	MaxProposeDelay int
+
+	// Maximal number of bytes used for message backlogging buffers
+	// (only message payloads are counted towards MsgBufCapacity).
+	// Same as Config.MsgBufCapacity, but used only for one instance of PBFT.
+	// Must not be negative.
+	MsgBufCapacity int
+
+	// The maximal number of requests in a proposed request batch.
+	// As soon as the number of pending requests reaches MaxBatchSize,
+	// the PBFT instance may decide to immediately propose a new request batch.
+	// Setting MaxBatchSize to zero signifies no limit on batch size.
+	MaxBatchSize t.NumRequests
+
+	// View change timeout for view 0 in ticks.
+	// With each view change, the timeout doubles (without changing this value)
+	ViewChangeTimeout int
+}
 
 // pbftProposalState tracks the state of the pbftInstance related to proposing batches.
 // The proposal state is only used if this node is the leader of this instance of PBFT.
@@ -51,11 +84,72 @@ type pbftProposalState struct {
 
 // pbftSlot tracks the state of the agreement protocol for one sequence number,
 // such as messages received, progress of the reliable broadcast, etc.
-// TODO: Extend this data structure when implementing proper PBFT.
 type pbftSlot struct {
 
 	// The received preprepare message.
 	Preprepare *isspbftpb.Preprepare
+
+	// Prepare messages received.
+	// A nil entry signifies that an invalid message has been discarded.
+	Prepares map[t.NodeID]*isspbftpb.Prepare
+
+	// Valid prepare messages received.
+	// Serves mostly as an optimization to not re-validate already validated messages.
+	ValidPrepares []*isspbftpb.Prepare
+
+	// Commit messages received.
+	Commits map[t.NodeID]*isspbftpb.Commit
+
+	// Valid commit messages received.
+	// Serves mostly as an optimization to not re-validate already validated messages.
+	ValidCommits []*isspbftpb.Commit
+
+	// The proposed batch
+	Batch *requestpb.Batch
+
+	// The digest of the proposed (preprepared) batch
+	Digest []byte
+
+	// Flags denoting whether a batch has been, respectively, preprepared, prepared, and committed in this slot
+	// Note that Preprepared == true is not equivalent to Preprepare != nil, since the Preprepare message is stored
+	// before the node preprepares the proposal (it first has to verify that all requests are available
+	// and only then can preprepare the proposal and send the Prepare messages).
+	Preprepared bool
+	Prepared    bool
+	Committed   bool
+}
+
+// newPbftSlot allocates a new pbftSlot object and returns it, initializing all its fields.
+func newPbftSlot() *pbftSlot {
+	return &pbftSlot{
+		Preprepare:    nil,
+		Prepares:      make(map[t.NodeID]*isspbftpb.Prepare),
+		ValidPrepares: make([]*isspbftpb.Prepare, 0),
+		Commits:       make(map[t.NodeID]*isspbftpb.Commit),
+		ValidCommits:  make([]*isspbftpb.Commit, 0),
+		Batch:         nil,
+		Digest:        nil,
+		Preprepared:   false,
+		Prepared:      false,
+		Committed:     false,
+	}
+}
+
+// populateFromPrevious carries over state from a pbftSlot used in the previous view to this pbftSlot,
+// based on the state of the previous slot.
+// This is used during view change, when the protocol initializes a new PBFT view.
+func (slot *pbftSlot) populateFromPrevious(prevSlot *pbftSlot) {
+
+	// If the slot has already committed a batch, just copy over the result.
+	// If the slot has preprepared, but not committed a batch, resurrect all the requests in the batch.
+	if prevSlot.Committed {
+		slot.Committed = true
+		slot.Digest = prevSlot.Digest
+		slot.Batch = prevSlot.Batch
+	} else if prevSlot.Preprepared {
+
+		panic("implement resurrection")
+	}
 }
 
 // ============================================================
@@ -69,20 +163,25 @@ type pbftInstance struct {
 	// The ID of this node.
 	ownID t.NodeID
 
-	// The ISS configuration
-	// TODO: Only using a PBFT-specific configuration. Most of the config parameters in the ISS configuration
-	//       are not relevant here and need not (and thus should not) be visible to the orderer implementation.
-	config *Config
+	// PBFT-specific configuration parameters (e.g. view change timeout, etc.)
+	config *PBFTConfig
 
 	// The segment governing this SB instance, specifying the leader, the set of sequence numbers, the buckets, etc.
 	segment *segment
 
+	// Buffers representing a backlog of messages destined to future views.
+	// A node that already transitioned to a newer view might send messages,
+	// while this node is behind (still in an older view) and cannot process these messages yet.
+	// Such messages end up in this buffer (if there is buffer space) for later processing.
+	// The buffer is checked after each view change.
+	messageBuffers map[t.NodeID]*messagebuffer.MessageBuffer
+
 	// Tracks the state related to proposing batches.
 	proposal pbftProposalState
 
-	// One pbftSlot per sequence number this orderer is responsible for.
+	// For each view, slots contains one pbftSlot per sequence number this orderer is responsible for.
 	// Each slot tracks the state of the agreement protocol for one sequence number.
-	slots map[t.SeqNr]*pbftSlot
+	slots map[t.PBFTViewNr]map[t.SeqNr]*pbftSlot
 
 	// Logger for outputting debugging messages.
 	logger logging.Logger
@@ -91,6 +190,13 @@ type pbftInstance struct {
 	// All events produced by this pbftInstance must be created exclusively using the methods of eventService.
 	// This ensures that the events are associated with this particular pbftInstance within the ISS protocol.
 	eventService *sbEventService
+
+	// PBFT view
+	view t.PBFTViewNr
+
+	// Flag indicating whether this node is currently performing a view change.
+	// It is set on sending the ViewChange message and cleared on accepting a new view.
+	inViewChange bool
 }
 
 // newPbftInstance allocates and initializes a new instance of the PBFT orderer.
@@ -101,7 +207,7 @@ type pbftInstance struct {
 // - numPendingRequests: The number of requests currently pending in the buckets
 //                       assigned to the new instance (segment.BucketIDs) and ready to be proposed by this PBFT orderer.
 //                       This is required for the orderer to know whether it make proposals right away.
-// - config:             The ISS configuration.
+// - config:             PBFT-specific configuration parameters.
 // - eventService:       Event creator object enabling the orderer to produce events.
 //                       All events this orderer creates will be created using the methods of the eventService.
 //                       The eventService must be configured to produce events associated with this PBFT orderer,
@@ -111,30 +217,32 @@ func newPbftInstance(
 	ownID t.NodeID,
 	segment *segment,
 	numPendingRequests t.NumRequests,
-	config *Config,
+	config *PBFTConfig,
 	eventService *sbEventService,
 	logger logging.Logger) *pbftInstance {
-
-	// Initialize a new slot for each assigned sequence number.
-	slots := make(map[t.SeqNr]*pbftSlot)
-	for _, sn := range segment.SeqNrs {
-		slots[sn] = &pbftSlot{}
-	}
 
 	// Set all the necessary fields of the new instance and return it.
 	return &pbftInstance{
 		ownID:   ownID,
 		segment: segment,
 		config:  config,
-		slots:   slots,
+		slots:   make(map[t.PBFTViewNr]map[t.SeqNr]*pbftSlot),
 		proposal: pbftProposalState{
 			proposalsMade:      0,
 			numPendingRequests: numPendingRequests,
 			batchRequested:     false,
 			ticksSinceProposal: 0,
 		},
+		messageBuffers: messagebuffer.NewBuffers(
+			removeNodeID(config.Membership, ownID), // Create a message buffer for everyone except for myself.
+			config.MsgBufCapacity,                  // TODO: Configure this separately for ISS buffers and PBFT buffers.
+			//       Even better, share the same buffers with ISS.
+			logging.Decorate(logger, "Msgbuf: "),
+		),
 		logger:       logger,
 		eventService: eventService,
+		view:         0,
+		inViewChange: false,
 	}
 }
 
@@ -189,6 +297,9 @@ func (pbft *pbftInstance) Status() *isspb.SBStatus {
 // except for events read from the WAL at startup, which are expected to be applied even before the Init event.
 func (pbft *pbftInstance) applyInit() *events.EventList {
 
+	// Initialize the first PBFT view
+	pbft.initView(0)
+
 	// Make a proposal if one can be made right away.
 	if pbft.canPropose() {
 		return pbft.requestNewBatch()
@@ -240,9 +351,20 @@ func (pbft *pbftInstance) applyBatchReady(batch *isspb.SBBatchReady) *events.Eve
 // applyRequestsReady processes the notification from ISS
 // that all requests in a received preprepare message are now available and authenticated.
 func (pbft *pbftInstance) applyRequestsReady(requestsReady *isspb.SBRequestsReady) *events.EventList {
-	slot := pbft.slots[t.SeqNr(requestsReady.Sn)]
+
+	// Extract the reference from the event
+	// The type cast is safe (unless there is a bug in the implementation), since only the PBFT ReqWaitReference
+	// type is ever used by PBFT.
+	ref := requestsReady.Ref.Type.(*isspb.SBReqWaitReference_Pbft).Pbft
+
+	// Get the slot referenced by the RequestsReady Event.
+	// This reference has been created when creating the WaitForRequests Event,
+	// to which this RequestsReady Event is a response.
+	// That is also why we can be sure that the slot exists and do not need to check for a nil map.
+	slot := pbft.slots[t.PBFTViewNr(ref.View)][t.SeqNr(ref.Sn)]
+
 	return (&events.EventList{}).PushBack(pbft.eventService.SBEvent(SBDeliverEvent(
-		t.SeqNr(requestsReady.Sn),
+		t.SeqNr(ref.Sn),
 		slot.Preprepare.Batch,
 	)))
 }
@@ -272,25 +394,51 @@ func (pbft *pbftInstance) applyMessageReceived(message *isspb.SBInstanceMessage,
 // requests a confirmation from ISS that all contained requests have been received and authenticated.
 func (pbft *pbftInstance) applyMsgPreprepare(preprepare *isspbftpb.Preprepare, from t.NodeID) *events.EventList {
 
-	// Convenience variable
+	// Convenience variables
 	sn := t.SeqNr(preprepare.Sn)
+	msgView := t.PBFTViewNr(preprepare.View)
 
-	// TODO: This is a stub. Perform all the proper checks.
-
-	// Look up the slot concerned by this message.
-	slot, ok := pbft.slots[sn]
-
-	// Ignore Preprepare message with invalid sequence number (i.e., pointing to a non-existing slot).
-	if !ok {
-		pbft.logger.Log(logging.LevelWarn, "Ignoring Preprepare message with invalid sequence number.",
+	// Check if the sender is the leader of this segment.
+	if from != pbft.segment.Leader {
+		pbft.logger.Log(logging.LevelWarn, "Ignoring Preprepare message from non-leader.",
 			"sn", sn, "from", from)
 		return &events.EventList{}
 	}
 
-	// Ignore the received message
-	// if a valid preprepare message with the same sequence number already has been received.
+	// Ignore messages from old views.
+	if msgView < pbft.view {
+		pbft.logger.Log(logging.LevelDebug, "Ignoring Preprepare message from old view.",
+			"sn", sn, "from", from, "msgView", msgView, "localView", pbft.view)
+		return &events.EventList{}
+	}
+
+	// If message is from a future view, buffer it and return.
+	if msgView > pbft.view || pbft.inViewChange {
+		pbft.messageBuffers[from].Store(preprepare)
+		return &events.EventList{}
+		// TODO: When view change is implemented, get the messages out of the buffer.
+	}
+
+	// Look up the slot concerned by this message
+	// and check if the sequence number is assigned to this PBFT instance.
+	slot, ok := pbft.slots[pbft.view][sn]
+	if !ok {
+		pbft.logger.Log(logging.LevelDebug, "Ignoring Preprepare message. Wrong sequence number.",
+			"sn", sn, "from", from, "msgView", msgView)
+		return &events.EventList{}
+	}
+
+	// Check if the slot has already been committed (this can happen with state transfer).
+	if slot.Committed {
+		pbft.logger.Log(logging.LevelDebug, "Ignoring Preprepare message. Slot already committed.", "sn", sn)
+		return &events.EventList{}
+	}
+
+	// Check that this is the first Preprepare message received.
+	// Note that checking the pbft.Preprepared flag instead would be incorrect,
+	// as that flag is only set upon receiving the RequestsReady Event.
 	if slot.Preprepare != nil {
-		pbft.logger.Log(logging.LevelWarn, "Ignoring Preprepare message. Already preprepared.",
+		pbft.logger.Log(logging.LevelDebug, "Ignoring Preprepare message. Already preprepared or prepreparing.",
 			"sn", sn, "from", from)
 		return &events.EventList{}
 	}
@@ -299,8 +447,9 @@ func (pbft *pbftInstance) applyMsgPreprepare(preprepare *isspbftpb.Preprepare, f
 	slot.Preprepare = preprepare
 
 	// Wait for all the requests to be received in the local buckets.
+	// Operation continues on reception of the RequestsReady event.
 	return (&events.EventList{}).PushBack(pbft.eventService.SBEvent(SBWaitForRequestsEvent(
-		sn,
+		PbftReqWaitReference(sn, pbft.view),
 		preprepare.Batch.Requests,
 	)))
 }
@@ -309,9 +458,51 @@ func (pbft *pbftInstance) applyMsgPreprepare(preprepare *isspbftpb.Preprepare, f
 // Additional protocol logic
 // ============================================================
 
+func (pbft *pbftInstance) initView(view t.PBFTViewNr) {
+	// Sanity check
+	if view < pbft.view {
+		panic(fmt.Sprintf("Starting a view (%d) older than the current one (%d)", view, pbft.view))
+	}
+
+	// Do not start the same view more than once.
+	// View 0 is also started only once (the code makes sure that startView(0) is only called at initialization),
+	// it's just that the default value of the variable is already 0 - that's why it needs an exception.
+	if view != 0 && view == pbft.view {
+		return
+	}
+
+	// Sanity check. The view must not yet have been initialized.
+	// TODO: Remove this eventually
+	if _, ok := pbft.slots[view]; ok {
+		panic(fmt.Sprintf("view %d already initialized", view))
+	}
+
+	// Initialize PBFT slots for the new view, one for each sequence number.
+	pbft.slots[view] = make(map[t.SeqNr]*pbftSlot)
+	for _, sn := range pbft.segment.SeqNrs {
+
+		// Create a fresh, empty slot.
+		pbft.slots[view][sn] = newPbftSlot()
+
+		// Except for initialization of view 0, carry over state from the previous view.
+		if view > 0 {
+			pbft.slots[view][sn].populateFromPrevious(pbft.slots[pbft.view][sn])
+		}
+	}
+
+	// Finally, update the view number.
+	pbft.view = view
+}
+
 // canPropose returns true if the current state of the PBFT orderer allows for a new batch to be proposed.
+// Note that "new batch" means a "fresh" batch proposed during normal operation outside of view change.
+// Proposals part of a new view message during a view change do not call this function and are treated separately.
 func (pbft *pbftInstance) canPropose() bool {
 	return pbft.ownID == pbft.segment.Leader && // Only the leader can propose
+
+		// No regular proposals can be made after a view change.
+		// This is specific for the SB-version of PBFT used in ISS and deviates from the standard PBFT protocol.
+		pbft.view == 0 &&
 
 		// A new batch must not have been requested (if it has, we are already in the process of proposing).
 		!pbft.proposal.batchRequested &&
@@ -336,10 +527,11 @@ func (pbft *pbftInstance) requestNewBatch() *events.EventList {
 	pbft.proposal.batchRequested = true
 
 	// Emit the CutBatch event.
+	// Operation continues on reception of the BatchReady event.
 	return (&events.EventList{}).PushBack(pbft.eventService.SBEvent(SBCutBatchEvent(pbft.config.MaxBatchSize)))
 }
 
-// propose proposes a new request batch by sending a preprepare message.
+// propose proposes a new request batch by sending a Preprepare message.
 // propose assumes that the state of the PBFT orderer allows sending a new proposal
 // and does not perform any checks in this regard.
 func (pbft *pbftInstance) propose(batch *requestpb.Batch) *events.EventList {
@@ -353,8 +545,11 @@ func (pbft *pbftInstance) propose(batch *requestpb.Batch) *events.EventList {
 	pbft.logger.Log(logging.LevelDebug, "Proposing.",
 		"sn", sn, "batchSize", len(batch.Requests))
 
-	// Create a preprepare message and an event for sending it.
-	msgSendEvent := pbft.eventService.SendMessage(PbftPreprepareMessage(sn, batch), pbft.segment.Membership)
+	// Create a Preprepare message and an Event for sending it.
+	msgSendEvent := pbft.eventService.SendMessage(
+		PbftPreprepareMessage(sn, pbft.view, batch, false),
+		pbft.segment.Membership,
+	)
 
 	// Create a WAL entry and an event to persist it.
 	persistEvent := pbft.eventService.WALAppend(PbftPersistPreprepare(sn, batch))

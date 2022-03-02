@@ -59,8 +59,6 @@ func newWorkChans() workChans {
 // It usually reads events from a work channel and writes the output to another work channel.
 // Any error that occurs while performing the work is returned.
 // When the exitC channel is closed the function should return ErrStopped
-// TODO: Consider unifying the reading from and writing to channels
-//       (currently repeated inside each workFunc) outside of the workFunc.
 type workFunc func(exitC <-chan struct{}) error
 
 // Calls the passed work function repeatedly in an infinite loop until the work function returns an non-nil error.
