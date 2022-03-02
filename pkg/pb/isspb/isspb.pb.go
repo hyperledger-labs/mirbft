@@ -1020,8 +1020,8 @@ type SBWaitForRequests struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Sn       uint64                  `protobuf:"varint,1,opt,name=sn,proto3" json:"sn,omitempty"`
-	Requests []*requestpb.RequestRef `protobuf:"bytes,2,rep,name=requests,proto3" json:"requests,omitempty"`
+	Reference *SBReqWaitReference     `protobuf:"bytes,1,opt,name=reference,proto3" json:"reference,omitempty"`
+	Requests  []*requestpb.RequestRef `protobuf:"bytes,2,rep,name=requests,proto3" json:"requests,omitempty"`
 }
 
 func (x *SBWaitForRequests) Reset() {
@@ -1056,11 +1056,11 @@ func (*SBWaitForRequests) Descriptor() ([]byte, []int) {
 	return file_isspb_isspb_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *SBWaitForRequests) GetSn() uint64 {
+func (x *SBWaitForRequests) GetReference() *SBReqWaitReference {
 	if x != nil {
-		return x.Sn
+		return x.Reference
 	}
-	return 0
+	return nil
 }
 
 func (x *SBWaitForRequests) GetRequests() []*requestpb.RequestRef {
@@ -1070,18 +1070,84 @@ func (x *SBWaitForRequests) GetRequests() []*requestpb.RequestRef {
 	return nil
 }
 
+type SBReqWaitReference struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// Types that are assignable to Type:
+	//	*SBReqWaitReference_Pbft
+	Type isSBReqWaitReference_Type `protobuf_oneof:"type"`
+}
+
+func (x *SBReqWaitReference) Reset() {
+	*x = SBReqWaitReference{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_isspb_isspb_proto_msgTypes[15]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SBReqWaitReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SBReqWaitReference) ProtoMessage() {}
+
+func (x *SBReqWaitReference) ProtoReflect() protoreflect.Message {
+	mi := &file_isspb_isspb_proto_msgTypes[15]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SBReqWaitReference.ProtoReflect.Descriptor instead.
+func (*SBReqWaitReference) Descriptor() ([]byte, []int) {
+	return file_isspb_isspb_proto_rawDescGZIP(), []int{15}
+}
+
+func (m *SBReqWaitReference) GetType() isSBReqWaitReference_Type {
+	if m != nil {
+		return m.Type
+	}
+	return nil
+}
+
+func (x *SBReqWaitReference) GetPbft() *isspbftpb.ReqWaitReference {
+	if x, ok := x.GetType().(*SBReqWaitReference_Pbft); ok {
+		return x.Pbft
+	}
+	return nil
+}
+
+type isSBReqWaitReference_Type interface {
+	isSBReqWaitReference_Type()
+}
+
+type SBReqWaitReference_Pbft struct {
+	Pbft *isspbftpb.ReqWaitReference `protobuf:"bytes,1,opt,name=pbft,proto3,oneof"`
+}
+
+func (*SBReqWaitReference_Pbft) isSBReqWaitReference_Type() {}
+
 type SBRequestsReady struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Sn uint64 `protobuf:"varint,1,opt,name=sn,proto3" json:"sn,omitempty"`
+	Ref *SBReqWaitReference `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
 }
 
 func (x *SBRequestsReady) Reset() {
 	*x = SBRequestsReady{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_isspb_isspb_proto_msgTypes[15]
+		mi := &file_isspb_isspb_proto_msgTypes[16]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1094,7 +1160,7 @@ func (x *SBRequestsReady) String() string {
 func (*SBRequestsReady) ProtoMessage() {}
 
 func (x *SBRequestsReady) ProtoReflect() protoreflect.Message {
-	mi := &file_isspb_isspb_proto_msgTypes[15]
+	mi := &file_isspb_isspb_proto_msgTypes[16]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1107,14 +1173,14 @@ func (x *SBRequestsReady) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SBRequestsReady.ProtoReflect.Descriptor instead.
 func (*SBRequestsReady) Descriptor() ([]byte, []int) {
-	return file_isspb_isspb_proto_rawDescGZIP(), []int{15}
+	return file_isspb_isspb_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *SBRequestsReady) GetSn() uint64 {
+func (x *SBRequestsReady) GetRef() *SBReqWaitReference {
 	if x != nil {
-		return x.Sn
+		return x.Ref
 	}
-	return 0
+	return nil
 }
 
 type SBDeliver struct {
@@ -1129,7 +1195,7 @@ type SBDeliver struct {
 func (x *SBDeliver) Reset() {
 	*x = SBDeliver{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_isspb_isspb_proto_msgTypes[16]
+		mi := &file_isspb_isspb_proto_msgTypes[17]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1142,7 +1208,7 @@ func (x *SBDeliver) String() string {
 func (*SBDeliver) ProtoMessage() {}
 
 func (x *SBDeliver) ProtoReflect() protoreflect.Message {
-	mi := &file_isspb_isspb_proto_msgTypes[16]
+	mi := &file_isspb_isspb_proto_msgTypes[17]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1155,7 +1221,7 @@ func (x *SBDeliver) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SBDeliver.ProtoReflect.Descriptor instead.
 func (*SBDeliver) Descriptor() ([]byte, []int) {
-	return file_isspb_isspb_proto_rawDescGZIP(), []int{16}
+	return file_isspb_isspb_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *SBDeliver) GetSn() uint64 {
@@ -1184,7 +1250,7 @@ type SBMessageReceived struct {
 func (x *SBMessageReceived) Reset() {
 	*x = SBMessageReceived{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_isspb_isspb_proto_msgTypes[17]
+		mi := &file_isspb_isspb_proto_msgTypes[18]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1197,7 +1263,7 @@ func (x *SBMessageReceived) String() string {
 func (*SBMessageReceived) ProtoMessage() {}
 
 func (x *SBMessageReceived) ProtoReflect() protoreflect.Message {
-	mi := &file_isspb_isspb_proto_msgTypes[17]
+	mi := &file_isspb_isspb_proto_msgTypes[18]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1210,7 +1276,7 @@ func (x *SBMessageReceived) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SBMessageReceived.ProtoReflect.Descriptor instead.
 func (*SBMessageReceived) Descriptor() ([]byte, []int) {
-	return file_isspb_isspb_proto_rawDescGZIP(), []int{17}
+	return file_isspb_isspb_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *SBMessageReceived) GetFrom() uint64 {
@@ -1238,7 +1304,7 @@ type SBPendingRequests struct {
 func (x *SBPendingRequests) Reset() {
 	*x = SBPendingRequests{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_isspb_isspb_proto_msgTypes[18]
+		mi := &file_isspb_isspb_proto_msgTypes[19]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1251,7 +1317,7 @@ func (x *SBPendingRequests) String() string {
 func (*SBPendingRequests) ProtoMessage() {}
 
 func (x *SBPendingRequests) ProtoReflect() protoreflect.Message {
-	mi := &file_isspb_isspb_proto_msgTypes[18]
+	mi := &file_isspb_isspb_proto_msgTypes[19]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1264,7 +1330,7 @@ func (x *SBPendingRequests) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SBPendingRequests.ProtoReflect.Descriptor instead.
 func (*SBPendingRequests) Descriptor() ([]byte, []int) {
-	return file_isspb_isspb_proto_rawDescGZIP(), []int{18}
+	return file_isspb_isspb_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SBPendingRequests) GetNumRequests() uint64 {
@@ -1283,7 +1349,7 @@ type SBTick struct {
 func (x *SBTick) Reset() {
 	*x = SBTick{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_isspb_isspb_proto_msgTypes[19]
+		mi := &file_isspb_isspb_proto_msgTypes[20]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1296,7 +1362,7 @@ func (x *SBTick) String() string {
 func (*SBTick) ProtoMessage() {}
 
 func (x *SBTick) ProtoReflect() protoreflect.Message {
-	mi := &file_isspb_isspb_proto_msgTypes[19]
+	mi := &file_isspb_isspb_proto_msgTypes[20]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1309,7 +1375,7 @@ func (x *SBTick) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SBTick.ProtoReflect.Descriptor instead.
 func (*SBTick) Descriptor() ([]byte, []int) {
-	return file_isspb_isspb_proto_rawDescGZIP(), []int{19}
+	return file_isspb_isspb_proto_rawDescGZIP(), []int{20}
 }
 
 type Status struct {
@@ -1324,7 +1390,7 @@ type Status struct {
 func (x *Status) Reset() {
 	*x = Status{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_isspb_isspb_proto_msgTypes[20]
+		mi := &file_isspb_isspb_proto_msgTypes[21]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1337,7 +1403,7 @@ func (x *Status) String() string {
 func (*Status) ProtoMessage() {}
 
 func (x *Status) ProtoReflect() protoreflect.Message {
-	mi := &file_isspb_isspb_proto_msgTypes[20]
+	mi := &file_isspb_isspb_proto_msgTypes[21]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1350,7 +1416,7 @@ func (x *Status) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Status.ProtoReflect.Descriptor instead.
 func (*Status) Descriptor() ([]byte, []int) {
-	return file_isspb_isspb_proto_rawDescGZIP(), []int{20}
+	return file_isspb_isspb_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Status) GetEpoch() uint64 {
@@ -1378,7 +1444,7 @@ type SBStatus struct {
 func (x *SBStatus) Reset() {
 	*x = SBStatus{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_isspb_isspb_proto_msgTypes[21]
+		mi := &file_isspb_isspb_proto_msgTypes[22]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1391,7 +1457,7 @@ func (x *SBStatus) String() string {
 func (*SBStatus) ProtoMessage() {}
 
 func (x *SBStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_isspb_isspb_proto_msgTypes[21]
+	mi := &file_isspb_isspb_proto_msgTypes[22]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1404,7 +1470,7 @@ func (x *SBStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SBStatus.ProtoReflect.Descriptor instead.
 func (*SBStatus) Descriptor() ([]byte, []int) {
-	return file_isspb_isspb_proto_rawDescGZIP(), []int{21}
+	return file_isspb_isspb_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *SBStatus) GetLeader() uint64 {
@@ -1542,39 +1608,48 @@ var file_isspb_isspb_proto_rawDesc = []byte{
 	0x74, 0x63, 0x68, 0x12, 0x32, 0x0a, 0x15, 0x70, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x5f, 0x72,
 	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x5f, 0x6c, 0x65, 0x66, 0x74, 0x18, 0x02, 0x20, 0x01,
 	0x28, 0x04, 0x52, 0x13, 0x70, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x73, 0x4c, 0x65, 0x66, 0x74, 0x22, 0x56, 0x0a, 0x11, 0x53, 0x42, 0x57, 0x61, 0x69,
-	0x74, 0x46, 0x6f, 0x72, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x12, 0x0e, 0x0a, 0x02,
-	0x73, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x02, 0x73, 0x6e, 0x12, 0x31, 0x0a, 0x08,
-	0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x15,
-	0x2e, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x70, 0x62, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x52, 0x65, 0x66, 0x52, 0x08, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x22,
-	0x21, 0x0a, 0x0f, 0x53, 0x42, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x52, 0x65, 0x61,
-	0x64, 0x79, 0x12, 0x0e, 0x0a, 0x02, 0x73, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x02,
-	0x73, 0x6e, 0x22, 0x43, 0x0a, 0x09, 0x53, 0x42, 0x44, 0x65, 0x6c, 0x69, 0x76, 0x65, 0x72, 0x12,
-	0x0e, 0x0a, 0x02, 0x73, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x02, 0x73, 0x6e, 0x12,
-	0x26, 0x0a, 0x05, 0x62, 0x61, 0x74, 0x63, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x10,
-	0x2e, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x70, 0x62, 0x2e, 0x42, 0x61, 0x74, 0x63, 0x68,
-	0x52, 0x05, 0x62, 0x61, 0x74, 0x63, 0x68, 0x22, 0x53, 0x0a, 0x11, 0x53, 0x42, 0x4d, 0x65, 0x73,
-	0x73, 0x61, 0x67, 0x65, 0x52, 0x65, 0x63, 0x65, 0x69, 0x76, 0x65, 0x64, 0x12, 0x12, 0x0a, 0x04,
-	0x66, 0x72, 0x6f, 0x6d, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x04, 0x66, 0x72, 0x6f, 0x6d,
-	0x12, 0x2a, 0x0a, 0x03, 0x6d, 0x73, 0x67, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x18, 0x2e,
-	0x69, 0x73, 0x73, 0x70, 0x62, 0x2e, 0x53, 0x42, 0x49, 0x6e, 0x73, 0x74, 0x61, 0x6e, 0x63, 0x65,
-	0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x52, 0x03, 0x6d, 0x73, 0x67, 0x22, 0x35, 0x0a, 0x11,
-	0x53, 0x42, 0x50, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x73, 0x12, 0x20, 0x0a, 0x0b, 0x6e, 0x75, 0x6d, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x0b, 0x6e, 0x75, 0x6d, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x73, 0x22, 0x08, 0x0a, 0x06, 0x53, 0x42, 0x54, 0x69, 0x63, 0x6b, 0x22, 0x4b, 0x0a,
-	0x06, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x14, 0x0a, 0x05, 0x65, 0x70, 0x6f, 0x63, 0x68,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05, 0x65, 0x70, 0x6f, 0x63, 0x68, 0x12, 0x2b, 0x0a,
-	0x08, 0x6f, 0x72, 0x64, 0x65, 0x72, 0x65, 0x72, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32,
-	0x0f, 0x2e, 0x69, 0x73, 0x73, 0x70, 0x62, 0x2e, 0x53, 0x42, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73,
-	0x52, 0x08, 0x6f, 0x72, 0x64, 0x65, 0x72, 0x65, 0x72, 0x73, 0x22, 0x22, 0x0a, 0x08, 0x53, 0x42,
-	0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x16, 0x0a, 0x06, 0x6c, 0x65, 0x61, 0x64, 0x65, 0x72,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x06, 0x6c, 0x65, 0x61, 0x64, 0x65, 0x72, 0x42, 0x31,
-	0x5a, 0x2f, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x68, 0x79, 0x70,
-	0x65, 0x72, 0x6c, 0x65, 0x64, 0x67, 0x65, 0x72, 0x2d, 0x6c, 0x61, 0x62, 0x73, 0x2f, 0x6d, 0x69,
-	0x72, 0x62, 0x66, 0x74, 0x2f, 0x70, 0x6b, 0x67, 0x2f, 0x70, 0x62, 0x2f, 0x69, 0x73, 0x73, 0x70,
-	0x62, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x73, 0x74, 0x73, 0x4c, 0x65, 0x66, 0x74, 0x22, 0x7f, 0x0a, 0x11, 0x53, 0x42, 0x57, 0x61, 0x69,
+	0x74, 0x46, 0x6f, 0x72, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x12, 0x37, 0x0a, 0x09,
+	0x72, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
+	0x19, 0x2e, 0x69, 0x73, 0x73, 0x70, 0x62, 0x2e, 0x53, 0x42, 0x52, 0x65, 0x71, 0x57, 0x61, 0x69,
+	0x74, 0x52, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x52, 0x09, 0x72, 0x65, 0x66, 0x65,
+	0x72, 0x65, 0x6e, 0x63, 0x65, 0x12, 0x31, 0x0a, 0x08, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x70, 0x62, 0x2e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x52, 0x65, 0x66, 0x52, 0x08,
+	0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x22, 0x4f, 0x0a, 0x12, 0x53, 0x42, 0x52, 0x65,
+	0x71, 0x57, 0x61, 0x69, 0x74, 0x52, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x12, 0x31,
+	0x0a, 0x04, 0x70, 0x62, 0x66, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1b, 0x2e, 0x69,
+	0x73, 0x73, 0x70, 0x62, 0x66, 0x74, 0x70, 0x62, 0x2e, 0x52, 0x65, 0x71, 0x57, 0x61, 0x69, 0x74,
+	0x52, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x48, 0x00, 0x52, 0x04, 0x70, 0x62, 0x66,
+	0x74, 0x42, 0x06, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x22, 0x3e, 0x0a, 0x0f, 0x53, 0x42, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x52, 0x65, 0x61, 0x64, 0x79, 0x12, 0x2b, 0x0a, 0x03,
+	0x72, 0x65, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x69, 0x73, 0x73, 0x70,
+	0x62, 0x2e, 0x53, 0x42, 0x52, 0x65, 0x71, 0x57, 0x61, 0x69, 0x74, 0x52, 0x65, 0x66, 0x65, 0x72,
+	0x65, 0x6e, 0x63, 0x65, 0x52, 0x03, 0x72, 0x65, 0x66, 0x22, 0x43, 0x0a, 0x09, 0x53, 0x42, 0x44,
+	0x65, 0x6c, 0x69, 0x76, 0x65, 0x72, 0x12, 0x0e, 0x0a, 0x02, 0x73, 0x6e, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x04, 0x52, 0x02, 0x73, 0x6e, 0x12, 0x26, 0x0a, 0x05, 0x62, 0x61, 0x74, 0x63, 0x68, 0x18,
+	0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x10, 0x2e, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x70,
+	0x62, 0x2e, 0x42, 0x61, 0x74, 0x63, 0x68, 0x52, 0x05, 0x62, 0x61, 0x74, 0x63, 0x68, 0x22, 0x53,
+	0x0a, 0x11, 0x53, 0x42, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x52, 0x65, 0x63, 0x65, 0x69,
+	0x76, 0x65, 0x64, 0x12, 0x12, 0x0a, 0x04, 0x66, 0x72, 0x6f, 0x6d, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x04, 0x52, 0x04, 0x66, 0x72, 0x6f, 0x6d, 0x12, 0x2a, 0x0a, 0x03, 0x6d, 0x73, 0x67, 0x18, 0x02,
+	0x20, 0x01, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x69, 0x73, 0x73, 0x70, 0x62, 0x2e, 0x53, 0x42, 0x49,
+	0x6e, 0x73, 0x74, 0x61, 0x6e, 0x63, 0x65, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x52, 0x03,
+	0x6d, 0x73, 0x67, 0x22, 0x35, 0x0a, 0x11, 0x53, 0x42, 0x50, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67,
+	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x12, 0x20, 0x0a, 0x0b, 0x6e, 0x75, 0x6d, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x0b, 0x6e,
+	0x75, 0x6d, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x73, 0x22, 0x08, 0x0a, 0x06, 0x53, 0x42,
+	0x54, 0x69, 0x63, 0x6b, 0x22, 0x4b, 0x0a, 0x06, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x14,
+	0x0a, 0x05, 0x65, 0x70, 0x6f, 0x63, 0x68, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x05, 0x65,
+	0x70, 0x6f, 0x63, 0x68, 0x12, 0x2b, 0x0a, 0x08, 0x6f, 0x72, 0x64, 0x65, 0x72, 0x65, 0x72, 0x73,
+	0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x0f, 0x2e, 0x69, 0x73, 0x73, 0x70, 0x62, 0x2e, 0x53,
+	0x42, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x08, 0x6f, 0x72, 0x64, 0x65, 0x72, 0x65, 0x72,
+	0x73, 0x22, 0x22, 0x0a, 0x08, 0x53, 0x42, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x16, 0x0a,
+	0x06, 0x6c, 0x65, 0x61, 0x64, 0x65, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x04, 0x52, 0x06, 0x6c,
+	0x65, 0x61, 0x64, 0x65, 0x72, 0x42, 0x31, 0x5a, 0x2f, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e,
+	0x63, 0x6f, 0x6d, 0x2f, 0x68, 0x79, 0x70, 0x65, 0x72, 0x6c, 0x65, 0x64, 0x67, 0x65, 0x72, 0x2d,
+	0x6c, 0x61, 0x62, 0x73, 0x2f, 0x6d, 0x69, 0x72, 0x62, 0x66, 0x74, 0x2f, 0x70, 0x6b, 0x67, 0x2f,
+	0x70, 0x62, 0x2f, 0x69, 0x73, 0x73, 0x70, 0x62, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1589,7 +1664,7 @@ func file_isspb_isspb_proto_rawDescGZIP() []byte {
 	return file_isspb_isspb_proto_rawDescData
 }
 
-var file_isspb_isspb_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_isspb_isspb_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_isspb_isspb_proto_goTypes = []interface{}{
 	(*ISSMessage)(nil),                  // 0: isspb.ISSMessage
 	(*RetransmitRequests)(nil),          // 1: isspb.RetransmitRequests
@@ -1606,25 +1681,27 @@ var file_isspb_isspb_proto_goTypes = []interface{}{
 	(*SBCutBatch)(nil),                  // 12: isspb.SBCutBatch
 	(*SBBatchReady)(nil),                // 13: isspb.SBBatchReady
 	(*SBWaitForRequests)(nil),           // 14: isspb.SBWaitForRequests
-	(*SBRequestsReady)(nil),             // 15: isspb.SBRequestsReady
-	(*SBDeliver)(nil),                   // 16: isspb.SBDeliver
-	(*SBMessageReceived)(nil),           // 17: isspb.SBMessageReceived
-	(*SBPendingRequests)(nil),           // 18: isspb.SBPendingRequests
-	(*SBTick)(nil),                      // 19: isspb.SBTick
-	(*Status)(nil),                      // 20: isspb.Status
-	(*SBStatus)(nil),                    // 21: isspb.SBStatus
-	(*requestpb.RequestRef)(nil),        // 22: requestpb.RequestRef
-	(*isspbftpb.Preprepare)(nil),        // 23: isspbftpb.Preprepare
-	(*isspbftpb.PersistPreprepare)(nil), // 24: isspbftpb.PersistPreprepare
-	(*requestpb.Batch)(nil),             // 25: requestpb.Batch
+	(*SBReqWaitReference)(nil),          // 15: isspb.SBReqWaitReference
+	(*SBRequestsReady)(nil),             // 16: isspb.SBRequestsReady
+	(*SBDeliver)(nil),                   // 17: isspb.SBDeliver
+	(*SBMessageReceived)(nil),           // 18: isspb.SBMessageReceived
+	(*SBPendingRequests)(nil),           // 19: isspb.SBPendingRequests
+	(*SBTick)(nil),                      // 20: isspb.SBTick
+	(*Status)(nil),                      // 21: isspb.Status
+	(*SBStatus)(nil),                    // 22: isspb.SBStatus
+	(*requestpb.RequestRef)(nil),        // 23: requestpb.RequestRef
+	(*isspbftpb.Preprepare)(nil),        // 24: isspbftpb.Preprepare
+	(*isspbftpb.PersistPreprepare)(nil), // 25: isspbftpb.PersistPreprepare
+	(*requestpb.Batch)(nil),             // 26: requestpb.Batch
+	(*isspbftpb.ReqWaitReference)(nil),  // 27: isspbftpb.ReqWaitReference
 }
 var file_isspb_isspb_proto_depIdxs = []int32{
 	2,  // 0: isspb.ISSMessage.sb:type_name -> isspb.SBMessage
 	3,  // 1: isspb.ISSMessage.checkpoint:type_name -> isspb.Checkpoint
 	1,  // 2: isspb.ISSMessage.retransmit_requests:type_name -> isspb.RetransmitRequests
-	22, // 3: isspb.RetransmitRequests.requests:type_name -> requestpb.RequestRef
+	23, // 3: isspb.RetransmitRequests.requests:type_name -> requestpb.RequestRef
 	4,  // 4: isspb.SBMessage.msg:type_name -> isspb.SBInstanceMessage
-	23, // 5: isspb.SBInstanceMessage.pbft_preprepare:type_name -> isspbftpb.Preprepare
+	24, // 5: isspb.SBInstanceMessage.pbft_preprepare:type_name -> isspbftpb.Preprepare
 	6,  // 6: isspb.ISSEvent.persist_checkpoint:type_name -> isspb.PersistCheckpoint
 	7,  // 7: isspb.ISSEvent.stable_checkpoint:type_name -> isspb.StableCheckpoint
 	8,  // 8: isspb.ISSEvent.persist_stable_checkpoint:type_name -> isspb.PersistStableCheckpoint
@@ -1632,25 +1709,28 @@ var file_isspb_isspb_proto_depIdxs = []int32{
 	7,  // 10: isspb.PersistStableCheckpoint.stable_checkpoint:type_name -> isspb.StableCheckpoint
 	10, // 11: isspb.SBEvent.event:type_name -> isspb.SBInstanceEvent
 	11, // 12: isspb.SBInstanceEvent.init:type_name -> isspb.SBInit
-	16, // 13: isspb.SBInstanceEvent.deliver:type_name -> isspb.SBDeliver
-	17, // 14: isspb.SBInstanceEvent.message_received:type_name -> isspb.SBMessageReceived
-	18, // 15: isspb.SBInstanceEvent.pending_requests:type_name -> isspb.SBPendingRequests
-	19, // 16: isspb.SBInstanceEvent.tick:type_name -> isspb.SBTick
+	17, // 13: isspb.SBInstanceEvent.deliver:type_name -> isspb.SBDeliver
+	18, // 14: isspb.SBInstanceEvent.message_received:type_name -> isspb.SBMessageReceived
+	19, // 15: isspb.SBInstanceEvent.pending_requests:type_name -> isspb.SBPendingRequests
+	20, // 16: isspb.SBInstanceEvent.tick:type_name -> isspb.SBTick
 	12, // 17: isspb.SBInstanceEvent.cut_batch:type_name -> isspb.SBCutBatch
 	13, // 18: isspb.SBInstanceEvent.batch_ready:type_name -> isspb.SBBatchReady
 	14, // 19: isspb.SBInstanceEvent.wait_for_requests:type_name -> isspb.SBWaitForRequests
-	15, // 20: isspb.SBInstanceEvent.requests_ready:type_name -> isspb.SBRequestsReady
-	24, // 21: isspb.SBInstanceEvent.pbft_persist_preprepare:type_name -> isspbftpb.PersistPreprepare
-	25, // 22: isspb.SBBatchReady.batch:type_name -> requestpb.Batch
-	22, // 23: isspb.SBWaitForRequests.requests:type_name -> requestpb.RequestRef
-	25, // 24: isspb.SBDeliver.batch:type_name -> requestpb.Batch
-	4,  // 25: isspb.SBMessageReceived.msg:type_name -> isspb.SBInstanceMessage
-	21, // 26: isspb.Status.orderers:type_name -> isspb.SBStatus
-	27, // [27:27] is the sub-list for method output_type
-	27, // [27:27] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	16, // 20: isspb.SBInstanceEvent.requests_ready:type_name -> isspb.SBRequestsReady
+	25, // 21: isspb.SBInstanceEvent.pbft_persist_preprepare:type_name -> isspbftpb.PersistPreprepare
+	26, // 22: isspb.SBBatchReady.batch:type_name -> requestpb.Batch
+	15, // 23: isspb.SBWaitForRequests.reference:type_name -> isspb.SBReqWaitReference
+	23, // 24: isspb.SBWaitForRequests.requests:type_name -> requestpb.RequestRef
+	27, // 25: isspb.SBReqWaitReference.pbft:type_name -> isspbftpb.ReqWaitReference
+	15, // 26: isspb.SBRequestsReady.ref:type_name -> isspb.SBReqWaitReference
+	26, // 27: isspb.SBDeliver.batch:type_name -> requestpb.Batch
+	4,  // 28: isspb.SBMessageReceived.msg:type_name -> isspb.SBInstanceMessage
+	22, // 29: isspb.Status.orderers:type_name -> isspb.SBStatus
+	30, // [30:30] is the sub-list for method output_type
+	30, // [30:30] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_isspb_isspb_proto_init() }
@@ -1840,7 +1920,7 @@ func file_isspb_isspb_proto_init() {
 			}
 		}
 		file_isspb_isspb_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SBRequestsReady); i {
+			switch v := v.(*SBReqWaitReference); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1852,7 +1932,7 @@ func file_isspb_isspb_proto_init() {
 			}
 		}
 		file_isspb_isspb_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SBDeliver); i {
+			switch v := v.(*SBRequestsReady); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1864,7 +1944,7 @@ func file_isspb_isspb_proto_init() {
 			}
 		}
 		file_isspb_isspb_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SBMessageReceived); i {
+			switch v := v.(*SBDeliver); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1876,7 +1956,7 @@ func file_isspb_isspb_proto_init() {
 			}
 		}
 		file_isspb_isspb_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SBPendingRequests); i {
+			switch v := v.(*SBMessageReceived); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1888,7 +1968,7 @@ func file_isspb_isspb_proto_init() {
 			}
 		}
 		file_isspb_isspb_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SBTick); i {
+			switch v := v.(*SBPendingRequests); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1900,7 +1980,7 @@ func file_isspb_isspb_proto_init() {
 			}
 		}
 		file_isspb_isspb_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Status); i {
+			switch v := v.(*SBTick); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1912,6 +1992,18 @@ func file_isspb_isspb_proto_init() {
 			}
 		}
 		file_isspb_isspb_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*Status); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_isspb_isspb_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*SBStatus); i {
 			case 0:
 				return &v.state
@@ -1950,13 +2042,16 @@ func file_isspb_isspb_proto_init() {
 		(*SBInstanceEvent_RequestsReady)(nil),
 		(*SBInstanceEvent_PbftPersistPreprepare)(nil),
 	}
+	file_isspb_isspb_proto_msgTypes[15].OneofWrappers = []interface{}{
+		(*SBReqWaitReference_Pbft)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_isspb_isspb_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -113,18 +113,18 @@ func SBBatchReadyEvent(batch *requestpb.Batch, pendingReqsLeft t.NumRequests) *i
 	}}}
 }
 
-func SBWaitForRequestsEvent(sn t.SeqNr, requests []*requestpb.RequestRef) *isspb.SBInstanceEvent {
+func SBWaitForRequestsEvent(reference *isspb.SBReqWaitReference, requests []*requestpb.RequestRef) *isspb.SBInstanceEvent {
 	return &isspb.SBInstanceEvent{Type: &isspb.SBInstanceEvent_WaitForRequests{
 		WaitForRequests: &isspb.SBWaitForRequests{
-			Sn:       sn.Pb(),
-			Requests: requests,
+			Reference: reference,
+			Requests:  requests,
 		},
 	}}
 }
 
-func SBRequestsReady(sn t.SeqNr) *isspb.SBInstanceEvent {
+func SBRequestsReady(ref *isspb.SBReqWaitReference) *isspb.SBInstanceEvent {
 	return &isspb.SBInstanceEvent{Type: &isspb.SBInstanceEvent_RequestsReady{RequestsReady: &isspb.SBRequestsReady{
-		Sn: sn.Pb(),
+		Ref: ref,
 	}}}
 }
 

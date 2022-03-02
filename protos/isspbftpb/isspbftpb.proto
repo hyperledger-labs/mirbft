@@ -18,12 +18,31 @@ option go_package = "github.com/hyperledger-labs/mirbft/pkg/pb/isspbftpb";
 
 message Preprepare {
   uint64 sn = 1;
-  requestpb.Batch batch = 2;
+  uint64 view = 2;
+  requestpb.Batch batch = 3;
+  bool aborted = 4;
+}
+
+message Prepare {
+  uint64 sn = 1;
+  uint64 view = 2;
+  bytes digest = 3;
+}
+
+message Commit {
+  uint64 sn = 1;
+  uint64 view = 2;
+  bytes digest = 3;
 }
 
 // ============================================================
 // Events
 // ============================================================
+
+message ReqWaitReference {
+  uint64   sn = 1;
+  uint64 view = 2;
+}
 
 message PersistPreprepare {
   Preprepare preprepare = 1;

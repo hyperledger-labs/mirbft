@@ -111,12 +111,18 @@ message SBBatchReady {
 }
 
 message SBWaitForRequests {
-  uint64 sn = 1;
+  SBReqWaitReference reference = 1;
   repeated requestpb.RequestRef requests = 2;
 }
 
+message SBReqWaitReference {
+  oneof type {
+    isspbftpb.ReqWaitReference pbft = 1;
+  }
+}
+
 message SBRequestsReady {
-  uint64 sn = 1;
+  SBReqWaitReference ref = 1;
 }
 
 message SBDeliver {

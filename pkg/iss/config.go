@@ -48,7 +48,7 @@ type Config struct {
 
 	// The maximum number of logical time ticks between two proposals of an orderer, where applicable.
 	// For orderers that wait for a request batch to fill before proposing it (e.g. PBFT),
-	// This parameter caps the waiting time in order to bound latency.
+	// this parameter caps the waiting time in order to bound latency.
 	// When MaxProposeDelay ticks have elapsed since the last proposal made by an orderer,
 	// the orderer proposes a new request batch, even if the batch is not full (or even completely empty).
 	// Must not be negative.
@@ -84,6 +84,10 @@ type Config struct {
 	// If the capacity is set to 0, all messages that cannot yet be processed are dropped on reception.
 	// Must not be negative.
 	MsgBufCapacity int
+
+	// View change timeout for the PBFT sub-protocol, in ticks.
+	// TODO: Separate this in a sub-group of the ISS config, maybe even use a field of type PBFTConfig in Config.
+	PBFTViewChangeTimeout int
 }
 
 // CheckConfig checks whether the given configuration satisfies all necessary constraints.

@@ -85,7 +85,9 @@ func New(nodeID t.NodeID, capacity int, logger logging.Logger) *MessageBuffer {
 // NewBuffers returns multiple buffers, one for each node listed in nodeIDs.
 // The total capacity is divided equally among all buffers, i.e., each buffer's capacity is totalCapacity/len(nodeIDs)
 // (using integer division, thus the resulting capacities might sum up to less than totalCapacity).
-// The retuned buffers ara stored in a map, indexed by node IDs.
+// In the current implementation, only the payload of the stored message is counted towards the capacity,
+// disregarding the overhead of the buffer implementation itself.
+// The returned buffers are stored in a map, indexed by node IDs.
 func NewBuffers(nodeIDs []t.NodeID, totalCapacity int, logger logging.Logger) map[t.NodeID]*MessageBuffer {
 
 	// Allocate a new map for storing the buffers.

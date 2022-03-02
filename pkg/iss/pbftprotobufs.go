@@ -38,15 +38,29 @@ func PbftPersistPreprepare(sn t.SeqNr, batch *requestpb.Batch) *isspb.SBInstance
 	}}
 }
 
+func PbftReqWaitReference(sn t.SeqNr, view t.PBFTViewNr) *isspb.SBReqWaitReference {
+	return &isspb.SBReqWaitReference{Type: &isspb.SBReqWaitReference_Pbft{Pbft: &isspbftpb.ReqWaitReference{
+		Sn:   sn.Pb(),
+		View: view.Pb(),
+	}}}
+}
+
 // ============================================================
 // Messages
 // ============================================================
 
-func PbftPreprepareMessage(sn t.SeqNr, batch *requestpb.Batch) *isspb.SBInstanceMessage {
+func PbftPreprepareMessage(
+	sn t.SeqNr,
+	view t.PBFTViewNr,
+	batch *requestpb.Batch,
+	aborted bool,
+) *isspb.SBInstanceMessage {
 	return &isspb.SBInstanceMessage{Type: &isspb.SBInstanceMessage_PbftPreprepare{
 		PbftPreprepare: &isspbftpb.Preprepare{
-			Sn:    sn.Pb(),
-			Batch: batch,
+			Sn:      sn.Pb(),
+			View:    view.Pb(),
+			Batch:   batch,
+			Aborted: aborted,
 		},
 	}}
 }
