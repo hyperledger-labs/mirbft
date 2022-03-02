@@ -15,7 +15,6 @@ package iss
 
 import (
 	"fmt"
-	proto "github.com/golang/protobuf/proto"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	"github.com/hyperledger-labs/mirbft/pkg/messagebuffer"
@@ -25,6 +24,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
+	"google.golang.org/protobuf/proto"
 )
 
 // ============================================================

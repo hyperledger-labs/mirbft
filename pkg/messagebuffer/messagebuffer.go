@@ -21,9 +21,9 @@ package messagebuffer
 
 import (
 	"container/list"
-	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
+	"google.golang.org/protobuf/proto"
 )
 
 // Applicable is an enum-style type representing the status of a message stored in the message buffer.
