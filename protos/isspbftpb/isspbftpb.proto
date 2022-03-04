@@ -48,6 +48,18 @@ message PersistPreprepare {
   Preprepare preprepare = 1;
 }
 
+message PersistPrepare {
+  Prepare prepare = 1;
+}
+
+message PersistCommit {
+  Commit commit = 1;
+}
+
+message PreprepareHashOrigin {
+  Preprepare preprepare = 1;
+}
+
 // ============================================================
 // Status
 // ============================================================

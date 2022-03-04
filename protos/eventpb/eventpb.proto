@@ -68,7 +68,8 @@ message HashResult {
 
 message HashOrigin {
   oneof type {
-    requestpb.Request request = 1;
+    requestpb.Request   request  = 1;
+    isspb.ISSHashOrigin iss      = 2;
   }
 }
 

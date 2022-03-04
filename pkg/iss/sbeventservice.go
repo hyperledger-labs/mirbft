@@ -49,6 +49,10 @@ func (ec *sbEventService) WALAppend(event *isspb.SBInstanceEvent) *eventpb.Event
 	return events.WALAppend(SBEvent(ec.epoch, ec.instanceID, event), t.WALRetIndex(ec.epoch))
 }
 
+func (ec *sbEventService) HashRequest(data [][]byte, origin *isspb.SBInstanceHashOrigin) *eventpb.Event {
+	return events.HashRequest(data, SBHashOrigin(ec.epoch, ec.instanceID, origin))
+}
+
 // SBEvent creates an event to be processed by ISS in association with the orderer that created it (e.g. Deliver).
 func (ec *sbEventService) SBEvent(event *isspb.SBInstanceEvent) *eventpb.Event {
 	return SBEvent(ec.epoch, ec.instanceID, event)

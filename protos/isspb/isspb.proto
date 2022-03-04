@@ -42,7 +42,9 @@ message Checkpoint {
 
 message SBInstanceMessage {
   oneof type {
-    isspbftpb.Preprepare pbft_preprepare = 3;
+    isspbftpb.Preprepare pbft_preprepare = 1;
+    isspbftpb.Prepare    pbft_prepare    = 2;
+    isspbftpb.Commit     pbft_commit     = 3;
   }
 }
 
@@ -57,6 +59,37 @@ message ISSEvent {
     PersistStableCheckpoint persist_stable_checkpoint = 3;
     SBEvent                 sb                        = 4;
   }
+}
+
+message ISSHashOrigin {
+  oneof type {
+    SBHashOrigin   sb        = 1;
+    CommitLogEntry log_entry = 2;
+  }
+}
+
+// The commitLogEntry type represents an entry of the commit log, the final output of the ordering process.
+// Whenever an orderer delivers a batch (or a special abort value),
+// it is inserted to the commit log in form of a commitLogEntry.
+message CommitLogEntry {
+
+  // Sequence number at which this entry has been ordered.
+  uint64          sn      = 1;
+
+  // The delivered request batch.
+  requestpb.Batch batch   = 2;
+
+  // The digest (hash) of the batch.
+  bytes           digest  = 3;
+
+  // A flag indicating whether this entry is an actual request batch (false)
+  // or whether the orderer delivered a special abort value (true).
+  bool            aborted = 4;
+
+  // In case Aborted is true, this field indicates the ID of the node
+  // that is suspected to be the reason for the orderer aborting (usually the leader).
+  // This information can be used by the leader selection policy at epoch transition.
+  uint64          suspect = 5;
 }
 
 message PersistCheckpoint {
@@ -85,17 +118,22 @@ message SBEvent {
 
 message SBInstanceEvent {
   oneof type {
-    SBInit init = 1;
-    SBDeliver deliver = 2;
-    SBMessageReceived message_received = 3;
-    SBPendingRequests pending_requests = 4;
-    SBTick tick = 5;
-    SBCutBatch cut_batch = 6;
-    SBBatchReady batch_ready = 7;
+    SBInit            init              = 1;
+    SBDeliver         deliver           = 2;
+    SBMessageReceived message_received  = 3;
+    SBPendingRequests pending_requests  = 4;
+    SBTick            tick              = 5;
+    SBCutBatch        cut_batch         = 6;
+    SBBatchReady      batch_ready       = 7;
     SBWaitForRequests wait_for_requests = 8;
-    SBRequestsReady requests_ready = 9;
+    SBRequestsReady   requests_ready    = 9;
+    SBHashRequest     hash_request      = 10;
+    SBHashResult      hash_result       = 11;
 
-    isspbftpb.PersistPreprepare pbft_persist_preprepare = 10;
+    isspbftpb.PersistPreprepare    pbft_persist_preprepare = 12;
+    isspbftpb.PersistPrepare       pbft_persist_prepare    = 13;
+    isspbftpb.PersistCommit        pbft_persist_commit     = 14;
+    //isspbftpb.PreprepareHashResult pbft_hash_result        = 15;
   }
 }
 
@@ -126,8 +164,9 @@ message SBRequestsReady {
 }
 
 message SBDeliver {
-  uint64 sn = 1;
-  requestpb.Batch batch = 2;
+  uint64          sn      = 1;
+  requestpb.Batch batch   = 2;
+  bool            aborted = 3;
 }
 
 message SBMessageReceived {
@@ -140,6 +179,28 @@ message SBPendingRequests {
 }
 
 message SBTick {
+}
+
+message SBHashResult {
+  bytes                digest = 1;
+  SBInstanceHashOrigin origin = 2;
+}
+
+message SBHashRequest {
+  repeated bytes data   = 1;
+  SBHashOrigin   origin = 2;
+}
+
+message SBHashOrigin {
+  uint64 epoch = 1;
+  uint64 instance = 2;
+  SBInstanceHashOrigin origin = 3;
+}
+
+message SBInstanceHashOrigin {
+  oneof type {
+    isspbftpb.PreprepareHashOrigin pbft_preprepare = 1;
+  }
 }
 
 // ============================================================

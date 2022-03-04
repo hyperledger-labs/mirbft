@@ -14,6 +14,7 @@ SPDX-License-Identifier: Apache-2.0
 package iss
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/hyperledger-labs/mirbft/pkg/events"
 	"github.com/hyperledger-labs/mirbft/pkg/logging"
@@ -23,6 +24,7 @@ import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/messagepb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/statuspb"
+	"github.com/hyperledger-labs/mirbft/pkg/serializing"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 	"google.golang.org/protobuf/proto"
 )
@@ -84,33 +86,6 @@ type segment struct {
 
 	// List of IDs of buckets from which the orderer will draw the requests it proposes.
 	BucketIDs []int
-}
-
-// The commitLogEntry type represents an entry of the commit log, the final output of the ordering process.
-// Whenever an orderer delivers a batch (or a special abort value),
-// it is inserted to the commit log in form of a commitLogEntry.
-type commitLogEntry struct {
-
-	// Sequence number at which this entry has been ordered.
-	Sn t.SeqNr
-
-	// The delivered request batch.
-	Batch *requestpb.Batch
-
-	// The digest (hash) of the batch.
-	// TODO: Implement this. Think of what needs to be hashed here. Include metadata like Aborted too?
-	Digest []byte
-
-	// A flag indicating whether this entry is an actual request batch (false)
-	// or whether the orderer delivered a special abort value (true).
-	// TODO: Implement this.
-	Aborted bool
-
-	// In case Aborted is true, this field indicates the ID of the node
-	// that is suspected to be the reason for the orderer aborting (usually the leader).
-	// This information can be used by the leader selection policy at epoch transition.
-	// TODO: Implement this.
-	Suspect t.NodeID
 }
 
 // epochInfo holds epoch-specific information that becomes irrelevant on advancing to the next epoch.
@@ -190,7 +165,7 @@ type ISS struct {
 	// as soon as all entries with lower sequence numbers have been delivered.
 	// I.e., the entries are not necessarily inserted in order of their sequence numbers,
 	// but they are delivered to the application in that order.
-	commitLog map[t.SeqNr]*commitLogEntry
+	commitLog map[t.SeqNr]*isspb.CommitLogEntry
 
 	// The first undelivered sequence number in the commitLog.
 	// This field drives the in-order delivery of the log entries to the application.
@@ -251,7 +226,7 @@ func New(ownID t.NodeID, config *Config, logger logging.Logger) (*ISS, error) {
 		bucketOrderers: nil,
 
 		// Fields modified throughout an epoch
-		commitLog:           make(map[t.SeqNr]*commitLogEntry),
+		commitLog:           make(map[t.SeqNr]*isspb.CommitLogEntry),
 		nextDeliveredSN:     0,
 		missingRequests:     nil, // allocated in initEpoch()
 		missingRequestIndex: nil, // allocated in initEpoch()
@@ -291,6 +266,8 @@ func (iss *ISS) ApplyEvent(event *eventpb.Event) *events.EventList {
 		return iss.applyInit(e.Init)
 	case *eventpb.Event_Tick:
 		return iss.applyTick(e.Tick)
+	case *eventpb.Event_HashResult:
+		return iss.applyHashResult(e.HashResult)
 	case *eventpb.Event_RequestReady:
 		return iss.applyRequestReady(e.RequestReady)
 	case *eventpb.Event_AppSnapshot:
@@ -364,6 +341,30 @@ func (iss *ISS) applyTick(tick *eventpb.Tick) *events.EventList {
 	return eventsOut
 }
 
+func (iss *ISS) applyHashResult(result *eventpb.HashResult) *events.EventList {
+	// We know already that the has origin is the HashOrigin is of type ISS, since ISS produces no other types
+	// and all HashResults with a different origin would not have been routed here.
+	issOrigin := result.Origin.Type.(*eventpb.HashOrigin_Iss).Iss
+
+	// Further inspect the origin of the initial hash request.
+	switch origin := issOrigin.Type.(type) {
+	case *isspb.ISSHashOrigin_Sb:
+		// If the original hash request has been produced by an SB instance,
+		// create an appropriate SBEvent and apply it.
+		// Note: Note that this is quite inefficient, allocating unnecessary boilerplate objects inside SBEvent().
+		//       instead of calling iss.ApplyEvent(), one could directly call iss.applySBEvent()
+		//       with a manually created isspb.SBEvent. The inefficient approach is chosen for code readability.
+		epoch := t.EpochNr(origin.Sb.Epoch)
+		instance := t.SBInstanceID(origin.Sb.Instance)
+		return iss.ApplyEvent(SBEvent(epoch, instance, SBHashResultEvent(result.Digest, origin.Sb.Origin)))
+	case *isspb.ISSHashOrigin_LogEntry:
+		// Hash originates from delivering a CommitLogEntry.
+		return iss.applyLogEntryHashResult(result.Digest, origin.LogEntry)
+	default:
+		panic(fmt.Sprintf("unknown origin of hash result: %T", origin))
+	}
+}
+
 // applyRequestReady applies the RequestReady event to the state of the ISS protocol state machine.
 // A RequestReady event means that a request is considered valid and authentic by the node and can be processed.
 func (iss *ISS) applyRequestReady(requestReady *eventpb.RequestReady) *events.EventList {
@@ -409,6 +410,24 @@ func (iss *ISS) applyRequestReady(requestReady *eventpb.RequestReady) *events.Ev
 // It passes the snapshot to the appropriate CheckpointTracker (identified by the event's associated sequence number).
 func (iss *ISS) applyAppSnapshot(snapshot *eventpb.AppSnapshot) *events.EventList {
 	return iss.getCheckpointTracker(t.SeqNr(snapshot.Sn)).ProcessAppSnapshot(snapshot.Data)
+}
+
+// applyLogEntryHashResult applies the event of receiving the digest of a delivered CommitLogEntry.
+// It attaches the digest to the entry and inserts the entry to the commit log.
+// Based on the state of the commitLog, it may trigger delivering batches to the application.
+func (iss *ISS) applyLogEntryHashResult(digest []byte, logEntry *isspb.CommitLogEntry) *events.EventList {
+
+	// Attach digest to entry.
+	logEntry.Digest = digest
+
+	// Insert a entry in the commitLog.
+	iss.commitLog[t.SeqNr(logEntry.Sn)] = logEntry
+
+	// Deliver commitLog entries to the application in sequence number order.
+	// This is relevant in the case when the sequence number of the currently SB-delivered batch
+	// is the first sequence number not yet delivered to the application.
+	return iss.processCommitted()
+
 }
 
 // applySBEvent applies an event triggered by or addressed to an orderer (i.e., instance of Sequenced Broadcast),
@@ -512,8 +531,6 @@ func (iss *ISS) applySBMessage(message *isspb.SBMessage, from t.NodeID) *events.
 		//       they might need to receive messages... Instead of simply checking the message epoch
 		//       against the current epoch, we might need to remember which epochs have been already garbage-collected
 		//       and use that information to decide what to do with messages.
-		iss.logger.Log(logging.LevelWarn, "Ignoring SB message from an old epoch.",
-			"type", fmt.Sprintf("%T", message.Msg.Type), "from", from, "epoch", epoch)
 		return &events.EventList{}
 	}
 }
@@ -704,15 +721,16 @@ func (iss *ISS) demandRequestRetransmission(reqInfo *missingRequestInfo) *events
 	))
 }
 
-// deliverCommitted delivers entries from the commitLog in order of their sequence numbers.
+// processCommitted delivers entries from the commitLog in order of their sequence numbers.
 // Whenever a new entry is inserted in the commitLog, this function must be called
 // to create Deliver events for all the batches that can be delivered to the application.
-func (iss *ISS) deliverCommitted() *events.EventList {
+// processCommitted also triggers other internal Events like epoch transitions and state checkpointing.
+func (iss *ISS) processCommitted() *events.EventList {
 	eventsOut := &events.EventList{}
 
 	// In case more than one Deliver events are produced, they need to be chained (using the Next field)
 	// so they are guaranteed to be processed in the same order as they have been created.
-	// firstDeliverEvent is the one ultimately returned by deliverCommitted.
+	// firstDeliverEvent is the one ultimately returned by processCommitted.
 	// lastDeliverEvent is the one every new event is appended to (before becoming the lastDeliverEvent itself)
 	var firstDeliverEvent *eventpb.Event = nil
 	var lastDeliverEvent *eventpb.Event = nil
@@ -923,9 +941,33 @@ func removeNodeID(membership []t.NodeID, nID t.NodeID) []t.NodeID {
 	return others
 }
 
+func serializeLogEntryForHashing(entry *isspb.CommitLogEntry) [][]byte {
+
+	// Encode integer fields.
+	snBuf := make([]byte, 8)
+	suspectBuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(snBuf, entry.Sn)
+	binary.LittleEndian.PutUint64(suspectBuf, entry.Suspect)
+
+	// Encode boolean Aborted field as one byte.
+	aborted := byte(0)
+	if entry.Aborted {
+		aborted = 1
+	}
+
+	// Encode the batch content.
+	batchData := serializing.BatchForHash(entry.Batch)
+
+	// Put everything together in a slice and return it.
+	data := make([][]byte, 0, len(entry.Batch.Requests)+3)
+	data = append(data, snBuf, suspectBuf, []byte{aborted})
+	data = append(data, batchData...)
+	return data
+}
+
 func strongQuorum(n int) int {
 	// assuming n = 3f + 1:
-	//     2 *  f      + 1
+	//     2 *  f    + 1
 	return 2*(n-1)/3 + 1
 }
 
