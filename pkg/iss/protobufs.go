@@ -34,6 +34,10 @@ func Event(event *isspb.ISSEvent) *eventpb.Event {
 	return &eventpb.Event{Type: &eventpb.Event_Iss{Iss: event}}
 }
 
+func HashOrigin(origin *isspb.ISSHashOrigin) *eventpb.HashOrigin {
+	return &eventpb.HashOrigin{Type: &eventpb.HashOrigin_Iss{origin}}
+}
+
 func PersistCheckpointEvent(sn t.SeqNr, appSnapshot []byte) *eventpb.Event {
 	return Event(&isspb.ISSEvent{Type: &isspb.ISSEvent_PersistCheckpoint{PersistCheckpoint: &isspb.PersistCheckpoint{
 		Sn:          sn.Pb(),
@@ -63,6 +67,18 @@ func SBEvent(epoch t.EpochNr, instance t.SBInstanceID, event *isspb.SBInstanceEv
 	}}})
 }
 
+func LogEntryHashOrigin(logEntry *isspb.CommitLogEntry) *eventpb.HashOrigin {
+	return HashOrigin(&isspb.ISSHashOrigin{Type: &isspb.ISSHashOrigin_LogEntry{LogEntry: logEntry}})
+}
+
+func SBHashOrigin(epoch t.EpochNr, instance t.SBInstanceID, origin *isspb.SBInstanceHashOrigin) *eventpb.HashOrigin {
+	return HashOrigin(&isspb.ISSHashOrigin{Type: &isspb.ISSHashOrigin_Sb{Sb: &isspb.SBHashOrigin{
+		Epoch:    epoch.Pb(),
+		Instance: instance.Pb(),
+		Origin:   origin,
+	}}})
+}
+
 // ------------------------------------------------------------
 // SB Instance Events
 
@@ -74,11 +90,12 @@ func SBTickEvent() *isspb.SBInstanceEvent {
 	return &isspb.SBInstanceEvent{Type: &isspb.SBInstanceEvent_Tick{Tick: &isspb.SBTick{}}}
 }
 
-func SBDeliverEvent(sn t.SeqNr, batch *requestpb.Batch) *isspb.SBInstanceEvent {
+func SBDeliverEvent(sn t.SeqNr, batch *requestpb.Batch, aborted bool) *isspb.SBInstanceEvent {
 	return &isspb.SBInstanceEvent{Type: &isspb.SBInstanceEvent_Deliver{
 		Deliver: &isspb.SBDeliver{
-			Sn:    sn.Pb(),
-			Batch: batch,
+			Sn:      sn.Pb(),
+			Batch:   batch,
+			Aborted: aborted,
 		},
 	}}
 }
@@ -125,6 +142,13 @@ func SBWaitForRequestsEvent(reference *isspb.SBReqWaitReference, requests []*req
 func SBRequestsReady(ref *isspb.SBReqWaitReference) *isspb.SBInstanceEvent {
 	return &isspb.SBInstanceEvent{Type: &isspb.SBInstanceEvent_RequestsReady{RequestsReady: &isspb.SBRequestsReady{
 		Ref: ref,
+	}}}
+}
+
+func SBHashResultEvent(digest []byte, origin *isspb.SBInstanceHashOrigin) *isspb.SBInstanceEvent {
+	return &isspb.SBInstanceEvent{Type: &isspb.SBInstanceEvent_HashResult{HashResult: &isspb.SBHashResult{
+		Digest: digest,
+		Origin: origin,
 	}}}
 }
 

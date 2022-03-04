@@ -74,6 +74,9 @@ func (wi *workItems) AddEvents(events *events.EventList) error {
 				// If the origin is a request received directly from a client,
 				// it is the client tracker that created the request and the result goes back to it.
 				wi.client.PushBack(event)
+			case *eventpb.HashOrigin_Iss:
+				// The ISS origin goes to the Protocol module (ISS is a protocol implementation).
+				wi.protocol.PushBack(event)
 			}
 		case *eventpb.Event_WalAppend:
 			wi.wal.PushBack(event)

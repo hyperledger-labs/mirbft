@@ -62,23 +62,34 @@ func (iss *ISS) applySBInstanceEvent(event *isspb.SBInstanceEvent, instance t.SB
 }
 
 // applySBInstDeliver processes the event of an SB instance delivering a request batch (or the special abort value)
-// for a sequence number. It inserts a corresponding entry to the commitLog.
+// for a sequence number. It creates a corresponding commitLog entry and requests the computation of its hash.
+// Note that applySBInstDeliver does not yet insert the entry to the commitLog. This will be done later.
+// Operation continues on reception of the HashResult event.
 func (iss *ISS) applySBInstDeliver(deliver *isspb.SBDeliver, instance t.SBInstanceID) *events.EventList {
 
 	// Remove the delivered requests from their respective buckets.
 	iss.removeFromBuckets(deliver.Batch.Requests)
 
-	// Insert a new entry to the commitLog.
-	iss.commitLog[t.SeqNr(deliver.Sn)] = &commitLogEntry{
-		Sn:    t.SeqNr(deliver.Sn),
-		Batch: deliver.Batch,
-		// TODO: Fill the rest of the fields (especially the digest)!
+	// Create a new log entry based on the delivered batch and hash it.
+	// Note that, although tempting, the hash used internally by the SB implementation cannot be re-used.
+	// Apart from making the SB abstraction extremely leaky (reason enough not to do it), it would also be incorrect.
+	// E.g., in PBFT, if the digest of the corresponding Preprepare message was used, the hashes at different nodes
+	// might mismatch, if they commit in different PBFT views (and thus using different Preprepares).
+	unhashedEntry := &isspb.CommitLogEntry{
+		Sn:      deliver.Sn,
+		Batch:   deliver.Batch,
+		Digest:  nil,
+		Aborted: deliver.Aborted,
+		Suspect: iss.orderers[instance].Segment().Leader.Pb(),
 	}
 
-	// Deliver commitLog entries to the application in sequence number order.
-	// This is relevant in the case when the sequence number of the currently SB-delivered batch
-	// is the first sequence number not yet delivered to the application.
-	return iss.deliverCommitted()
+	// Create a HashRequest for the commit log entry with the newly delivered hash.
+	// The hash is required for state transfer.
+	// Only after the hash is computed, the log entry can be stored in the log (and potentially delivered to the App).
+	return (&events.EventList{}).PushBack(events.HashRequest(
+		serializeLogEntryForHashing(unhashedEntry),
+		LogEntryHashOrigin(unhashedEntry),
+	))
 }
 
 // applySBInstCutBatch processes a request by an orderer for a new request batch that the orderer will propose.

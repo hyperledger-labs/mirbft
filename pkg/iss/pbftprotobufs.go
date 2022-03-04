@@ -19,7 +19,6 @@ package iss
 import (
 	"github.com/hyperledger-labs/mirbft/pkg/pb/isspb"
 	"github.com/hyperledger-labs/mirbft/pkg/pb/isspbftpb"
-	"github.com/hyperledger-labs/mirbft/pkg/pb/requestpb"
 	t "github.com/hyperledger-labs/mirbft/pkg/types"
 )
 
@@ -27,16 +26,31 @@ import (
 // Events
 // ============================================================
 
-func PbftPersistPreprepare(sn t.SeqNr, batch *requestpb.Batch) *isspb.SBInstanceEvent {
+func PbftPersistPreprepare(preprepare *isspbftpb.Preprepare) *isspb.SBInstanceEvent {
 	return &isspb.SBInstanceEvent{Type: &isspb.SBInstanceEvent_PbftPersistPreprepare{
 		PbftPersistPreprepare: &isspbftpb.PersistPreprepare{
-			Preprepare: &isspbftpb.Preprepare{
-				Sn:    sn.Pb(),
-				Batch: batch,
-			},
+			Preprepare: preprepare,
 		},
 	}}
 }
+
+func PbftPersistPrepare(prepare *isspbftpb.Prepare) *isspb.SBInstanceEvent {
+	return &isspb.SBInstanceEvent{Type: &isspb.SBInstanceEvent_PbftPersistPrepare{
+		PbftPersistPrepare: &isspbftpb.PersistPrepare{
+			Prepare: prepare,
+		},
+	}}
+}
+
+func PbftPersistCommit(commit *isspbftpb.Commit) *isspb.SBInstanceEvent {
+	return &isspb.SBInstanceEvent{Type: &isspb.SBInstanceEvent_PbftPersistCommit{
+		PbftPersistCommit: &isspbftpb.PersistCommit{
+			Commit: commit,
+		},
+	}}
+}
+
+// TODO: Generalize the Preprepare, Prepare, and Commit persist events to one (PersistMessage)
 
 func PbftReqWaitReference(sn t.SeqNr, view t.PBFTViewNr) *isspb.SBReqWaitReference {
 	return &isspb.SBReqWaitReference{Type: &isspb.SBReqWaitReference_Pbft{Pbft: &isspbftpb.ReqWaitReference{
@@ -49,18 +63,20 @@ func PbftReqWaitReference(sn t.SeqNr, view t.PBFTViewNr) *isspb.SBReqWaitReferen
 // Messages
 // ============================================================
 
-func PbftPreprepareMessage(
-	sn t.SeqNr,
-	view t.PBFTViewNr,
-	batch *requestpb.Batch,
-	aborted bool,
-) *isspb.SBInstanceMessage {
+func PbftPreprepareMessage(content *isspbftpb.Preprepare) *isspb.SBInstanceMessage {
 	return &isspb.SBInstanceMessage{Type: &isspb.SBInstanceMessage_PbftPreprepare{
-		PbftPreprepare: &isspbftpb.Preprepare{
-			Sn:      sn.Pb(),
-			View:    view.Pb(),
-			Batch:   batch,
-			Aborted: aborted,
-		},
+		PbftPreprepare: content,
+	}}
+}
+
+func PbftPrepareMessage(content *isspbftpb.Prepare) *isspb.SBInstanceMessage {
+	return &isspb.SBInstanceMessage{Type: &isspb.SBInstanceMessage_PbftPrepare{
+		PbftPrepare: content,
+	}}
+}
+
+func PbftCommitMessage(content *isspbftpb.Commit) *isspb.SBInstanceMessage {
+	return &isspb.SBInstanceMessage{Type: &isspb.SBInstanceMessage_PbftCommit{
+		PbftCommit: content,
 	}}
 }
