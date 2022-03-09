@@ -11,10 +11,10 @@ import (
 //Creates and returns a prefix tag for event display using event metadata
 func getMetaTag(eventType string, metadata eventMetadata) string {
 	boldGreen := chalk.Green.NewStyle().WithTextStyle(chalk.Bold) //setting font color and style
-	boldBlue := chalk.Blue.NewStyle().WithTextStyle(chalk.Bold)
+	boldCyan := chalk.Cyan.NewStyle().WithTextStyle(chalk.Bold)
 	return fmt.Sprintf("%s %s",
 		boldGreen.Style(fmt.Sprintf("[ Event_%s ]", eventType)),
-		boldBlue.Style(fmt.Sprintf("[ Node #%s ] [ Time _%s ] [ Index #%s ]",
+		boldCyan.Style(fmt.Sprintf("[ Node #%s ] [ Time _%s ] [ Index #%s ]",
 			strconv.FormatUint(metadata.nodeID, 10),
 			strconv.FormatInt(metadata.time, 10),
 			strconv.FormatUint(metadata.index, 10))),
