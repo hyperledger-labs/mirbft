@@ -197,7 +197,7 @@ func main() {
 	go func() {
 		// Since the Node does not have any notion of real time,
 		// it needs to be supplied with logical time in form of a Ticker.
-		nodeErr = node.Run(stopC, time.NewTicker(time.Second).C)
+		nodeErr = node.Run(stopC, time.NewTicker(100*time.Millisecond).C)
 		wg.Done()
 	}()
 
@@ -248,7 +248,7 @@ func main() {
 		if err := client.SubmitRequest(
 			scanner.Bytes(),
 		); err != nil {
-			panic(err)
+			fmt.Println(err)
 		}
 	}
 	if err := scanner.Err(); err != nil {
