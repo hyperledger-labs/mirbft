@@ -35,6 +35,12 @@ message Commit {
   bytes digest = 3;
 }
 
+message ViewChange {
+  uint64 view = 1;
+  map<uint64, Prepare> pset = 2;
+  map<uint64, Prepare> qset = 3;
+}
+
 // ============================================================
 // Events
 // ============================================================

@@ -63,33 +63,9 @@ message ISSEvent {
 
 message ISSHashOrigin {
   oneof type {
-    SBHashOrigin   sb        = 1;
-    CommitLogEntry log_entry = 2;
+    SBHashOrigin   sb           = 1;
+    uint64         log_entry_sn = 2;
   }
-}
-
-// The commitLogEntry type represents an entry of the commit log, the final output of the ordering process.
-// Whenever an orderer delivers a batch (or a special abort value),
-// it is inserted to the commit log in form of a commitLogEntry.
-message CommitLogEntry {
-
-  // Sequence number at which this entry has been ordered.
-  uint64          sn      = 1;
-
-  // The delivered request batch.
-  requestpb.Batch batch   = 2;
-
-  // The digest (hash) of the batch.
-  bytes           digest  = 3;
-
-  // A flag indicating whether this entry is an actual request batch (false)
-  // or whether the orderer delivered a special abort value (true).
-  bool            aborted = 4;
-
-  // In case Aborted is true, this field indicates the ID of the node
-  // that is suspected to be the reason for the orderer aborting (usually the leader).
-  // This information can be used by the leader selection policy at epoch transition.
-  uint64          suspect = 5;
 }
 
 message PersistCheckpoint {
