@@ -67,8 +67,8 @@ func SBEvent(epoch t.EpochNr, instance t.SBInstanceID, event *isspb.SBInstanceEv
 	}}})
 }
 
-func LogEntryHashOrigin(logEntry *isspb.CommitLogEntry) *eventpb.HashOrigin {
-	return HashOrigin(&isspb.ISSHashOrigin{Type: &isspb.ISSHashOrigin_LogEntry{LogEntry: logEntry}})
+func LogEntryHashOrigin(logEntrySN t.SeqNr) *eventpb.HashOrigin {
+	return HashOrigin(&isspb.ISSHashOrigin{Type: &isspb.ISSHashOrigin_LogEntrySn{LogEntrySn: logEntrySN.Pb()}})
 }
 
 func SBHashOrigin(epoch t.EpochNr, instance t.SBInstanceID, origin *isspb.SBInstanceHashOrigin) *eventpb.HashOrigin {

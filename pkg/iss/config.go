@@ -87,7 +87,8 @@ type Config struct {
 
 	// View change timeout for the PBFT sub-protocol, in ticks.
 	// TODO: Separate this in a sub-group of the ISS config, maybe even use a field of type PBFTConfig in Config.
-	PBFTViewChangeTimeout int
+	PBFTViewChangeBatchTimeout   int
+	PBFTViewChangeSegmentTimeout int
 }
 
 // CheckConfig checks whether the given configuration satisfies all necessary constraints.

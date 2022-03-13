@@ -55,9 +55,16 @@ type PBFTConfig struct {
 	// Setting MaxBatchSize to zero signifies no limit on batch size.
 	MaxBatchSize t.NumRequests
 
-	// View change timeout for view 0 in ticks.
-	// With each view change, the timeout doubles (without changing this value)
-	ViewChangeTimeout int
+	// Per-batch view change timeout for view 0, in ticks.
+	// If no batch is delivered by a PBFT instance within this timeout, the node triggers a view change.
+	// With each new view, the timeout doubles (without changing this value)
+	ViewChangeBatchTimeout int
+
+	// View change timeout for view 0 for the whole segment, in ticks.
+	// If not all batches of the associated segment are delivered by a PBFT instance within this timeout,
+	// the node triggers a view change.
+	// With each new view, the timeout doubles (without changing this value)
+	ViewChangeSegmentTimeout int
 }
 
 // pbftProposalState tracks the state of the pbftInstance related to proposing batches.
@@ -235,6 +242,11 @@ func (slot *pbftSlot) checkCommitted() bool {
 	return len(slot.ValidCommits) >= 2*slot.f+1
 }
 
+type pbftViewChange struct {
+	view     t.PBFTViewNr
+	messages map[t.NodeID]*isspbftpb.ViewChange
+}
+
 // ============================================================
 // PBFT orderer type and constructor
 // ============================================================
@@ -280,6 +292,19 @@ type pbftInstance struct {
 	// Flag indicating whether this node is currently performing a view change.
 	// It is set on sending the ViewChange message and cleared on accepting a new view.
 	inViewChange bool
+
+	// ticksLeftBatch indicates the number of ticks left until a view change is triggered.
+	// This counter is initialized to pre-configured values and decremented on each tick.
+	// When it reaches zero, the node starts a view change in this PBFT instance.
+	// It is reset to its pre-configured value each time a batch is committed and when a new view starts.
+	// Additionally, the reset value is doubled in each view. I.e., in view v, the reset value is multiplied by 2^v
+	ticksLeftBatch int
+
+	// ticksLeftSegment, like ticksLeftBatch, indicates the number of ticks left until a view change is triggered.
+	// The only difference to ticksLeftBatch is that ticksLeftSegment is not reset on batch delivery.
+	// It is intended to start with a greater initial value and serve as a timeout for the whole segment
+	// rather than for a batch.
+	ticksLeftSegment int
 }
 
 // newPbftInstance allocates and initializes a new instance of the PBFT orderer.
@@ -322,10 +347,12 @@ func newPbftInstance(
 			//       Even better, share the same buffers with ISS.
 			logging.Decorate(logger, "Msgbuf: "),
 		),
-		logger:       logger,
-		eventService: eventService,
-		view:         0,
-		inViewChange: false,
+		logger:           logger,
+		eventService:     eventService,
+		view:             0,
+		inViewChange:     false,
+		ticksLeftBatch:   config.ViewChangeBatchTimeout,
+		ticksLeftSegment: config.ViewChangeSegmentTimeout,
 	}
 }
 

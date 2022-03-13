@@ -98,6 +98,29 @@ type epochInfo struct {
 	Orderers map[t.SBInstanceID]sbInstance
 }
 
+// The CommitLogEntry type represents an entry of the commit log, the final output of the ordering process.
+// Whenever an orderer delivers a batch (or a special abort value),
+// it is inserted to the commit log in form of a commitLogEntry.
+type CommitLogEntry struct {
+	// Sequence number at which this entry has been ordered.
+	Sn t.SeqNr
+
+	// The delivered request batch.
+	Batch *requestpb.Batch
+
+	// The digest (hash) of the batch.
+	Digest []byte
+
+	// A flag indicating whether this entry is an actual request batch (false)
+	// or whether the orderer delivered a special abort value (true).
+	Aborted bool
+
+	// In case Aborted is true, this field indicates the ID of the node
+	// that is suspected to be the reason for the orderer aborting (usually the leader).
+	// This information can be used by the leader selection policy at epoch transition.
+	Suspect t.NodeID
+}
+
 // ============================================================
 // ISS type and constructor
 // ============================================================
@@ -165,7 +188,13 @@ type ISS struct {
 	// as soon as all entries with lower sequence numbers have been delivered.
 	// I.e., the entries are not necessarily inserted in order of their sequence numbers,
 	// but they are delivered to the application in that order.
-	commitLog map[t.SeqNr]*isspb.CommitLogEntry
+	commitLog map[t.SeqNr]*CommitLogEntry
+
+	// CommitLogEntries for which the hash has been requested, but not yet computed.
+	// When an orderer delivers a Batch, ISS creates a CommitLogEntry with a nil Hash, stores it here,
+	// and creates a HashRequest. When the HashResult arrives, ISS removes the CommitLogEntry from unhashedLogEntries,
+	// fills in the missing hash, and inserts it to the commitLog.
+	unhashedLogEntries map[t.SeqNr]*CommitLogEntry
 
 	// The first undelivered sequence number in the commitLog.
 	// This field drives the in-order delivery of the log entries to the application.
@@ -226,7 +255,8 @@ func New(ownID t.NodeID, config *Config, logger logging.Logger) (*ISS, error) {
 		bucketOrderers: nil,
 
 		// Fields modified throughout an epoch
-		commitLog:           make(map[t.SeqNr]*isspb.CommitLogEntry),
+		commitLog:           make(map[t.SeqNr]*CommitLogEntry),
+		unhashedLogEntries:  make(map[t.SeqNr]*CommitLogEntry),
 		nextDeliveredSN:     0,
 		missingRequests:     nil, // allocated in initEpoch()
 		missingRequestIndex: nil, // allocated in initEpoch()
@@ -357,9 +387,9 @@ func (iss *ISS) applyHashResult(result *eventpb.HashResult) *events.EventList {
 		epoch := t.EpochNr(origin.Sb.Epoch)
 		instance := t.SBInstanceID(origin.Sb.Instance)
 		return iss.ApplyEvent(SBEvent(epoch, instance, SBHashResultEvent(result.Digest, origin.Sb.Origin)))
-	case *isspb.ISSHashOrigin_LogEntry:
+	case *isspb.ISSHashOrigin_LogEntrySn:
 		// Hash originates from delivering a CommitLogEntry.
-		return iss.applyLogEntryHashResult(result.Digest, origin.LogEntry)
+		return iss.applyLogEntryHashResult(result.Digest, t.SeqNr(origin.LogEntrySn))
 	default:
 		panic(fmt.Sprintf("unknown origin of hash result: %T", origin))
 	}
@@ -415,12 +445,16 @@ func (iss *ISS) applyAppSnapshot(snapshot *eventpb.AppSnapshot) *events.EventLis
 // applyLogEntryHashResult applies the event of receiving the digest of a delivered CommitLogEntry.
 // It attaches the digest to the entry and inserts the entry to the commit log.
 // Based on the state of the commitLog, it may trigger delivering batches to the application.
-func (iss *ISS) applyLogEntryHashResult(digest []byte, logEntry *isspb.CommitLogEntry) *events.EventList {
+func (iss *ISS) applyLogEntryHashResult(digest []byte, logEntrySN t.SeqNr) *events.EventList {
+
+	// Remove pending CommitLogEntry from the "waiting room"
+	logEntry := iss.unhashedLogEntries[logEntrySN]
+	delete(iss.unhashedLogEntries, logEntrySN)
 
 	// Attach digest to entry.
 	logEntry.Digest = digest
 
-	// Insert a entry in the commitLog.
+	// Insert the entry in the commitLog.
 	iss.commitLog[t.SeqNr(logEntry.Sn)] = logEntry
 
 	// Deliver commitLog entries to the application in sequence number order.
@@ -913,11 +947,12 @@ func newPBFTConfig(issConfig *Config) *PBFTConfig {
 
 	// Return a new PBFT configuration with selected values from the ISS configuration.
 	return &PBFTConfig{
-		Membership:        issConfig.Membership,
-		MaxProposeDelay:   issConfig.MaxProposeDelay,
-		MsgBufCapacity:    issConfig.MsgBufCapacity,
-		MaxBatchSize:      issConfig.MaxBatchSize,
-		ViewChangeTimeout: issConfig.PBFTViewChangeTimeout,
+		Membership:               issConfig.Membership,
+		MaxProposeDelay:          issConfig.MaxProposeDelay,
+		MsgBufCapacity:           issConfig.MsgBufCapacity,
+		MaxBatchSize:             issConfig.MaxBatchSize,
+		ViewChangeBatchTimeout:   issConfig.PBFTViewChangeBatchTimeout,
+		ViewChangeSegmentTimeout: issConfig.PBFTViewChangeBatchTimeout,
 	}
 }
 
@@ -941,13 +976,13 @@ func removeNodeID(membership []t.NodeID, nID t.NodeID) []t.NodeID {
 	return others
 }
 
-func serializeLogEntryForHashing(entry *isspb.CommitLogEntry) [][]byte {
+func serializeLogEntryForHashing(entry *CommitLogEntry) [][]byte {
 
 	// Encode integer fields.
 	snBuf := make([]byte, 8)
 	suspectBuf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(snBuf, entry.Sn)
-	binary.LittleEndian.PutUint64(suspectBuf, entry.Suspect)
+	binary.LittleEndian.PutUint64(snBuf, entry.Sn.Pb())
+	binary.LittleEndian.PutUint64(suspectBuf, entry.Suspect.Pb())
 
 	// Encode boolean Aborted field as one byte.
 	aborted := byte(0)

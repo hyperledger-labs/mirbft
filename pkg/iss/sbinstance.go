@@ -70,25 +70,28 @@ func (iss *ISS) applySBInstDeliver(deliver *isspb.SBDeliver, instance t.SBInstan
 	// Remove the delivered requests from their respective buckets.
 	iss.removeFromBuckets(deliver.Batch.Requests)
 
-	// Create a new log entry based on the delivered batch and hash it.
+	// Create a new preliminary log entry based on the delivered batch and hash it.
 	// Note that, although tempting, the hash used internally by the SB implementation cannot be re-used.
 	// Apart from making the SB abstraction extremely leaky (reason enough not to do it), it would also be incorrect.
 	// E.g., in PBFT, if the digest of the corresponding Preprepare message was used, the hashes at different nodes
 	// might mismatch, if they commit in different PBFT views (and thus using different Preprepares).
-	unhashedEntry := &isspb.CommitLogEntry{
-		Sn:      deliver.Sn,
+	unhashedEntry := &CommitLogEntry{
+		Sn:      t.SeqNr(deliver.Sn),
 		Batch:   deliver.Batch,
 		Digest:  nil,
 		Aborted: deliver.Aborted,
-		Suspect: iss.orderers[instance].Segment().Leader.Pb(),
+		Suspect: iss.orderers[instance].Segment().Leader,
 	}
+
+	// Save the preliminary hash entry to a map where it can be looked up when the hash result arrives.
+	iss.unhashedLogEntries[unhashedEntry.Sn] = unhashedEntry
 
 	// Create a HashRequest for the commit log entry with the newly delivered hash.
 	// The hash is required for state transfer.
 	// Only after the hash is computed, the log entry can be stored in the log (and potentially delivered to the App).
 	return (&events.EventList{}).PushBack(events.HashRequest(
 		serializeLogEntryForHashing(unhashedEntry),
-		LogEntryHashOrigin(unhashedEntry),
+		LogEntryHashOrigin(unhashedEntry.Sn),
 	))
 }
 
