@@ -4,7 +4,7 @@ This open-source project is part of [Hyperledger Labs](https://labs.hyperledger.
 
 It aims at developing a production-quality implementation of:
 - a general framework for easily implementing distributed protocols
-- the ISS Byzantine fault tolerant consensus protocol.
+- the [ISS](/pkg/iss) Byzantine fault tolerant consensus protocol.
 
 ## Overview
 
@@ -14,7 +14,7 @@ MirBFT hopes to be a building block of a next generation of distributed systems,
 
 ### Insanely Scalable State Machine Replication
 
-The first algorithm to be implemented in MirBFT is called ISS (Insanely Scalable SMR),
+The first algorithm to be implemented in MirBFT is called [ISS (Insanely Scalable SMR)](/pkg/iss),
 a state-of-the-art [atomic broadcast](https://en.wikipedia.org/wiki/Atomic_broadcast) protocol
 which can be utilized by any distributed system.
 
@@ -103,7 +103,8 @@ and a more detailed description of each module in the [Documentation](/docs).
 The term Mir-BFT was introduced as a name for a scalable atomic broadcast algorithm -
 the [Mir-BFT algorithm](https://arxiv.org/abs/1906.05552).
 The MirBFT library initially started as an implementation of that (old) algorithm - thus the shared name -
-but the algorithm implemented within the library has since been replaced by its modular and superior successor, ISS.
+but the algorithm implemented within the library
+has since been replaced by its modular and superior successor, [ISS](/pkg/iss).
 Thus, we refer to the library / framework as MirBFT, and to the algorithm it currently implements as ISS.
 Since MirBFT is designed to be modular and versatile, ISS is just one (the first) of the algorithms implemented in ISS.
 
