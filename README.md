@@ -40,6 +40,8 @@ The Node receives *requests*, processes them (while coordinating with other Node
 and eventually delivers them to a (consumer-defined) *application*.
 Fundamentally, MirBFT's purpose can be summed up simply as receiving requests from the consumer
 and delivering them to an application as prescribed by some protocol.
+Te ISS protocol, for example, being a total order broadcast protocol,
+guarantees that all requests received by the nodes will be delivered to the application in the same order.
 
 Note that the application need not necessarily be an end-user application -
 any program using MirBFT is, an application from MirBFT's point of view.
