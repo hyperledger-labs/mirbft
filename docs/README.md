@@ -3,7 +3,6 @@
 MirBFT is a Total Order Broadcast (TOB) / State Machine Replication (SMR) library.
 This document describes the architecture and inner workings of the library
 and is intended for its developers rather than for its users.
-For the users' documentation, see **(TODO)**.
 
 
 ## _Node_
@@ -30,9 +29,7 @@ from where they are dispatched (by the `Node.process()` method) to the appropria
 This processing creates new _Events_ which are in turn added to the _WorkItems_, and so on.
 
 For debugging purposes, all _Events_ can be recorded using an event _Interceptor_ ([see below](#interceptor))
-and inspected or replayed in debug mode using the `mircat` utility.
-
-TODO: `mircat` is not yet implemented. When mircat is ready, link it here!
+and inspected or replayed in debug mode using the [mircat](/cmd/mircat/) utility.
 
 ### Follow-up _Events_
 

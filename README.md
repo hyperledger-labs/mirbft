@@ -152,8 +152,6 @@ For a description of the design and inner workings of the library, see [MirBFT L
 
 For a small demo application, see [/samples/chat-demo](/samples/chat-demo)
 
-TODO: Write a document on how to use the library and link it here.
-
 ## Contributing
 
 **Contributions are more than welcome!**
@@ -161,8 +159,7 @@ TODO: Write a document on how to use the library and link it here.
 If you want to contribute, have a look at our [Contributor's guide](CONTRIBUTING.md)
 and at the open [issues](https://github.com/hyperledger-labs/mirbft/issues).
 If you have any questions (specific or general),
-do not hesitate to post them on [MirBFT's Rocket.Chat channel](https://chat.hyperledger.org/channel/mirbft).
-You can also drop an email to the active maintainer(s).
+do not hesitate to drop an email to the active maintainer(s).
 
 ### Public Bi-Weekly Community Call
 
@@ -176,8 +173,9 @@ Meeting information:
 - Meeting ID: 824 1034 2226
 - Passcode: HQG5z5
 - Upcoming calls:
-  * Nov 30th 2021
-  * Dec 14th 2021
+  * Mar 22nd 2022
+  * Apr 5th 2022
+  * Apr 19th 2022
 
 ## Research prototypes
 
