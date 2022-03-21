@@ -6,6 +6,9 @@ It aims at developing a production-quality implementation of:
 - a general framework for easily implementing distributed protocols
 - the [ISS](/pkg/iss) Byzantine fault tolerant consensus protocol.
 
+MirBFT is intended to be used as a scalable and efficient [consensus layer in Filecoin subnets](https://github.com/protocol/ConsensusLab/issues/9)
+and, potentially, as a Byzantine fault tolerant ordering service in Hyperledger Fabric.
+
 ## Overview
 
 MirBFT is a library that provides a general framework for implementing distributed algorithms
