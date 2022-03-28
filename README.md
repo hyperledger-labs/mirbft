@@ -195,10 +195,10 @@ EuroSys22 research paper.
 
 ## Summary of references
 
-- Public Rocket.Chat channel: https://chat.hyperledger.org/channel/mirbft
-- Hyperledger Labs page: https://labs.hyperledger.org/labs/mir-bft.html
-- Paper describing the algorithm: https://arxiv.org/abs/1906.05552
-- Original PBFT paper: https://www.microsoft.com/en-us/research/wp-content/uploads/2017/01/p398-castro-bft-tocs.pdf
+- [Public Discord channel](https://discord.gg/7aQbvZUT6V)
+- [Hyperledger Labs page](https://labs.hyperledger.org/labs/mir-bft.html)
+- Paper describing the algorithm: [Extended version](https://arxiv.org/abs/2203.05681)
+- [Original PBFT paper](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/01/p398-castro-bft-tocs.pdf)
 
 ## Active maintainer(s)
 
