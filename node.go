@@ -175,11 +175,14 @@ func (n *Node) SubmitRequest(
 // The function call is blocking and only returns when the node stops.
 func (n *Node) Run(exitC <-chan struct{}, tickC <-chan time.Time) error {
 
-	// Load the contents of the WAL and enqueue it for processing.
-	if err := n.processWAL(); err != nil {
-		n.workErrNotifier.Fail(err)
-		n.workErrNotifier.SetExitStatus(nil, fmt.Errorf("node not started"))
-		return fmt.Errorf("could not process WAL: %w", err)
+	// If a WAL implementation is available,
+	// load the contents of the WAL and enqueue it for processing.
+	if n.modules.WAL != nil {
+		if err := n.processWAL(); err != nil {
+			n.workErrNotifier.Fail(err)
+			n.workErrNotifier.SetExitStatus(nil, fmt.Errorf("node not started"))
+			return fmt.Errorf("could not process WAL: %w", err)
+		}
 	}
 
 	// Submit the Init event to the modules.

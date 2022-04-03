@@ -181,6 +181,12 @@ func (n *Node) doProtocolWork(exitC <-chan struct{}) (err error) {
 // TODO: Document the functions below.
 
 func (n *Node) processWALEvents(eventsIn *events.EventList) (*events.EventList, error) {
+
+	// If no WAL implementation is present, do nothing and return immediately.
+	if n.modules.WAL == nil {
+		return &events.EventList{}, nil
+	}
+
 	eventsOut := &events.EventList{}
 	iter := eventsIn.Iterator()
 

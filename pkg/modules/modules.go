@@ -45,11 +45,6 @@ func Defaults(m Modules) (*Modules, error) {
 		return nil, fmt.Errorf("no default App implementation")
 	}
 
-	if m.WAL == nil {
-		// TODO: Use some default configuration of SimpleWAL here.
-		return nil, fmt.Errorf("no default WAL implementation")
-	}
-
 	if m.ClientTracker == nil {
 		// TODO: Change this to the real default client tracker once implemented.
 		m.ClientTracker = &clients.DummyClientTracker{}
@@ -70,6 +65,9 @@ func Defaults(m Modules) (*Modules, error) {
 	}
 
 	// The Interceptor can stay nil, in which case Events will simply not be intercepted.
+
+	// The WAL can stay nil, in which case no write-ahead log will be written
+	// and the node will not be able to restart.
 
 	return &m, nil
 }
