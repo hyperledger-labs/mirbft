@@ -160,11 +160,6 @@ func main() {
 		RequestStore: reqStore,
 		Protocol:     issProtocol,
 
-		// The DummyProtocol is a stub, is not fault-tolerant and only serves demonstration purposes.
-		// In the future, a choice of multiple protocols should be available.
-		// Replace the previous code line by the next one to use te dummy protocol.
-		// Protocol: ordering.NewDummyProtocol(logger, nodeIds, args.OwnId),
-
 		// This is the application logic MirBFT is going to deliver requests to.
 		// It requires to have access to the request store, as MirBFT only passes request references to it.
 		// It is the application's responsibility to get the necessary request data from the request store.
