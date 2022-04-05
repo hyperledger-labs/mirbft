@@ -180,7 +180,7 @@ Meeting information:
 - Passcode: HQG5z5
 - Upcoming calls:
   * Mar 22nd 2022
-  * Apr 5th 2022
+  * Apr 5th 2022 -- CANCELED
   * Apr 19th 2022
 
 ## Research prototypes
