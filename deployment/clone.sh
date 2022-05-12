@@ -1,4 +1,6 @@
-. vars.sh
+#!/bin/bash
+export user=$(id -un)
+export group=$(id -gn)
 
 export PATH=$PATH:~/go/bin/:/opt/gopath/bin/
 export GOPATH=/opt/gopath

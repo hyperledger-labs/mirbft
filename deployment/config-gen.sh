@@ -79,13 +79,13 @@ else
   for p in $servers $clients; do
       pub=$(getIP $p)
       if [ "$config_only" = "false" ]; then
-        ssh $user@$pub $ssh_options "rm -rf /opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/*"
+        ssh $ssh_user@$pub $ssh_options "rm -rf /opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/*"
       fi
-      ssh $user@$pub $ssh_options "rm -rf /opt/gopath/src/github.com/IBM/mirbft/deployment/config/serverconfig/*"
-      ssh $user@$pub $ssh_options "rm -rf /opt/gopath/src/github.com/IBM/mirbft/deployment/config/clientconfig/*"
-      ssh $user@$pub $ssh_options "mkdir -p /opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/"
-      ssh $user@$pub $ssh_options "mkdir -p /opt/gopath/src/github.com/IBM/mirbft/deployment/config/serverconfig/"
-      ssh $user@$pub $ssh_options "mkdir -p /opt/gopath/src/github.com/IBM/mirbft/deployment/config/clientconfig/"
+      ssh $ssh_user@$pub $ssh_options "rm -rf /opt/gopath/src/github.com/IBM/mirbft/deployment/config/serverconfig/*"
+      ssh $ssh_user@$pub $ssh_options "rm -rf /opt/gopath/src/github.com/IBM/mirbft/deployment/config/clientconfig/*"
+      ssh $ssh_user@$pub $ssh_options "mkdir -p /opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/"
+      ssh $ssh_user@$pub $ssh_options "mkdir -p /opt/gopath/src/github.com/IBM/mirbft/deployment/config/serverconfig/"
+      ssh $ssh_user@$pub $ssh_options "mkdir -p /opt/gopath/src/github.com/IBM/mirbft/deployment/config/clientconfig/"
   done
 fi
 
@@ -110,11 +110,11 @@ if [ "$config_only" = "false" ]; then
     else
         for p in $servers $clients; do
             pub=$(getIP $p)
-            scp $ssh_options temp/*.pem $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
+            scp $ssh_options temp/*.pem $ssh_user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
         done
         for p in $servers; do
             pub=$(getIP $p)
-            scp $ssh_options temp/$p.key $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
+            scp $ssh_options temp/$p.key $ssh_user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/certs/ecdsa/
         done
     fi
 fi
@@ -194,11 +194,11 @@ if [ "$local" = "true" ]; then
 else
     for p in $servers; do
        pub=$(getIP $p)
-       scp $ssh_options temp/config_$p.yml $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/serverconfig/config.yml
+       scp $ssh_options temp/config_$p.yml $ssh_user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/serverconfig/config.yml
     done
     for p in $clients; do
        pub=$(getIP $p)
-       scp $ssh_options temp/config_$p.yml $user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/clientconfig/config.yml
+       scp $ssh_options temp/config_$p.yml $ssh_user@$pub:/opt/gopath/src/github.com/IBM/mirbft/deployment/config/clientconfig/config.yml
     done
 fi
 

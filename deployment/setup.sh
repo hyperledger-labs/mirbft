@@ -39,3 +39,17 @@ go get -u github.com/op/go-logging
 go get -u golang.org/x/net/context
 go get -u  gopkg.in/yaml.v2
 go get -u github.com/rs/zerolog/log
+
+sudo mkdir -p /opt/gopath/src/github.com/IBM/
+cd /opt/gopath/src/github.com/IBM/
+if [ ! -d "/opt/gopath/src/github.com/IBM/mirbft" ]; then
+  git clone https://github.com/hyperledger-labs/mirbft.git
+fi
+cd /opt/gopath/src/github.com/IBM/mirbft
+git checkout research
+git pull
+./run-protoc.sh
+cd /opt/gopath/src/github.com/IBM/mirbft/server
+go build
+cd /opt/gopath/src/github.com/IBM/mirbft/client
+go build

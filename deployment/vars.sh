@@ -1,8 +1,8 @@
+# This file should not be an executable, it only holds variables
 # SPECIFY BELOW
 
-# User and group on your machine for a local deployment or on the remote machines for a remote network deployment
-user="user"
-group="group"
+# SSH user for access to remote machines, no need to specify for the local deployment.
+ssh_user="user"
 
 # Key for SSH access to remote machines, no need to specify it for a local deployment
 # All machines must be accessible with the same SSH key
