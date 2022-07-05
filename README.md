@@ -2,16 +2,16 @@
 The implementation for  [Mir-BFT: High-Throughput Robust BFT for Decentralized Networks
 ](https://arxiv.org/abs/1906.05552) paper.
 
-The deployment has been tested on machines running Ubuntu 20.04
+The deployment has been tested on x86 machines running Ubuntu 20.04
 The commands should be run on bash shell.
 
 ## Local Deployment
-Download and the script `setup.sh` which can be found in the deployment directory:
-`source install-local.sh`
+Download and run the script `setup.sh` which can be found in the deployment directory:<br />
+`source setup.sh` <br />
 
 The script installs Golang 17.2 and all other dependencies.
 
-Then it clones this repository under the path:
+Then it clones this repository under the path: <br />
 `/opt/gopath/src/github.com/IBM/mirbft`
 
 It checks out the `research` branch and, finally, builds the `client` and `server` executables under

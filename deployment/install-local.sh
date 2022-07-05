@@ -5,7 +5,7 @@ export group=$(id -gn)
 
 sudo apt-get update
 sudo apt-get install -y curl git
-sudo apt-get install -y python-minimal
+sudo apt-get install -y python2
 sudo apt-get install -y python-numpy
 sudo apt-get install -y build-essential
 sudo apt-get install -y protobuf-compiler
