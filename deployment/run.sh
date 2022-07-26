@@ -88,4 +88,4 @@ done
 
 echo "All clients stopped, client trace and log files are copied in deployment/experiment-output/"
 
-python2 /opt/gopath/src/github.com/IBM/mirbft/tools/perf-eval.py $S $C /opt/gopath/src/github.com/IBM/mirbft/experiment-output/server*.out /opt/gopath/src/github.com/IBM/mirbft/experiment-output/client*.trc
+python2 /opt/gopath/src/github.com/IBM/mirbft/tools/perf-eval.py $S $C /opt/gopath/src/github.com/IBM/mirbft/deployment/experiment-output/server*.out /opt/gopath/src/github.com/IBM/mirbft/deployment/experiment-output/client*.trc

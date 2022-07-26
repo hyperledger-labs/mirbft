@@ -5,6 +5,11 @@ The implementation for  [Mir-BFT: High-Throughput Robust BFT for Decentralized N
 The deployment has been tested on x86 machines running Ubuntu 20.04
 The commands should be run on bash shell.
 
+The remote deployment has been tested on IBM cloud and on AWS.
+
+**IMPORTANT**: Make sure that the network configuration allows *all* inbound and outbound network communication on *all* ports.<br />
+For AWS, first create a security group and add an inbound network rule to enable this.
+
 ## Local Deployment
 Download and run the script `setup.sh` which can be found in the deployment directory:<br />
 `source setup.sh` <br />
@@ -78,7 +83,7 @@ Edit `config-file-templates/server-config.yml` and  `config-file-templates/clien
 
 Run `config-gen.sh` to generate certificates and configuration files:
 
-`config-gen.sh -l N C`
+`./config-gen.sh -l N C`
 * `-l`: a flag for generating a local configuration using the loopback address as ip for servers and clients
 * `N`: number of server
 * `C`: number of clients
@@ -113,9 +118,10 @@ Edit `vars.sh` file:
 * `ssh_user`: the user on the remote machines
 * `private_key_file`: the absolute path to a private key tha gives ssh access to `ssh_user@public-ip` for each machine.
  
-Run `deploy.sh` to copy and run `install.sh` and `clone.sh` on each client and server machine. This installs requirements, clones the repository and installs server and client executables.
+Run `./deploy.sh` <br />
+This copies and runs `install.sh` and `clone.sh` on each client and server machine to install requirements, clone the repository and install server and client executables.
 
-The script has one option/flag:
+The `deploy.sh` script has one option/flag:
 `-p` or `--pull-only` does not re-install requirements, simply pulls changes from this repository and builds again the binaries
 
 Edit parameters in `deployment/config-file-templates/server-config.yml` and `deployment/config-file-templates/client-config.yml` (see details below).
