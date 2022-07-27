@@ -2,62 +2,29 @@
 The implementation for  [Mir-BFT: High-Throughput Robust BFT for Decentralized Networks
 ](https://arxiv.org/abs/1906.05552) paper.
 
- The deployment has been tested on machines running Ubuntu 18.04
+The deployment has been tested on x86 machines running Ubuntu 20.04
+The commands should be run on bash shell.
+
+The remote deployment has been tested on IBM cloud and on AWS.
+
+**IMPORTANT**: Make sure that the network configuration allows *all* inbound and outbound network communication on *all* ports.<br />
+For AWS, first create a security group and add an inbound network rule to enable this.
 
 ## Local Deployment
-Create a GOPATH directory and make sure you are the owner of it:
+Download and run the script `setup.sh` which can be found in the deployment directory:<br />
+`source setup.sh` <br />
 
-`sudo mkdir -p /opt/gopath/`
+The script installs Golang 17.2 and all other dependencies.
 
-`sudo chown -R $user:$group  /opt/gopath/`
+Then it clones this repository under the path: <br />
+`/opt/gopath/src/github.com/IBM/mirbft`
 
-where `$user` and `$group` your user and group respectively.
+It checks out the `research` branch and, finally, builds the `client` and `server` executables under
+`/opt/gopath/src/github.com/IBM/mirbftsever` and `/opt/gopath/src/github.com/IBM/mirbft/client`
+respectively.
 
-Create a directory to clone the repository into:
+**NOTE**: The script installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.bashrc`.
 
-`mkdir -p /opt/gopath/src/github.com/IBM/`
-
-Clone this repository unter the directory you created:
-
-`cd /opt/gopath/src/github.com/IBM/`.
-
-`git clone https://github.com/hyperledger-labs/mirbft.git`
-
-Checkout the`research` branch.
-
-### Dependencies
-With `/opt/gopath/src/github.com/IBM/mirbft` as working directory, go to the deployment directory:
-
-`cd deployment`
-
-Configure the `user` and `group` in `vars.sh`
-
-To install Golang and requirements: 
-
-`source install-local.sh`
-
-**NOTE**: The `./install-local.sh` script, among other dependencies, installs `Go` in the home directory, sets GOPATH to `/opt/gopath/bin/` and edits `~/.bashrc`.
-
-The default path to the repository is set to: `/opt/gopath/src/github.com/IBM/mirbft/`.
-
-
-### Installation
-
-Build the protobufs with `/opt/gopath/src/github.com/IBM/mirbft` as working directory:
-
-`./run-protoc.sh`
-
-To compile the server:
-
-`cd /opt/gopath/src/github.com/IBM/mirbft/server`
-
-`go build`
-
-To compile the client:
-
-`cd /opt/gopath/src/github.com/IBM/mirbft/client`
-
-`go build`
 
 ### Running with a sample configuration
 A server sample configuration exists in `sampleconfig/serverconfig/` .
@@ -71,11 +38,12 @@ On each server:
 
 `cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
-`./server ../sampleconfig/serverconfig/config$id.yml server$id`
+`./server ../sampleconfig/serverconfig/config$id.yml server$id 2>&1 | tee server-$id.out`
 where `$id` is `1 2 3 4` for each of the 4 server.
 
 The first argument is the path to the server configuration and the second argument a name prefix for a trace file.
 
+The command writes the logs of the server to a `server-$id.out` file.
 
 On the client:
 
@@ -92,7 +60,10 @@ On the server:
 
 `cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
-`./server ../sampleconfig/serverconfig/config.yml server`
+`./server ../sampleconfig/serverconfig/config.yml server 2>&1 | tee server.out`
+
+The command writes the logs of the server to a `server.out` file.
+
 
 On the client:
 
@@ -112,7 +83,7 @@ Edit `config-file-templates/server-config.yml` and  `config-file-templates/clien
 
 Run `config-gen.sh` to generate certificates and configuration files:
 
-`config-gen.sh -l N C`
+`./config-gen.sh -l N C`
 * `-l`: a flag for generating a local configuration using the loopback address as ip for servers and clients
 * `N`: number of server
 * `C`: number of clients
@@ -121,13 +92,15 @@ On each server:
 
 `cd /opt/gopath/src/github.com/IBM/mirbft/server`
 
-`./server ../deployment/config/serverconfig/config_server$id.yml server$id` where `$id` is `1..N`.
+`./server ../deployment/config/serverconfig/config_server$id.yml server$id 2>&1 | tee server-$id.out` where `$id` is `1..N`.
+
+The command writes the logs of the server to a `server-$id.out` file.
 
 On each client:
 
 `cd /opt/gopath/src/github.com/IBM/mirbft/client`
 
-`./client ../deployment/config/clientconfig/config_client1.yml client$id` where `$id` is `1..C`.
+`./client ../deployment/config/clientconfig/config_client$id.yml client$id` where `$id` is `1..C`.
 
 
 ## Remote Deployment
@@ -142,13 +115,13 @@ Each line must have the following format:
 * If the machine has only one `ip` address use the same in both columns.
 
 Edit `vars.sh` file:
-* `user`: the user of the vms
-* `group`: the group name (could be the same as the user)
-* `private_key_file`: the absolute path to a private key tha gives ssh access to `user@public-ip` for each machine.
+* `ssh_user`: the user on the remote machines
+* `private_key_file`: the absolute path to a private key tha gives ssh access to `ssh_user@public-ip` for each machine.
  
-Run `deploy.sh` to copy and run `install.sh` and `clone.sh` on each client and server machine. This installs requirements, clones the repository and installs server and client executables.
+Run `./deploy.sh` <br />
+This copies and runs `install.sh` and `clone.sh` on each client and server machine to install requirements, clone the repository and install server and client executables.
 
-The script has one option/flag:
+The `deploy.sh` script has one option/flag:
 `-p` or `--pull-only` does not re-install requirements, simply pulls changes from this repository and builds again the binaries
 
 Edit parameters in `deployment/config-file-templates/server-config.yml` and `deployment/config-file-templates/client-config.yml` (see details below).
@@ -166,7 +139,9 @@ Run `run.sh`. The script:
 * Starts servers and clients on the remote machines as defined in`cloud-instance.info`.
 * Periodically checks if the experiment has finished.
 * Creates an `experiment-output` directory and fetches the log and trace files of the experiment in it. 
- 
+* Runs the performance evaluation tool (see details below) for the experiment. Note that the tool, when called in the `run.sh` script, does not truncate the data and might report latency and throughput affected by thr rump up and close down pediods.
+See details below on how to truncate.
+
 **IMPORTANT**: If there are already files in `experiment-output` they will be overwritten.
 
 ## Configuration details 
@@ -286,7 +261,7 @@ In `Byzantine behavior` section, set `byzantineDuplication` to true.
 Performance evaluation metrics *throughput* and *latency* can be calculated with the `/opt/gopath/src/github.com/IBM/mirbft/tools/perf-eval.py` with the logs generated by the `/opt/gopath/src/github.com/IBM/mirbft/server/server` and traces generated by the `/opt/gopath/src/github.com/IBM/mirbft/client/client` binaries.
 
 With /opt/gopath/src/github.com/IBM/mirbft as working directory, the script should be called as follows:
-`python tools/perf-eval.py n m [path/to/server-1.out ... path/to/server-m.out] [path/to/client-001.trc ... path/to/client-m.trc] x y`
+`python2 tools/perf-eval.py n m [path/to/server-1.out ... path/to/server-m.out] [path/to/client-001.trc ... path/to/client-m.trc] x y`
 * `n`: the number of server log file
 * `m`: the number of client trace files
 * `[path/to/server-1.out ... path/to/server-m.out]`: list of server *log* file paths
@@ -310,4 +285,5 @@ Since both data points are measured on the same machine, there is no need to syn
 **IMPORTANT: The evaluation script works only with python 2**
 
 ### Plotting the data
+
 Please see detailed instructions in `plots/README.md`
