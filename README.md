@@ -7,8 +7,12 @@ The commands should be run on bash shell.
 
 The remote deployment has been tested on IBM cloud and on AWS.
 
-**IMPORTANT**: Make sure that the network configuration allows *all* inbound and outbound network communication on *all* ports.<br />
-For AWS, first create a security group and add an inbound network rule to enable this.
+**IMPORTANT NOTES**: 
+* Make sure that the network configuration allows *all* inbound and outbound network communication on *all* ports.<br />
+  * For AWS, first create a security group and add an inbound network rule to enable this.
+* Private IPs are not reachable by default for an AWS deployment across different regions.
+Configure your VPC [accordingly](https://docs.aws.amazon.com/devicefarm/latest/developerguide/amazon-vpc-cross-region.html) or use only public network interfaces by using the machines' public IP addresses in place of the private ones in the configuration file (see details below).
+
 
 ## Local Deployment
 Download and run the script `setup.sh` which can be found in the deployment directory:<br />
