@@ -13,6 +13,7 @@ The remote deployment has been tested on IBM cloud and on AWS.
 * Private IPs are not reachable by default for an AWS deployment across different regions.
 Configure your VPC [accordingly](https://docs.aws.amazon.com/devicefarm/latest/developerguide/amazon-vpc-cross-region.html) or use only public network interfaces by using the machines' public IP addresses in place of the private ones in the configuration file (see details below).
 
+
 ## Local Deployment
 Download and run the script `setup.sh` which can be found in the deployment directory:<br />
 `source setup.sh` <br />
