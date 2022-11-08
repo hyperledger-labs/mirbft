@@ -1,6 +1,6 @@
 # MirBFT Research Prototype
 The implementation for  [Mir-BFT: High-Throughput Robust BFT for Decentralized Networks
-](https://arxiv.org/abs/1906.05552) paper.
+](https://arxiv.org/abs/1906.05552) paper, (peer-reviewed Journal of Systems Research (JSYS) snapshot of the paper is available [here](https://escholarship.org/uc/item/36g369xq)).
 
 The deployment has been tested on x86 machines running Ubuntu 20.04
 The commands should be run on bash shell.
