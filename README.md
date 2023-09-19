@@ -1,5 +1,9 @@
 # MirBFT Library
 
+:warning: :warning: :warning:
+
+**This project has been archived by the project maintainers as the development has been moved to https://github.com/filecoin-project/mir.**
+
 This open-source project is part of [Hyperledger Labs](https://labs.hyperledger.org/labs/mir-bft.html).
 
 It aims at developing a production-quality implementation of:
